@@ -4294,3 +4294,65 @@ from reads better and cannot be built honestly here. A flash has to survive a re
 means either session-keyed server state or a message reflected out of the URL, and a
 server-generated sentence arriving through a query parameter is a sentence anybody can put there.
 A page costs one navigation and reflects nothing.
+
+---
+
+## 185. A test that varies only one instance of the dimension a mechanism is keyed on proves nothing about that dimension
+
+**The rule.** When a mechanism is keyed on some dimension (a stream, a tenant, a scope, a
+namespace), a test that exercises it through a single value of that dimension cannot distinguish
+the real behaviour from a narrower one. It passes either way, and it will sit happily beside
+documentation asserting the narrower model, because nothing in the repository disagrees with it.
+Vary the key.
+
+**The incident.** `internal/event/nats_dedup_test.go` had two real-broker tests of JetStream's
+producer-side duplicate window: one proving a repeated publish is suppressed, one proving two
+distinct events are both stored. Both published to a single `const topic`. JetStream's dedup
+window is scoped to the **stream**, and this module puts every subject in one stream, so both
+tests were equally consistent with "dedup is per subject" and "dedup is per stream".
+
+They passed for five weeks while three doc comments in the module asserted the per-subject model,
+while the Controller stamped a dispatch with `"<jobID>:<deviceID>"` and the Runner published that
+device's result under the identical id, and while the broker silently discarded every result in
+the system. The doc comment directly above the offending line described the two keys agreeing
+"exactly, for the identical reason" as the mechanism working correctly. FAILURE_PATTERNS #222.
+
+**What makes this different from ordinary missing coverage.** The tests were not absent and were
+not weak: they were real, they ran against a real broker, and each proved a true thing. What they
+could not do was fail. Coverage tooling counts this path as covered, review reads two passing
+real-infrastructure tests and moves on, and the incorrect mental model they teach is then
+reproduced in the comments of everyone who reads them.
+
+**What to do.** For any keyed mechanism, write the test that holds the key constant and varies
+the thing the key is supposedly scoped to. Here that is two subjects sharing one message id
+against one stream. Assert the mechanism rather than the bug: a test pinning "the runner's key
+differs from the dispatch's" would have gone green on the fix and said nothing about why it must.
+
+---
+
+## 186. An API that reports "I did not do what you asked" through a success return must have its result read, and a wrapper that discards it is a silent failure factory
+
+**The rule.** Some calls report refusal in the return VALUE rather than the error: a suppressed
+duplicate, a conditional write that matched nothing, a partial batch, a no-op upsert. A wrapper
+that returns only `error` for such a call converts a loud failure into a silent one for every
+caller it will ever have, permanently and invisibly. When wrapping, either surface the outcome or
+be certain nobody can act on it.
+
+**The incident.** `internal/event.natsBus.Publish` called `js.PublishMsg` and discarded the
+`PubAck` with `_`. A suppressed duplicate comes back as `PubAck{Duplicate: true}` with a **nil
+error**, so a message the broker stored nowhere and a message it stored were the same value at
+every layer above that line. The Runner's `publishResult` therefore returned true, `flushOne`
+acknowledged the WAL entry and deleted the only durable copy, and the retry mechanism built
+precisely for lost publishes was defeated by the same nil error. Nothing logged anything.
+
+**The second half, which is the one that generalises further.** The Runner's own
+publish-failure log was at `Debug`, and `cmd/runner` builds its logger at `LevelInfo`. So even a
+*genuine*, error-returning publish failure was structurally unobservable in the production
+binary. A log level chosen at a call site is a claim about importance that the composition root
+can silently veto, and "we log it" is not the same as "it is observable".
+
+**What to do.** Read the ack. A duplicate stays a nil error, because dedup working is the
+mechanism doing its job and a caller retrying a publish it already made should not be handed a
+failure. But a publisher that believes it is sending something new wants to know, and the wrapper
+is the only place that can tell it. Before choosing `Debug` for a failure path, check what level
+the binary that runs it actually emits.

@@ -7643,3 +7643,129 @@ is added, and nothing fails when it does. When a new write relation is introduce
 that already withdraws affordances conditionally, the predicate is part of the change, not a
 follow-up. A test that drives the withdrawing case through the real router is the only thing that
 notices.
+
+---
+
+## 222. Two publishers on one stream minted the same message id, so every job result was discarded as a duplicate of the dispatch that caused it
+
+**Symptom:** every job hung in `running` forever. Not in tests only: in every deployment on the
+branch. `tests/e2e` reported `job <uuid> did not reach a terminal state within its budget; last
+observed state "running"` on four tests, at 304 seconds each, and then the package was killed at
+`22m0s`. The controller logs showed the poller getting a clean 200 every 28 milliseconds and the
+state never changing.
+
+**Root cause:** the Controller stamps each per-device dispatch with the JetStream message id
+`"<jobID>:<deviceID>"` (`internal/dispatch/worker_devices.go`). The Runner published that
+device's *result* under the byte-identical id (`internal/runner/agent_wal.go`). JetStream's
+producer-side duplicate window is scoped to the **stream**, not to the subject, and
+`internal/topology` puts every subject in one stream (`pleiades.>`), so a message id in this
+system is global. The result collapsed onto the dispatch that had caused it seconds earlier.
+
+Three things conspired to make it invisible rather than merely wrong:
+
+1. The broker answers a suppressed duplicate with `PubAck{Duplicate: true}` and a **nil error**.
+   `internal/event/nats.go` discarded the ack with `_`, so a dropped publish and a delivered one
+   were the same value at every layer above.
+2. `publishResult` therefore returned true, and `flushOne` acknowledged the WAL entry, deleting
+   the only durable copy. The retry mechanism was defeated by the same nil error.
+3. The Runner's own publish-failure log was at `Debug`, and `cmd/runner` builds its logger at
+   `LevelInfo`. Even a genuine, error-returning failure would have said nothing.
+
+The duplicate window is `min(outage budget, 5m)`, which produces a perverse selection: a job
+whose devices report back inside five minutes hangs, and a job slower than that completes. Fast
+jobs failing and slow ones passing is exactly the shape that reads as flake.
+
+**Provenance, which is the part worth not misreading.** The collision predates `main` by five
+weeks and was inert, because nothing consumed the result subject at all (FAILURE_PATTERNS #217
+is the same subject's earlier story). The commit that made a job's ending depend on a message the
+broker had always been dropping is what turned a dormant collision into a total outage. The
+trigger is not the defect.
+
+**Fix:** the result publishes under a namespaced key, `"result:" + entry.ID`. The WAL's own entry
+id stays `(JobID, DeviceID)`, because a redelivered dispatch must re-report as the same entry;
+only the key on the wire has to leave the dispatch's namespace.
+`internal/adapters/native/journal.go` already namespaced its own key this way, for this reason,
+so the precedent was in the tree and was not followed.
+
+Two hardening changes went in beside it, and they matter more than the one-liner.
+`internal/event/nats.go` now warns when a `PubAck` comes back `Duplicate: true`, which is the
+log line that would have made this visible on day one. And `internal/event/nats_dedup_test.go`
+gained the case whose absence let it ship: both existing real-broker dedup tests publish to a
+**single topic**, so they are equally consistent with a subject-scoped window and a stream-scoped
+one. They passed while three doc comments in this module asserted the subject-scoped model,
+including the one directly above the offending line, which described the two keys agreeing
+"exactly, for the identical reason" as the mechanism working correctly.
+
+**Lesson:** a test that exercises a mechanism through a single instance of the dimension the
+mechanism is actually keyed on proves nothing about that dimension, and will happily coexist with
+documentation asserting the wrong model. Dedup keyed on a stream, tested on one subject, teaches
+"per subject". The second lesson is the ack: an API that reports "I did not do what you asked"
+through a success return needs its result read, and a wrapper that discards it converts a loud
+failure into a silent one for every caller it will ever have.
+
+---
+
+## 223. A job whose devices all reported before its fan-out finished was parked in a state nothing sweeps
+
+**Symptom:** none yet, and that is why it is recorded. It was found while fixing #222 and was
+masked by it: no result ever arrived, so this window was never reached. It becomes live the
+moment results do.
+
+**Root cause:** a `JobTask` row is written inside the fan-out loop, and `SettleRunning` runs
+after the loop finishes. A result can therefore be recorded while the loop is still walking. If
+the *last* outstanding result lands in that window, `RecordResult` correctly reports that the job
+is waiting on nothing, and the `CompleteRunning` that follows matches no row, because the job is
+still `fanning_out` rather than `running`. That no-match is deliberately one of the ordinary
+endings (another result got there first, or the job was cancelled) and returns nil.
+`SettleRunning` then moves the job to `running` with zero outstanding tasks and nothing left in
+the system that would ever end it. `dispatch.Reaper` looks only at `fanning_out`, so nothing
+sweeps it.
+
+The window is not narrow. The e2e suite's runbook is a `noop` that finishes in microseconds,
+which is exactly the shape that reports back before a fan-out over the rest of its group has
+finished.
+
+**Fix:** `SettleRunning` re-asks whether anything is outstanding and completes the job itself
+when nothing is. Re-asking rather than tracking, for the same reason `RecordResult` counts rows
+rather than keeping a counter: two parties can reach this conclusion at once, and
+`CompleteRunning`'s own `running` guard makes the second a no-op. Both callers now ask through
+one helper so they cannot drift into disagreeing about what outstanding means.
+
+**Lesson:** when a state transition is driven by an external event and the state it transitions
+*from* is set afterwards, the event can always arrive first, and the guarded write that makes
+the race safe is also what makes the early arrival silent. A "nothing matched, which is fine"
+branch needs asking what happens if it is reached because the state has not been set *yet*
+rather than because it has already moved on.
+
+---
+
+## 224. The flake waiver tolerated a whole package, so a total regression printed "passed" five times
+
+**Symptom:** `make push-gate` reported `testgate: passed (warnings above)` on five consecutive
+runs while every job in the system hung forever. The previous session's handoff recorded, truthfully
+and misleadingly, that "both test phases pass, their only failures confined to packages
+`flaky-packages.json` already names".
+
+**Root cause:** `flakegate.Classify` keyed tolerance on the package import path alone. Every entry
+in `flaky-packages.json` names the specific tests it observed flaking, in prose, because the
+file's own policy is that an entry records evidence rather than a guess. The code never read that
+prose, so a package with one known-flaky test tolerated every test in it, including three that had
+never been seen to flake and one that was failing deterministically.
+
+Two further holes in the same function: a package-level failure is promoted to a hard build
+failure only when the package produced *no* per-test failures, so the `Test killed with quit: ran
+too long (22m0s)` was swallowed alongside the four tolerated tests. And nothing re-runs a warned
+test in isolation, although "reproduced as clean, fast passes every time when rerun in isolation"
+is the evidence `flaky-packages.json`'s own entries cite for being there.
+
+**Fix:** an entry may name its tests and then tolerates only those. An entry with no list keeps
+covering its package, which is an unnarrowed entry rather than a second policy. `tests/e2e` is
+narrowed to the tests its prose already named. The other eighteen entries are deliberately left
+unnarrowed, because narrowing them is real work against real evidence rather than a mechanical
+edit. The package-kill rule and the isolation re-run are recorded in `HANDOFF_DOCUMENT.md` as
+decisions rather than improvised.
+
+**Lesson:** a waiver's scope must be the scope of the evidence that justified it. Writing the
+evidence in prose beside a broader machine-readable rule means the rule is what runs and the
+prose is what gets read during review, and the two drift the moment something new fails in the
+same package. If an entry can say which test, it must say which test.

@@ -224,6 +224,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 219. A view's relation check refused one endpoint named by two controls, and said so by naming that endpoint twice
 220. A row control's relation was missing from the candidate set, so every one of them was withheld from everybody, including an administrator
 221. A managed credential type offered Add input and Add injector, both of which the store refuses in its second statement
+222. Two publishers on one stream minted the same message id, so every job result was discarded as a duplicate of the dispatch that caused it
+223. A job whose devices all reported before its fan-out finished was parked in a state nothing sweeps
+224. The flake waiver tolerated a whole package, so a total regression printed "passed" five times
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
