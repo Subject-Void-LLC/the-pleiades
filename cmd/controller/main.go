@@ -1131,6 +1131,10 @@ func main() {
 	credentials := api.NewCredentialHandler(credentialStore, render.New(),
 		api.WithBindingTemplates(templateStore))
 	streamer := api.NewLogStreamer(js)
+	// The download side of the same subject, on the same JetStream handle.
+	// A separate type rather than a mode on the streamer: a viewer never
+	// ends and a download must, which are incompatible contracts.
+	logArchive := api.NewLogArchive(js)
 	// The factory is the same one the repository hydrates stored rows
 	// with, so a device created over the API is built by exactly the code
 	// path that rebuilds one read back out of storage. A second factory
@@ -1366,6 +1370,7 @@ func main() {
 		Jobs:         jobStore,
 		JobCanceller: jobCanceller,
 		JobJournal:   journalStore,
+		JobLogs:      logArchive,
 		Runbooks:     runbooks,
 		Templates:    templateStore,
 		// The same store value the Scanner above runs on, so what the

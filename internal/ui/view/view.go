@@ -26,6 +26,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"regexp"
 	"sort"
@@ -682,6 +683,127 @@ var reservedRecordSegments = map[string]bool{
 	"new":  true,
 }
 
+// DownloadSpec declares one thing a record can be downloaded AS.
+//
+// A list rather than a single spec, and resolved per record rather than
+// declared once, because the two downloads a job has are complementary and
+// neither exists for every job. The run journal is durable forever and is
+// written only by the native runbook executor, so a playbook job has none;
+// the log output lives in the broker's retention window and carries
+// per-task detail only for a playbook job, so for a runbook job it is two
+// lines and after the window it is nothing at all.
+//
+// Offering both on every record would hand an operator an empty file about
+// half the time. Offering only what this record actually has is the same
+// rule RowAction.Applies follows one level down: a control whose only
+// possible outcome is a refusal must not be drawn.
+//
+// Available is the chooser's gate and Write is the authority. A record can
+// stop qualifying between the page rendering and the link being followed --
+// a log window can expire -- so Write still has to cope, exactly as a row
+// action's Submit does.
+type DownloadSpec struct {
+	// Name is the URL segment: /{resource}/{id}/download/{name}. It shares
+	// no namespace with actions, because it sits behind its own static
+	// segment, but it must still be a legal path token.
+	Name string
+
+	// Label is what the control says. It names the ARTEFACT rather than
+	// the act, because the control already says Download: "Run journal
+	// (JSON)" tells a reader what they will get, where "Download JSON"
+	// tells them what they already knew.
+	Label string
+
+	// Summary is an optional line explaining what this download is and,
+	// where it matters, what it is not. The log download's says how long
+	// the broker keeps it, because an operator who finds it missing next
+	// month should have been told.
+	Summary string
+
+	// ContentType is the response's media type, declared and never
+	// sniffed, matching the stance internal/ui/static takes for the same
+	// reason: a browser deciding for itself that a file is executable
+	// script is precisely what the nosniff header exists to stop.
+	ContentType string
+
+	// Filename is the name the browser saves under, with {id} replaced by
+	// the record's identifier. A pattern rather than a function, for the
+	// reason StreamSpec.PathPattern gives: substituting into a validated
+	// pattern means the escaping happens once, here.
+	Filename string
+
+	// Available reports whether this record has anything to download in
+	// this form. Nil offers it on every record, which is right only for a
+	// format that cannot be empty.
+	Available func(ctx context.Context, id string) bool
+
+	// Write streams the body. It owns the encoding and nothing else: the
+	// status, the headers and the disposition are set before it is called,
+	// so an error it returns after the first byte can only be logged.
+	//
+	// That is the same constraint the SSE stream lives under and it is why
+	// Available exists: the decision that a download is possible has to be
+	// made before the response is committed.
+	Write func(ctx context.Context, w io.Writer, id string) error
+}
+
+// validateDownloads checks a descriptor's download declarations.
+func validateDownloads(name string, downloads []DownloadSpec) error {
+	seen := make(map[string]bool, len(downloads))
+	for _, dl := range downloads {
+		switch {
+		case !namePattern.MatchString(dl.Name):
+			return fmt.Errorf("view %q download name %q must match %s", name, dl.Name, namePattern)
+		case seen[dl.Name]:
+			return fmt.Errorf("view %q declares download %q twice", name, dl.Name)
+		case strings.TrimSpace(dl.Label) == "":
+			// A link with no text has no accessible name.
+			return fmt.Errorf("view %q download %q has no label", name, dl.Name)
+		case strings.TrimSpace(dl.ContentType) == "":
+			// Declared and never sniffed, so an absent one is not a
+			// default to fill in: it is a decision nobody made.
+			return fmt.Errorf("view %q download %q declares no content type", name, dl.Name)
+		case !strings.Contains(dl.Filename, "{id}"):
+			// Every record would otherwise save under one name, and a
+			// reader with three jobs' journals in a folder could not tell
+			// them apart.
+			return fmt.Errorf("view %q download %q has no {id} in its filename %q", name, dl.Name, dl.Filename)
+		case dl.Write == nil:
+			return fmt.Errorf("view %q download %q has no Write function", name, dl.Name)
+		}
+		seen[dl.Name] = true
+	}
+	return nil
+}
+
+// Offers reports whether this download is available for one record.
+func (d DownloadSpec) Offers(ctx context.Context, id string) bool {
+	return d.Available == nil || d.Available(ctx, id)
+}
+
+// FilenameFor is the name a record saves under.
+//
+// The id is sanitised to the characters a filename may safely carry rather
+// than escaped, because the result goes into a Content-Disposition header
+// where a quote or a newline is a header-injection question rather than a
+// display one.
+func (d DownloadSpec) FilenameFor(id string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, id)
+	if safe == "" {
+		safe = "record"
+	}
+	return strings.ReplaceAll(d.Filename, "{id}", safe)
+}
+
 // StreamSpec declares that a resource's records have a live event stream.
 //
 // It is a declaration rather than a handler because the route table is
@@ -850,6 +972,11 @@ type Descriptor struct {
 	// a live event stream, which is what makes /{resource}/{id}/logs
 	// resolve for this resource and 404 for every other one.
 	Stream *StreamSpec
+
+	// Downloads are the forms a record can be saved AS, resolved per
+	// record. Declaring any is what makes /{resource}/{id}/download/{name}
+	// resolve for this resource and 404 for every other one.
+	Downloads []DownloadSpec
 
 	// Sections are tables of related records: a job's per-device outcomes
 	// on its detail page, the operator notices on the dashboard. They are
@@ -1141,6 +1268,9 @@ func Register(d Descriptor) error {
 		return err
 	}
 	if err := validateRowActions(d.Name, d.Sections, d.Actions); err != nil {
+		return err
+	}
+	if err := validateDownloads(d.Name, d.Downloads); err != nil {
 		return err
 	}
 

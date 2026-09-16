@@ -74,6 +74,11 @@ type Deps struct {
 	// because having no journal is a property of the installation and not
 	// of any job.
 	JobJournal *journal.EntStore
+
+	// JobLogs drains a job's retained log output for a download. Optional
+	// and absent in any composition with no broker, which withholds the
+	// control rather than offering one that cannot produce a file.
+	JobLogs    *api.LogArchive
 	Runbooks   runbook.Source
 	Dispatcher *api.Dispatcher
 

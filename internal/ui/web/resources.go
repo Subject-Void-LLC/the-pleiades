@@ -192,6 +192,79 @@ func (h *Handler) chartData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// download serves one record in one of the forms its view declares.
+//
+// It resolves the descriptor itself rather than through the shared helper,
+// for the reason chartData gives: this route does not serve HTML, and
+// answering a caller that asked for a file with a page of markup is worse
+// than a 404, because a browser saves it under the requested name and the
+// operator opens a corrupt artefact instead of learning it does not exist.
+//
+// Every header is set before Write is called, which is what makes the
+// Available gate load-bearing rather than decorative: once the first byte
+// is written the status is committed, and a failure after that can only be
+// logged. A partial file is the one outcome worth working to avoid here,
+// since the caller has no way to tell one from a complete one.
+func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
+	d, ok := h.resourceOf(r)
+	if !ok || len(d.Downloads) == 0 {
+		h.notFound(w, r)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	format := chi.URLParam(r, "format")
+
+	var spec *view.DownloadSpec
+	for i := range d.Downloads {
+		if d.Downloads[i].Name == format {
+			spec = &d.Downloads[i]
+			break
+		}
+	}
+	if spec == nil {
+		h.notFound(w, r)
+		return
+	}
+
+	// The same scope reading the record needs. A download is a read of one
+	// record in another encoding, so a caller who may not open the page
+	// may not save it either, and gating it on anything else would make
+	// the file the way around the page.
+	if d.Ops.Get == nil || !h.permits(r.Context(), identityFrom(r.Context()), d.Ops.Get.Scope) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Checked again here, not merely when the link was drawn. The page may
+	// have been rendered while the record still had something to give --
+	// a log retention window is the case that really expires -- and a link
+	// followed afterwards must answer honestly rather than save an empty
+	// file under a confident name.
+	if !spec.Offers(r.Context(), id) {
+		h.notFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", spec.ContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// The filename is sanitised by FilenameFor rather than escaped,
+	// because this is a header rather than a document: a quote or a
+	// newline reaching here is a header-injection question.
+	w.Header().Set("Content-Disposition", `attachment; filename="`+spec.FilenameFor(id)+`"`)
+
+	if err := spec.Write(r.Context(), w, id); err != nil {
+		// Nowhere to report it: the status went out with the first byte.
+		// Logged with the format and the record so an operator who is
+		// handed a short file has something to correlate it against.
+		h.cfg.Logger.ErrorContext(r.Context(), "failed to write download",
+			slog.String("resource", d.Name),
+			slog.String("format", format),
+			slog.String("error", err.Error()))
+	}
+}
+
 // stream renders the live log page for one record.
 //
 // The page holds no log data itself. It carries the stream's URL in a data
@@ -674,6 +747,11 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		// answers to that question.
 		Tab: r.URL.Query().Get("tab"),
 	}
+
+	// Resolved here rather than inside Chrome(), which has no context and
+	// must not acquire one: deciding whether a download exists can mean
+	// asking the broker how much of a job's output it still holds.
+	model.Downloads = model.ResolveDownloads(r.Context())
 
 	// A record page's title is the record, not the view it belongs to. The
 	// browser tab is the one place a reader distinguishes eight open jobs

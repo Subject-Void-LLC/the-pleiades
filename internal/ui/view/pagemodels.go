@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"net/url"
 	"path"
 	"strconv"
@@ -213,6 +214,11 @@ type DetailModel struct {
 	// to the record's own fields for anything it does not recognise: this
 	// value arrives from whatever somebody pasted into an address bar.
 	Tab string
+
+	// Downloads are the forms this record can be saved as, already
+	// resolved against it. Populated by the handler through
+	// ResolveDownloads; an empty one renders no control at all.
+	Downloads []DownloadLink
 }
 
 // LoadedSection is one Section with its rows in hand.
@@ -344,6 +350,44 @@ func (m DetailModel) Actions() []RecordActionLink {
 type RecordActionLink struct {
 	Label string
 	Href  string
+}
+
+// DownloadLink is one offered download, already resolved.
+//
+// Resolved by the handler rather than by the template, for the reason
+// LoadedSection.Note gives: DownloadSpec.Available takes a context and may
+// ask a broker, and a template that did IO while rendering has nowhere to
+// report a failure, because the response has already begun.
+type DownloadLink struct {
+	Label   string
+	Summary string
+	Href    string
+}
+
+// ResolveDownloads returns the downloads this record actually has,
+// addressed and labelled.
+//
+// Called with the request's context, once, before rendering. A format whose
+// Available says no is absent rather than disabled: a disabled control says
+// "this is yours, but not now", where the truth for an expired log window
+// is that it is gone and waiting will not bring it back.
+func (m DetailModel) ResolveDownloads(ctx context.Context) []DownloadLink {
+	if len(m.Descriptor.Downloads) == 0 || m.Row.ID == "" {
+		return nil
+	}
+	base := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), "download")
+	out := make([]DownloadLink, 0, len(m.Descriptor.Downloads))
+	for _, dl := range m.Descriptor.Downloads {
+		if !dl.Offers(ctx, m.Row.ID) {
+			continue
+		}
+		out = append(out, DownloadLink{
+			Label:   dl.Label,
+			Summary: dl.Summary,
+			Href:    path.Join(base, dl.Name),
+		})
+	}
+	return out
 }
 
 // CanStream reports whether this record offers a live log stream, which is

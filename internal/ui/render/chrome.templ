@@ -44,6 +44,8 @@ templ pageChrome(c view.Chrome) {
 templ chromeAction(a view.ChromeAction) {
 	if a.OpensDialog() {
 		<button class={ a.Class() } type="button" data-dialog-open={ a.Dialog }>{ a.Label }</button>
+	} else if a.Title != "" {
+		<a class={ a.Class() } href={ templ.SafeURL(a.Href) } title={ a.Title }>{ a.Label }</a>
 	} else {
 		<a class={ a.Class() } href={ templ.SafeURL(a.Href) }>{ a.Label }</a>
 	}

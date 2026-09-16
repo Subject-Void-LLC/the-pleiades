@@ -121,6 +121,16 @@ type ChromeAction struct {
 	// Dialog names a dialog this control opens instead of navigating,
 	// which is how delete confirmation works without script.
 	Dialog string
+
+	// Title is an optional hover and accessible description, used where a
+	// control's label cannot carry a caveat the reader needs before they
+	// press it -- a log download whose contents expire, for instance.
+	//
+	// It is an addition to the label, never a replacement for one: a
+	// tooltip is invisible to a keyboard user on some browsers and to a
+	// touch user on nearly all of them, so nothing essential may live
+	// only here.
+	Title string
 }
 
 // ActionKind is how a chrome action renders.
@@ -345,6 +355,14 @@ func (m DetailModel) Chrome() Chrome {
 	}
 	for _, a := range m.Actions() {
 		c.Actions = append(c.Actions, ChromeAction{Label: a.Label, Href: a.Href, Kind: ActionPrimary})
+	}
+	// Downloads between the actions and Edit, because they are reads: a
+	// control that saves a copy of what you are looking at belongs beside
+	// the ones that do something to it and before the ones that change it.
+	for _, dl := range m.Downloads {
+		c.Actions = append(c.Actions, ChromeAction{
+			Label: dl.Label, Href: dl.Href, Title: dl.Summary, Kind: ActionNormal,
+		})
 	}
 	if m.CanEdit() {
 		c.Actions = append(c.Actions, ChromeAction{Label: "Edit", Href: m.EditHref(), Kind: ActionNormal})

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -283,6 +284,22 @@ var registerRecordViews = sync.OnceFunc(func() {
 			Title:       "Live output",
 			PathPattern: "/api/v1/jobs/{id}/logs",
 		},
+		// One download, gated per record, so the route has both a record
+		// that has something to give and one that does not. It is the
+		// first route in this application to serve a body that is neither
+		// HTML nor JSON.
+		Downloads: []view.DownloadSpec{{
+			Name:        "report",
+			Label:       "Report (CSV)",
+			Summary:     "What this gadget did.",
+			ContentType: "text/csv; charset=utf-8",
+			Filename:    "report-{id}.csv",
+			Available:   func(_ context.Context, id string) bool { return id != "done" },
+			Write: func(_ context.Context, w io.Writer, id string) error {
+				_, err := io.WriteString(w, "id\n"+id+"\n")
+				return err
+			},
+		}},
 		Handlers: view.MustBind[string](probeReader{}, probeWriter{}, view.Projector[string]{
 			Row:  func(s string) view.Row { return view.Row{ID: s, Cells: view.Cells{"name": s}} },
 			Form: func(s string) map[string]string { return map[string]string{"name": s} },
@@ -1170,5 +1187,85 @@ func TestRowAction_OnADeclaredViewSaysSoRatherThan404(t *testing.T) {
 				t.Errorf("the reply is not the declared panel:\n%s", rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestDownload_ServesTheDeclaredFormatAndRefusesTheRest covers the route a
+// download is addressed at, which is the first in this application to serve
+// a body that is neither HTML nor JSON.
+//
+// The three refusals matter as much as the success. A view declaring no
+// downloads, a format it does not declare, and a record whose Available
+// says no all 404 rather than serving an empty file under a confident name:
+// a browser saves whatever comes back, so a 200 carrying the wrong thing is
+// worse than an error the caller can see.
+func TestDownload_ServesTheDeclaredFormatAndRefusesTheRest(t *testing.T) {
+	p := newRecordProbe(t)
+
+	t.Run("the declared format is served as a file", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/widget/download/report")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/csv; charset=utf-8" {
+			t.Errorf("Content-Type = %q, want the declared one", got)
+		}
+		// The disposition is what makes this a download rather than a page
+		// of text, and the filename is what stops three records' reports
+		// landing in a folder under one name.
+		if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="report-widget.csv"` {
+			t.Errorf("Content-Disposition = %q", got)
+		}
+		// Declared and never sniffed, matching the stance the static
+		// handler already takes: a browser deciding for itself that a file
+		// is script is what this header exists to stop.
+		if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "widget") {
+			t.Errorf("the body does not carry the record: %q", body)
+		}
+	})
+
+	t.Run("a record with nothing to give is a 404", func(t *testing.T) {
+		if rec := p.get(t, "/ui/"+gadgetView+"/done/download/report"); rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404: a record whose Available says no must not save an empty file", rec.Code)
+		}
+	})
+
+	t.Run("an undeclared format is a 404", func(t *testing.T) {
+		if rec := p.get(t, "/ui/"+gadgetView+"/widget/download/invented"); rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("a view declaring no downloads is a 404", func(t *testing.T) {
+		if rec := p.get(t, "/ui/"+declaredView+"/anything/download/report"); rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+}
+
+// TestDownload_TheRecordPageOffersOnlyWhatTheRecordHas is the chooser half:
+// the control is drawn where it would work and absent where it would not.
+//
+// Absent rather than disabled. A disabled control says "this is yours, but
+// not now", where the truth for a record with nothing to give -- an expired
+// log window, a job that wrote no journal -- is that waiting will not bring
+// it back.
+func TestDownload_TheRecordPageOffersOnlyWhatTheRecordHas(t *testing.T) {
+	p := newRecordProbe(t)
+
+	offered := p.get(t, "/ui/"+gadgetView+"/widget").Body.String()
+	if !strings.Contains(offered, "/download/report") {
+		t.Error("a record with something to download offers no link to it")
+	}
+	if !strings.Contains(offered, "Report (CSV)") {
+		t.Error("the download control does not name the artefact it produces")
+	}
+
+	withheld := p.get(t, "/ui/"+gadgetView+"/done").Body.String()
+	if strings.Contains(withheld, "/download/report") {
+		t.Error("a record with nothing to download still offers the link, which can only produce an empty file")
 	}
 }

@@ -283,7 +283,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, entries JournalReader) error {
+func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, entries JournalReader, logs LogArchive) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -340,8 +340,9 @@ func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, ent
 		// Cancel on one that has already stopped. The two are exclusive by
 		// construction, since both read the same terminalStates map from
 		// opposite sides, so a record never offers both at once.
-		Applies:  applies,
-		Sections: sections(jobs, entries),
+		Applies:   applies,
+		Sections:  sections(jobs, entries),
+		Downloads: downloads(entries, logs, jobs),
 		// AWX's job page opens on Output, and this one does too. Somebody
 		// opening a job has nearly always come to see what happened rather
 		// than to re-read what it was asked to do, and the details are one

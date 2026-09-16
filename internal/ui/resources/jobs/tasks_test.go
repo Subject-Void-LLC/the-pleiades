@@ -9,8 +9,11 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +314,7 @@ func TestTasksSection_TheCollectionPageShowsNothing(t *testing.T) {
 // stubJobStore answers only Get, which is all deviceNames uses.
 type stubJobStore struct {
 	dispatch.JobStore
+	job   *dispatch.Job
 	tasks []dispatch.JobTask
 	err   error
 }
@@ -319,7 +323,11 @@ func (s *stubJobStore) Get(context.Context, string) (*dispatch.Job, []dispatch.J
 	if s.err != nil {
 		return nil, nil, s.err
 	}
-	return &dispatch.Job{}, s.tasks, nil
+	job := s.job
+	if job == nil {
+		job = &dispatch.Job{}
+	}
+	return job, s.tasks, nil
 }
 
 // TestTasksSection_AFailedNameLookupStillRendersTheTable proves the join is
@@ -340,5 +348,211 @@ func TestTasksSection_AFailedNameLookupStillRendersTheTable(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Cells["device"] != "dev-1" {
 		t.Errorf("rows = %+v, want one row falling back to the device id", rows)
+	}
+}
+
+// stubLogs is a LogArchive over a fixed answer.
+type stubLogs struct {
+	retained bool
+	body     string
+	err      error
+}
+
+func (s stubLogs) Retained(context.Context, string) bool { return s.retained }
+
+func (s stubLogs) WriteTo(_ context.Context, w io.Writer, _ string) error {
+	if s.err != nil {
+		return s.err
+	}
+	_, err := io.WriteString(w, s.body)
+	return err
+}
+
+// TestDownloads_OfferOnlyWhatTheJobActuallyHas is the chooser's whole
+// point.
+//
+// The two records are complementary: a runbook job has a journal and two
+// lines of output, a playbook job has rich output and no journal at all,
+// and an old job has neither because the broker's window has passed. A
+// fixed pair of links hands an operator an empty file about half the time.
+func TestDownloads_OfferOnlyWhatTheJobActuallyHas(t *testing.T) {
+	entry1 := []engine.JournalEntry{entry("dev-1", "tasks[0]", 1, engine.OutcomeRan)}
+	done := &stubJobStore{job: &dispatch.Job{State: "completed"}}
+
+	cases := []struct {
+		name    string
+		entries JournalReader
+		logs    LogArchive
+		jobs    jobReader
+		want    []string
+	}{
+		{
+			name:    "a runbook job, whose journal is the record worth having",
+			entries: stubJournal{entries: entry1},
+			logs:    stubLogs{retained: false},
+			jobs:    done,
+			want:    []string{downloadJournal},
+		},
+		{
+			name:    "a playbook job, which has no journal and real output",
+			entries: stubJournal{},
+			logs:    stubLogs{retained: true},
+			jobs:    done,
+			want:    []string{downloadOutput},
+		},
+		{
+			name:    "a job whose log window has passed and whose journal remains",
+			entries: stubJournal{entries: entry1},
+			logs:    stubLogs{retained: false},
+			jobs:    done,
+			want:    []string{downloadJournal},
+		},
+		{
+			name:    "an old playbook job, which has nothing left to give",
+			entries: stubJournal{},
+			logs:    stubLogs{retained: false},
+			jobs:    done,
+			want:    nil,
+		},
+		{
+			name:    "a job with both",
+			entries: stubJournal{entries: entry1},
+			logs:    stubLogs{retained: true},
+			jobs:    done,
+			want:    []string{downloadJournal, downloadOutput},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var offered []string
+			for _, dl := range downloads(tc.entries, tc.logs, tc.jobs) {
+				if dl.Offers(context.Background(), "job-1") {
+					offered = append(offered, dl.Name)
+				}
+			}
+			if strings.Join(offered, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("offered %v, want %v", offered, tc.want)
+			}
+		})
+	}
+}
+
+// TestDownloads_OutputIsWithheldWhileAJobIsStillRunning is the condition
+// that is not a nicety.
+//
+// The log subject has no end-of-stream marker, so a drain of a running job
+// stops at whatever had arrived when the request reached the broker. A file
+// that silently ends mid-run is indistinguishable from a run that ended
+// there, and somebody reading it concludes the job finished cleanly.
+func TestDownloads_OutputIsWithheldWhileAJobIsStillRunning(t *testing.T) {
+	logs := stubLogs{retained: true}
+	entries := stubJournal{}
+
+	for _, state := range []string{"pending", "fanning_out", "running"} {
+		t.Run(state, func(t *testing.T) {
+			jobs := &stubJobStore{job: &dispatch.Job{State: state}}
+			for _, dl := range downloads(entries, logs, jobs) {
+				if dl.Name == downloadOutput && dl.Offers(context.Background(), "job-1") {
+					t.Errorf("a %s job offers a log download, which would save a run that is still going as though it had ended", state)
+				}
+			}
+		})
+	}
+
+	// ...and is offered once the job has stopped, which is what proves the
+	// checks above are not passing because the control never appears.
+	for _, state := range []string{"completed", "failed", "canceled"} {
+		t.Run(state, func(t *testing.T) {
+			jobs := &stubJobStore{job: &dispatch.Job{State: state}}
+			var found bool
+			for _, dl := range downloads(entries, logs, jobs) {
+				if dl.Name == downloadOutput && dl.Offers(context.Background(), "job-1") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("a %s job offers no log download", state)
+			}
+		})
+	}
+}
+
+// TestDownloads_AJobThatCannotBeReadOffersNoOutput covers the fail-closed
+// direction: the failure an operator can act on is a missing link, never a
+// file that turns out to be truncated after they have forwarded it.
+func TestDownloads_AJobThatCannotBeReadOffersNoOutput(t *testing.T) {
+	jobs := &stubJobStore{err: errors.New("unreadable")}
+	for _, dl := range downloads(stubJournal{}, stubLogs{retained: true}, jobs) {
+		if dl.Name == downloadOutput && dl.Offers(context.Background(), "job-1") {
+			t.Error("a job whose state cannot be read still offers a log download")
+		}
+	}
+}
+
+// TestDownloads_JournalCSVIsTheWholeRecord pins the file's shape against
+// what the test itself wrote, header included.
+func TestDownloads_JournalCSVIsTheWholeRecord(t *testing.T) {
+	e := entry("dev-1", "tasks[0]", 1, engine.OutcomeChanged)
+	e.Attempt = 2
+	e.StatKeys = []string{"rc", "stdout"}
+	e.FailureStage = engine.FailureStage("execute")
+
+	var buf bytes.Buffer
+	if err := writeJournalCSV(&buf, []engine.JournalEntry{e}); err != nil {
+		t.Fatalf("writeJournalCSV: %v", err)
+	}
+
+	records, err := csv.NewReader(&buf).ReadAll()
+	if err != nil {
+		t.Fatalf("the file is not valid CSV: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("the file has %d rows, want a header and one entry", len(records))
+	}
+	if strings.Join(records[0], ",") != strings.Join(journalColumns, ",") {
+		t.Errorf("the header is %v, want the declared columns", records[0])
+	}
+
+	// Positional, read through the header rather than by index, so a
+	// column inserted in the middle does not silently shift every
+	// assertion onto its neighbour.
+	got := map[string]string{}
+	for i, name := range records[0] {
+		got[name] = records[1][i]
+	}
+	want := map[string]string{
+		"device": "dev-1", "attempt": "2", "sequence": "1", "node": "tasks[0]",
+		"task": "restart the thing", "action": "svc.systemd.restart",
+		"outcome": "changed", "failure_stage": "execute",
+		"duration_ms": "2500", "stat_keys": "rc stdout",
+	}
+	for name, expected := range want {
+		if got[name] != expected {
+			t.Errorf("column %q = %q, want %q", name, got[name], expected)
+		}
+	}
+	// The stamps are what an audit needs; the duration beside them is what
+	// a person sorts by. Both, because asking a spreadsheet to subtract
+	// two timestamps is asking for that column to be wrong.
+	if got["started_at"] == "" || got["finished_at"] == "" {
+		t.Errorf("the timestamps are empty: started=%q finished=%q", got["started_at"], got["finished_at"])
+	}
+}
+
+// TestDownloads_JournalCSVCarriesKeysAndNeverValues is the property that
+// makes this file safe to hand somebody.
+//
+// The journal records stat and param KEYS and holds no field whose type
+// could contain a value, which two archtests enforce. This asserts the
+// download did not undo that by reaching for something else.
+func TestDownloads_JournalCSVCarriesKeysAndNeverValues(t *testing.T) {
+	for _, column := range journalColumns {
+		if strings.Contains(column, "value") || column == "stats" || column == "params" {
+			t.Errorf("the CSV declares a column %q, which suggests it carries values rather than keys", column)
+		}
+	}
+	if !strings.Contains(strings.Join(journalColumns, ","), "stat_keys") {
+		t.Error("the CSV does not carry the stat keys, which are the only part of a stat it may")
 	}
 }

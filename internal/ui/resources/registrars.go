@@ -50,7 +50,9 @@ func registrars() []Registrar {
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
 		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
-		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d), jobJournal(d)) },
+		func(d Deps) error {
+			return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d), jobJournal(d), jobLogArchive(d))
+		},
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
@@ -82,6 +84,15 @@ func registrars() []Registrar {
 // holding a nil pointer, so the view's "is this wired" check would pass and
 // it would draw a Tasks tab that panics on the first read. A deployment
 // with no journal reader is real -- the conformance harness is one.
+// jobLogArchive hands the Jobs view a log archive, or an untyped nil, for
+// the typed-nil reason jobRelauncher documents.
+func jobLogArchive(d Deps) jobs.LogArchive {
+	if d.JobLogs == nil {
+		return nil
+	}
+	return d.JobLogs
+}
+
 func jobJournal(d Deps) jobs.JournalReader {
 	if d.JobJournal == nil {
 		return nil

@@ -201,6 +201,11 @@ func (h *Handler) Routes() http.Handler {
 		r.Get("/{resource}/{id}", h.detail)
 		r.Get("/{resource}/{id}/edit", h.editForm)
 		r.Get("/{resource}/{id}/logs", h.stream)
+		// A download sits behind its own static segment for the reason
+		// chart.json does: the format name can then never collide with a
+		// record action, and chi resolves the static segment first either
+		// way.
+		r.Get("/{resource}/{id}/download/{format}", h.download)
 		r.Post("/{resource}/{id}", h.update)
 		r.Delete("/{resource}/{id}", h.destroy)
 		// Record actions last, so every static segment above wins the
