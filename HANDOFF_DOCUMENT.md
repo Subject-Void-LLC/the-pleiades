@@ -4,101 +4,92 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Two things are live at once.** `feature/job-cancel` is finished and parked, and the work
-list it came off is being continued. Read both halves before touching either.
+**Branch `feature/section-row-actions`, 31 commits, off `main` at `227fc9e`, NOT pushed.**
+`feature/job-cancel` is rebased underneath it, so the two are one linear history and that branch
+is independently correct at `749c117`.
 
-### Parked: `feature/job-cancel`, 17 commits, off `main` at `227fc9e`, NOT pushed
+The session set out to continue the work list and did. The larger result is that **item I was
+shipping a total outage, and five consecutive gate runs called it flake.** Read that first.
 
-Item I, job cancel, built end to end, plus the `running` job state and the result
-aggregation that state had to stand on. `make push-gate` was run to completion and both
-test phases pass. The only red is two AWS coverage floors that fall because
-`LOCALSTACK_AUTH_TOKEN` is unset, and neither package is touched by the branch.
+### The outage
 
-The full writeup is the top entry of `HANDOFF_ARCHIVE.md`: the two corrections to the
-plan's own sizing, the subscription bug the branch's own test found before it shipped, and
-the gate blind spot that `tools/coverage-check` cannot tell a skipped test from an untested
-package. Five things were left as decisions rather than improvised, and they are what a
-return to this branch is for:
+Every job on `feature/job-cancel` hung in `running` forever, in every deployment rather than only
+in tests. The Controller stamps a dispatch with the JetStream message id `"<jobID>:<deviceID>"`;
+the Runner published that device's result under the byte-identical id. JetStream's duplicate
+window is scoped to the STREAM, not the subject, and `internal/topology` puts every subject in one
+stream, so every result collapsed onto the dispatch that had caused it.
 
-1. A dogfood pass, which the suite cannot substitute for (LESSONS_LEARNED #174).
-2. The legacy container adapter's cancellation is unverified. The native SSH path is proven.
-3. A job can now get stuck in `running`, and nothing reaps it. The one gap this work
-   introduces rather than inherits.
-4. Nothing consumes dead letters, which is FAILURE_PATTERNS #217's shape a second time.
-5. A job whose every device failed still ends `completed`. Inherited rather than
-   introduced, and decidable now that per-device results exist.
+It was silent in three independent ways. A suppressed duplicate returns `PubAck{Duplicate: true}`
+with a NIL error; `internal/event` discarded that ack, so a dropped publish and a delivered one
+were the same value everywhere above it; and the WAL then acknowledged the entry, destroying the
+only retry. The selection it produced is why it read as flake: the window is `min(budget, 5m)`, so
+FAST jobs hung and jobs slower than five minutes completed.
 
-The branch is a clean fast-forward from `main` and awaits a push and PR decision.
+**The gate hole is the more transferable finding.** `tests/e2e` was waived per PACKAGE while its
+waiver's own prose named exactly one test. Four tests failed on this in five consecutive
+push-gate runs and every run printed `testgate: passed (warnings above)`. The previous session's
+handoff recorded, truthfully and misleadingly, that both test phases passed. FAILURE_PATTERNS #222
+and #224, LESSONS_LEARNED #185 and #186.
 
-### The list this is working through, and where each item actually stands
+### What was fixed, and what each one cost to find
 
-This list has lived only in conversation until now, which is why an item's stated size has
-twice turned out to be wrong in a way nothing recorded. Each row below carries what was
-first claimed and what the code says today, with the anchor that settles it.
+1. **The message-id collision** (`b119578`). One line, plus the log line that would have made it
+   visible on day one, plus the real-broker test whose absence let it ship: both existing dedup
+   tests published to a SINGLE topic, so both were equally consistent with per-subject and
+   per-stream dedup, and they passed beside three comments asserting the wrong model.
+2. **A second permanent hang** (`bbeb891`), masked by the first. A job whose devices all reported
+   before its fan-out finished was parked in `running` with nothing left to end it.
+3. **The flake gate** (`749c117`). An entry may now name its tests and then tolerates only those.
+4. **The e2e harness** (`65b2d55`). It decoded every poll into one reused value, so an `omitempty`
+   field plus an unordered array put one device's skip reason on another device's row; three
+   investigations blamed the fan-out. It also asserted nothing the Runner reported, which is the
+   capability this branch exists to add.
+5. **A task list that reshuffled between identical reads** (`b697279`).
+6. Item B's own three, recorded as FAILURE_PATTERNS #219, #220 and #221.
 
-| Item | What it is | First sized | Verified state |
-|---|---|---|---|
-| B | Section write path, row half | S | Row half BUILT on `feature/section-row-actions`, with the credential type as its consumer. The edit-in-place half waits on form prefill. |
-| C | Survey builder | S add / M edit | Model is complete and persisted. UI is read-only. The edit half needs B, which the first note had backwards. |
-| E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
-| F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
-| G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
-| H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
+### Item B: the section write path's row half
 
-**B, in detail, because it is next.** `view.Section` already carries `Actions []string`: a
-section names one of its parent record's `RecordAction`s and renders a button that acts on
-the record, which is how "Add input" reaches a credential type
-(`internal/ui/resources/credentialtypes/inputs.go`). There is no equivalent for a row of
-that section, so an input can be added to a credential type and then never removed, and the
-same is true of an injector and of a survey question. Removing needs no form at all and is
-the shippable half. Editing in place needs a `RecordAction` whose form can be prefilled from
-an existing row, which is a `view` package change rather than a resource one, and is the
-real blocker the original note was pointing at.
+`view.RowAction`, declared on a Section and addressed at `/{resource}/{id}/{action}/{row}`, with
+the credential type as its consumer: an input and an injector can now be taken back out, where
+both tabs were one-way doors and the only route back was the JSON API or the database.
 
-**C's dependency is the opposite of what was recorded.** The first note said the survey
-builder "needs A's endpoint and relation pattern, not B". That is true of adding a question
-and false of editing one: `launch.Survey` holds an ordered list of questions, so editing,
-reordering and deleting one are all row operations and all wait on B.
+**What it deliberately does not do, which is the rest of item B.** A row action does not prompt.
+Removing needs no form; EDITING a row in place needs a form prefilled from that row, and
+`RecordAction`'s form prefills nothing. **Item C's edit half waits on the same seam**, so it is
+worth doing once, and it is the next piece of work.
 
-**E grew rather than shrank.** The journal half is a query against a real package. The
-Download half has nowhere to live: the only per-record route beyond the resource's own is
-`/{resource}/{id}/logs`, fixed once for every resource that declares a `StreamSpec`
-(`internal/ui/view/view.go`). A download is a second such route or an API endpoint, and
-which one it should be is a decision rather than a detail.
+### Where the gate stands
 
-### Item B: the row half, built on `feature/section-row-actions`
+`make ci` was run to completion. `build`, `vet`, `fmt`, `tidy-check`, `test-race`, `test-repeat`,
+`test-integration`, `gosec` and `govulncheck` all pass, and `tests/e2e` is clean. `docs-lint`,
+`docs-gen-check`, `helm-lint` and `templ-gen-check` were run separately and pass, because `make`
+stops at its first failure and would otherwise have left them unobserved.
 
-Branched off `feature/job-cancel` rather than `main`, deliberately: that branch is finished and
-waiting on a PR decision, not in progress, and stacking keeps the handoff linear instead of
-guaranteeing a conflict in this file. It rebases onto `main` trivially if job cancel merges first.
+`coverage` failed, on four container-provisioning races inside its own fourth full test pass:
+`cmd/runner`, `internal/lock` and two in `internal/topology`. Every one is the documented
+`connection refused` to an already-mapped container port, all four landed inside a 40-second
+window, and **each was rerun in isolation and passes**, in 0.66s to 7.1s against 11s to 18s of
+connect-retry under load. That last step is the discriminator this session exists to teach: the
+e2e failures looked the same and reproduced five times out of five.
 
-**What it adds.** `view.RowAction`, declared on a Section and addressed at
-`/{resource}/{id}/{action}/{row}`. Its `Submit` takes both ids and no `Values`. The consumer is
-the credential type: an input and an injector can now be taken back out, where before both tabs
-were one-way doors and the only route back was the JSON API or the database.
+### Decisions left, not improvised
 
-**What it deliberately does not add, which is the rest of item B.** A row action does not prompt.
-Removing a row needs no form; EDITING one needs a form prefilled from that row, and
-`RecordAction`'s own doc comment records that its form prefills nothing. Building a prompt before
-that seam exists would render a row's current values as empty boxes and silently blank whichever
-the operator did not retype. **That seam is what item C's edit half waits on too**, so it is worth
-doing next and worth doing once.
-
-**Three defects found, all of them live rather than theoretical**, recorded as FAILURE_PATTERNS
-#219, #220 and #221. The one worth knowing about without opening the archive is #220: a row
-control's relation was missing from `Descriptor.Candidates`, so the authorization generator was
-never asked about it, it was never permitted, and every such control was withheld from everybody
-including an administrator. That failure is invisible by construction, because a withheld control
-and an absent one are the same rendering. LESSONS_LEARNED #183 is the rule.
-
-**One thing is stated rather than prevented, and it is a decision rather than a detail.** Removing
-an input that credentials of the type already store a value for leaves those credentials
-unsaveable: `CheckValues` refuses a stored value naming an input the type no longer declares. The
-confirmation says so. It is NOT introduced here, because adding a *required* input to an in-use
-type already strands them the same way, and one guard answers both: should `UpdateType` refuse a
-schema change that would strand existing credentials, the way `DeleteType` already refuses a
-delete with a count? AWX refuses to modify a credential type that is in use at all, which is the
-stricter answer and the one worth arguing about.
+1. **A `running` job has no watchdog.** A single lost result is still an unrecoverable hang with
+   no log line anywhere. `dispatch.Reaper` sweeps `fanning_out` only. The two known ways to lose
+   a result are fixed; the class is not closed.
+2. **A result can beat its own task row.** `worker_devices.go` publishes the dispatch before
+   writing the row, so a result arriving in between hits `RecordResult`'s not-found path, which
+   warns and ACKs, destroying the outcome permanently. Writing the row first would close it, but
+   `worker.go`'s cancel path already reasons from the current ordering, so it is a deliberate
+   decision rather than a swap.
+3. **Eighteen flaky-packages entries are still unnarrowed.** Narrowing each is real work against
+   real evidence, not a mechanical edit.
+4. **Two further gate rules were proposed and not taken.** Never tolerate a package-level kill
+   (a hang is not contention, though this repo has recorded a hang that genuinely was one), and
+   re-run a warned test in isolation and escalate if it fails again. The second is the rule that
+   would have caught this outage, and it changes the gate's wall-clock.
+5. Everything the parked job-cancel branch left open is still open, including the dead-letter
+   consumer and the dogfood pass. See the entry below this one in `HANDOFF_ARCHIVE.md`.
 
 ### Next step
 
