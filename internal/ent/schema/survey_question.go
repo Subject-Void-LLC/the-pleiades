@@ -40,12 +40,34 @@ func (SurveyQuestion) Fields() []ent.Field {
 		// survey imported from an AWX job template means the same thing
 		// here that it meant there. A migration that silently reinterpreted
 		// `integer` as `float` would change what a playbook received
-		// without changing anything a reader could see.
+		// without changing anything a reader could see. `file` is an eighth
+		// and is this platform's own: AWX has no name for it, so a survey
+		// asking for one has no equivalent to export back.
 		//
 		// A plain string rather than an ent enum, for the reason
 		// Template.kind gives: the set is enforced in Go, where it can be
-		// enforced once, rather than in Go and in two dialects' DDL.
+		// enforced once, rather than in Go and in two dialects' DDL. The
+		// consequence worth knowing is that this column is the only record
+		// of the vocabulary at the storage layer and nothing here refuses a
+		// value outside it -- internal/launch.Survey.Validate is the single
+		// gate, reached through Template.Validate on both Create and
+		// Update.
 		field.String("question_type").NotEmpty(),
+
+		// allow_program_content is the template author's half of the
+		// decision to accept a file answer that opens with an interpreter
+		// line. It is meaningless on every other question type and
+		// internal/launch refuses it there.
+		//
+		// It permits nothing on its own: the deployment must also consent,
+		// through an environment variable the Controller reads at startup,
+		// and that half is deliberately NOT stored here. Storing it would
+		// make a template carry its own permission, so copying the template
+		// to another deployment would carry the permission with it, and
+		// turning the deployment's consent off would not stop templates
+		// that already had it. Keeping the deployment's half out of the
+		// database is what makes it a live kill switch.
+		field.Bool("allow_program_content").Default(false),
 
 		field.Bool("required").Default(false),
 

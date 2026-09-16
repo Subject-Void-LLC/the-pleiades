@@ -1,0 +1,10 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_survey_questions` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `variable` text NOT NULL, `label` text NOT NULL, `help` text NULL, `question_type` text NOT NULL, `allow_program_content` bool NOT NULL DEFAULT (false), `required` bool NOT NULL DEFAULT (false), `default_value` text NULL, `choices` json NULL, `min_value` integer NOT NULL DEFAULT (0), `max_value` integer NOT NULL DEFAULT (0), `display_order` integer NOT NULL DEFAULT (0), `template_survey_questions` integer NOT NULL, CONSTRAINT `survey_questions_templates_survey_questions` FOREIGN KEY (`template_survey_questions`) REFERENCES `templates` (`id`) ON DELETE CASCADE);
+INSERT INTO `new_survey_questions` (`id`, `created_at`, `updated_at`, `variable`, `label`, `help`, `question_type`, `required`, `default_value`, `choices`, `min_value`, `max_value`, `display_order`, `template_survey_questions`) SELECT `id`, `created_at`, `updated_at`, `variable`, `label`, `help`, `question_type`, `required`, `default_value`, `choices`, `min_value`, `max_value`, `display_order`, `template_survey_questions` FROM `survey_questions`;
+DROP TABLE `survey_questions`;
+ALTER TABLE `new_survey_questions` RENAME TO `survey_questions`;
+CREATE INDEX `surveyquestion_display_order_template_survey_questions` ON `survey_questions` (`display_order`, `template_survey_questions`);
+CREATE UNIQUE INDEX `surveyquestion_variable_template_survey_questions` ON `survey_questions` (`variable`, `template_survey_questions`);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;

@@ -592,10 +592,10 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 			launchAction(store, dispatcher, creds),
 			bindCredentialsAction(creds),
 			copyAction(store),
-			addQuestionAction(store),
+			addQuestionAction(store, dispatcher.AllowsProgramContent()),
 		},
 		Sections: []view.Section{
-			surveySection(store),
+			surveySection(store, dispatcher.AllowsProgramContent()),
 			schedulesSection(schedules),
 			accessSection(store, bindings),
 			notificationsSection(),

@@ -67,6 +67,13 @@ type questionDTO struct {
 	Choices  []string `json:"choices,omitempty"`
 	Min      int      `json:"min,omitempty"`
 	Max      int      `json:"max,omitempty"`
+
+	// AllowProgramContent is the template author's half of the two-gate
+	// rule on a file question. It is projected and accepted, so a client
+	// can read and set it, and it grants nothing on its own: the
+	// deployment's half is an environment variable the Controller reads at
+	// startup and is deliberately not on the wire.
+	AllowProgramContent bool `json:"allow_program_content,omitempty"`
 }
 
 // surveyDTO is a template's survey: whether it prompts, and what it asks.
@@ -203,6 +210,8 @@ func toSurveyDTO(s launch.Survey) *surveyDTO {
 			Choices:  q.Choices,
 			Min:      q.Min,
 			Max:      q.Max,
+
+			AllowProgramContent: q.AllowProgramContent,
 		})
 	}
 	return dto
@@ -224,6 +233,8 @@ func fromSurveyDTO(dto *surveyDTO) launch.Survey {
 			Choices:  q.Choices,
 			Min:      q.Min,
 			Max:      q.Max,
+
+			AllowProgramContent: q.AllowProgramContent,
 		})
 	}
 	return survey

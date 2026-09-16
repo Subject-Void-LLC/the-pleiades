@@ -98,6 +98,20 @@ func (_u *SurveyQuestionUpdate) SetNillableQuestionType(v *string) *SurveyQuesti
 	return _u
 }
 
+// SetAllowProgramContent sets the "allow_program_content" field.
+func (_u *SurveyQuestionUpdate) SetAllowProgramContent(v bool) *SurveyQuestionUpdate {
+	_u.mutation.SetAllowProgramContent(v)
+	return _u
+}
+
+// SetNillableAllowProgramContent sets the "allow_program_content" field if the given value is not nil.
+func (_u *SurveyQuestionUpdate) SetNillableAllowProgramContent(v *bool) *SurveyQuestionUpdate {
+	if v != nil {
+		_u.SetAllowProgramContent(*v)
+	}
+	return _u
+}
+
 // SetRequired sets the "required" field.
 func (_u *SurveyQuestionUpdate) SetRequired(v bool) *SurveyQuestionUpdate {
 	_u.mutation.SetRequired(v)
@@ -324,6 +338,9 @@ func (_u *SurveyQuestionUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if value, ok := _u.mutation.QuestionType(); ok {
 		_spec.SetField(surveyquestion.FieldQuestionType, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.AllowProgramContent(); ok {
+		_spec.SetField(surveyquestion.FieldAllowProgramContent, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.Required(); ok {
 		_spec.SetField(surveyquestion.FieldRequired, field.TypeBool, value)
 	}
@@ -475,6 +492,20 @@ func (_u *SurveyQuestionUpdateOne) SetQuestionType(v string) *SurveyQuestionUpda
 func (_u *SurveyQuestionUpdateOne) SetNillableQuestionType(v *string) *SurveyQuestionUpdateOne {
 	if v != nil {
 		_u.SetQuestionType(*v)
+	}
+	return _u
+}
+
+// SetAllowProgramContent sets the "allow_program_content" field.
+func (_u *SurveyQuestionUpdateOne) SetAllowProgramContent(v bool) *SurveyQuestionUpdateOne {
+	_u.mutation.SetAllowProgramContent(v)
+	return _u
+}
+
+// SetNillableAllowProgramContent sets the "allow_program_content" field if the given value is not nil.
+func (_u *SurveyQuestionUpdateOne) SetNillableAllowProgramContent(v *bool) *SurveyQuestionUpdateOne {
+	if v != nil {
+		_u.SetAllowProgramContent(*v)
 	}
 	return _u
 }
@@ -734,6 +765,9 @@ func (_u *SurveyQuestionUpdateOne) sqlSave(ctx context.Context) (_node *SurveyQu
 	}
 	if value, ok := _u.mutation.QuestionType(); ok {
 		_spec.SetField(surveyquestion.FieldQuestionType, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AllowProgramContent(); ok {
+		_spec.SetField(surveyquestion.FieldAllowProgramContent, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Required(); ok {
 		_spec.SetField(surveyquestion.FieldRequired, field.TypeBool, value)

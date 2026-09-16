@@ -839,6 +839,7 @@ var (
 		{Name: "label", Type: field.TypeString},
 		{Name: "help", Type: field.TypeString, Nullable: true},
 		{Name: "question_type", Type: field.TypeString},
+		{Name: "allow_program_content", Type: field.TypeBool, Default: false},
 		{Name: "required", Type: field.TypeBool, Default: false},
 		{Name: "default_value", Type: field.TypeString, Nullable: true},
 		{Name: "choices", Type: field.TypeJSON, Nullable: true},
@@ -855,7 +856,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "survey_questions_templates_survey_questions",
-				Columns:    []*schema.Column{SurveyQuestionsColumns[13]},
+				Columns:    []*schema.Column{SurveyQuestionsColumns[14]},
 				RefColumns: []*schema.Column{TemplatesColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -864,12 +865,12 @@ var (
 			{
 				Name:    "surveyquestion_display_order_template_survey_questions",
 				Unique:  false,
-				Columns: []*schema.Column{SurveyQuestionsColumns[12], SurveyQuestionsColumns[13]},
+				Columns: []*schema.Column{SurveyQuestionsColumns[13], SurveyQuestionsColumns[14]},
 			},
 			{
 				Name:    "surveyquestion_variable_template_survey_questions",
 				Unique:  true,
-				Columns: []*schema.Column{SurveyQuestionsColumns[3], SurveyQuestionsColumns[13]},
+				Columns: []*schema.Column{SurveyQuestionsColumns[3], SurveyQuestionsColumns[14]},
 			},
 		},
 	}

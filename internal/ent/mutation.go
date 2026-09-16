@@ -24816,31 +24816,32 @@ func (m *SessionMutation) ResetEdge(name string) error {
 // SurveyQuestionMutation represents an operation that mutates the SurveyQuestion nodes in the graph.
 type SurveyQuestionMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int
-	created_at       *time.Time
-	updated_at       *time.Time
-	variable         *string
-	label            *string
-	help             *string
-	question_type    *string
-	required         *bool
-	default_value    *string
-	choices          *[]string
-	appendchoices    []string
-	min_value        *int
-	addmin_value     *int
-	max_value        *int
-	addmax_value     *int
-	display_order    *int
-	adddisplay_order *int
-	clearedFields    map[string]struct{}
-	template         *int
-	clearedtemplate  bool
-	done             bool
-	oldValue         func(context.Context) (*SurveyQuestion, error)
-	predicates       []predicate.SurveyQuestion
+	op                    Op
+	typ                   string
+	id                    *int
+	created_at            *time.Time
+	updated_at            *time.Time
+	variable              *string
+	label                 *string
+	help                  *string
+	question_type         *string
+	allow_program_content *bool
+	required              *bool
+	default_value         *string
+	choices               *[]string
+	appendchoices         []string
+	min_value             *int
+	addmin_value          *int
+	max_value             *int
+	addmax_value          *int
+	display_order         *int
+	adddisplay_order      *int
+	clearedFields         map[string]struct{}
+	template              *int
+	clearedtemplate       bool
+	done                  bool
+	oldValue              func(context.Context) (*SurveyQuestion, error)
+	predicates            []predicate.SurveyQuestion
 }
 
 var _ ent.Mutation = (*SurveyQuestionMutation)(nil)
@@ -25168,6 +25169,42 @@ func (m *SurveyQuestionMutation) OldQuestionType(ctx context.Context) (v string,
 // ResetQuestionType resets all changes to the "question_type" field.
 func (m *SurveyQuestionMutation) ResetQuestionType() {
 	m.question_type = nil
+}
+
+// SetAllowProgramContent sets the "allow_program_content" field.
+func (m *SurveyQuestionMutation) SetAllowProgramContent(b bool) {
+	m.allow_program_content = &b
+}
+
+// AllowProgramContent returns the value of the "allow_program_content" field in the mutation.
+func (m *SurveyQuestionMutation) AllowProgramContent() (r bool, exists bool) {
+	v := m.allow_program_content
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAllowProgramContent returns the old "allow_program_content" field's value of the SurveyQuestion entity.
+// If the SurveyQuestion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SurveyQuestionMutation) OldAllowProgramContent(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAllowProgramContent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAllowProgramContent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAllowProgramContent: %w", err)
+	}
+	return oldValue.AllowProgramContent, nil
+}
+
+// ResetAllowProgramContent resets all changes to the "allow_program_content" field.
+func (m *SurveyQuestionMutation) ResetAllowProgramContent() {
+	m.allow_program_content = nil
 }
 
 // SetRequired sets the "required" field.
@@ -25561,7 +25598,7 @@ func (m *SurveyQuestionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SurveyQuestionMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, surveyquestion.FieldCreatedAt)
 	}
@@ -25579,6 +25616,9 @@ func (m *SurveyQuestionMutation) Fields() []string {
 	}
 	if m.question_type != nil {
 		fields = append(fields, surveyquestion.FieldQuestionType)
+	}
+	if m.allow_program_content != nil {
+		fields = append(fields, surveyquestion.FieldAllowProgramContent)
 	}
 	if m.required != nil {
 		fields = append(fields, surveyquestion.FieldRequired)
@@ -25618,6 +25658,8 @@ func (m *SurveyQuestionMutation) Field(name string) (ent.Value, bool) {
 		return m.Help()
 	case surveyquestion.FieldQuestionType:
 		return m.QuestionType()
+	case surveyquestion.FieldAllowProgramContent:
+		return m.AllowProgramContent()
 	case surveyquestion.FieldRequired:
 		return m.Required()
 	case surveyquestion.FieldDefaultValue:
@@ -25651,6 +25693,8 @@ func (m *SurveyQuestionMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldHelp(ctx)
 	case surveyquestion.FieldQuestionType:
 		return m.OldQuestionType(ctx)
+	case surveyquestion.FieldAllowProgramContent:
+		return m.OldAllowProgramContent(ctx)
 	case surveyquestion.FieldRequired:
 		return m.OldRequired(ctx)
 	case surveyquestion.FieldDefaultValue:
@@ -25713,6 +25757,13 @@ func (m *SurveyQuestionMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetQuestionType(v)
+		return nil
+	case surveyquestion.FieldAllowProgramContent:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAllowProgramContent(v)
 		return nil
 	case surveyquestion.FieldRequired:
 		v, ok := value.(bool)
@@ -25882,6 +25933,9 @@ func (m *SurveyQuestionMutation) ResetField(name string) error {
 		return nil
 	case surveyquestion.FieldQuestionType:
 		m.ResetQuestionType()
+		return nil
+	case surveyquestion.FieldAllowProgramContent:
+		m.ResetAllowProgramContent()
 		return nil
 	case surveyquestion.FieldRequired:
 		m.ResetRequired()

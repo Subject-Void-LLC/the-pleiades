@@ -66,6 +66,15 @@ type Dispatcher struct {
 	// answer that question, and internal/archtest fails the build if this
 	// package ever imports the package that could hand it one.
 	credentials CredentialReader
+
+	// filePolicy is the deployment's half of the survey file rule, read
+	// from the environment at the composition root and held as a value.
+	//
+	// Its zero value refuses, so a Dispatcher built without the option --
+	// which every existing harness in this package is -- admits no program
+	// content. That is the correct default for a test and the correct
+	// default for a deployment that never set the variable.
+	filePolicy launch.FilePolicy
 }
 
 // CredentialReader is the sliver of the credential store a relaunch needs.
@@ -158,6 +167,29 @@ func NewDispatcher(runbooks runbook.Source, jobs dispatch.JobStore, bus event.Bu
 
 // DispatcherOption configures optional collaborators.
 type DispatcherOption func(*Dispatcher)
+
+// WithSurveyFilePolicy supplies the deployment's half of the survey file
+// rule.
+//
+// Optional, and its absence is the refusal rather than a default that
+// permits: a Dispatcher nobody configured judges every file answer as
+// though the deployment had said no, which is what makes forgetting to wire
+// it fail closed.
+func WithSurveyFilePolicy(pol launch.FilePolicy) DispatcherOption {
+	return func(d *Dispatcher) { d.filePolicy = pol }
+}
+
+// AllowsProgramContent reports the deployment's half of the survey file
+// rule, for a UI that needs to say whether a control would do anything.
+//
+// Nil-safe, because the UI holds a *Dispatcher that is legitimately absent
+// in some compositions, and a nil one permits nothing.
+func (d *Dispatcher) AllowsProgramContent() bool {
+	if d == nil {
+		return false
+	}
+	return d.filePolicy.AllowProgramContent
+}
 
 // WithTemplates supplies the port LaunchTemplate reads from.
 //
@@ -473,6 +505,15 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve template %d: %w", templateID, err)
 	}
+
+	// The deployment's half of the survey file rule, ASSIGNED rather than
+	// trusted. Whatever the caller put here is overwritten: a client who
+	// could set it would be granting themselves the deployment's consent,
+	// which is the one thing the two-gate design exists to make
+	// impossible. This is the single place the two gates meet, and every
+	// launch this platform performs passes through it -- the JSON API, the
+	// server-rendered form and a schedule firing all reach LaunchTemplate.
+	cfg.FilePolicy = d.filePolicy
 
 	resolved, ignored, err := tmpl.Resolve(ctx, cfg)
 	if err != nil {

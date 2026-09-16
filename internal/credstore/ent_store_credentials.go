@@ -268,10 +268,13 @@ func (s *entStore) TemplateCredentials(ctx context.Context, templateID int) ([]C
 
 // SetTemplateCredentials replaces a template's bindings.
 //
-// It runs credtype.CheckBinding before writing. The handler runs it too, so
-// a caller gets a conflict naming both credentials rather than an opaque
-// store error, and this one exists so a second writer cannot skip it. Two
-// callers, one implementation.
+// It runs credtype.CheckBinding before writing, and this is the ONLY place
+// that runs it: the comment here used to claim the API handler ran it too,
+// "two callers, one implementation", and gopls reports one production
+// caller, this one. The claim was wrong rather than the code, and being the
+// single gate is in fact the stronger arrangement -- every writer reaches
+// the store, including the server-rendered UI's own binding action, which
+// does not go through internal/api at all.
 func (s *entStore) SetTemplateCredentials(ctx context.Context, templateID int, credentialIDs []int) error {
 	tmpl, err := s.client.Template.Get(ctx, templateID)
 	if err != nil {

@@ -72,8 +72,8 @@ func questionTypeOptions(context.Context) ([]view.Option, error) {
 // and would strand the answer stored in every saved configuration keyed by
 // the old name. On an edit the URL is what says which question, and it is
 // the only thing that does.
-func questionFormFields() []view.Field {
-	return []view.Field{
+func questionFormFields(execAllowed bool) []view.Field {
+	fields := []view.Field{
 		{
 			Name: "variable", Label: "VARIABLE", Kind: view.KindText, Required: true, InForm: true,
 			Immutable:    true,
@@ -108,13 +108,34 @@ func questionFormFields() []view.Field {
 		},
 		{
 			Name: "min", Label: "MINIMUM", Kind: view.KindNumber, InForm: true,
-			Help: "Bounds a numeric answer, or the length of a text one. Leave both blank for unbounded.",
+			Help: "Bounds a numeric answer, or the length of a text one. On a file question this is a byte count. Leave both blank for unbounded.",
 		},
 		{
 			Name: "max", Label: "MAXIMUM", Kind: view.KindNumber, InForm: true,
 			Help: "See minimum.",
 		},
 	}
+
+	// Offered only where it could do something. A deployment that has not
+	// set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT refuses program
+	// content whatever a question says, so drawing the checkbox there would
+	// be offering a choice whose only outcome is that nothing changes --
+	// and the person ticking it usually cannot change the other half.
+	//
+	// Hiding the control is not the enforcement. A submission carrying the
+	// value still reaches Validate, which refuses it on any question that
+	// is not a file, and a launch still consults both gates: a form that
+	// only hides a control is a form a hand-posted body walks straight
+	// past.
+	if execAllowed {
+		fields = append(fields, view.Field{
+			Name: "allow_program_content", Label: "ACCEPTS PROGRAM CONTENT", Kind: view.KindBool, InForm: true,
+			Help: "File questions only. On, an answer opening with an interpreter line is accepted rather than " +
+				"refused. It does not make an answer safe: an automation that pipes any text answer to a shell " +
+				"runs it whether or not this is on.",
+		})
+	}
+	return fields
 }
 
 // addQuestionAction appends one question to a template's survey.
@@ -130,13 +151,13 @@ func questionFormFields() []view.Field {
 // the state that carries no information, and disabled with questions is the
 // state a template author chooses deliberately later. The redirect lands
 // back on the section, where the badge says which it now is.
-func addQuestionAction(store launch.Store) view.RecordAction {
+func addQuestionAction(store launch.Store, execAllowed bool) view.RecordAction {
 	return view.RecordAction{
 		Name:     addQuestionName,
 		Label:    "Add question",
 		Heading:  "Add a question to this survey",
 		Endpoint: &apispec.SetTemplateSurvey,
-		Fields:   questionFormFields(),
+		Fields:   questionFormFields(execAllowed),
 		Submit: func(ctx context.Context, id string, v view.Values) (string, view.FieldErrors, error) {
 			redirect, err := withSurvey(ctx, store, id, func(s *launch.Survey) error {
 				q, errs := questionFrom(strings.TrimSpace(v.Get("variable")), v)
@@ -164,14 +185,14 @@ func addQuestionAction(store launch.Store) view.RecordAction {
 // order the launch form renders its controls in, and an edit that moved a
 // question to the bottom would silently rearrange the form for everybody
 // who launches the template.
-func editQuestionAction(store launch.Store) view.RowAction {
+func editQuestionAction(store launch.Store, execAllowed bool) view.RowAction {
 	return view.RowAction{
 		Name:     editQuestionName,
 		Label:    "Edit",
 		Heading:  "Edit this question",
 		Endpoint: &apispec.SetTemplateSurvey,
-		Fields:   questionFormFields(),
-		Form:     questionValues(store),
+		Fields:   questionFormFields(execAllowed),
+		Form:     questionValues(store, execAllowed),
 		Submit: func(ctx context.Context, parentID, rowID string, v view.Values) (string, view.FieldErrors, error) {
 			redirect, err := withSurvey(ctx, store, parentID, func(s *launch.Survey) error {
 				at := indexOfQuestion(*s, rowID)
@@ -335,7 +356,7 @@ func withSurvey(ctx context.Context, store launch.Store, parentID string,
 // reads only the literal "true", and HELP, DEFAULT, MINIMUM and MAXIMUM
 // appear in no column at all. A prefill built from cells would be wrong in
 // one control and blank in four.
-func questionValues(store launch.Store) func(context.Context, string, string) (map[string]string, error) {
+func questionValues(store launch.Store, execAllowed bool) func(context.Context, string, string) (map[string]string, error) {
 	return func(ctx context.Context, parentID, rowID string) (map[string]string, error) {
 		tmpl, ok := load(ctx, store, parentID)
 		if !ok {
@@ -350,7 +371,7 @@ func questionValues(store launch.Store) func(context.Context, string, string) (m
 		}
 		q := tmpl.Survey.Questions[at]
 
-		return map[string]string{
+		values := map[string]string{
 			"label":    q.Label,
 			"type":     string(q.Type),
 			"required": checkbox(q.Required),
@@ -362,7 +383,17 @@ func questionValues(store launch.Store) func(context.Context, string, string) (m
 			// No "variable": it is Immutable, so the edit form does not
 			// render it, and NarrowPrefill refuses a value for a control the
 			// form does not draw.
-		}, nil
+		}
+
+		// Prefilled only where the form draws the control, for the same
+		// reason the variable is absent above: NarrowPrefill refuses a
+		// value for a control the form does not render, so returning this
+		// unconditionally would make every edit fail on a deployment that
+		// withholds the checkbox.
+		if execAllowed {
+			values["allow_program_content"] = checkbox(q.AllowProgramContent)
+		}
+		return values, nil
 	}
 }
 
@@ -415,10 +446,14 @@ func questionFrom(variable string, v view.Values) (launch.Question, view.FieldEr
 		Help:     strings.TrimSpace(v.Get("help")),
 		Type:     launch.QuestionType(strings.TrimSpace(v.Get("type"))),
 		Required: v.Bool("required"),
-		Default:  strings.TrimSpace(v.Get("default")),
-		Choices:  v.Tags("choices"),
-		Min:      min,
-		Max:      max,
+		// Absent from the form on a deployment that refuses program
+		// content, which reads back as false: the flag cannot be set where
+		// it would do nothing.
+		AllowProgramContent: v.Bool("allow_program_content"),
+		Default:             strings.TrimSpace(v.Get("default")),
+		Choices:             v.Tags("choices"),
+		Min:                 min,
+		Max:                 max,
 	}, errs
 }
 
@@ -478,6 +513,15 @@ func surveyFault(err error) view.FieldErrors {
 		errs.Add("default", msg)
 	case strings.Contains(msg, "minimum above its maximum"):
 		errs.Add("min", msg)
+	case strings.Contains(msg, "above the"):
+		// A file question's maximum exceeding what the platform honours.
+		errs.Add("max", msg)
+	case strings.Contains(msg, "cannot accept program content"):
+		// Only reachable on a deployment that draws the checkbox, since
+		// the field is otherwise absent and reads back false. Mapped
+		// anyway: the rule is also reachable from the JSON API, and a
+		// refusal landing on the variable would name the wrong control.
+		errs.Add("allow_program_content", msg)
 	default:
 		// A rule with no single control to blame lands on the variable, the
 		// field that names the question the rest describe.

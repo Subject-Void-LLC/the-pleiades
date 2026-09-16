@@ -261,8 +261,9 @@ var SetTemplateSurvey = Endpoint{
 		"questions does not round-trip the rest of the template. The questions are stored in the order given, " +
 		"which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a " +
 		"question writing to no variable, two questions writing to one variable, a choice question offering " +
-		"nothing, a default that is not one of the choices, a password question carrying a default, or a " +
-		"minimum above its maximum.",
+		"nothing, a default that is not one of the choices, a password question carrying a default, a file " +
+		"question carrying a default or a maximum above 32768, allow_program_content set on a question that is " +
+		"not a file, or a minimum above its maximum.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The template's numeric id."},
 	},

@@ -816,20 +816,24 @@ func init() {
 	surveyquestionDescQuestionType := surveyquestionFields[3].Descriptor()
 	// surveyquestion.QuestionTypeValidator is a validator for the "question_type" field. It is called by the builders before save.
 	surveyquestion.QuestionTypeValidator = surveyquestionDescQuestionType.Validators[0].(func(string) error)
+	// surveyquestionDescAllowProgramContent is the schema descriptor for allow_program_content field.
+	surveyquestionDescAllowProgramContent := surveyquestionFields[4].Descriptor()
+	// surveyquestion.DefaultAllowProgramContent holds the default value on creation for the allow_program_content field.
+	surveyquestion.DefaultAllowProgramContent = surveyquestionDescAllowProgramContent.Default.(bool)
 	// surveyquestionDescRequired is the schema descriptor for required field.
-	surveyquestionDescRequired := surveyquestionFields[4].Descriptor()
+	surveyquestionDescRequired := surveyquestionFields[5].Descriptor()
 	// surveyquestion.DefaultRequired holds the default value on creation for the required field.
 	surveyquestion.DefaultRequired = surveyquestionDescRequired.Default.(bool)
 	// surveyquestionDescMinValue is the schema descriptor for min_value field.
-	surveyquestionDescMinValue := surveyquestionFields[7].Descriptor()
+	surveyquestionDescMinValue := surveyquestionFields[8].Descriptor()
 	// surveyquestion.DefaultMinValue holds the default value on creation for the min_value field.
 	surveyquestion.DefaultMinValue = surveyquestionDescMinValue.Default.(int)
 	// surveyquestionDescMaxValue is the schema descriptor for max_value field.
-	surveyquestionDescMaxValue := surveyquestionFields[8].Descriptor()
+	surveyquestionDescMaxValue := surveyquestionFields[9].Descriptor()
 	// surveyquestion.DefaultMaxValue holds the default value on creation for the max_value field.
 	surveyquestion.DefaultMaxValue = surveyquestionDescMaxValue.Default.(int)
 	// surveyquestionDescDisplayOrder is the schema descriptor for display_order field.
-	surveyquestionDescDisplayOrder := surveyquestionFields[9].Descriptor()
+	surveyquestionDescDisplayOrder := surveyquestionFields[10].Descriptor()
 	// surveyquestion.DefaultDisplayOrder holds the default value on creation for the display_order field.
 	surveyquestion.DefaultDisplayOrder = surveyquestionDescDisplayOrder.Default.(int)
 	syncrunMixin := schema.SyncRun{}.Mixin()

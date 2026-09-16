@@ -215,6 +215,43 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+// boolToggle reads a yes/no environment variable and refuses a value it
+// does not understand.
+//
+// The refusal is the point, and the reason is written out at length on
+// upstreamTerminated in tls.go: a check spelled `os.Getenv(x) == "1"` read
+// an operator's PLEIADES_TLS_TERMINATED_UPSTREAM=true as unset and gave
+// them the opposite of what they had asked for. The operator had written
+// their intention down and the code ignored it, which is the worst of the
+// three possible outcomes. Both spellings of yes and both of no are
+// accepted because people really write all of them in an environment file
+// and none is ambiguous; anything else is a startup error rather than a
+// guess.
+//
+// Unset is false, which is what makes a variable of this shape safe to
+// forget: every toggle read through here buys permission to do something,
+// so the absent case has to be the refusal.
+//
+// Two older reads in this file still use the raw equality
+// (PLEIADES_MAX_OUTAGE_ALLOW_DISCARD and one in the TLS block). Converting
+// them would change what an existing deployment's "yes" means, so it is
+// left as a deliberate separate change rather than folded in here.
+func boolToggle(name string) (bool, error) {
+	raw := os.Getenv(name)
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return false, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf(
+			"%s is set to %q, which is neither a yes (1, true, yes, on) nor a no (0, false, no, off); "+
+				"it grants a permission, so it is not a value to guess at", name, raw)
+	}
+}
+
 // fatal logs a startup failure at error level and exits non-zero.
 //
 // It replaces log.Fatalf, which this file used to call. That stopped being
@@ -497,6 +534,28 @@ func main() {
 	// warning. Only the Controller reads it: a Runner cannot reshape the
 	// stream at all, which is Phase 96b's whole point.
 	allowRetentionDiscard := os.Getenv("PLEIADES_MAX_OUTAGE_ALLOW_DISCARD") == "true"
+
+	// The deployment's half of the survey file rule. On its own it permits
+	// nothing: a template's question must also be marked, and the pair is
+	// what admits a file opening with an interpreter line. Named for its
+	// consequence, like the discard flag above, so a compose or chart line
+	// that carries it carries the warning too.
+	//
+	// Read here and threaded as a value rather than looked up where it is
+	// used, which is what makes turning it off a real kill switch: the
+	// Controller judges every launch against what it was started with, so
+	// clearing the variable and restarting stops templates that already
+	// carry the flag, not merely new ones being authored.
+	//
+	// Controller-only. A Runner never sees a question type -- by the time a
+	// dispatch reaches one, a survey answer is an ordinary extra variable
+	// with its provenance gone -- so a variable a Runner could set would
+	// imply a check that does not exist there.
+	allowProgramContent, err := boolToggle("PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT")
+	if err != nil {
+		fatal("invalid PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT", err)
+	}
+
 	dbDSN, err := resolveDatabaseDSN()
 	if err != nil {
 		fatal("failed to resolve database configuration", err)
@@ -543,6 +602,18 @@ func main() {
 	// that covers the structured path and not the failure path emits
 	// unmasked exactly when things are going wrong.
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
+
+	// Said out loud at every start, not only when somebody sets it. A
+	// permission an operator granted once and forgot is the failure mode
+	// this whole shape is exposed to, and a startup line is the one place
+	// it is re-read by a person. It is logged here rather than beside the
+	// env read above because that block runs before the logger exists.
+	if allowProgramContent {
+		logger.Warn("survey file questions may accept program content on this deployment",
+			"variable", "PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT",
+			"effect", "a template question marked allow_program_content accepts a file opening with an interpreter line",
+			"note", "this is consent, not a sandbox: what an answer can do is decided by what the automation does with it, not by how the file begins")
+	}
 
 	// The certificate this process serves, loaded or provisioned here:
 	// immediately after the logger is installed and before anything opens a
@@ -1001,7 +1072,11 @@ func main() {
 		// needs to know whether a bound credential's type prompts at
 		// launch, which is a question about the type rather than about any
 		// value.
-		api.WithCredentialReader(credentialStore))
+		api.WithCredentialReader(credentialStore),
+		// The deployment's half of the survey file rule, threaded as a
+		// value so the Controller judges every launch against what it was
+		// started with.
+		api.WithSurveyFilePolicy(launch.FilePolicy{AllowProgramContent: allowProgramContent}))
 	templates := api.NewTemplateHandler(templateStore, logger)
 
 	// Schedules: the administration surface and the store the scanner
