@@ -3,7 +3,12 @@
   "packages": [
     {
       "import_path": "github.com/Subject-Void-LLC/the-pleiades/tests/e2e",
-      "reason": "FAILURE_PATTERNS.md #61 names TestGrandIntegration specifically as a repeat offender under full parallel `-race` load. Confirmed again in the AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-12/13): TestGrandIntegration_EachKindReachesItsOwnAdapter hung 913s behind a device-lock-contention redelivery loop, and a later run failed a different test, TestGrandIntegration, on a NATS container port-mapping race ('port \"4222/tcp\" not found'). Both reproduced as clean, fast passes every time when rerun in isolation, and a git-stash baseline comparison proved the first failure was not reachable from that session's own diff at all."
+      "reason": "FAILURE_PATTERNS.md #61 names TestGrandIntegration specifically as a repeat offender under full parallel `-race` load. Confirmed again in the AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-12/13): TestGrandIntegration_EachKindReachesItsOwnAdapter hung 913s behind a device-lock-contention redelivery loop, and a later run failed a different test, TestGrandIntegration, on a NATS container port-mapping race ('port \"4222/tcp\" not found'). Both reproduced as clean, fast passes every time when rerun in isolation, and a git-stash baseline comparison proved the first failure was not reachable from that session's own diff at all. NARROWED 2026-09-16, and the narrowing is the entry's whole point now. This entry covered the package, so it tolerated every test in it, and that hid a total regression for a full session: every job in the system hung in \"running\" forever (FAILURE_PATTERNS.md #222), four tests here failed on it in five consecutive push-gate runs, and every run printed \"passed (warnings above)\". The two tests above were the ones this entry's own prose had always named; TestCredentialInjection_ReachesARealPlaybookThroughTheRealBinaries and TestChaos_NATSSeverance were never observed to flake and are deliberately NOT listed, so a failure in either is hard. TestChaos_PostgresSeverance is listed on evidence gathered in that same investigation and is a DIFFERENT failure from the other three: integration_chaos_test.go's startChaosHarness sets a startup timeout for its NATS container and not for postgres or toxiproxy, so it inherits testcontainers' 60s default and fails provisioning under load. That is harness-only and fixable; fix it and remove this name.",
+      "tests": [
+        "TestGrandIntegration",
+        "TestGrandIntegration_EachKindReachesItsOwnAdapter",
+        "TestChaos_PostgresSeverance"
+      ]
     },
     {
       "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/event",

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -22,8 +23,8 @@ func TestFlakyPackagesJSONNamesRealPackages(t *testing.T) {
 		t.Fatal("flaky-packages.json has no entries; if that is now genuinely true, this test should be removed along with the file")
 	}
 	const modulePrefix = "github.com/Subject-Void-LLC/the-pleiades/"
-	for path, reason := range tolerated {
-		if reason == "" {
+	for path, entry := range tolerated {
+		if entry.Reason == "" {
 			t.Errorf("%s has no reason recorded", path)
 		}
 		if len(path) <= len(modulePrefix) || path[:len(modulePrefix)] != modulePrefix {
@@ -41,7 +42,7 @@ func TestClassify_TestFailureInToleratedPackageIsWarned(t *testing.T) {
 	events := []Event{
 		{Action: "fail", Package: "tests/e2e", Test: "TestGrandIntegration"},
 	}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(hard) != 0 {
@@ -57,7 +58,7 @@ func TestClassify_TestFailureOutsideToleratedPackagesIsHard(t *testing.T) {
 	events := []Event{
 		{Action: "fail", Package: "internal/dispatch", Test: "TestWorker_HandleJobRequested_DispatchesHealthyDevice"},
 	}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(warned) != 0 {
@@ -71,7 +72,7 @@ func TestClassify_TestFailureOutsideToleratedPackagesIsHard(t *testing.T) {
 
 func TestClassify_BuildFailureIsAlwaysHard(t *testing.T) {
 	events := []Event{{Action: "build-fail", Package: "tests/e2e"}}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(warned) != 0 {
@@ -85,7 +86,7 @@ func TestClassify_BuildFailureIsAlwaysHard(t *testing.T) {
 
 func TestClassify_FailedBuildMarkerIsAlwaysHard(t *testing.T) {
 	events := []Event{{Action: "fail", Package: "tests/e2e", FailedBuild: "tests/e2e"}}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(warned) != 0 {
@@ -99,7 +100,7 @@ func TestClassify_FailedBuildMarkerIsAlwaysHard(t *testing.T) {
 
 func TestClassify_PackageFailWithNoTestFailureIsHard(t *testing.T) {
 	events := []Event{{Action: "fail", Package: "tests/e2e"}}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(warned) != 0 {
@@ -117,7 +118,7 @@ func TestClassify_MixOfToleratedAndHardFailuresSeparatesCorrectly(t *testing.T) 
 		{Action: "fail", Package: "internal/dispatch", Test: "TestWorker_HandleJobRequested_DispatchesHealthyDevice"},
 		{Action: "pass", Package: "pkg/wire", Test: "TestDispatchPayload_JSONRoundTrip"},
 	}
-	tolerated := map[string]string{"tests/e2e": "known Docker contention"}
+	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
 
 	hard, warned := Classify(events, tolerated)
 	if len(hard) != 1 || hard[0].Package != "internal/dispatch" {
@@ -131,7 +132,7 @@ func TestClassify_MixOfToleratedAndHardFailuresSeparatesCorrectly(t *testing.T) 
 func TestClassify_NoFailuresIsClean(t *testing.T) {
 	events := []Event{{Action: "pass", Package: "pkg/wire", Test: "TestDispatchPayload_JSONRoundTrip"}}
 
-	hard, warned := Classify(events, map[string]string{})
+	hard, warned := Classify(events, map[string]Tolerance{})
 	if len(hard) != 0 || len(warned) != 0 {
 		t.Errorf("hard = %+v, warned = %+v, want both empty", hard, warned)
 	}
@@ -147,5 +148,106 @@ func TestFailedPackages(t *testing.T) {
 	want := map[string]bool{"tests/e2e": true, "internal/dispatch": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("FailedPackages() = %+v, want %+v", got, want)
+	}
+}
+
+// TestClassify_ANarrowedEntryOnlyToleratesTheTestsItNames is the rule that
+// would have caught FAILURE_PATTERNS #222, and it is worth stating what it
+// cost not to have.
+//
+// Every job in the system hung in "running" forever. Four tests/e2e tests
+// failed on it in five consecutive push-gate runs, and every one of those
+// runs printed "testgate: passed (warnings above)", because one entry
+// covered the whole package. The entry's own prose named exactly one test
+// as the observed flake; the code read only the import path.
+func TestClassify_ANarrowedEntryOnlyToleratesTheTestsItNames(t *testing.T) {
+	events := []Event{
+		{Action: "fail", Package: "tests/e2e", Test: "TestGrandIntegration_EachKindReachesItsOwnAdapter"},
+		{Action: "fail", Package: "tests/e2e", Test: "TestCredentialInjection_ReachesARealPlaybookThroughTheRealBinaries"},
+	}
+	tolerated := map[string]Tolerance{"tests/e2e": {
+		Reason: "container contention on the named test",
+		Tests:  map[string]bool{"TestGrandIntegration_EachKindReachesItsOwnAdapter": true},
+	}}
+
+	hard, warned := Classify(events, tolerated)
+
+	wantWarned := []Failure{{Package: "tests/e2e", Test: "TestGrandIntegration_EachKindReachesItsOwnAdapter"}}
+	if !reflect.DeepEqual(warned, wantWarned) {
+		t.Errorf("warned = %+v, want %+v", warned, wantWarned)
+	}
+	wantHard := []Failure{{Package: "tests/e2e", Test: "TestCredentialInjection_ReachesARealPlaybookThroughTheRealBinaries"}}
+	if !reflect.DeepEqual(hard, wantHard) {
+		t.Errorf("hard = %+v, want %+v: a test nobody has ever seen flake was tolerated anyway", hard, wantHard)
+	}
+}
+
+// TestClassify_AnUnnarrowedEntryStillCoversItsWholePackage keeps the
+// migration honest.
+//
+// An entry with no test list is not a second policy, it is an entry nobody
+// has narrowed yet, and it must behave exactly as every entry did before
+// the field existed. Without this, adding the field would silently turn
+// eighteen unnarrowed entries into hard failures at the next flake.
+func TestClassify_AnUnnarrowedEntryStillCoversItsWholePackage(t *testing.T) {
+	events := []Event{
+		{Action: "fail", Package: "internal/lock", Test: "TestSomethingNobodyListed"},
+	}
+	tolerated := map[string]Tolerance{"internal/lock": {Reason: "starts seven real containers"}}
+
+	hard, warned := Classify(events, tolerated)
+	if len(hard) != 0 {
+		t.Errorf("hard = %+v, want none: an unnarrowed entry must behave as it did before the field existed", hard)
+	}
+	if len(warned) != 1 {
+		t.Errorf("warned = %+v, want the one failure", warned)
+	}
+}
+
+// TestTolerance_CoversMatchesOnTheTopLevelTestName is why the match is not
+// a plain string equality.
+//
+// go test reports a failing subtest as "Parent/Sub". An entry recording
+// that a test flakes is recording something about that test, not about
+// which of its cases lost the race on the day somebody wrote the entry, so
+// a named parent covers its subtests. The negative half matters as much:
+// a DIFFERENT test that merely starts with the same characters must not be
+// covered, which a prefix match would get wrong.
+func TestTolerance_CoversMatchesOnTheTopLevelTestName(t *testing.T) {
+	entry := Tolerance{Tests: map[string]bool{"TestGrandIntegration": true}}
+
+	covered := []string{"TestGrandIntegration", "TestGrandIntegration/runbook_kind", "TestGrandIntegration/a/b"}
+	for _, name := range covered {
+		if !entry.Covers(name) {
+			t.Errorf("Covers(%q) = false, want true", name)
+		}
+	}
+	// Not a prefix match: this is a separate test with its own history.
+	if entry.Covers("TestGrandIntegration_EachKindReachesItsOwnAdapter") {
+		t.Error("Covers matched a different test by prefix, so naming one test would tolerate its whole family")
+	}
+}
+
+// TestFlakyPackagesJSON_NarrowedEntriesNameTestsThatLookLikeTests is a
+// spelling guard, the same one TestFlakyPackagesJSONNamesRealPackages is
+// for import paths.
+//
+// A misspelled test name in a narrowed entry tolerates nothing, which is
+// the opposite of what writing it down was for, and it fails silently: the
+// entry looks present and the failure goes hard at the worst moment.
+func TestFlakyPackagesJSON_NarrowedEntriesNameTestsThatLookLikeTests(t *testing.T) {
+	tolerated, err := LoadTolerated(filepath.Join("..", "..", "..", "flaky-packages.json"))
+	if err != nil {
+		t.Fatalf("loading flaky-packages.json: %v", err)
+	}
+	for path, entry := range tolerated {
+		for name := range entry.Tests {
+			if !strings.HasPrefix(name, "Test") {
+				t.Errorf("%s names %q, which is not a Go test name", path, name)
+			}
+			if strings.Contains(name, "/") {
+				t.Errorf("%s names %q; entries name the top-level test, and its subtests are covered automatically", path, name)
+			}
+		}
 	}
 }

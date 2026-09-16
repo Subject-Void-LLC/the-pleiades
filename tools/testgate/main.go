@@ -82,7 +82,7 @@ func run(integration bool) error {
 	if len(warned) > 0 {
 		fmt.Printf("testgate: %d test failure(s) confined to flaky-packages.json packages, treated as warnings:\n\n", len(warned))
 		for _, f := range warned {
-			fmt.Printf("  %s: %s (%s)\n", f.Package, f.Test, tolerated[f.Package])
+			fmt.Printf("  %s: %s (%s)\n", f.Package, f.Test, tolerated[f.Package].Reason)
 		}
 		fmt.Println()
 	}

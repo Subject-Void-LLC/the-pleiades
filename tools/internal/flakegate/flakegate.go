@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 )
 
 // Event is one line of go test -json's (test2json's) own output stream.
@@ -48,14 +49,54 @@ type flakyPackagesFile struct {
 }
 
 type flakyPackageEntry struct {
-	ImportPath string `json:"import_path"`
-	Reason     string `json:"reason"`
+	ImportPath string   `json:"import_path"`
+	Reason     string   `json:"reason"`
+	Tests      []string `json:"tests,omitempty"`
+}
+
+// Tolerance is one entry's decision: which failures in a package are
+// downgraded to a warning, and why.
+//
+// Tests narrows the entry to the tests actually observed to flake. Every
+// entry in flaky-packages.json already names its tests in prose, because
+// the file's own policy is that an entry records evidence rather than a
+// guess; this is that prose made machine-readable, not a new policy.
+//
+// An empty Tests tolerates the whole package, which is what every entry
+// did before this field existed. That is deliberately not a second policy
+// but an unnarrowed entry, the same way the file treats a missing CLASS:
+// line as an absence of work rather than a third category.
+type Tolerance struct {
+	Reason string
+
+	// Tests are the top-level test names this entry covers. Empty means
+	// the entry has not been narrowed and covers every test in the
+	// package.
+	Tests map[string]bool
+}
+
+// Covers reports whether this entry tolerates a failure of the named test.
+//
+// Matched on the top-level name, so tolerating "TestGrandIntegration"
+// tolerates its subtests too: go test reports a failing subtest as
+// "Parent/Sub", and an entry recording that a test flakes is recording
+// something about the test, not about which of its cases lost the race
+// that time.
+func (t Tolerance) Covers(test string) bool {
+	if len(t.Tests) == 0 {
+		return true
+	}
+	top := test
+	if i := strings.IndexByte(top, '/'); i >= 0 {
+		top = top[:i]
+	}
+	return t.Tests[top]
 }
 
 // LoadTolerated reads flaky-packages.json at path and returns its entries
 // keyed by import path, so a lookup during Classify is a single map
 // access.
-func LoadTolerated(path string) (map[string]string, error) {
+func LoadTolerated(path string) (map[string]Tolerance, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- caller-fixed repo-relative path, not user input
 	if err != nil {
 		return nil, err
@@ -64,9 +105,16 @@ func LoadTolerated(path string) (map[string]string, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, err
 	}
-	out := make(map[string]string, len(f.Packages))
+	out := make(map[string]Tolerance, len(f.Packages))
 	for _, p := range f.Packages {
-		out[p.ImportPath] = p.Reason
+		tol := Tolerance{Reason: p.Reason}
+		if len(p.Tests) > 0 {
+			tol.Tests = make(map[string]bool, len(p.Tests))
+			for _, name := range p.Tests {
+				tol.Tests[name] = true
+			}
+		}
+		out[p.ImportPath] = tol
 	}
 	return out, nil
 }
@@ -78,6 +126,15 @@ func LoadTolerated(path string) (map[string]string, error) {
 // test -json event streams directly, rather than needing a real, possibly
 // slow or itself-flaky go test invocation to exercise this decision.
 //
+// A listed package tolerates only the tests its entry NAMES, when it names
+// any. That narrowing exists because the package-wide version of this hid a
+// total regression for a whole session: every job in the system hung, four
+// tests/e2e tests failed on it in five consecutive runs, and each run
+// printed "passed (warnings above)" because one entry covered the whole
+// package (FAILURE_PATTERNS.md #222). An entry that names its tests turns a
+// failure in a test nobody has ever seen flake back into a hard failure,
+// which is the question a reader of that file would expect it to answer.
+//
 // A build failure (Action == "build-fail", or a "fail" event carrying
 // FailedBuild) is always hard, regardless of tolerated: a package that
 // does not compile is never merely "flaky." A package-level "fail" with
@@ -85,7 +142,7 @@ func LoadTolerated(path string) (map[string]string, error) {
 // the same way, since every real go test invocation this package has been
 // verified against shapes a failure as one of those two, and a third
 // shape is not one this package should guess about tolerating.
-func Classify(events []Event, tolerated map[string]string) (hard, warned []Failure) {
+func Classify(events []Event, tolerated map[string]Tolerance) (hard, warned []Failure) {
 	var buildFailures []Failure
 	testFailures := make(map[string][]string) // package -> test names that failed
 	packageFailedWithNoTest := make(map[string]bool)
@@ -110,9 +167,10 @@ func Classify(events []Event, tolerated map[string]string) (hard, warned []Failu
 	}
 
 	for pkg, tests := range testFailures {
+		entry, listed := tolerated[pkg]
 		for _, test := range tests {
 			f := Failure{Package: pkg, Test: test}
-			if _, ok := tolerated[pkg]; ok {
+			if listed && entry.Covers(test) {
 				warned = append(warned, f)
 			} else {
 				hard = append(hard, f)
