@@ -613,12 +613,6 @@ func (m ActionModel) CancelHref() string {
 	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
 }
 
-// DeclaredModel is the honest panel a StatusDeclared view renders.
-//
-// It exists so a declared view needs no per-view work at all: the shared
-// template renders this from Status alone, which is the same guardrail
-// pkg/collection applies when it refuses to let a declared method pretend
-// to be implemented.
 // NoticeModel is what a write path says when it was refused for a reason
 // the operator can act on.
 //
@@ -666,6 +660,12 @@ func (m NoticeModel) Zero() ZeroState {
 	}
 }
 
+// DeclaredModel is the honest panel a StatusDeclared view renders.
+//
+// It exists so a declared view needs no per-view work at all: the shared
+// template renders this from Status alone, which is the same guardrail
+// pkg/collection applies when it refuses to let a declared method pretend
+// to be implemented.
 type DeclaredModel struct {
 	Page       PageModel
 	Descriptor Descriptor
