@@ -65,12 +65,31 @@ worth doing once, and it is the next piece of work.
 `docs-gen-check`, `helm-lint` and `templ-gen-check` were run separately and pass, because `make`
 stops at its first failure and would otherwise have left them unobserved.
 
-`coverage` failed, on four container-provisioning races inside its own fourth full test pass:
-`cmd/runner`, `internal/lock` and two in `internal/topology`. Every one is the documented
-`connection refused` to an already-mapped container port, all four landed inside a 40-second
-window, and **each was rerun in isolation and passes**, in 0.66s to 7.1s against 11s to 18s of
-connect-retry under load. That last step is the discriminator this session exists to teach: the
-e2e failures looked the same and reproduced five times out of five.
+`coverage` did not pass, and the reason is environmental rather than a coverage question:
+`coverage-check` runs its own fourth full parallel `go test ./...` and bails before measuring
+anything if that pass has a failure. It was run three times. Each time it failed, and each time
+it failed on a DIFFERENT set of packages with no overlap between them:
+
+| run | packages that failed |
+|---|---|
+| inside `make ci` | `cmd/runner`, `internal/lock`, `internal/topology` (two) |
+| standalone | `cmd/controller`, `internal/ent` (twelve, all one shared postgres container), `internal/meshid`, `internal/topology` (two) |
+| standalone, after the daemon had settled | `cmd/pleiades`, `cmd/runner` (two), `internal/topology` |
+
+"The specific package that loses the race changes between runs" is verbatim what
+`flaky-packages.json` cites as the signature of resource contention, and every failure is a
+container that would not come up: `connection refused` to an already-mapped port, or in the worst
+run a `context deadline exceeded` against the Docker SOCKET after 537 retries, which is the
+daemon itself saturating rather than any container. Samples from each run were rerun in
+isolation and pass, in 0.66s to 7.8s against 11s to 61s of retrying under load.
+
+**That comparison is the discriminator this session exists to teach**, and it is worth stating
+next to the thing it is being compared with. The e2e failures looked the same and were not: the
+same four tests, five runs out of five, failing identically at exactly the poll budget. Different
+packages each run is contention. The same packages every run is a defect.
+
+So the coverage ratchet has not been measured on this branch, and no floor has been checked.
+Nothing suggests a regression, and nothing has verified its absence either.
 
 ### Decisions left, not improvised
 
