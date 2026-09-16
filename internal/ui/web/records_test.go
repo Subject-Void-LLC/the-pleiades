@@ -40,6 +40,23 @@ var actionCalls struct {
 	group string
 }
 
+// rowActionCalls records what runRowAction handed the row action's Submit,
+// which is the only way to prove BOTH ids arrived rather than one of them.
+var rowActionCalls struct {
+	sync.Mutex
+	parentID string
+	rowID    string
+}
+
+// pinnedRow is the row the gadget view's row action withholds itself from,
+// so the per-row Applies gate is visible in the rendering rather than only
+// in a unit test of the resolver.
+const pinnedRow = "pinned"
+
+// failingRow is the row whose Submit returns an error, so the handler's
+// failure branch has something to reach.
+const failingRow = "boom"
+
 var registerRecordViews = sync.OnceFunc(func() {
 	view.MustRegister(view.Descriptor{
 		Name:     gadgetView,
@@ -92,8 +109,33 @@ var registerRecordViews = sync.OnceFunc(func() {
 				Rows: func(_ context.Context, parentID string) ([]view.Row, error) {
 					// The parent id is echoed so the test can prove it
 					// reached the section rather than being dropped.
-					return []view.Row{{ID: "r1", Cells: view.Cells{"label": "parent=" + parentID}}}, nil
+					return []view.Row{
+						{ID: "r1", Cells: view.Cells{"label": "parent=" + parentID}},
+						{ID: pinnedRow, Cells: view.Cells{"label": "withheld"}},
+						{ID: failingRow, Cells: view.Cells{"label": "fails"}},
+					}, nil
 				},
+				// The row half of the section write path. Its endpoint is
+				// reached from nowhere else in this descriptor, which is
+				// the case worth covering: a relation the affordance
+				// generator is never asked about is never permitted, and
+				// the control is then withheld from everybody silently.
+				RowActions: []view.RowAction{{
+					Name:     "detach",
+					Label:    "Detach",
+					Endpoint: &apispec.SetCredentialTypeInputs,
+					Confirm:  "This removes the row. It cannot be undone from here.",
+					Applies:  func(row view.Row) bool { return row.ID != pinnedRow },
+					Submit: func(_ context.Context, parentID, rowID string) (string, error) {
+						if rowID == failingRow {
+							return "", errors.New("deliberate row action failure")
+						}
+						rowActionCalls.Lock()
+						rowActionCalls.parentID, rowActionCalls.rowID = parentID, rowID
+						rowActionCalls.Unlock()
+						return "", nil
+					},
+				}},
 			},
 			{
 				Status: view.StatusImplemented,
@@ -661,5 +703,154 @@ func TestRecordAction_PerRecordFieldsAreResolvedAndEnforced(t *testing.T) {
 	}
 	if got := p.post(t, "/ui/"+gadgetView+"/done/vary", "limit=x"); got.Code != http.StatusInternalServerError {
 		t.Errorf("POST to an action whose prompt could not be resolved = %d, want 500", got.Code)
+	}
+}
+
+// TestRowAction_CarriesBothIdentifiers is the row half's central claim: a
+// control on one row of a section reaches Submit with the record it hangs
+// off AND the row it was drawn on.
+//
+// Both, because either one alone is a plausible implementation that passes a
+// looser test. A handler that forwarded only the record id would remove
+// whichever element the Submit happened to pick; one that forwarded only the
+// row id could not find the document to remove it from.
+func TestRowAction_CarriesBothIdentifiers(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.post(t, "/ui/"+gadgetView+"/alpha/detach/r1", "")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "/ui/"+gadgetView+"/alpha" {
+		t.Errorf("Location = %q, want the record it acted on", got)
+	}
+
+	rowActionCalls.Lock()
+	defer rowActionCalls.Unlock()
+	if rowActionCalls.parentID != "alpha" {
+		t.Errorf("Submit received parent %q, want %q", rowActionCalls.parentID, "alpha")
+	}
+	if rowActionCalls.rowID != "r1" {
+		t.Errorf("Submit received row %q, want %q", rowActionCalls.rowID, "r1")
+	}
+}
+
+// TestRowAction_RendersOnlyWhereItApplies proves the per-row gate reaches the
+// rendering, and that it is a per-ROW decision rather than a per-section one.
+//
+// The section declares one row action and loads three rows, one of which the
+// action withholds itself from. A control drawn on all three and a control
+// drawn on none would both be wrong, and only counting them tells those apart
+// from the correct answer.
+func TestRowAction_RendersOnlyWhereItApplies(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha?tab=related-records")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	for _, row := range []string{"r1", failingRow} {
+		if !strings.Contains(body, "/ui/"+gadgetView+"/alpha/detach/"+row) {
+			t.Errorf("no row control posts to %q, so the row half never rendered", row)
+		}
+	}
+	if strings.Contains(body, "/ui/"+gadgetView+"/alpha/detach/"+pinnedRow) {
+		t.Errorf("a row control rendered for %q, which its Applies withholds it from", pinnedRow)
+	}
+
+	// The control is a confirmation, so what renders in the cell is the
+	// dialog opener and the posting form is inside the dialog. Both halves
+	// matter: an opener with no dialog is a button that does nothing.
+	if !strings.Contains(body, "data-dialog-open=") {
+		t.Error("the confirming control rendered no dialog opener")
+	}
+	if !strings.Contains(body, "This removes the row.") {
+		t.Error("the dialog does not carry the action's own confirmation text")
+	}
+}
+
+// TestRowAction_AppliesIsNotASafetyGate pins a property that is deliberate
+// and would otherwise be assumed the other way round.
+//
+// Applies decides what to DRAW. A caller posting the URL by hand never passed
+// through the renderer, and a row can stop qualifying between the page
+// rendering and the button being pressed, so the handler does not re-consult
+// it: Submit is the authority. Asserting this stops a later reader from
+// reading the withheld control as a guard and writing a Submit that trusts
+// the control it was reached from.
+func TestRowAction_AppliesIsNotASafetyGate(t *testing.T) {
+	p := newRecordProbe(t)
+
+	if rec := p.post(t, "/ui/"+gadgetView+"/alpha/detach/"+pinnedRow, ""); rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+
+	rowActionCalls.Lock()
+	defer rowActionCalls.Unlock()
+	if rowActionCalls.rowID != pinnedRow {
+		t.Errorf("Submit received row %q, want %q: the handler must not re-gate on Applies",
+			rowActionCalls.rowID, pinnedRow)
+	}
+}
+
+// TestRowAction_RefusesWhatItCannotResolve covers the three ways the route
+// can be reached without a control behind it.
+func TestRowAction_RefusesWhatItCannotResolve(t *testing.T) {
+	p := newRecordProbe(t)
+
+	cases := []struct {
+		name   string
+		target string
+		want   int
+	}{
+		{"an action name no section declares", "/ui/" + gadgetView + "/alpha/nosuch/r1", http.StatusNotFound},
+		{"a record action's name, which takes no row", "/ui/" + gadgetView + "/alpha/run/r1", http.StatusNotFound},
+		{"a resource that does not exist", "/ui/nosuch/alpha/detach/r1", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if rec := p.post(t, tc.target, ""); rec.Code != tc.want {
+				t.Errorf("status = %d, want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowAction_ReportsAFailingSubmit proves a store refusal reaches the
+// caller as a failure rather than as a redirect that looks like success.
+//
+// A row action does not prompt, so it has no form to redisplay a field error
+// on. That makes the error path the whole of its failure reporting, and a
+// handler that redirected regardless would tell an operator their input was
+// removed when it was not.
+func TestRowAction_ReportsAFailingSubmit(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.post(t, "/ui/"+gadgetView+"/alpha/detach/"+failingRow, "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+// TestRowAction_IsNotReachableByGET is the same rule the record action path
+// already keeps: a state change never happens on a GET, because a link
+// prefetcher or a corporate scanner eventually runs one for somebody.
+func TestRowAction_IsNotReachableByGET(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rowActionCalls.Lock()
+	rowActionCalls.parentID, rowActionCalls.rowID = "", ""
+	rowActionCalls.Unlock()
+
+	if rec := p.get(t, "/ui/"+gadgetView+"/alpha/detach/r1"); rec.Code == http.StatusSeeOther {
+		t.Errorf("a GET was answered with a redirect, so it ran the action")
+	}
+
+	rowActionCalls.Lock()
+	defer rowActionCalls.Unlock()
+	if rowActionCalls.rowID != "" {
+		t.Errorf("a GET reached Submit with row %q", rowActionCalls.rowID)
 	}
 }

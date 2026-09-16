@@ -140,10 +140,17 @@ templ dataTable(t view.TableModel) {
 						for _, col := range t.Columns {
 							<th scope="col">{ col.Label }</th>
 						}
+						if t.HasRowControls() {
+							// Headed rather than blank. A column with no
+							// header is announced by its position, which
+							// tells a screen reader user nothing about
+							// what the buttons under it do.
+							<th scope="col"><span class="visually-hidden">Actions</span></th>
+						}
 					</tr>
 				</thead>
 				<tbody>
-					for _, row := range t.Rows {
+					for i, row := range t.Rows {
 						<tr>
 							for _, col := range t.Columns {
 								// data-label is what a narrow viewport
@@ -152,6 +159,20 @@ templ dataTable(t view.TableModel) {
 								// cell still says what it is.
 								<td data-label={ col.Label } data-primary={ t.IsPrimary(col) }>
 									@tableCell(t, row, col)
+								</td>
+							}
+							if t.HasRowControls() {
+								// The flex container is a div inside the
+								// cell rather than the cell itself:
+								// display:flex on a td takes it out of the
+								// table formatting context, and the column
+								// stops lining up with its own header.
+								<td data-label="Actions" data-primary="false">
+									<div class="row-actions">
+										for _, control := range t.ControlsAt(i) {
+											@rowControl(t, control)
+										}
+									</div>
 								</td>
 							}
 						</tr>
@@ -189,6 +210,35 @@ templ tableCell(t view.TableModel, row view.Row, col view.Field) {
 		<a href={ templ.SafeURL(href) }>{ t.CellText(row, col) }</a>
 	} else {
 		{ t.CellText(row, col) }
+	}
+}
+
+// rowControl renders one control on one row.
+//
+// Always a form, never a link: it changes state, and a GET that changes
+// state is one a link prefetcher or a corporate scanner eventually runs for
+// somebody. A confirming control posts the same form from inside a dialog
+// instead of from the cell, so what is submitted is identical either way
+// and there is no second submission path to keep in step.
+templ rowControl(t view.TableModel, c view.RowControl) {
+	if c.Confirms() {
+		<button class="btn btn-danger" type="button" data-dialog-open={ c.DialogID }>{ c.Label }</button>
+		<dialog id={ c.DialogID } aria-labelledby={ c.DialogID + "-heading" }>
+			<div class="block">
+				<h2 id={ c.DialogID + "-heading" }>{ c.Label }?</h2>
+				<p>{ c.Confirm }</p>
+				<form method="post" action={ templ.SafeURL(c.Href) }>
+					<input type="hidden" name="_csrf" value={ t.CSRFToken }/>
+					<button class="btn btn-danger" type="submit">{ c.Label }</button>
+					<button class="btn" type="button" data-dialog-close="true">Cancel</button>
+				</form>
+			</div>
+		</dialog>
+	} else {
+		<form method="post" action={ templ.SafeURL(c.Href) }>
+			<input type="hidden" name="_csrf" value={ t.CSRFToken }/>
+			<button class="btn" type="submit">{ c.Label }</button>
+		</form>
 	}
 }
 

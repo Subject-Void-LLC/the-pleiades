@@ -123,6 +123,20 @@ func (d Descriptor) Candidates() []auth.Affordance {
 		}
 		out = append(out, auth.Affordance{Rel: a.Endpoint.Rel, Scope: a.Endpoint.Scope})
 	}
+	// A section's row controls are gated on this same permitted set, so a
+	// relation reached only from one has to be offered for evaluation. Left
+	// out, the generator is never asked about it, it is never permitted,
+	// and every one of those controls is silently withheld from everybody
+	// -- a Remove button that is simply never drawn, which reads as a
+	// design decision rather than as a bug.
+	for _, s := range d.Sections {
+		for _, a := range s.RowActions {
+			if a.Endpoint == nil {
+				continue
+			}
+			out = append(out, auth.Affordance{Rel: a.Endpoint.Rel, Scope: a.Endpoint.Scope})
+		}
+	}
 	return out
 }
 
@@ -269,11 +283,103 @@ type Section struct {
 	// panel says is not wired -- the contradiction StatusDeclared exists to
 	// remove.
 	Actions []string
+
+	// RowActions are controls on one row of this section rather than on
+	// the record it hangs off: "Remove" on a credential type's input,
+	// "Remove" on one of its injectors.
+	//
+	// Declared here rather than named from the parent's Actions, the way
+	// the header half is, because a row action's target is different in
+	// kind. A record action acts on the record the URL names; a row action
+	// acts on one element of a document that record holds, and which
+	// element is the only thing separating one control in the table from
+	// the one on the line below it.
+	//
+	// Only an implemented section may declare them, for the reason Actions
+	// gives, and they render only where a parent id exists, for the reason
+	// Actions gives.
+	RowActions []RowAction
 }
 
 // Implemented reports whether this section reaches a real port, the same
 // question Descriptor.Implemented answers and defaulted the same way.
 func (s Section) Implemented() bool { return s.Status == StatusImplemented }
+
+// RowAction is a control on one row of a section.
+//
+// The header half of the section write path shipped first: a section names
+// one of its parent record's actions and renders a button that acts on the
+// record, which is how "Add input" reaches a credential type. That left
+// every section a one way door. An input could be added to a credential
+// type and never removed, an injector added and never removed, and the only
+// route back was the JSON API or the database.
+//
+// Submit takes two ids and no Values, which is the whole of what this type
+// is for and also the whole of what it is not. A row action does not
+// prompt: removing a row needs no form, and reordering one needs no form,
+// while EDITING a row in place needs a form prefilled from that row, which
+// is a seam RecordAction does not have (its own doc comment records that
+// its form prefills nothing). Adding a prompt here before that seam exists
+// would mean a form that renders a row's current values as empty boxes and
+// silently blanks whichever the operator did not retype.
+type RowAction struct {
+	// Name is the URL segment: /{resource}/{id}/{name}/{row}. It shares
+	// one namespace with the parent's RecordActions, because both occupy
+	// the same segment of the same route, and Register enforces that.
+	Name string
+
+	// Label is the button text.
+	Label string
+
+	// Endpoint carries the scope and relation this control is gated on,
+	// exactly as a RecordAction does. Two controls may name one endpoint:
+	// adding to a document and removing from it are usually the same API
+	// operation, and the affordance question has one answer for both.
+	Endpoint *apispec.Endpoint
+
+	// Confirm is what a confirmation dialog asks before the control posts.
+	// Empty posts straight through.
+	//
+	// Setting it also renders the control as a destructive one, because
+	// the only reason to interrupt somebody on their way to a button is
+	// that what is behind it is hard to undo.
+	Confirm string
+
+	// Applies withholds this control from a row it could not work on, the
+	// same job Descriptor.Applies does for a record. Nil offers it on
+	// every row.
+	//
+	// Gating here is about not drawing a dead control and never about
+	// safety: the row may stop qualifying between the page rendering and
+	// the button being pressed, so Submit is still the authority and still
+	// has to refuse.
+	Applies func(row Row) bool
+
+	// Submit performs the action and returns where to send the caller
+	// afterwards. An empty redirect returns them to the parent record.
+	Submit func(ctx context.Context, parentID, rowID string) (redirect string, err error)
+}
+
+// Confirms reports whether this control interrupts before it posts.
+func (a RowAction) Confirms() bool { return strings.TrimSpace(a.Confirm) != "" }
+
+// RowAction finds a row action by name across every section that declares
+// one.
+//
+// One lookup across all sections rather than per section, because the route
+// carries no section: /{resource}/{id}/{action}/{row} names the control and
+// the row and nothing between them. Register keeps that honest by refusing
+// two sections to declare the same name.
+func (d Descriptor) RowAction(name string) (RowAction, bool) {
+	for _, s := range d.Sections {
+		for _, a := range s.RowActions {
+			if a.Name == name {
+				return a, true
+			}
+		}
+	}
+	return RowAction{}, false
+}
 
 // RecordAction is a named operation offered on one record, beyond create,
 // read, update and delete.
@@ -802,7 +908,7 @@ func Register(d Descriptor) error {
 	if err := validateFields(d.Fields); err != nil {
 		return fmt.Errorf("view %q %s", d.Name, err)
 	}
-	if err := validateOps(d.Name, d.Ops, d.Actions); err != nil {
+	if err := validateOps(d.Name, d.Ops, d.Actions, d.Sections); err != nil {
 		return err
 	}
 	if err := validateChart(d.Name, d.Chart); err != nil {
@@ -821,6 +927,9 @@ func Register(d Descriptor) error {
 		return err
 	}
 	if err := validateActions(d.Name, d.Actions); err != nil {
+		return err
+	}
+	if err := validateRowActions(d.Name, d.Sections, d.Actions); err != nil {
 		return err
 	}
 
@@ -934,6 +1043,12 @@ func validateSections(name string, sections []Section, actions []RecordAction) e
 			// would post to a write path the same panel says is not wired.
 			return fmt.Errorf("view %q detail section %q is declared but declares header actions", name, s.Title)
 		}
+		if len(s.RowActions) > 0 && !s.Implemented() {
+			// The same contradiction one row down. A declared section has
+			// no rows either, so this is a control that could never even
+			// be drawn.
+			return fmt.Errorf("view %q detail section %q is declared but declares row actions", name, s.Title)
+		}
 		for _, a := range s.Actions {
 			if !declared[a] {
 				// A section header action names one of the parent view's
@@ -1014,7 +1129,53 @@ func validateStream(name string, stream *StreamSpec) error {
 
 // validateOps checks that every endpoint a view names is one the API
 // really declares, and that the view's relations are unambiguous.
-func validateOps(name string, ops Ops, actions []RecordAction) error {
+// validateRowActions refuses a row control that could not be reached,
+// could not be gated, or would shadow another control's route.
+//
+// Names are checked against the parent's RecordActions and against every
+// other section's row actions, because all three occupy the same segment of
+// the same route. Two declarations sharing a name would register cleanly
+// and one of them would silently never run.
+func validateRowActions(name string, sections []Section, actions []RecordAction) error {
+	seen := make(map[string]string, len(actions))
+	for _, a := range actions {
+		seen[a.Name] = "an action"
+	}
+
+	for _, s := range sections {
+		for _, a := range s.RowActions {
+			switch {
+			case !namePattern.MatchString(a.Name):
+				return fmt.Errorf("view %q section %q row action name %q must match %s",
+					name, s.Title, a.Name, namePattern)
+			case reservedRecordSegments[a.Name]:
+				// chi resolves a static segment before a parameter, so
+				// this control would register cleanly and never be
+				// reachable.
+				return fmt.Errorf("view %q section %q row action %q collides with a reserved path segment",
+					name, s.Title, a.Name)
+			case seen[a.Name] != "":
+				return fmt.Errorf("view %q section %q row action %q collides with %s of the same name",
+					name, s.Title, a.Name, seen[a.Name])
+			case strings.TrimSpace(a.Label) == "":
+				// A button with no text has no accessible name.
+				return fmt.Errorf("view %q section %q row action %q has no label", name, s.Title, a.Name)
+			case a.Endpoint == nil:
+				// Without an endpoint there is no scope to enforce and no
+				// relation to gate the control on, so the button would
+				// render for everybody and the route would be unguarded.
+				return fmt.Errorf("view %q section %q row action %q names no endpoint, so nothing gates it",
+					name, s.Title, a.Name)
+			case a.Submit == nil:
+				return fmt.Errorf("view %q section %q row action %q has no Submit function", name, s.Title, a.Name)
+			}
+			seen[a.Name] = fmt.Sprintf("a row action on section %q", s.Title)
+		}
+	}
+	return nil
+}
+
+func validateOps(name string, ops Ops, actions []RecordAction, sections []Section) error {
 	known := make(map[string]apispec.Endpoint, len(apispec.Endpoints))
 	for _, e := range apispec.Endpoints {
 		known[e.Name] = e
@@ -1028,6 +1189,19 @@ func validateOps(name string, ops Ops, actions []RecordAction) error {
 	for _, a := range actions {
 		if a.Endpoint != nil {
 			endpoints = append(endpoints, a.Endpoint)
+		}
+	}
+	// A section's row controls are gated by the same Affordances map and
+	// rendered on the same page, so an endpoint reached only from one is
+	// checked here too. Left out, a row action naming a stale copy of an
+	// endpoint would render the old scope's button against the new
+	// scope's route, which is the failure the stale check above exists
+	// for.
+	for _, s := range sections {
+		for _, a := range s.RowActions {
+			if a.Endpoint != nil {
+				endpoints = append(endpoints, a.Endpoint)
+			}
 		}
 	}
 

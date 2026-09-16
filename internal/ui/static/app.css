@@ -1541,6 +1541,19 @@ select {
   margin-left: auto;
 }
 
+/* The trailing cell a section's row controls sit in.
+ *
+ * Deliberately no smaller button variant. The .btn min-height is the AA
+ * target-size floor, and a table is exactly where the temptation to shrink a
+ * control is strongest and where a cramped target hurts most: rows are close
+ * together, so a near miss lands on the neighbouring row's button rather than
+ * on nothing. The cell is sized by its buttons instead. */
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 /* ---- Detail list ---- */
 .detail-list {
   display: grid;

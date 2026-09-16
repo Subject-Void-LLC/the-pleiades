@@ -404,6 +404,55 @@ func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
 	h.redirect(w, r, redirect)
 }
 
+// runRowAction performs a row action: one control on one row of one of the
+// record's sections.
+//
+// The gates are the record action path's, in the same order and for the same
+// reasons. RowAction.Applies is deliberately NOT re-consulted here, exactly
+// as lookupAction does not re-consult Descriptor.Applies: a row can stop
+// qualifying between the page rendering and the button being pressed, so a
+// check here would narrow that race without closing it, and a caller who
+// posts the URL by hand never passed through the renderer at all. Submit is
+// the authority, and a row action whose Submit trusts the control it was
+// reached from is wrong however many times this handler asks.
+func (h *Handler) runRowAction(w http.ResponseWriter, r *http.Request) {
+	d, ok := h.resourceOf(r)
+	if !ok {
+		h.notFound(w, r)
+		return
+	}
+	if !d.Implemented() {
+		h.renderDeclared(w, r, d)
+		return
+	}
+
+	action, found := d.RowAction(chi.URLParam(r, "action"))
+	if !found {
+		h.notFound(w, r)
+		return
+	}
+	if !h.permits(r.Context(), identityFrom(r.Context()), action.Endpoint.Scope) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	id, row := chi.URLParam(r, "id"), chi.URLParam(r, "row")
+	if row == "" {
+		h.notFound(w, r)
+		return
+	}
+
+	redirect, err := action.Submit(r.Context(), id, row)
+	if err != nil {
+		h.serverError(w, r, "run "+d.Name+"/"+action.Name, err)
+		return
+	}
+	if redirect == "" {
+		redirect = resourcePath(h.cfg.Prefix, d.Name, id)
+	}
+	h.redirect(w, r, redirect)
+}
+
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	d, ok := h.resolve(w, r, func(o view.Ops) *apispec.Endpoint { return o.Get })
 	if !ok {

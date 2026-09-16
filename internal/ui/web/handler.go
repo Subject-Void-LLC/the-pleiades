@@ -208,6 +208,11 @@ func (h *Handler) Routes() http.Handler {
 		// them, so this ordering is enforced rather than merely relied on.
 		r.Get("/{resource}/{id}/{action}", h.actionForm)
 		r.Post("/{resource}/{id}/{action}", h.runAction)
+		// A row action, acting on one row of one of the record's sections.
+		// POST only: it prompts for nothing, so there is no form to render,
+		// and a GET that changes state is one a link prefetcher or a
+		// corporate scanner eventually runs for somebody.
+		r.Post("/{resource}/{id}/{action}/{row}", h.runRowAction)
 	})
 
 	return r
