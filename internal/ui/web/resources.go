@@ -289,7 +289,35 @@ func (h *Handler) actionForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderAction(w, r, d, action, id, fields, map[string]string{}, view.FieldErrors{}, http.StatusOK)
+	values, ok := h.actionValues(w, r, d, action, id, fields)
+	if !ok {
+		return
+	}
+	h.renderAction(w, r, d, action, id, fields, values, view.FieldErrors{}, http.StatusOK)
+}
+
+// actionValues resolves an action's prefill for one record and checks it
+// against the controls the form will draw.
+//
+// A failure here fails the request rather than rendering the form empty,
+// for the reason actionFields fails rather than rendering no controls, and
+// with more at stake. An empty prompt is a form that does nothing; a
+// SILENTLY empty prefill is a form that looks like the record's current
+// state, is not, and writes its blanks over what was stored the moment
+// somebody presses the button they were offered.
+func (h *Handler) actionValues(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RecordAction, id string, fields []view.Field) (map[string]string, bool) {
+
+	values, err := action.ResolveValues(r.Context(), id)
+	if err != nil {
+		h.serverError(w, r, "resolve prefill for "+d.Name+"/"+action.Name, err)
+		return nil, false
+	}
+	if err := view.NarrowPrefill(fields, values); err != nil {
+		h.serverError(w, r, "prefill for "+d.Name+"/"+action.Name, err)
+		return nil, false
+	}
+	return values, true
 }
 
 // actionFields resolves an action's prompt for one record.

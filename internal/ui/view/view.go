@@ -472,6 +472,30 @@ type RecordAction struct {
 	// the form did not offer them.
 	FieldsFor func(ctx context.Context, id string) ([]Field, error)
 
+	// Form produces the values that prefill this action's prompt.
+	//
+	// Nil prefills nothing, which is right for an ADD and right for a
+	// launch: appending an input to a credential type starts from nothing,
+	// and every answer to a survey is given afresh. What it is not right
+	// for is a form that REPLACES something the record already holds, and
+	// that shape shipped without it. bindCredentialsAction resolved a
+	// template's bound credentials into a variable, had nowhere to put it
+	// and dropped it, so the multi-select rendered with nothing selected
+	// and submitting the form as drawn unbound every credential the
+	// template authenticated as.
+	//
+	// Same name, same return type and same job as Handlers.Form, the edit
+	// form's own prefill, because a second answer to "where do a form's
+	// existing values come from" is a second one to keep in step with
+	// every Field kind that ever renders a value. The map is keyed by
+	// Field.Name and encoded the way a submission encodes it: "true" for a
+	// checked box, the option's own value for a select, a comma joined
+	// list for a multi select. A key naming no rendered control is refused
+	// rather than ignored, and so is a value for a password control; see
+	// NarrowPrefill for both, and for why silently dropping either is the
+	// failure this seam exists to prevent.
+	Form func(ctx context.Context, id string) (map[string]string, error)
+
 	// Submit performs the action and returns where to send the caller
 	// afterwards. A FieldErrors result redisplays the form with the
 	// message attached to the control that caused it, exactly as a create
@@ -495,6 +519,25 @@ func (a RecordAction) ResolveFields(ctx context.Context, id string) ([]Field, er
 		return a.Fields, nil
 	}
 	return a.FieldsFor(ctx, id)
+}
+
+// ResolveValues returns this prompt's prefill for one record, and an empty
+// map for an action that declares none.
+//
+// An empty map rather than a nil one, so a caller never has to ask which
+// kind of nothing it was handed.
+func (a RecordAction) ResolveValues(ctx context.Context, id string) (map[string]string, error) {
+	if a.Form == nil {
+		return map[string]string{}, nil
+	}
+	values, err := a.Form(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return map[string]string{}, nil
+	}
+	return values, nil
 }
 
 // reservedRecordSegments are the path segments the fixed route table
@@ -1128,6 +1171,13 @@ func validateActions(name string, actions []RecordAction) error {
 			return fmt.Errorf("view %q action %q has no Submit function", name, a.Name)
 		case a.Prompts() && strings.TrimSpace(a.Heading) == "":
 			return fmt.Errorf("view %q action %q prompts but has no heading", name, a.Name)
+		case a.Form != nil && !a.Prompts():
+			// A prefill for a form that never renders. Harmless today and
+			// a trap tomorrow: it reads as though the action carries the
+			// record's current values, so whoever later gives the action
+			// fields will believe the prefill is already wired and will
+			// not check that it reaches anything.
+			return fmt.Errorf("view %q action %q declares a prefill but no fields, so nothing renders it", name, a.Name)
 		}
 		seen[a.Name] = true
 

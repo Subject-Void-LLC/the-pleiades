@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
@@ -230,6 +231,53 @@ func NewValues(fields []Field, raw url.Values, editing bool) (Values, []string) 
 	sort.Strings(undeclared)
 
 	return Values{declared: declared, raw: raw, editing: editing}, undeclared
+}
+
+// NarrowPrefill checks a prefill map against the controls a form will
+// actually render, and refuses one that could lose or leak a value.
+//
+// The mirror of NewValues, and it exists for the same reason. A submission
+// carrying a field nobody declared is refused rather than ignored, because
+// silently dropping input somebody believed was accepted is how they end up
+// certain they changed something they did not. A PREFILL naming a control
+// nobody declared is that same mistake from the other side, and it is
+// worse: the control renders empty, the operator does not retype a value
+// they cannot see, and the save writes the blank over what was stored.
+// Nothing on the page shows it, and this is the only place it can be seen.
+//
+// A non-empty value for a password control is refused too. field.templ
+// writes a password's value into a value attribute, and the comment
+// justifying that rests on a survey password being answered once per launch
+// and never read back. A prefilled form is exactly the case that reasoning
+// excludes, so a stored secret would be rendered into the page source. An
+// EMPTY value is allowed, so the "leave blank to keep the current one" form
+// stays possible: what is refused is prefilling a secret, not offering the
+// control.
+//
+// fields must already be the set this form renders. A control the form does
+// not draw is not a control a prefill may name.
+func NarrowPrefill(fields []Field, values map[string]string) error {
+	declared := make(map[string]Field, len(fields))
+	for _, f := range fields {
+		declared[f.Name] = f
+	}
+
+	unknown := make([]string, 0, len(values))
+	for name, value := range values {
+		f, ok := declared[name]
+		if !ok {
+			unknown = append(unknown, name)
+			continue
+		}
+		if f.Kind == KindPassword && value != "" {
+			return fmt.Errorf("prefill carries a value for the password control %q, which would render the secret into the page", name)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("prefill names %v, which this form does not render, so the value would be lost on the next save", unknown)
+	}
+	return nil
 }
 
 // Get returns the submitted value for a declared field, or the empty

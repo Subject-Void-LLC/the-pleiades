@@ -180,6 +180,32 @@ var registerRecordViews = sync.OnceFunc(func() {
 				return "", nil, nil
 			},
 		}, {
+			// An action whose prompt is PREFILLED from the record, which
+			// is the shape a form that replaces something the record
+			// already holds has to have. Without it the form renders
+			// empty and saving it writes the blanks over what was stored.
+			Name:     "rebind",
+			Label:    "Rebind",
+			Heading:  "Rebind gadget",
+			Endpoint: &apispec.SetTemplateCredentials,
+			Fields: []view.Field{
+				{Name: "bound", Label: "BOUND", Kind: view.KindText, Autocomplete: "off", InForm: true},
+			},
+			Form: func(_ context.Context, id string) (map[string]string, error) {
+				if id == "broken" {
+					return nil, errors.New("deliberate prefill failure")
+				}
+				if id == "leaky" {
+					// A key the form does not render, which must be
+					// refused rather than silently dropped.
+					return map[string]string{"bound": "current", "gone": "x"}, nil
+				}
+				return map[string]string{"bound": "current-" + id}, nil
+			},
+			Submit: func(context.Context, string, view.Values) (string, view.FieldErrors, error) {
+				return "", nil, nil
+			},
+		}, {
 			// A second action whose prompt is resolved from the record,
 			// which is what a launch form needs: the record named "alpha"
 			// opens one control, and the one named "done" fails to resolve
@@ -898,5 +924,71 @@ func TestRowAction_TellsTheOperatorWhatTheStoreRefused(t *testing.T) {
 	}
 	if strings.Contains(fault.Body.String(), "deliberate row action failure") {
 		t.Error("a fault's own message reached the response body")
+	}
+}
+
+// TestRecordAction_PromptIsPrefilledFromTheRecord is the seam's central
+// claim, and the reason it matters is what happens without it.
+//
+// A form that REPLACES something the record already holds, rendered with
+// every control empty, is not a blank form: it is the record's current
+// state misrepresented as empty. The operator sees nothing selected, has
+// nothing to retype, presses the button they were offered, and the save
+// writes the blanks over what was stored. That shape shipped in this
+// codebase before this hook existed.
+func TestRecordAction_PromptIsPrefilledFromTheRecord(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha/rebind")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `value="current-alpha"`) {
+		t.Errorf("the prompt did not render the record's current value:\n%s", rec.Body.String())
+	}
+}
+
+// TestRecordAction_ARefusedPrefillFailsRatherThanRenderingEmpty covers the
+// two ways a prefill can be wrong, and both must fail loudly.
+//
+// Rendering the form anyway is the one answer that must not happen: an
+// empty control and a control holding nothing look identical, so a prefill
+// that failed is indistinguishable from a record that holds nothing, and
+// the next save cannot tell either.
+func TestRecordAction_ARefusedPrefillFailsRatherThanRenderingEmpty(t *testing.T) {
+	p := newRecordProbe(t)
+
+	t.Run("the hook itself fails", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/broken/rebind")
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", rec.Code)
+		}
+	})
+
+	t.Run("the prefill names a control the form does not draw", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/leaky/rebind")
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500: a value nothing renders is a value the next save discards", rec.Code)
+		}
+	})
+}
+
+// TestRecordAction_AnUnprefilledPromptStaysEmpty is the negative control.
+//
+// Without it, a prefill that leaked across actions would satisfy the test
+// above, and every ADD form in the application would arrive carrying
+// somebody else's values.
+func TestRecordAction_AnUnprefilledPromptStaysEmpty(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha/run")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "current-alpha") {
+		t.Error("an action declaring no prefill rendered another action's values")
+	}
+	if !strings.Contains(rec.Body.String(), `name="group"`) {
+		t.Fatal("the unprefilled prompt did not render at all, so this proves nothing")
 	}
 }
