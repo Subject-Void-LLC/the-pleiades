@@ -7552,3 +7552,94 @@ diagnostic habit that found this is also worth keeping, and it is the same one
 `LESSONS_LEARNED.md` #181 records: the failure was under container load in a suite full of
 genuine container flakes, and what separated it from one was that the package provisions nothing
 and the timing was reproducible in kind rather than in occurrence.
+
+---
+
+## 219. A view's relation check refused one endpoint named by two controls, and said so by naming that endpoint twice
+
+**Symptom:** declaring a Remove control beside the Add control on a credential type's Inputs tab
+made the view refuse to register at all, with
+`view "credential-types" uses relation "set-inputs" for both set_credential_type_inputs and
+set_credential_type_inputs`. The same endpoint on both sides of "for both" is the tell.
+
+**Root cause:** `validateOps` walks every endpoint a descriptor names and refuses two that share
+a link relation, because `Affordances` is keyed by relation and a template asking `Can(rel)` could
+not say which of two operations it had been told about. The check compared relations and never
+compared the endpoints behind them, so an endpoint named twice tripped it exactly as two different
+endpoints sharing a relation would.
+
+The case it hits is not ambiguity. Adding an input to a credential type and removing one are both
+its set-inputs endpoint: the stored document is replaced either way, and the affordance question
+has one answer for both controls. There is one relation, one scope and one API operation, and the
+single answer `Can(set-inputs)` gives is correct rather than ambiguous.
+
+The cost of the false positive was not the refusal but what the refusal pushed an author toward.
+The only way past it was to invent a second endpoint with a second relation describing no separate
+operation, which puts a relation in the JSON `_links` array that no API operation corresponds to.
+
+**Fix:** the dedupe compares the endpoint name as well as the relation, so two DIFFERENT endpoints
+sharing a relation are still refused and one endpoint named twice is allowed. The existing
+refusal test (two genuinely different endpoints) still passes and is the negative control;
+`TestRegister_AcceptsOneEndpointNamedTwice` is the positive one and fails against the old check
+with exactly the message above.
+
+**Lesson:** a uniqueness check over a derived key needs to know what the key was derived from. A
+duplicate key means "two things collided" only when the two things are actually distinct, and a
+message that prints the same value on both sides of "for both" is the shape that says the check
+lost track of which is which.
+
+---
+
+## 220. A row control's relation was missing from the candidate set, so every one of them was withheld from everybody, including an administrator
+
+**Symptom:** the new Remove control on a credential type's Inputs tab rendered for nobody. No
+error, no log line, no 403. The table drew its rows and the actions column simply was not there,
+which is indistinguishable from a deliberate decision not to offer one.
+
+**Root cause:** `Descriptor.Candidates` is what the HATEOAS generator is ASKED about. It collected
+the endpoints of a view's operations and of its record actions, and a section's row actions had
+been added to the descriptor without being added to it. The resolver then asked
+`permits(a.Endpoint, aff)` about a relation that had never been offered for evaluation, was
+therefore never in the permitted set, and answered no for every caller at every role.
+
+The failure is silent by construction, because withholding a control is exactly what the
+affordance layer is supposed to do when a caller may not use it. There is no way to tell "you are
+not permitted this" from "nobody asked whether you were permitted this" by looking at the page,
+which is what makes it worth writing down rather than only fixing.
+
+**Fix:** `Candidates` walks each section's row actions too. The test is
+`TestDescriptor_CandidatesOffersARowActionsRelation` for the unit, and the router-level
+`TestRowAction_RendersOnlyWhereItApplies` for the behaviour; removing the new loop makes the
+second report that no control posts to any row.
+
+**Lesson:** every gated affordance needs its relation in two places, the gate and the candidate
+set, and only one of them fails loudly when it is missing. When adding a new kind of gated
+control, find the enumeration the authorization layer is driven from and add to it in the same
+change, then prove a permitted caller can see the control rather than only that an unpermitted
+one cannot.
+
+---
+
+## 221. A managed credential type offered Add input and Add injector, both of which the store refuses in its second statement
+
+**Symptom:** found while adding the row controls rather than reported. A platform-shipped
+credential type rendered "Add input" and "Add injector" on its own tabs. Pressing either reached
+`UpdateType`, which refuses a managed type before it validates anything, and the operator was
+answered with a field error on a form they should never have been offered.
+
+**Root cause:** `Descriptor.Applies` for the view already withdrew the record's own edit and
+delete relations on a managed row, with a comment explaining that the store refuses both so the
+affordance is withdrawn rather than offered and then refused. The two section write relations,
+`set-inputs` and `set-injectors`, were not in that predicate. They reach the same `UpdateType` and
+hit the same refusal, so the reasoning applied to them exactly and the list had simply not been
+extended when the header half of the section write path shipped.
+
+**Fix:** the predicate switches over all four write relations. The new test drives a managed type's
+two tabs and asserts neither offers an add or a remove; against the old predicate it fails on all
+four controls, which is what confirms this was live rather than theoretical.
+
+**Lesson:** a predicate that enumerates relations is a list that goes stale every time a relation
+is added, and nothing fails when it does. When a new write relation is introduced on a resource
+that already withdraws affordances conditionally, the predicate is part of the change, not a
+follow-up. A test that drives the withdrawing case through the real router is the only thing that
+notices.

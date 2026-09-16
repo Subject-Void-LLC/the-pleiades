@@ -4231,3 +4231,66 @@ And when exposing a timeout, enumerate every deadline the call can hit rather th
 being set. An operation with two deadlines where the caller controls one is an operation whose
 documented limit is a guess, and the failure surfaces as the shorter one, which is the one
 nobody wrote down.
+
+---
+
+## 183. Every gated control needs its relation in two places, and only one of them fails loudly
+
+**The rule.** An affordance-gated control is decided by two structures: the gate that asks
+whether a relation is permitted, and the candidate set the authorization layer is driven from.
+Adding a control to the first and not the second withholds it from everybody, silently, at every
+role. Before shipping a new kind of gated control, prove a PERMITTED caller can see it, not only
+that an unpermitted one cannot.
+
+**The incident.** `view.RowAction` was added so a section could act on one of its own rows. The
+resolver gated each control on `permits(a.Endpoint, aff)`, exactly as the header half already
+did, and every control rendered for nobody. `Descriptor.Candidates` collected the endpoints of a
+view's operations and its record actions and knew nothing about row actions, so the generator was
+never asked about the relation, it was never in the permitted set, and the gate answered no
+universally.
+
+**Why it is worth a rule rather than only a fix.** Withholding a control is what the affordance
+layer is FOR. A missing control and a correctly withheld control are the same rendering, so there
+is no observable difference between "you may not do this" and "nobody asked whether you may".
+Every other failure in this layer announces itself: a missing route is a 404, a missing scope is
+a 403, a missing endpoint is a startup refusal. This one produces a page that looks finished. It
+is the same shape as FAILURE_PATTERNS #73, where an unevaluable permitted set rendered as a
+read-only page, and the same answer applies: the positive case is the one that has to be
+asserted, because the negative case passes when the feature is absent entirely.
+
+**What to do.** When introducing a gated control, find the enumeration the authorization layer
+reads rather than the one the renderer reads, and add to both in the same change. Then write the
+test as "a caller who holds the relation sees the control", which fails when either half is
+missing, rather than "a caller who does not hold it does not", which passes when both are.
+
+---
+
+## 184. A refusal the operator can act on and a fault they cannot must not share a rendering
+
+**The rule.** When a write path fails, decide whether the reason is a rule the person at the
+keyboard can satisfy or a failure that is nobody's doing, and answer the two differently. A rule
+they can satisfy is shown to them, in the store's own words, on a page they can act from. A
+failure that is not theirs is logged and answered generically, because its message is not
+addressed to them and may carry whatever the failure happened to be holding.
+
+**The incident.** A row action has no form to attach a field error to, which is how every other
+write in this UI reports a refusal. So every failure it had went to `serverError`: the real
+reason into the log, and the words "internal error" onto the page. The case that made this
+untenable was ordinary rather than exotic. Removing an input a credential type's injector still
+references is refused by `credtype`, with a sentence naming the input and the dependency, and the
+operator resolves it by removing the injector first. Answering that with "internal error" hides
+the fix, tells them it was not their doing, and puts the sentence that would have resolved it in
+a log they cannot read.
+
+**The shape of the fix.** `view.Refuse` wraps the store's own error as one meant for the
+operator; the handler renders it through the shared zero state at its problem tone with a way
+back to the record, under 422, the status a form's validation failure already carries. It wraps
+rather than restates, so `errors.Is` still works above it and the words shown are the store's,
+which is the authority on why it refused. The resource decides which sentinels qualify, and only
+two did: an invalid type and a managed one. A driver error is not on that list.
+
+**The alternative that was rejected, and why.** A flash message on the record the control came
+from reads better and cannot be built honestly here. A flash has to survive a redirect, which
+means either session-keyed server state or a message reflected out of the URL, and a
+server-generated sentence arriving through a query parameter is a sentence anybody can put there.
+A page costs one navigation and reflects nothing.

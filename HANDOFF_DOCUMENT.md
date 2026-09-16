@@ -38,7 +38,7 @@ first claimed and what the code says today, with the anchor that settles it.
 
 | Item | What it is | First sized | Verified state |
 |---|---|---|---|
-| B | Section write path, row half | S | Header half shipped. No row half exists at all: `view.Row` carries `ID`, `Cells` and `Refs`, and nothing that acts on one. |
+| B | Section write path, row half | S | Row half BUILT on `feature/section-row-actions`, with the credential type as its consumer. The edit-in-place half waits on form prefill. |
 | C | Survey builder | S add / M edit | Model is complete and persisted. UI is read-only. The edit half needs B, which the first note had backwards. |
 | E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
 | F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
@@ -66,6 +66,40 @@ Download half has nowhere to live: the only per-record route beyond the resource
 (`internal/ui/view/view.go`). A download is a second such route or an API endpoint, and
 which one it should be is a decision rather than a detail.
 
+### Item B: the row half, built on `feature/section-row-actions`
+
+Branched off `feature/job-cancel` rather than `main`, deliberately: that branch is finished and
+waiting on a PR decision, not in progress, and stacking keeps the handoff linear instead of
+guaranteeing a conflict in this file. It rebases onto `main` trivially if job cancel merges first.
+
+**What it adds.** `view.RowAction`, declared on a Section and addressed at
+`/{resource}/{id}/{action}/{row}`. Its `Submit` takes both ids and no `Values`. The consumer is
+the credential type: an input and an injector can now be taken back out, where before both tabs
+were one-way doors and the only route back was the JSON API or the database.
+
+**What it deliberately does not add, which is the rest of item B.** A row action does not prompt.
+Removing a row needs no form; EDITING one needs a form prefilled from that row, and
+`RecordAction`'s own doc comment records that its form prefills nothing. Building a prompt before
+that seam exists would render a row's current values as empty boxes and silently blank whichever
+the operator did not retype. **That seam is what item C's edit half waits on too**, so it is worth
+doing next and worth doing once.
+
+**Three defects found, all of them live rather than theoretical**, recorded as FAILURE_PATTERNS
+#219, #220 and #221. The one worth knowing about without opening the archive is #220: a row
+control's relation was missing from `Descriptor.Candidates`, so the authorization generator was
+never asked about it, it was never permitted, and every such control was withheld from everybody
+including an administrator. That failure is invisible by construction, because a withheld control
+and an absent one are the same rendering. LESSONS_LEARNED #183 is the rule.
+
+**One thing is stated rather than prevented, and it is a decision rather than a detail.** Removing
+an input that credentials of the type already store a value for leaves those credentials
+unsaveable: `CheckValues` refuses a stored value naming an input the type no longer declares. The
+confirmation says so. It is NOT introduced here, because adding a *required* input to an in-use
+type already strands them the same way, and one guard answers both: should `UpdateType` refuse a
+schema change that would strand existing credentials, the way `DeleteType` already refuses a
+delete with a count? AWX refuses to modify a credential type that is in use at all, which is the
+stricter answer and the one worth arguing about.
+
 ### Next step
 
-Item B, the section write path's row half, on its own branch off `main`.
+The action-form prefill seam, which finishes item B and unblocks item C's edit half.
