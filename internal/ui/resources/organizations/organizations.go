@@ -152,7 +152,14 @@ func attestAction(store access.Organizations) view.RecordAction {
 			if err := store.AttestOrganization(ctx, numeric, identity.Subject); err != nil {
 				return "", nil, err
 			}
-			return "/organizations/" + id, nil, nil
+			// An empty redirect, which sends the caller back to this record
+			// through the handler's own resourcePath. These four used to
+			// build the path by hand and every one of them left off the
+			// UI's mount prefix, so a successful write redirected to
+			// /templates/1 rather than /ui/templates/1 and answered the
+			// operator with a 404 after the save had already happened.
+			// The handler knows the prefix; a call site does not.
+			return "", nil, nil
 		},
 	}
 }

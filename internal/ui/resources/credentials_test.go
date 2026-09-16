@@ -170,3 +170,29 @@ func TestTemplateCredentialsFormRendersWhatIsAlreadyBound(t *testing.T) {
 		t.Errorf("the credential this template is bound to rendered unselected, so saving the form as drawn would unbind it:\n%s", body)
 	}
 }
+
+// TestRecordActionRedirectsStayInsideTheUIMount is a regression guard for a
+// bug all four hand-built action redirects had at once.
+//
+// Each built the path itself and each left off the UI's mount prefix, so a
+// successful write sent the operator to /templates/1 rather than
+// /ui/templates/1. The save had already happened; what they saw was a 404,
+// which reads as though it had not.
+//
+// Asserting the prefix rather than the exact path, because the point is
+// that the handler owns the prefix and a call site does not.
+func TestRecordActionRedirectsStayInsideTheUIMount(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	w := h.post(t, "/ui/templates/1/credentials", map[string]string{"credentials": "1"})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("binding credentials = %d, want a redirect: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/ui/") {
+		t.Errorf("Location = %q, which is outside the UI mount, so a successful save lands on a 404", loc)
+	}
+	if !strings.Contains(loc, "templates/1") {
+		t.Errorf("Location = %q, want it to return to the record that was written", loc)
+	}
+}
