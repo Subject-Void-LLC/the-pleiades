@@ -16,10 +16,12 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -282,4 +284,149 @@ func RunGoTestJSON(args []string, echo io.Writer) ([]Event, error) {
 		return events, fmt.Errorf("reading go test output: %w", scanErr)
 	}
 	return events, waitErr
+}
+
+// maxIsolationRetries bounds how many failures the isolation pass will
+// re-run.
+//
+// A run with more failures than this is not a contended machine losing a
+// race; it is a change that broke something, and re-running forty tests one
+// at a time to learn that would cost more wall clock than the whole suite.
+// Past the bound the failures are reported as they stand, which is the
+// stricter answer.
+const maxIsolationRetries = 12
+
+// TopLevel is the parent test a name belongs to, which is the unit the
+// isolation pass re-runs.
+//
+// A subtest cannot be re-run without its parent, and `-run` patterns for
+// one are an escaping problem with no upside: the parent is what owns the
+// fixture that a contended machine failed to build, so running it is what
+// answers the question.
+func TopLevel(test string) string {
+	if i := strings.IndexByte(test, '/'); i >= 0 {
+		return test[:i]
+	}
+	return test
+}
+
+// Isolate re-runs each failed test on its own and reports which ones
+// failed again.
+//
+// This is the evidence the static waiver list cannot supply. A package
+// named in flaky-packages.json is tolerated on the strength of a reason
+// somebody wrote once, which stays true only as long as the package keeps
+// failing for that reason -- and the failure mode this repository has
+// actually shipped is a real defect arriving inside a tolerated package and
+// being warned about, run after run, by a gate that never looked again.
+//
+// Re-running settles it per run rather than per entry. A test that passes
+// alone failed because of what else was running; a test that fails alone
+// fails, whatever any list says about its package. So a confirmed failure
+// is HARD even when the package is listed, which is strictly stricter than
+// the list on its own, and an unlisted failure that passes alone is a
+// warning, which is the only direction this loosens.
+//
+// What it cannot do is separate contention from a genuine concurrency bug:
+// both fail together and pass alone. That limit is worth stating rather
+// than implying, because it is the one shape this pass will wave through.
+func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, contention []Failure, err error) {
+	// One re-run per parent test, since a parent and three of its subtests
+	// are one fixture and one answer.
+	seen := make(map[string]bool, len(failures))
+	var targets []Failure
+	for _, f := range failures {
+		if f.Test == "" {
+			// A build failure. Never re-run and never tolerated: a package
+			// that does not compile did not lose a race.
+			confirmed = append(confirmed, f)
+			continue
+		}
+		key := f.Package + "\x00" + TopLevel(f.Test)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		targets = append(targets, Failure{Package: f.Package, Test: TopLevel(f.Test)})
+	}
+
+	if len(targets) > maxIsolationRetries {
+		if echo != nil {
+			fmt.Fprintf(echo, "flakegate: %d distinct test failures, more than the %d this pass re-runs; reporting them as they stand\n",
+				len(targets), maxIsolationRetries)
+		}
+		return append(confirmed, targets...), nil, nil
+	}
+
+	for _, target := range targets {
+		if echo != nil {
+			fmt.Fprintf(echo, "flakegate: re-running %s %s alone\n", target.Package, target.Test)
+		}
+		passed, runErr := runAlone(target, args)
+		if runErr != nil {
+			// The re-run could not be performed at all, which is not
+			// evidence of anything about the test. Reported as confirmed,
+			// because the alternative is tolerating a failure on the
+			// strength of a check that did not happen.
+			if echo != nil {
+				fmt.Fprintf(echo, "flakegate: could not re-run %s %s (%v); treating it as confirmed\n",
+					target.Package, target.Test, runErr)
+			}
+			confirmed = append(confirmed, target)
+			continue
+		}
+		if passed {
+			contention = append(contention, target)
+		} else {
+			confirmed = append(confirmed, target)
+		}
+	}
+
+	sortFailures(confirmed)
+	sortFailures(contention)
+	return confirmed, contention, nil
+}
+
+// runAlone runs one test in one package and reports whether it passed.
+//
+// The same flags the full run used, so the re-run is the same test under
+// the same race detector and the same build tags; only the scope changes.
+// -count=1 is forced regardless, because a cached pass would answer a
+// question nobody asked.
+func runAlone(target Failure, args []string) (bool, error) {
+	full := []string{"test"}
+	full = append(full, args...)
+	full = append(full, "-count=1", "-run", "^"+regexp.QuoteMeta(target.Test)+"$", target.Package)
+
+	// #nosec G204 -- args is the caller's own fixed literal slice, and the
+	// package and test names come from go test's own -json output for this
+	// module, never from user input. The test name is regexp-quoted and
+	// anchored, so it cannot widen the selection either.
+	cmd := exec.Command("go", full...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			// A non-zero exit is the test failing, which is an answer
+			// rather than an error.
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// FirstSentence is the opening sentence of a waiver reason.
+//
+// The reasons in flaky-packages.json are paragraphs by design -- each is a
+// record of what was observed and when -- and printing one in full for
+// every tolerated failure buries the list of failures under the
+// explanations. The whole reason is one file away.
+func FirstSentence(reason string) string {
+	if i := strings.IndexByte(reason, '.'); i >= 0 && i < len(reason)-1 {
+		return reason[:i+1]
+	}
+	return reason
 }

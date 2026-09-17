@@ -1,9 +1,11 @@
 package flakegate
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -249,5 +251,110 @@ func TestFlakyPackagesJSON_NarrowedEntriesNameTestsThatLookLikeTests(t *testing.
 				t.Errorf("%s names %q; entries name the top-level test, and its subtests are covered automatically", path, name)
 			}
 		}
+	}
+}
+
+// TestTopLevel is the unit the isolation pass re-runs: a subtest cannot be
+// run without its parent, and the parent owns the fixture a contended
+// machine failed to build.
+func TestTopLevel(t *testing.T) {
+	cases := map[string]string{
+		"TestThing":               "TestThing",
+		"TestThing/a_case":        "TestThing",
+		"TestThing/a_case/deeper": "TestThing",
+		"FuzzAgentPayload/seed#0": "FuzzAgentPayload",
+		"":                        "",
+	}
+	for in, want := range cases {
+		if got := TopLevel(in); got != want {
+			t.Errorf("TopLevel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestIsolate_ABuildFailureIsNeverReRun pins the one shape that is always
+// confirmed: a package that does not compile did not lose a race.
+func TestIsolate_ABuildFailureIsNeverReRun(t *testing.T) {
+	confirmed, contention, err := Isolate(
+		[]Failure{{Package: "example.com/broken"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	if len(contention) != 0 {
+		t.Errorf("a build failure was tolerated as contention: %+v", contention)
+	}
+	if len(confirmed) != 1 || confirmed[0].Package != "example.com/broken" {
+		t.Errorf("confirmed = %+v, want the build failure", confirmed)
+	}
+}
+
+// TestIsolate_TooManyFailuresAreNotReRun guards the bound.
+//
+// A run with more failures than the cap is not a contended machine losing a
+// race; it is a change that broke something, and re-running them one at a
+// time would cost more wall clock than the suite did. Past the bound they
+// are reported as they stand, which is the stricter answer.
+func TestIsolate_TooManyFailuresAreNotReRun(t *testing.T) {
+	var many []Failure
+	for i := 0; i < 40; i++ {
+		many = append(many, Failure{
+			Package: "example.com/pkg",
+			Test:    "TestNumber" + strconv.Itoa(i),
+		})
+	}
+
+	var echo bytes.Buffer
+	confirmed, contention, err := Isolate(many, nil, &echo)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	if len(contention) != 0 {
+		t.Errorf("%d failures were tolerated without being re-run", len(contention))
+	}
+	if len(confirmed) != len(many) {
+		t.Errorf("confirmed %d of %d failures", len(confirmed), len(many))
+	}
+	// And it says so, rather than silently applying a cap: a gate that
+	// truncates quietly reads as "everything was checked".
+	if !strings.Contains(echo.String(), "reporting them as they stand") {
+		t.Errorf("the bound was applied silently: %q", echo.String())
+	}
+}
+
+// TestIsolate_OneReRunPerParentTest proves a parent and its subtests are
+// one question, not four.
+func TestIsolate_OneReRunPerParentTest(t *testing.T) {
+	// A package that does not exist, so every re-run fails fast and lands
+	// in confirmed; what is under test here is how many targets there are.
+	failures := []Failure{
+		{Package: "example.com/nope", Test: "TestThing"},
+		{Package: "example.com/nope", Test: "TestThing/one"},
+		{Package: "example.com/nope", Test: "TestThing/two"},
+		{Package: "example.com/nope", Test: "TestOther"},
+	}
+	confirmed, _, err := Isolate(failures, nil, nil)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	if len(confirmed) != 2 {
+		t.Errorf("Isolate produced %d targets from four failures across two parents: %+v",
+			len(confirmed), confirmed)
+	}
+}
+
+// TestFirstSentence keeps a tolerated failure's line readable.
+//
+// The reasons in flaky-packages.json are paragraphs on purpose, and
+// printing one in full per failure buries the failures under the
+// explanations.
+func TestFirstSentence(t *testing.T) {
+	long := "CLASS: HARNESS-ONLY (classified 2026-09-15). The rest of this is several hundred words."
+	if got := FirstSentence(long); got != "CLASS: HARNESS-ONLY (classified 2026-09-15)." {
+		t.Errorf("FirstSentence = %q", got)
+	}
+	// A reason with no sentence break is returned whole rather than cut at
+	// an arbitrary width.
+	if got := FirstSentence("no full stop here"); got != "no full stop here" {
+		t.Errorf("FirstSentence = %q", got)
 	}
 }
