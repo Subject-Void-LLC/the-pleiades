@@ -154,6 +154,138 @@ func TestDrainInto_StopsAtTheBoundMidBatch(t *testing.T) {
 	}
 }
 
+// TestDrainInto_AnArchiveExactlyAtTheBoundIsNotCalledPartial is the false
+// positive the marker used to produce, and it is the one shape a count
+// alone cannot tell apart from a real truncation.
+//
+// An archive holding exactly maxArchivedLogMessages, delivered in SHORT
+// batches, drains completely: the last body written is the last body there
+// is. The old code reached the bound, fell out of the loop and stamped the
+// file partial anyway, so a whole log said of itself that it was not one --
+// and a reader who believed it went looking for output that did not exist.
+//
+// Short batches are the realistic shape rather than a contrived one.
+// FetchNoWait returns what is in the stream at that instant, so a producer
+// still writing makes a partly filled batch routine.
+func TestDrainInto_AnArchiveExactlyAtTheBoundIsNotCalledPartial(t *testing.T) {
+	remaining := maxArchivedLogMessages
+	exact := fetchBatch(func(n int) ([][]byte, error) {
+		if remaining == 0 {
+			return nil, nil
+		}
+		// Deliberately short of what was asked for, and never landing on
+		// a multiple of the batch size.
+		size := 100
+		if size > remaining {
+			size = remaining
+		}
+		remaining -= size
+		out := make([][]byte, size)
+		for i := range out {
+			out[i] = []byte(`{"m":"x"}`)
+		}
+		return out, nil
+	})
+
+	var buf bytes.Buffer
+	if err := drainInto(context.Background(), &buf, exact); err != nil {
+		t.Fatalf("drainInto: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != maxArchivedLogMessages {
+		t.Fatalf("a complete archive of exactly the bound wrote %d lines, want %d and no marker",
+			len(lines), maxArchivedLogMessages)
+	}
+	if strings.Contains(buf.String(), "truncated") {
+		t.Error("a complete file says of itself that it is partial, which sends a reader looking for output that does not exist")
+	}
+}
+
+// TestDrainInto_TheBoundOnABatchBoundaryAsksBeforeDeciding is the other
+// half, and the reason the fix is a question rather than an inference.
+//
+// Here the bound falls exactly at the end of a batch and there IS more, so
+// nothing the drain is holding proves it either way. Inferring "complete"
+// from a batch that happened to end there would hand back a genuinely
+// truncated file that looked whole, which is worse than the false positive
+// above: the first costs a reader a second look, the second is how somebody
+// concludes a run finished cleanly when it did not.
+func TestDrainInto_TheBoundOnABatchBoundaryAsksBeforeDeciding(t *testing.T) {
+	served := 0
+	asked := 0
+	boundary := fetchBatch(func(n int) ([][]byte, error) {
+		asked++
+		size := n
+		if served+size > maxArchivedLogMessages {
+			size = maxArchivedLogMessages - served
+		}
+		if size <= 0 {
+			// Past the bound, so this is the confirming question. There
+			// is more, and saying so is the whole point.
+			return bodies(`{"m":"leftover"}`), nil
+		}
+		served += size
+		out := make([][]byte, size)
+		for i := range out {
+			out[i] = []byte(`{"m":"x"}`)
+		}
+		return out, nil
+	})
+
+	var buf bytes.Buffer
+	if err := drainInto(context.Background(), &buf, boundary); err != nil {
+		t.Fatalf("drainInto: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != maxArchivedLogMessages+1 {
+		t.Fatalf("the drain wrote %d lines, want %d plus a marker", len(lines), maxArchivedLogMessages)
+	}
+	if !strings.Contains(lines[len(lines)-1], "truncated") {
+		t.Errorf("a file that really is partial does not say so: %q", lines[len(lines)-1])
+	}
+	// The confirming fetch must not have been written out: it is a
+	// question, and its answer is discarded.
+	if strings.Contains(buf.String(), "leftover") {
+		t.Error("the confirming fetch's body was written into the file, so the drain overran its own bound")
+	}
+}
+
+// TestDrainInto_AnUnanswerableConfirmationFailsTowardPartial pins the
+// direction the unknown case errs in.
+//
+// If the broker cannot answer whether anything is left, the drain does not
+// know whether the file is whole. Saying nothing would let a partial file
+// pass as complete; saying "truncated" costs a reader one wasted check.
+// Those are not symmetric, and this is the cheaper mistake.
+func TestDrainInto_AnUnanswerableConfirmationFailsTowardPartial(t *testing.T) {
+	served := 0
+	flaky := fetchBatch(func(n int) ([][]byte, error) {
+		size := n
+		if served+size > maxArchivedLogMessages {
+			size = maxArchivedLogMessages - served
+		}
+		if size <= 0 {
+			return nil, errors.New("the broker went away mid-answer")
+		}
+		served += size
+		out := make([][]byte, size)
+		for i := range out {
+			out[i] = []byte(`{"m":"x"}`)
+		}
+		return out, nil
+	})
+
+	var buf bytes.Buffer
+	if err := drainInto(context.Background(), &buf, flaky); err != nil {
+		t.Fatalf("drainInto turned an unanswerable confirmation into a failed download: %v", err)
+	}
+	if !strings.Contains(buf.String(), "truncated") {
+		t.Error("a drain that could not tell whether it was complete let the file pass as complete")
+	}
+}
+
 func TestDrainInto_ReportsAFetchFailure(t *testing.T) {
 	boom := errors.New("the broker went away")
 	var buf bytes.Buffer

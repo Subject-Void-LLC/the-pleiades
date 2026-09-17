@@ -173,8 +173,15 @@ func journalNote(entries JournalReader) func(context.Context, string) string {
 			// than saying it once.
 			return ""
 		}
+		// Names the control on this page rather than an API, which is
+		// what this used to say: there is no journal endpoint in
+		// internal/apispec and never has been, so an operator who
+		// followed that sentence found nothing to follow. The CSV holds
+		// four times what this table does and discloses its own bound in
+		// the file, which is why it can be pointed at honestly.
 		return "Showing the first " + strconv.Itoa(len(found)) +
-			" of a longer run. This is not the whole record: read the full journal through the API."
+			" of a longer run. This is not the whole record: the run journal (CSV) under Downloads " +
+			"holds more, and says in the file if it stops short too."
 	}
 }
 

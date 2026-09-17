@@ -10368,6 +10368,10 @@
                               "questions": {
                                 "items": {
                                   "properties": {
+                                    "allow_program_content": {
+                                      "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                      "type": "boolean"
+                                    },
                                     "choices": {
                                       "description": "The permitted values for the two choice types.",
                                       "items": {
@@ -10376,7 +10380,7 @@
                                       "type": "array"
                                     },
                                     "default": {
-                                      "description": "Used when an answer is absent and the question is not required.",
+                                      "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                       "type": "string"
                                     },
                                     "help": {
@@ -10388,11 +10392,11 @@
                                       "type": "string"
                                     },
                                     "max": {
-                                      "description": "See min.",
+                                      "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                       "type": "integer"
                                     },
                                     "min": {
-                                      "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                      "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                       "type": "integer"
                                     },
                                     "required": {
@@ -10400,7 +10404,7 @@
                                       "type": "boolean"
                                     },
                                     "type": {
-                                      "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                      "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                       "type": "string"
                                     },
                                     "variable": {
@@ -10512,6 +10516,10 @@
                       "questions": {
                         "items": {
                           "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
                             "choices": {
                               "description": "The permitted values for the two choice types.",
                               "items": {
@@ -10520,7 +10528,7 @@
                               "type": "array"
                             },
                             "default": {
-                              "description": "Used when an answer is absent and the question is not required.",
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                               "type": "string"
                             },
                             "help": {
@@ -10532,11 +10540,11 @@
                               "type": "string"
                             },
                             "max": {
-                              "description": "See min.",
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                               "type": "integer"
                             },
                             "min": {
-                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                               "type": "integer"
                             },
                             "required": {
@@ -10544,7 +10552,7 @@
                               "type": "boolean"
                             },
                             "type": {
-                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                               "type": "string"
                             },
                             "variable": {
@@ -10667,6 +10675,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -10675,7 +10687,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -10687,11 +10699,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -10699,7 +10711,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -10968,6 +10980,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -10976,7 +10992,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -10988,11 +11004,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -11000,7 +11016,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -11134,6 +11150,10 @@
                       "questions": {
                         "items": {
                           "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
                             "choices": {
                               "description": "The permitted values for the two choice types.",
                               "items": {
@@ -11142,7 +11162,7 @@
                               "type": "array"
                             },
                             "default": {
-                              "description": "Used when an answer is absent and the question is not required.",
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                               "type": "string"
                             },
                             "help": {
@@ -11154,11 +11174,11 @@
                               "type": "string"
                             },
                             "max": {
-                              "description": "See min.",
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                               "type": "integer"
                             },
                             "min": {
-                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                               "type": "integer"
                             },
                             "required": {
@@ -11166,7 +11186,7 @@
                               "type": "boolean"
                             },
                             "type": {
-                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                               "type": "string"
                             },
                             "variable": {
@@ -11289,6 +11309,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -11297,7 +11321,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -11309,11 +11333,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -11321,7 +11345,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -11798,6 +11822,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -11806,7 +11834,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -11818,11 +11846,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -11830,7 +11858,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -12483,6 +12511,10 @@
                       "questions": {
                         "items": {
                           "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
                             "choices": {
                               "description": "The permitted values for the two choice types.",
                               "items": {
@@ -12491,7 +12523,7 @@
                               "type": "array"
                             },
                             "default": {
-                              "description": "Used when an answer is absent and the question is not required.",
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                               "type": "string"
                             },
                             "help": {
@@ -12503,11 +12535,11 @@
                               "type": "string"
                             },
                             "max": {
-                              "description": "See min.",
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                               "type": "integer"
                             },
                             "min": {
-                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                               "type": "integer"
                             },
                             "required": {
@@ -12515,7 +12547,7 @@
                               "type": "boolean"
                             },
                             "type": {
-                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                               "type": "string"
                             },
                             "variable": {
@@ -12632,6 +12664,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -12640,7 +12676,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -12652,11 +12688,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -12664,7 +12700,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {

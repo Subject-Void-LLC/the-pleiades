@@ -263,6 +263,21 @@ func TestRegister_RefusesAnUnreachableRowAction(t *testing.T) {
 			wantErr: "reserved path segment",
 		},
 		{
+			// "download" was added to the static route table without
+			// being added to the reserved set, so for as long as
+			// downloads have existed an action could take the name,
+			// register cleanly, and be shadowed forever with nothing
+			// reporting it -- while handler.go's own comment said
+			// Register refused exactly this.
+			name: "a name the download route already owns",
+			mutate: func(d *view.Descriptor) {
+				a := valid()
+				a.Name = "download"
+				d.Sections[0].RowActions = []view.RowAction{a}
+			},
+			wantErr: "reserved path segment",
+		},
+		{
 			name: "a name a record action already owns",
 			mutate: func(d *view.Descriptor) {
 				a := valid()

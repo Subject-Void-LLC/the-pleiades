@@ -359,9 +359,28 @@ type RecordActionLink struct {
 // ask a broker, and a template that did IO while rendering has nowhere to
 // report a failure, because the response has already begun.
 type DownloadLink struct {
+	// Name is the format's declared name, carried through only so the
+	// rendered note has a stable identifier the link can point at with
+	// aria-describedby. It is unique per descriptor, which Register
+	// enforces, and that is what makes the identifier collision free.
+	Name string
+
 	Label   string
 	Summary string
 	Href    string
+}
+
+// NoteID is the DOM identifier of this download's visible caveat.
+//
+// Empty when there is no caveat, so the template renders neither the note
+// nor a reference to one: an aria-describedby pointing at an element that
+// was never drawn is worse than no description, because a screen reader
+// announces nothing and the markup claims otherwise.
+func (d DownloadLink) NoteID() string {
+	if strings.TrimSpace(d.Summary) == "" {
+		return ""
+	}
+	return "download-" + d.Name + "-note"
 }
 
 // ResolveDownloads returns the downloads this record actually has,
@@ -382,6 +401,7 @@ func (m DetailModel) ResolveDownloads(ctx context.Context) []DownloadLink {
 			continue
 		}
 		out = append(out, DownloadLink{
+			Name:    dl.Name,
 			Label:   dl.Label,
 			Summary: dl.Summary,
 			Href:    path.Join(base, dl.Name),

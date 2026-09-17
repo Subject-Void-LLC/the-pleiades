@@ -1244,6 +1244,29 @@ func TestDownload_ServesTheDeclaredFormatAndRefusesTheRest(t *testing.T) {
 			t.Errorf("status = %d, want 404", rec.Code)
 		}
 	})
+
+	// The scope gate, which until this case nothing exercised: deleting
+	// the whole permits() block from download left every test in the
+	// repository green, while the one route that hands back a job's full
+	// log output and its run journal became readable by any authenticated
+	// session whatever its scope. The sibling check on the record page is
+	// covered (TestScopeRefusalIsForbiddenNotNotFound); this one was the
+	// copy nobody pinned.
+	//
+	// 403 and not 404, deliberately, matching that sibling: conflating
+	// them makes a permission problem look like a typo, and the file is
+	// the way around the page only if it answers differently.
+	t.Run("a caller refused the record's scope is a 403", func(t *testing.T) {
+		registerRecordViews()
+		denied := newProbe(t, denyAll{}, permitEverything{})
+		rec := denied.get(t, "/ui/"+gadgetView+"/widget/download/report")
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403: a caller who may not open the record page may not save it either", rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "widget") {
+			t.Error("the refused response carries the record's bytes")
+		}
+	})
 }
 
 // TestDownload_TheRecordPageOffersOnlyWhatTheRecordHas is the chooser half:
@@ -1267,5 +1290,38 @@ func TestDownload_TheRecordPageOffersOnlyWhatTheRecordHas(t *testing.T) {
 	withheld := p.get(t, "/ui/"+gadgetView+"/done").Body.String()
 	if strings.Contains(withheld, "/download/report") {
 		t.Error("a record with nothing to download still offers the link, which can only produce an empty file")
+	}
+}
+
+// TestDownload_TheCaveatIsVisibleTextRatherThanATooltip pins the thing
+// DownloadSpec.Summary exists for.
+//
+// A download's summary is not decoration. For the job log it says how long
+// the broker keeps the output, which is a fact a reader needs BEFORE they
+// save the file and cannot recover from the file afterwards. It used to be
+// delivered as a title attribute on a button in the title row: invisible to
+// a keyboard user on some browsers and to a touch user on nearly all of
+// them, so an operator on a phone saved a log and found out next month that
+// it could not be produced again.
+//
+// The three assertions are one claim each: the caveat is element text, it is
+// not ONLY a tooltip, and the link is bound to it so a screen reader
+// announces the label as the name and the caveat as the description rather
+// than either running them together or dropping one.
+func TestDownload_TheCaveatIsVisibleTextRatherThanATooltip(t *testing.T) {
+	p := newRecordProbe(t)
+	body := p.get(t, "/ui/"+gadgetView+"/widget").Body.String()
+
+	const caveat = "What this gadget did."
+	if !strings.Contains(body, ">"+caveat+"<") {
+		t.Error("the download's summary is not rendered as element text, so a reader who cannot hover never sees it")
+	}
+	if strings.Contains(body, `title="`+caveat) {
+		t.Error("the download's summary is delivered as a tooltip, which is what this test exists to stop")
+	}
+
+	const noteID = "download-report-note"
+	if !strings.Contains(body, `id="`+noteID+`"`) || !strings.Contains(body, `aria-describedby="`+noteID+`"`) {
+		t.Errorf("the download link and its caveat are not bound by %q, so a screen reader announces the link without it", noteID)
 	}
 }

@@ -29,10 +29,45 @@ templ pageChrome(c view.Chrome) {
 		if c.Summary != "" {
 			<p class="view-summary">{ c.Summary }</p>
 		}
+		if c.HasDownloads() {
+			@downloadList(c.Downloads)
+		}
 		if c.HasTabs() {
 			@tabStrip(c.Tabs)
 		}
 	</header>
+}
+
+// downloadList renders the forms this record can be saved as.
+//
+// A list with visible notes rather than buttons on the title row, because
+// what separates two downloads of the same record is a sentence: one is
+// kept as long as the record and carries no secret, the other is held for
+// the broker's retention window and then is gone. That belongs where a
+// reader sees it before choosing, which rules out a tooltip -- invisible to
+// a keyboard user on some browsers and to a touch user on nearly all of
+// them.
+//
+// The note is a sibling of the link rather than part of its text, and is
+// bound to it with aria-describedby, so a screen reader announces the label
+// as the link's name and the caveat as its description instead of reading
+// one run-on link title.
+templ downloadList(links []view.DownloadLink) {
+	<section class="downloads" aria-labelledby="downloads-heading">
+		<h2 id="downloads-heading">Downloads</h2>
+		<ul>
+			for _, d := range links {
+				<li>
+					if d.NoteID() != "" {
+						<a class="btn" href={ templ.SafeURL(d.Href) } aria-describedby={ d.NoteID() }>{ d.Label }</a>
+						<p class="download-note" id={ d.NoteID() }>{ d.Summary }</p>
+					} else {
+						<a class="btn" href={ templ.SafeURL(d.Href) }>{ d.Label }</a>
+					}
+				</li>
+			}
+		</ul>
+	</section>
 }
 
 // chromeAction renders one control on the title row.
@@ -44,8 +79,6 @@ templ pageChrome(c view.Chrome) {
 templ chromeAction(a view.ChromeAction) {
 	if a.OpensDialog() {
 		<button class={ a.Class() } type="button" data-dialog-open={ a.Dialog }>{ a.Label }</button>
-	} else if a.Title != "" {
-		<a class={ a.Class() } href={ templ.SafeURL(a.Href) } title={ a.Title }>{ a.Label }</a>
 	} else {
 		<a class={ a.Class() } href={ templ.SafeURL(a.Href) }>{ a.Label }</a>
 	}

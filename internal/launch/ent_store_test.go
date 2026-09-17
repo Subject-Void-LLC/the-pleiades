@@ -172,6 +172,62 @@ func TestStore_ASurveyRoundTripsInItsAuthoredOrder(t *testing.T) {
 	}
 }
 
+// TestStore_AnArmedFileQuestionStaysArmedThroughStorage is the one field on
+// a question whose loss is a SAFETY ANSWER rather than a cosmetic one, and
+// until this test nothing wrote it through a real database and read it
+// back.
+//
+// Deleting SetAllowProgramContent from replaceQuestions, or the field from
+// hydrate, compiled and left every test green. What it does in a running
+// deployment: a template author arms a file question, the flag is dropped
+// at save, and on a deployment that HAS set
+// PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT every program-content answer
+// is then refused forever -- with a message telling the operator the
+// question is not marked as accepting it, while the authoring form shows
+// the box ticked. Two gates, one of them silently disarmed, and the
+// disagreement is invisible from either end.
+//
+// The unarmed question beside it is the half that makes this fail on a
+// hydrate that hardcodes true as readily as on one that drops the field.
+func TestStore_AnArmedFileQuestionStaysArmedThroughStorage(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	tmpl := f.template("bootstrap")
+	tmpl.Survey = launch.Survey{Enabled: true, Questions: []launch.Question{
+		{Variable: "bootstrap", Label: "Bootstrap script", Type: launch.QuestionFile,
+			AllowProgramContent: true},
+		{Variable: "manifest", Label: "Manifest", Type: launch.QuestionFile},
+	}}
+
+	created, err := f.store.Create(ctx, tmpl)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := created.Survey.Questions; len(got) != 2 ||
+		!got[0].AllowProgramContent || got[1].AllowProgramContent {
+		t.Fatalf("Create did not round-trip the arming flag: %+v", got)
+	}
+
+	// Read back through a second query rather than trusting what Create
+	// returned, because a Create that echoes its argument back would pass
+	// the assertion above while never having written the column.
+	reread, err := f.store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	got := reread.Survey.Questions
+	if len(got) != 2 {
+		t.Fatalf("the survey came back with %d questions, want 2", len(got))
+	}
+	if !got[0].AllowProgramContent {
+		t.Error("an armed file question came back disarmed, so every program-content answer is refused while the form shows the box ticked")
+	}
+	if got[1].AllowProgramContent {
+		t.Error("an unarmed file question came back armed, which opens the gate a template author deliberately left shut")
+	}
+}
+
 func TestStore_UpdateReplacesTheSurveyAndKeepsWhatRuns(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()

@@ -65,13 +65,20 @@ const MaxFileAnswerBytes = 32 << 10
 // do the one thing that cannot work.
 var ErrProgramContent = errors.New("launch: this file declares itself a program")
 
-// ProgramContentMessage is the sentence both refusals use, verbatim.
+// ProgramContentMessage is the sentence the launch-time refusal uses.
 //
-// One constant in the shape routing.UnsupportedInjectionMessage sets, so an
-// operator who meets this at launch after meeting it while authoring does
-// not have to work out whether it is the same rule. It says what the rule
-// is AND what it is not, because a refusal that only says "refused" invites
-// the reading that whatever gets through is safe.
+// ONE call site, which is worth stating because an earlier version of this
+// comment claimed two and named routing.UnsupportedInjectionMessage as the
+// precedent. That constant really does serve two refusals; this one does
+// not, and the authoring-time refusals in Survey.Validate are a different
+// rule in different words -- they refuse the FLAG on a question that cannot
+// carry it, where this refuses the CONTENT of an answer. A constant is
+// still the right shape for it: the text is long, it is the only thing an
+// operator sees when a launch is refused this way, and a sentence that
+// careful should be edited in one place.
+//
+// It says what the rule is AND what it is not, because a refusal that only
+// says "refused" invites the reading that whatever gets through is safe.
 const ProgramContentMessage = "this platform refuses a survey file that opens with an interpreter line unless the " +
 	"deployment sets PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT and the question itself is marked as accepting " +
 	"program content. Note that a file without an interpreter line is not thereby safe: what an answer can do is " +

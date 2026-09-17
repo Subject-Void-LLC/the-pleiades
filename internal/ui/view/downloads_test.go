@@ -98,9 +98,38 @@ func TestValidateDownloads_AcceptsAWellFormedOne(t *testing.T) {
 // registerWithDownloads registers a minimal view carrying downloads, under
 // a name unique to this call so the process-wide registry does not collide
 // across cases or across -count=3 runs.
+//
+// Implemented rather than declared, which this used to be. A declared view
+// serving real files is now a Register-time refusal, and the helper that
+// asserts a well-formed download is ACCEPTED must not be built out of the
+// one shape that is refused for another reason entirely.
 func registerWithDownloads(t *testing.T, downloads []view.DownloadSpec) error {
 	t.Helper()
 	return view.Register(view.Descriptor{
+		Name:      downloadViewName(t),
+		Title:     "Downloadables",
+		NavLabel:  "DOWNLOADABLES",
+		Status:    view.StatusImplemented,
+		IDField:   "name",
+		Fields:    testFields(),
+		Ops:       view.Ops{List: &apispec.ListJobs, Get: &apispec.GetJob},
+		Handlers:  view.MustBind[device](fakeReader{}, nil, testProjector()),
+		Downloads: downloads,
+	})
+}
+
+// TestRegister_RefusesDownloadsOnADeclaredView is the contradiction the
+// declared status exists to remove, one affordance further than the chart
+// and stream arms beside it.
+//
+// A declared view's record page renders the honest "not implemented"
+// panel. Its /download/{format} route, before this, returned 200 and the
+// real bytes: a view telling every reader it is unbuilt while handing out
+// files. Refused at Register rather than 404'd in the handler, so the
+// contradiction is impossible to compose rather than merely unreachable.
+func TestRegister_RefusesDownloadsOnADeclaredView(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
+	err := view.Register(view.Descriptor{
 		Name:      downloadViewName(t),
 		Title:     "Downloadables",
 		NavLabel:  "DOWNLOADABLES",
@@ -108,8 +137,14 @@ func registerWithDownloads(t *testing.T, downloads []view.DownloadSpec) error {
 		IDField:   "id",
 		Fields:    []view.Field{{Name: "id", Label: "ID", Kind: view.KindText, InList: true}},
 		Ops:       view.Ops{List: &apispec.ListJobs, Get: &apispec.GetJob},
-		Downloads: downloads,
+		Downloads: []view.DownloadSpec{validDownload()},
 	})
+	if err == nil {
+		t.Fatal("Register accepted a declared view that serves downloads, so an unbuilt view hands out real files")
+	}
+	if !strings.Contains(err.Error(), "declares downloads") {
+		t.Errorf("Register refused for the wrong reason: %v", err)
+	}
 }
 
 // TestDownloadSpec_FilenameForSanitisesTheRecord is a header-injection

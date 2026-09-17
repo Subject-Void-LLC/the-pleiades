@@ -47,6 +47,18 @@ type Chrome struct {
 	// comparable control plane puts them.
 	Actions []ChromeAction
 
+	// Downloads are the forms this record can be saved as, already
+	// resolved against it.
+	//
+	// They are NOT ChromeActions, and the reason is a caveat rather than a
+	// layout preference. A download's Summary says what the file is and,
+	// for the log, how long it exists before the broker drops it, which is
+	// something a reader needs BEFORE they save it and cannot recover
+	// afterwards from the file itself. A control on the title row has
+	// nowhere to put a sentence, so this renders as its own small list
+	// where each entry's caveat is visible text.
+	Downloads []DownloadLink
+
 	// Tabs are this record's parts. Empty on a page that has none, which
 	// is what stops a list rendering an empty tab strip.
 	Tabs []Tab
@@ -59,6 +71,12 @@ type Chrome struct {
 // that offers a choice between one thing: it reads as a broken tab bar rather
 // than as a page with nothing else on it.
 func (c Chrome) HasTabs() bool { return len(c.Tabs) > 1 }
+
+// HasDownloads reports whether the downloads block renders at all.
+//
+// Unlike HasTabs, one is enough: a single download is a complete offer,
+// where a single tab is a tab bar offering a choice between one thing.
+func (c Chrome) HasDownloads() bool { return len(c.Downloads) > 0 }
 
 // HeaderClass distinguishes a header that carries tabs from one that does
 // not, because the two need different bottom spacing and a template must not
@@ -121,16 +139,6 @@ type ChromeAction struct {
 	// Dialog names a dialog this control opens instead of navigating,
 	// which is how delete confirmation works without script.
 	Dialog string
-
-	// Title is an optional hover and accessible description, used where a
-	// control's label cannot carry a caveat the reader needs before they
-	// press it -- a log download whose contents expire, for instance.
-	//
-	// It is an addition to the label, never a replacement for one: a
-	// tooltip is invisible to a keyboard user on some browsers and to a
-	// touch user on nearly all of them, so nothing essential may live
-	// only here.
-	Title string
 }
 
 // ActionKind is how a chrome action renders.
@@ -356,14 +364,10 @@ func (m DetailModel) Chrome() Chrome {
 	for _, a := range m.Actions() {
 		c.Actions = append(c.Actions, ChromeAction{Label: a.Label, Href: a.Href, Kind: ActionPrimary})
 	}
-	// Downloads between the actions and Edit, because they are reads: a
-	// control that saves a copy of what you are looking at belongs beside
-	// the ones that do something to it and before the ones that change it.
-	for _, dl := range m.Downloads {
-		c.Actions = append(c.Actions, ChromeAction{
-			Label: dl.Label, Href: dl.Href, Title: dl.Summary, Kind: ActionNormal,
-		})
-	}
+	// Downloads are handed over whole rather than flattened into the
+	// action row, so each one's caveat renders as a sentence somebody can
+	// read. See the field's own comment.
+	c.Downloads = m.Downloads
 	if m.CanEdit() {
 		c.Actions = append(c.Actions, ChromeAction{Label: "Edit", Href: m.EditHref(), Kind: ActionNormal})
 	}

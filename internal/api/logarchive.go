@@ -168,9 +168,15 @@ func (a *LogArchive) WriteTo(ctx context.Context, w io.Writer, jobID string) err
 type fetchBatch func(n int) ([][]byte, error)
 
 // drainInto writes every message a fetcher will give, up to the bound.
+//
+// Reaching the bound is not the same question as being truncated, and this
+// used to conflate them: an archive holding exactly maxArchivedLogMessages
+// drained completely and was then stamped partial, so a whole log file said
+// of itself that it was not one. Which of the two happened is decided
+// below, from evidence rather than from the count.
 func drainInto(ctx context.Context, w io.Writer, fetch fetchBatch) error {
 	written := 0
-	for written < maxArchivedLogMessages {
+	for {
 		bodies, err := fetch(archiveFetchBatch)
 		if err != nil {
 			return err
@@ -182,24 +188,57 @@ func drainInto(ctx context.Context, w io.Writer, fetch fetchBatch) error {
 			return nil
 		}
 
-		for _, body := range bodies {
+		for i, body := range bodies {
 			if _, err := w.Write(append(body, '\n')); err != nil {
 				return err
 			}
 			written++
-			if written >= maxArchivedLogMessages {
-				break
+			if written < maxArchivedLogMessages {
+				continue
 			}
+			// Bodies still in hand are proof that more exists, and are
+			// free. Only the exact boundary has to go and ask.
+			if i+1 < len(bodies) {
+				return writeTruncationMarker(w)
+			}
+			return confirmTruncated(w, fetch)
 		}
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
+}
 
-	// Said in the FILE rather than only in a log, because the person
-	// holding the file is the one who needs to know it is partial. A
-	// truncated log that looks complete is how somebody concludes a run
-	// finished cleanly when it did not.
+// confirmTruncated asks whether anything is left, and says so.
+//
+// Reached only when the bound fell exactly on a batch boundary, which is
+// the one case where the drain holds no evidence either way. A short batch
+// is legal -- FetchNoWait returns what is there at that instant -- so
+// inferring "complete" from a batch that did not fill would hand back a
+// genuinely partial file that looked whole, which is the failure the marker
+// exists to prevent and is much worse than the one it replaced.
+//
+// The extra round trip costs one FetchNoWait on the rare drain that reaches
+// fifty thousand messages, and nothing at all on every other download. Its
+// bodies are discarded: this is a question, not a read.
+func confirmTruncated(w io.Writer, fetch fetchBatch) error {
+	more, err := fetch(1)
+	if err != nil || len(more) > 0 {
+		// An error here is "unknown", and unknown fails toward partial.
+		// A file that wrongly warns costs a reader a second look; one
+		// that wrongly looks complete is how somebody concludes a run
+		// finished cleanly when it did not.
+		return writeTruncationMarker(w)
+	}
+	return nil
+}
+
+// writeTruncationMarker says in the FILE that it is partial.
+//
+// In the file rather than only in a log, because the person holding it is
+// the one who needs to know.
+func writeTruncationMarker(w io.Writer) error {
 	_, err := fmt.Fprintf(w,
 		"{\"pleiades\":\"truncated\",\"reason\":\"this download stops at %d messages; the rest is in the log stream\"}\n",
 		maxArchivedLogMessages)

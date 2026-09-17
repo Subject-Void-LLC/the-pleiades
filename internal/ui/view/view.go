@@ -677,10 +677,18 @@ func (a RecordAction) ResolveValues(ctx context.Context, id string) (map[string]
 // resolves a static segment before a parameter, so the action would
 // register cleanly and then never be reachable -- the silent failure this
 // check exists to convert into a refusal at startup.
+//
+// "download" is here because internal/ui/web/handler.go says it is. That
+// file mounts the static segments above the parameterised action route and
+// states that Register refuses a clash, which was true of the first three
+// and not of the fourth for as long as downloads have existed: a section
+// row action named "download" registered cleanly and was then shadowed by
+// the download route forever, with nothing anywhere reporting it.
 var reservedRecordSegments = map[string]bool{
-	"edit": true,
-	"logs": true,
-	"new":  true,
+	"download": true,
+	"edit":     true,
+	"logs":     true,
+	"new":      true,
 }
 
 // DownloadSpec declares one thing a record can be downloaded AS.
@@ -1290,6 +1298,12 @@ func Register(d Descriptor) error {
 		return fmt.Errorf("view %q is declared but carries a refresh", d.Name)
 	case !d.Implemented() && d.Stream != nil:
 		return fmt.Errorf("view %q is declared but carries a stream", d.Name)
+	case !d.Implemented() && len(d.Downloads) > 0:
+		// And a download most of all. The record page renders the honest
+		// "not implemented" panel, while /download/{format} would serve
+		// the real bytes at 200 -- a view telling every reader it is
+		// unbuilt while handing out files.
+		return fmt.Errorf("view %q is declared but declares downloads", d.Name)
 
 	// A view that lists records renders a detail link on every row, so
 	// without a Get endpoint each of those links is a button this UI drew

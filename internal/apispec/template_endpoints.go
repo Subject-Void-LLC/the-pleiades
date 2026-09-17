@@ -2,8 +2,10 @@ package apispec
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
 // This file declares the Template surface: the saved, reusable definitions
@@ -23,14 +25,38 @@ var surveyQuestionSchema = map[string]any{
 		"variable": stringSchema("The extra-variable name the answer is written to."),
 		"label":    stringSchema("What the form asks."),
 		"help":     stringSchema("The line under the label."),
-		"type": stringSchema("One of text, textarea, password, integer, float, multiplechoice, multiselect. " +
-			"Ansible's own question types, so a survey imported from AWX means the same thing here."),
+		"type": stringSchema("One of " + questionTypeList() + ". Ansible's own question types plus file, " +
+			"so a survey imported from AWX means the same thing here."),
 		"required": map[string]any{"type": "boolean", "description": "Refuses a launch that leaves it blank."},
-		"default":  stringSchema("Used when an answer is absent and the question is not required."),
+		"default":  stringSchema("Used when an answer is absent and the question is not required. A file question may not carry one."),
 		"choices":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The permitted values for the two choice types."},
-		"min":      map[string]any{"type": "integer", "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded."},
-		"max":      map[string]any{"type": "integer", "description": "See min."},
+		"min":      map[string]any{"type": "integer", "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded."},
+		"max":      map[string]any{"type": "integer", "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two."},
+		"allow_program_content": map[string]any{
+			"type": "boolean",
+			"description": "File questions only. Permits an answer that opens with an interpreter line. " +
+				"It is one of TWO gates and opens nothing on its own: the deployment must also set " +
+				"PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file " +
+				"without an interpreter line is not thereby safe -- what an answer can do is decided by what " +
+				"the automation does with it.",
+		},
 	},
+}
+
+// questionTypeList renders the question types for the description above.
+//
+// Derived from internal/launch rather than written out here, which is how
+// this drifted in the first place: QuestionFile shipped and the hand-kept
+// sentence did not change, so a client generated from this document could
+// not send the type at all. internal/launch imports no apispec, so the
+// dependency is one-way and the list has one owner.
+func questionTypeList() string {
+	types := launch.QuestionTypes()
+	out := make([]string, 0, len(types))
+	for _, t := range types {
+		out = append(out, string(t))
+	}
+	return strings.Join(out, ", ")
 }
 
 var surveySchema = map[string]any{

@@ -69,21 +69,6 @@ func registrars() []Registrar {
 	}
 }
 
-// jobCanceller hands the Jobs view the one path a cancel takes, or an
-// untyped nil, by the identical conversion jobRelauncher below performs and
-// for the identical reason.
-//
-// It is Deps.JobCanceller rather than Deps.Jobs deliberately. The store
-// alone can settle the record, and the browser using it directly is exactly
-// the bug this exists to prevent: a Cancel button that stopped the job on
-// paper and left the runbook running on the device.
-// jobJournal hands the Jobs view a journal reader, or an untyped nil.
-//
-// The same explicit conversion jobRelauncher makes, for the same reason: a
-// nil *journal.EntStore in an interface parameter is a NON-nil interface
-// holding a nil pointer, so the view's "is this wired" check would pass and
-// it would draw a Tasks tab that panics on the first read. A deployment
-// with no journal reader is real -- the conformance harness is one.
 // jobLogArchive hands the Jobs view a log archive, or an untyped nil, for
 // the typed-nil reason jobRelauncher documents.
 func jobLogArchive(d Deps) jobs.LogArchive {
@@ -93,6 +78,13 @@ func jobLogArchive(d Deps) jobs.LogArchive {
 	return d.JobLogs
 }
 
+// jobJournal hands the Jobs view a journal reader, or an untyped nil.
+//
+// The same explicit conversion jobRelauncher makes, for the same reason: a
+// nil *journal.EntStore in an interface parameter is a NON-nil interface
+// holding a nil pointer, so the view's "is this wired" check would pass and
+// it would draw a Tasks tab that panics on the first read. A deployment
+// with no journal reader is real -- the conformance harness is one.
 func jobJournal(d Deps) jobs.JournalReader {
 	if d.JobJournal == nil {
 		return nil
@@ -100,6 +92,14 @@ func jobJournal(d Deps) jobs.JournalReader {
 	return d.JobJournal
 }
 
+// jobCanceller hands the Jobs view the one path a cancel takes, or an
+// untyped nil, by the identical conversion jobRelauncher below performs and
+// for the identical reason.
+//
+// It is Deps.JobCanceller rather than Deps.Jobs deliberately. The store
+// alone can settle the record, and the browser using it directly is exactly
+// the bug this exists to prevent: a Cancel button that stopped the job on
+// paper and left the runbook running on the device.
 func jobCanceller(d Deps) jobs.Canceler {
 	if d.JobCanceller == nil {
 		return nil

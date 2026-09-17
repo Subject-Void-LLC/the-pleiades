@@ -566,7 +566,17 @@ func TestEntStoreForJobRoundTripsEveryField(t *testing.T) {
 		FinishedAt:  time.Date(2026, 9, 12, 10, 0, 5, 0, time.UTC),
 		Outcome:     engine.OutcomeFailed,
 		SkipOrdinal: 3, SkipTotal: 7,
-		StatKeys: []string{"rc", "stderr"}, UndeclaredStatCount: 2,
+		// Both of these were absent from this struct until an adversarial
+		// review noticed, and their absence made the test's own opening
+		// claim false: deleting either line from hydrateEntry left the
+		// whole suite green. They are the two fields the Tasks tab's
+		// DETAIL column is built out of, so losing them renders "failed
+		// at connect" and "skipped by when (2 of 5)" as a blank cell on
+		// every row forever, and empties two columns of every downloaded
+		// journal.
+		FailureStage: engine.FailureStageAction,
+		SkipKind:     engine.SkipKindWhenCEL,
+		StatKeys:     []string{"rc", "stderr"}, UndeclaredStatCount: 2,
 		ParamKeys: []string{"name", "state"}, UndeclaredParamCount: 1,
 		InverseFQCN: "svc.systemd.stop", InverseFQCNUnresolved: true,
 		InverseParamKeys: []string{"name"}, UndeclaredInverseParamCount: 5,
@@ -605,6 +615,8 @@ func TestEntStoreForJobRoundTripsEveryField(t *testing.T) {
 		{"TaskName", got.TaskName, want.TaskName},
 		{"Register", got.Register, want.Register},
 		{"Outcome", got.Outcome, want.Outcome},
+		{"FailureStage", got.FailureStage, want.FailureStage},
+		{"SkipKind", got.SkipKind, want.SkipKind},
 		{"SkipOrdinal", got.SkipOrdinal, want.SkipOrdinal},
 		{"SkipTotal", got.SkipTotal, want.SkipTotal},
 		{"UndeclaredStatCount", got.UndeclaredStatCount, want.UndeclaredStatCount},
