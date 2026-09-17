@@ -507,19 +507,13 @@ func Port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// every isolated run and failed under a full parallel suite.
 	conn, err := sdk.Connect(waitCtx, rc, device, params, portFQCN)
 	if err != nil {
-		if waitCtx.Err() != nil {
-			return collection.Result{}, portGaveUp(ctx, rc, req, started)
-		}
-		return collection.Result{}, err
+		return collection.Result{}, portSetupFailed(ctx, waitCtx, rc, req, started, err)
 	}
 	defer func() { _ = conn.Close() }()
 
 	prober, err := portChooseProber(waitCtx, conn)
 	if err != nil {
-		if waitCtx.Err() != nil {
-			return collection.Result{}, portGaveUp(ctx, rc, req, started)
-		}
-		return collection.Result{}, fmt.Errorf("%s: %w", portFQCN, err)
+		return collection.Result{}, portSetupFailed(ctx, waitCtx, rc, req, started, fmt.Errorf("%s: %w", portFQCN, err))
 	}
 
 	if err := portPause(waitCtx, req.delay); err != nil {
@@ -550,6 +544,28 @@ func Port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			return collection.Result{}, portGaveUp(ctx, rc, req, started)
 		}
 	}
+}
+
+// portSetupFailed decides what a failure BEFORE the first probe means.
+//
+// The deadline above covers the connection and the tool check as well as
+// every probe, so either can fail because the budget ran out rather than
+// because anything is wrong with the device. Until this existed only the
+// probe path said so: the same cause reported "timed out waiting for
+// host:port to be started" between probes and the transport's own "context
+// deadline exceeded" while connecting, which tells an operator their
+// session broke rather than that their wait expired, and skipped the stats
+// a failed wait owes.
+//
+// One function rather than the same three lines at both call sites,
+// because two copies of a conversion are two places for the next person to
+// fix one of. It also means the branch is exercised once rather than
+// needing a separate timing-dependent test per call site.
+func portSetupFailed(parent, waitCtx context.Context, rc sdk.RunbookContext, req portRequest, started time.Time, err error) error {
+	if waitCtx.Err() != nil {
+		return portGaveUp(parent, rc, req, started)
+	}
+	return err
 }
 
 // portPause waits d, giving up early when ctx ends. A zero or negative d
