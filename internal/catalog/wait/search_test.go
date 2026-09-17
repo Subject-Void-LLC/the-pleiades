@@ -152,7 +152,7 @@ func TestSearch_WaitsForAPatternThatAppears(t *testing.T) {
 
 	const appearsAfter = 400 * time.Millisecond
 	waitAfter(t, appearsAfter, func() {
-		_ = os.WriteFile(path, []byte(searchLog+"listening on port 8080\n"), 0o600)
+		waitReplace(t, path, searchLog+"listening on port 8080\n")
 	})
 
 	start := time.Now()
@@ -273,7 +273,7 @@ func TestSearch_WaitsForAPatternToDisappear(t *testing.T) {
 	path := waitExistingFile(t, searchLog+"FATAL cannot bind\n")
 
 	const clearedAfter = 400 * time.Millisecond
-	waitAfter(t, clearedAfter, func() { _ = os.WriteFile(path, []byte(searchLog), 0o600) })
+	waitAfter(t, clearedAfter, func() { waitReplace(t, path, searchLog) })
 
 	start := time.Now()
 	_, err := wait.Search(context.Background(), rc, newWaitTarget(server), map[string]any{
