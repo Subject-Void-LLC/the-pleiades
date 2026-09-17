@@ -499,7 +499,7 @@ func TestDownloads_JournalCSVIsTheWholeRecord(t *testing.T) {
 	e.FailureStage = engine.FailureStage("execute")
 
 	var buf bytes.Buffer
-	if err := writeJournalCSV(&buf, []engine.JournalEntry{e}); err != nil {
+	if err := writeJournalCSV(&buf, []engine.JournalEntry{e}, false); err != nil {
 		t.Fatalf("writeJournalCSV: %v", err)
 	}
 
@@ -554,5 +554,49 @@ func TestDownloads_JournalCSVCarriesKeysAndNeverValues(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(journalColumns, ","), "stat_keys") {
 		t.Error("the CSV does not carry the stat keys, which are the only part of a stat it may")
+	}
+}
+
+// TestDownloads_JournalCSVSaysWhenItIsPartial is the disclosure the store's
+// truncated flag exists for, and which this download discarded into `_`
+// until a review caught it.
+//
+// A 200-device run of a 15-node runbook is 3000 rows against a 2000-row
+// read. The operator got a file labelled "one row per task per device" that
+// silently held two thirds of one, with nothing in it saying so -- while
+// the Tasks tab on the page they clicked it from said so plainly.
+func TestDownloads_JournalCSVSaysWhenItIsPartial(t *testing.T) {
+	e := entry("dev-1", "tasks[0]", 1, engine.OutcomeRan)
+
+	var full bytes.Buffer
+	if err := writeJournalCSV(&full, []engine.JournalEntry{e}, false); err != nil {
+		t.Fatalf("writeJournalCSV: %v", err)
+	}
+	if strings.Contains(full.String(), "truncated") {
+		t.Error("a complete journal claims to be partial")
+	}
+
+	var partial bytes.Buffer
+	if err := writeJournalCSV(&partial, []engine.JournalEntry{e}, true); err != nil {
+		t.Fatalf("writeJournalCSV: %v", err)
+	}
+
+	// Still valid CSV, which is the whole reason the marker is a full
+	// record rather than a trailing line: encoding/csv pins the field
+	// count from the header and answers a short row with ErrFieldCount, so
+	// an honest disclosure written carelessly makes the file unreadable.
+	records, err := csv.NewReader(&partial).ReadAll()
+	if err != nil {
+		t.Fatalf("the truncated file is not valid CSV, so the disclosure broke the artefact: %v", err)
+	}
+	last := records[len(records)-1]
+	if len(last) != len(journalColumns) {
+		t.Errorf("the marker row has %d fields, want %d", len(last), len(journalColumns))
+	}
+	if last[0] != "pleiades:truncated" {
+		t.Errorf("the last row is %v, want a truncation marker", last)
+	}
+	if !strings.Contains(last[1], "stops at") {
+		t.Errorf("the marker does not say where the file stops: %q", last[1])
 	}
 }

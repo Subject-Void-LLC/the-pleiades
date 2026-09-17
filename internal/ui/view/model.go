@@ -321,6 +321,24 @@ func (v Values) Bool(name string) bool {
 // it unset: it is declining to overwrite what only storage knows.
 func (v Values) Editing() bool { return v.editing }
 
+// Declares reports whether the form this submission came from rendered a
+// control of this name.
+//
+// It answers a question Get and Bool cannot, and the difference is where a
+// silent data loss lives. An unchecked checkbox submits nothing, and so
+// does a checkbox the form never drew, so Bool returns false for both --
+// but the first is somebody turning a flag off and the second is a form
+// with no opinion about it. A handler that cannot tell them apart clears
+// the stored value every time a control is conditionally withheld.
+//
+// It reads the DECLARED set rather than the submitted keys, because that is
+// what the renderer drew from: a control that was rendered and left empty
+// still declares itself.
+func (v Values) Declares(name string) bool {
+	_, ok := v.declared[name]
+	return ok
+}
+
 // Fields returns the fields this submission was narrowed against, in
 // declaration order where the caller preserved one and otherwise in map
 // order.

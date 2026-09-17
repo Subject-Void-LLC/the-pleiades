@@ -189,6 +189,28 @@ type FilePolicy struct {
 // binary, and turning the environment variable on does not widen what may
 // be uploaded, only who decided.
 func checkFileAnswer(q Question, content string, pol FilePolicy) error {
+	// The question's own bound first, then the platform's, so the message
+	// names whichever is actually in force. A template author who sets a
+	// maximum is told the platform's number otherwise, which reads as the
+	// bound they set being ignored -- and it WAS ignored until this was
+	// written: Min and Max were accepted by Validate, described as a byte
+	// count by the authoring form and by the OpenAPI document, and read by
+	// nothing. A bound the platform would not honour is worse than no
+	// bound, which is the rule Validate already applies to a maximum above
+	// the platform's own.
+	//
+	// Bytes rather than characters, and the difference is not pedantry:
+	// every other text type measures len() too, but calls it characters in
+	// its message, which is wrong for multi-byte content and much more
+	// obviously wrong for a file.
+	if q.Max > 0 && len(content) > q.Max {
+		return fmt.Errorf("%w: %q is %d bytes, and this question accepts at most %d",
+			ErrSurveyAnswer, q.Variable, len(content), q.Max)
+	}
+	if q.Min > 0 && len(content) < q.Min {
+		return fmt.Errorf("%w: %q is %d bytes, and this question needs at least %d",
+			ErrSurveyAnswer, q.Variable, len(content), q.Min)
+	}
 	if len(content) > MaxFileAnswerBytes {
 		return fmt.Errorf("%w: %q is %d bytes, and a file answer may be at most %d",
 			ErrSurveyAnswer, q.Variable, len(content), MaxFileAnswerBytes)

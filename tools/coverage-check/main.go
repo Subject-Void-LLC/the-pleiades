@@ -200,8 +200,24 @@ func measureCoverageTolerant() (map[string]float64, error) {
 		return nil, fmt.Errorf("loading %s: %w", flakyPackagesPath, err)
 	}
 
-	events, waitErr := flakegate.RunGoTestJSON([]string{"-cover", "-count=1", "-timeout", goTestTimeout}, os.Stdout)
-	hard, warned := flakegate.Classify(events, tolerated)
+	args := []string{"-cover", "-count=1", "-timeout", goTestTimeout}
+	events, waitErr := flakegate.RunGoTestJSON(args, os.Stdout)
+	listed, warned := flakegate.Classify(events, tolerated)
+
+	// The same isolation pass testgate applies, and applying it here is not
+	// tidiness: without it the two tools reached OPPOSITE verdicts on one
+	// failure inside a single `make push-gate`. A package that is not in
+	// flaky-packages.json and lost a race was tolerated by testgate on the
+	// evidence of a re-run, and then hard-failed here a few minutes later
+	// because this function had only the list to go on. Two gates in one
+	// run disagreeing about the same test is worse than either answer.
+	failures := append(append([]flakegate.Failure{}, listed...), warned...)
+	confirmed, contention, notRun, isoErr := flakegate.Isolate(failures, args, os.Stdout)
+	if isoErr != nil {
+		return nil, fmt.Errorf("re-running failures in isolation: %w", isoErr)
+	}
+	hard := append(append([]flakegate.Failure{}, confirmed...), notRun...)
+	warned = contention
 
 	var out strings.Builder
 	for _, evt := range events {
@@ -214,22 +230,22 @@ func measureCoverageTolerant() (map[string]float64, error) {
 	}
 
 	if len(warned) > 0 {
-		fmt.Printf("coverage-check: %d test failure(s) confined to flaky-packages.json packages, coverage still measured where a number was printed:\n", len(warned))
+		fmt.Printf("coverage-check: %d test failure(s) passed when re-run alone, coverage still measured where a number was printed:\n", len(warned))
 		for pkg := range flakegate.FailedPackages(warned) {
 			fmt.Printf("  %s\n", pkg)
 		}
 	}
 
 	if len(hard) > 0 {
-		fmt.Fprintf(os.Stderr, "coverage-check: %d failure(s) NOT in flaky-packages.json, or a build failure (never tolerated); see output above:\n", len(hard))
+		fmt.Fprintf(os.Stderr, "coverage-check: %d failure(s) failed again when re-run alone, could not be re-run, or did not compile; see output above:\n", len(hard))
 		for _, f := range hard {
 			if f.Test == "" {
-				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
 		}
-		return nil, fmt.Errorf("%d failure(s) outside flaky-packages.json", len(hard))
+		return nil, fmt.Errorf("%d failure(s) confirmed in isolation", len(hard))
 	}
 
 	if waitErr != nil && len(events) == 0 {

@@ -120,7 +120,7 @@ func run(integration bool) error {
 		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) were NOT re-run, because more than %d distinct tests failed:\n\n", len(notRun), flakegate.MaxIsolationRetries)
 		for _, f := range notRun {
 			if f.Test == "" {
-				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
@@ -134,7 +134,11 @@ func run(integration bool) error {
 		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) failed AGAIN when re-run alone, or could not be re-run at all:\n\n", len(confirmed))
 		for _, f := range confirmed {
 			if f.Test == "" {
-				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				// Named by kind, because "build failed" was printed for a
+				// TIMEOUT too until the two were separated, and a reader
+				// sent to look for a compile error in a package that
+				// compiles fine has been sent the wrong way.
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
 				continue
 			}
 			if _, ok := tolerated[f.Package]; ok {

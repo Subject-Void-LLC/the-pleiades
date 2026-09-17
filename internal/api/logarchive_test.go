@@ -7,8 +7,13 @@
 // interesting one is fifty thousand messages deep -- a depth no container
 // test would reach without spending a minute filling a stream to prove a
 // branch that is three lines long. The broker half is eight lines adapting a
-// consumer, exercised for real by the SSE viewer against the same subject
-// and the same consumer configuration.
+// consumer.
+//
+// What that leaves unproven is stated on LogArchive itself rather than
+// implied away here: no test in this repository drives Info or FetchNoWait
+// against a real nats-server, so these cover the request this file builds
+// and every decision it makes about the answer, and not that a real broker
+// answers the way the fakes do.
 package api
 
 import (

@@ -305,7 +305,13 @@ func questionField(q launch.Question, execAllowed bool) view.Field {
 		// pipeline; the type's rules, its bound and its secrecy are real
 		// either way, and what reaches the automation is identical.
 		f.Kind = view.KindLongText
+		// The question's own bound when it set one, so the control stops
+		// where the resolver will. Clamped to the platform's, which
+		// Survey.Validate already refuses to let a question exceed.
 		f.MaxLen = launch.MaxFileAnswerBytes
+		if q.Max > 0 && q.Max < f.MaxLen {
+			f.MaxLen = q.Max
+		}
 		f.Help = strings.TrimSuffix(f.Help, " ") + fileAnswerHelp(q, execAllowed)
 	default:
 		f.Kind = view.KindText

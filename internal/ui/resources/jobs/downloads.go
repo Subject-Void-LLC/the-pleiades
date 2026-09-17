@@ -19,6 +19,7 @@ package jobs
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"io"
 	"strconv"
 
@@ -108,11 +109,11 @@ func journalDownload(entries JournalReader) view.DownloadSpec {
 			return err == nil && len(found) > 0
 		},
 		Write: func(ctx context.Context, w io.Writer, jobID string) error {
-			found, _, err := entries.ForJob(ctx, jobID, 0)
+			found, truncated, err := entries.ForJob(ctx, jobID, 0)
 			if err != nil {
 				return err
 			}
-			return writeJournalCSV(w, found)
+			return writeJournalCSV(w, found, truncated)
 		},
 	}
 }
@@ -138,7 +139,7 @@ var journalColumns = []string{
 // stamps are what an audit needs and the duration is what a person sorts
 // by, and asking a spreadsheet to subtract two timestamps is asking for the
 // column to be wrong.
-func writeJournalCSV(w io.Writer, entries []engine.JournalEntry) error {
+func writeJournalCSV(w io.Writer, entries []engine.JournalEntry, truncated bool) error {
 	out := csv.NewWriter(w)
 	if err := out.Write(journalColumns); err != nil {
 		return err
@@ -174,6 +175,27 @@ func writeJournalCSV(w io.Writer, entries []engine.JournalEntry) error {
 			e.InverseFQCN,
 			strconv.FormatBool(e.DiffRecorded),
 		}); err != nil {
+			return err
+		}
+	}
+
+	if truncated {
+		// Said in the FILE, for the reason the Tasks tab says it on the
+		// page and the log download says it in its own artefact: whoever
+		// is holding this is the one who needs to know it is partial, and
+		// a capped audit trail that looks complete is the worst outcome
+		// this download has.
+		//
+		// A full-width RECORD rather than a trailing line, because
+		// encoding/csv pins the field count from the header and answers a
+		// short row with ErrFieldCount -- so the honest disclosure would
+		// otherwise make the file unreadable by every strict parser,
+		// including this package's own test.
+		marker := make([]string, len(journalColumns))
+		marker[0] = "pleiades:truncated"
+		marker[1] = fmt.Sprintf("this file stops at %d rows; the run is longer, and the rest is in the journal",
+			len(entries))
+		if err := out.Write(marker); err != nil {
 			return err
 		}
 	}

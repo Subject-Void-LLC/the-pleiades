@@ -160,7 +160,7 @@ func addQuestionAction(store launch.Store, execAllowed bool) view.RecordAction {
 		Fields:   questionFormFields(execAllowed),
 		Submit: func(ctx context.Context, id string, v view.Values) (string, view.FieldErrors, error) {
 			redirect, err := withSurvey(ctx, store, id, func(s *launch.Survey) error {
-				q, errs := questionFrom(strings.TrimSpace(v.Get("variable")), v)
+				q, errs := questionFrom(strings.TrimSpace(v.Get("variable")), launch.Question{}, v)
 				if errs.Any() {
 					return fieldFault{errs}
 				}
@@ -203,7 +203,7 @@ func editQuestionAction(store launch.Store, execAllowed bool) view.RowAction {
 				// not offer the control, so there is nothing to read, and
 				// taking it from the URL is what makes a rename impossible
 				// rather than merely undocumented.
-				q, errs := questionFrom(rowID, v)
+				q, errs := questionFrom(rowID, s.Questions[at], v)
 				if errs.Any() {
 					return fieldFault{errs}
 				}
@@ -421,14 +421,24 @@ func bound(n int) string {
 	return strconv.Itoa(n)
 }
 
-// questionFrom reads a submitted question form, with the variable supplied
-// by the caller rather than read off the submission.
+// questionFrom reads a submitted question form, with the values the form
+// did not render supplied by the caller rather than read off the
+// submission.
 //
-// The variable is the one value the two forms disagree about: the add form
-// renders the control and the edit form withholds it, so the caller is what
-// knows where it came from. Everything else is read identically, which is
-// what keeps the two forms meaning the same thing.
-func questionFrom(variable string, v view.Values) (launch.Question, view.FieldErrors) {
+// Two values are carried rather than read, for the same reason and with
+// different consequences. The VARIABLE is withheld by the edit form because
+// renaming one in place would strand every answer keyed by the old name.
+// ALLOW_PROGRAM_CONTENT is withheld on a deployment that refuses program
+// content, because a control that could change nothing must not be drawn --
+// and that is exactly what made reading it off the submission a data loss:
+// an absent checkbox reads back as false, so editing a question's HELP TEXT
+// on such a deployment silently cleared a flag a template author had set,
+// with nothing on the page saying so. The template then looks disarmed and
+// stays disarmed after the deployment's consent returns.
+//
+// carried is the stored question. Everything else is read from the form,
+// which is what keeps the add and edit forms meaning the same thing.
+func questionFrom(variable string, carried launch.Question, v view.Values) (launch.Question, view.FieldErrors) {
 	errs := view.FieldErrors{}
 
 	min, err := boundValue(v.Get("min"))
@@ -446,15 +456,35 @@ func questionFrom(variable string, v view.Values) (launch.Question, view.FieldEr
 		Help:     strings.TrimSpace(v.Get("help")),
 		Type:     launch.QuestionType(strings.TrimSpace(v.Get("type"))),
 		Required: v.Bool("required"),
-		// Absent from the form on a deployment that refuses program
-		// content, which reads back as false: the flag cannot be set where
-		// it would do nothing.
-		AllowProgramContent: v.Bool("allow_program_content"),
+		// Read from the form only where the form draws it. Where it does
+		// not, the stored value is carried forward: an absent checkbox and
+		// a cleared one are indistinguishable in a submission, and treating
+		// them the same silently disarms a question nobody touched.
+		AllowProgramContent: carriedOrSubmitted(carried, v),
 		Default:             strings.TrimSpace(v.Get("default")),
 		Choices:             v.Tags("choices"),
 		Min:                 min,
 		Max:                 max,
 	}, errs
+}
+
+// carriedOrSubmitted decides where a question's program-content flag comes
+// from.
+//
+// The form draws the control only where the deployment permits program
+// content at all, so on every other deployment the submission carries
+// nothing and the stored value is the only truth there is. Reading the
+// absent control would clear it.
+//
+// Where the control IS drawn, the submission wins, including when it is
+// unchecked: that is somebody deliberately turning the flag off, and
+// carrying the old value there would make the checkbox the thing that
+// cannot be cleared.
+func carriedOrSubmitted(carried launch.Question, v view.Values) bool {
+	if !v.Declares("allow_program_content") {
+		return carried.AllowProgramContent
+	}
+	return v.Bool("allow_program_content")
 }
 
 // boundValue reads a min or max control, treating blank as unbounded.

@@ -134,3 +134,155 @@ func TestBrokenInsideAListedPackage(t *testing.T) { t.Fatal("a real defect") }
 		t.Errorf("confirmed the wrong test: %+v", confirmed)
 	}
 }
+
+// TestIsolate_ATimedOutPackageIsReRunNotSkipped is the shape the pass first
+// declined to examine, and the commonest contention symptom there is.
+//
+// go test reports a package that exceeded its -timeout as a bare
+// package-level fail with no test to blame. That was classified as a build
+// failure, so Isolate confirmed it without asking twice and testgate
+// printed "build failed" -- about a package that compiles perfectly well.
+func TestIsolate_ATimedOutPackageIsReRunNotSkipped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module timeoutproof\n\ngo 1.22\n")
+	write("proof_test.go", `package timeoutproof
+
+import "testing"
+
+func TestFine(t *testing.T) {}
+`)
+
+	restore, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+
+	// A package-level failure, exactly as a timeout arrives: no test named.
+	confirmed, contention, notRun, err := Isolate(
+		[]Failure{{Package: "timeoutproof", Kind: FailedPackage}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	if len(notRun) != 0 {
+		t.Fatalf("the package was deferred rather than re-run: %+v", notRun)
+	}
+	// The package passes when it is not competing for a machine, so the
+	// re-run says contention. Under the old classification it was never
+	// asked at all.
+	if len(contention) != 1 || contention[0].Package != "timeoutproof" {
+		t.Errorf("contention = %+v, confirmed = %+v; want the package re-run and found healthy",
+			contention, confirmed)
+	}
+}
+
+// TestIsolate_AReRunThatCannotBuildIsInconclusiveNotAFailure covers the
+// verdict this pass used to infer from an exit code.
+//
+// go test exits non-zero for a test failing, a package not compiling, a
+// pattern matching nothing, and the toolchain falling over. Only the first
+// is evidence about the test. Reading the exit status alone reported a
+// broken tree as "this test failed again when re-run alone", which sends
+// somebody looking for a defect the run never examined.
+func TestIsolate_AReRunThatCannotBuildIsInconclusiveNotAFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module brokenproof\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	// Does not compile.
+	if err := os.WriteFile(filepath.Join(dir, "broken_test.go"), []byte(`package brokenproof
+
+import "testing"
+
+func TestBroken(t *testing.T) { this is not go }
+`), 0o600); err != nil {
+		t.Fatalf("writing the test: %v", err)
+	}
+
+	restore, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+
+	confirmed, contention, _, err := Isolate(
+		[]Failure{{Package: "brokenproof", Test: "TestBroken"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	// Confirmed, because a check that could not be performed must never
+	// tolerate a failure -- but reached through the inconclusive path
+	// rather than by reading an exit code as "the test failed".
+	if len(contention) != 0 {
+		t.Errorf("a re-run that could not build was tolerated: %+v", contention)
+	}
+	if len(confirmed) != 1 {
+		t.Errorf("confirmed = %+v, want the unanswerable re-run", confirmed)
+	}
+}
+
+// TestIsolate_APatternMatchingNothingIsNotAPass is the fail-open direction
+// this pass has to refuse.
+//
+// If a re-run's -run pattern matches no test -- a renamed test, a subtest
+// spelling the parent lookup got wrong -- go test exits ZERO having run
+// nothing. Read as a pass, that tolerates a failure nobody re-examined.
+func TestIsolate_APatternMatchingNothingIsNotAPass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module emptyproof\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "empty_test.go"), []byte(`package emptyproof
+
+import "testing"
+
+func TestSomethingElse(t *testing.T) {}
+`), 0o600); err != nil {
+		t.Fatalf("writing the test: %v", err)
+	}
+
+	restore, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+
+	confirmed, contention, _, err := Isolate(
+		[]Failure{{Package: "emptyproof", Test: "TestGoneAway"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("Isolate: %v", err)
+	}
+	if len(contention) != 0 {
+		t.Fatalf("a re-run that ran nothing was read as a pass: %+v", contention)
+	}
+	if len(confirmed) != 1 {
+		t.Errorf("confirmed = %+v, want the unanswerable re-run", confirmed)
+	}
+}

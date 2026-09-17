@@ -34,6 +34,49 @@ type Event struct {
 	Test        string `json:"Test"`
 	Output      string `json:"Output"`
 	FailedBuild string `json:"FailedBuild"`
+
+	// ImportPath is how a BUILD event names its package, and it is a
+	// different field from Package on purpose. `go help buildjson`: "The
+	// ImportPath field ... matches the ... TestEvent.FailedBuild field of
+	// go test -json. Note that it does not match TestEvent.Package."
+	// Without this declared, every build failure was recorded against the
+	// empty string.
+	ImportPath string `json:"ImportPath"`
+}
+
+// buildPackage is the package a build event is about.
+//
+// A build event spells the package two ways depending on which file failed
+// to compile: "example.com/p [example.com/p.test]" when a non-test file
+// did, and "example.com/p.test" when a test file did. Both are stripped
+// back to the import path, so a build failure is reported under the same
+// name every other failure uses.
+func buildPackage(evt Event) string {
+	path := evt.ImportPath
+	if path == "" {
+		// A shape this package has not observed. The Package field is the
+		// only other candidate and is usually empty here, which is worse
+		// than useless -- but guessing is worse than reporting what came.
+		path = evt.Package
+	}
+	if i := strings.Index(path, " ["); i >= 0 {
+		path = path[:i]
+	}
+	return strings.TrimSuffix(path, ".test")
+}
+
+// dedupeByPackage keeps the first failure per package, preserving order.
+func dedupeByPackage(failures []Failure) []Failure {
+	seen := make(map[string]bool, len(failures))
+	out := failures[:0]
+	for _, f := range failures {
+		if seen[f.Package] {
+			continue
+		}
+		seen[f.Package] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // Failure is one (package, test) pair go test itself reported as failed.
@@ -44,6 +87,47 @@ type Event struct {
 type Failure struct {
 	Package string
 	Test    string
+
+	// Kind separates three things go test reports differently and this
+	// package used to merge, with a consequence worth stating: a package
+	// that TIMED OUT was classified as a build failure, so the isolation
+	// pass skipped it and printed "build failed". A timeout under parallel
+	// load is the single commonest contention symptom there is -- it is
+	// what flaky-packages.json and FAILURE_PATTERNS #61 are mostly about --
+	// so the pass was declining to re-run the exact shape it exists for.
+	Kind FailureKind
+}
+
+// FailureKind is what go test actually reported.
+type FailureKind int
+
+// The kinds. FailedTest is the zero value because it is the ordinary case
+// and because a Failure built by a caller that predates this field is a
+// named test.
+const (
+	// FailedTest is a named test that failed. Re-runnable on its own.
+	FailedTest FailureKind = iota
+
+	// FailedBuild is a package that did not compile. Never re-run and
+	// never tolerated: it did not lose a race.
+	FailedBuild
+
+	// FailedPackage is a package-level failure with no named test: a
+	// timeout, or a panic that took the test binary down before any test
+	// could be blamed. Re-runnable, but only as a whole package.
+	FailedPackage
+)
+
+// String names a kind for a message.
+func (k FailureKind) String() string {
+	switch k {
+	case FailedBuild:
+		return "build failed"
+	case FailedPackage:
+		return "the package's test binary failed or timed out"
+	default:
+		return "failed"
+	}
 }
 
 type flakyPackagesFile struct {
@@ -148,13 +232,23 @@ func Classify(events []Event, tolerated map[string]Tolerance) (hard, warned []Fa
 	var buildFailures []Failure
 	testFailures := make(map[string][]string) // package -> test names that failed
 	packageFailedWithNoTest := make(map[string]bool)
+	// Which packages already have a build failure, so the package-level
+	// fail that accompanies one is not counted a second time as a timeout.
+	builtFailed := make(map[string]bool)
 
 	for _, evt := range events {
 		switch {
 		case evt.Action == "build-fail":
-			buildFailures = append(buildFailures, Failure{Package: evt.Package})
+			// A build event names the package in ImportPath and leaves
+			// Package empty -- `go help buildjson` says so explicitly --
+			// so reading evt.Package here produced a nameless failure
+			// beside the real one, and reported one broken package as two.
+			pkg := buildPackage(evt)
+			builtFailed[pkg] = true
+			buildFailures = append(buildFailures, Failure{Package: pkg, Kind: FailedBuild})
 		case evt.Action == "fail" && evt.FailedBuild != "":
-			buildFailures = append(buildFailures, Failure{Package: evt.Package})
+			builtFailed[evt.Package] = true
+			buildFailures = append(buildFailures, Failure{Package: evt.Package, Kind: FailedBuild})
 		case evt.Action == "fail" && evt.Test != "":
 			testFailures[evt.Package] = append(testFailures[evt.Package], evt.Test)
 		case evt.Action == "fail" && evt.Test == "":
@@ -162,11 +256,19 @@ func Classify(events []Event, tolerated map[string]Tolerance) (hard, warned []Fa
 		}
 	}
 
+	// A package that failed with no test to blame is a timeout or a panic,
+	// not a compile error, and it is re-runnable as a whole package.
+	var packageFailures []Failure
 	for pkg := range packageFailedWithNoTest {
-		if len(testFailures[pkg]) == 0 {
-			buildFailures = append(buildFailures, Failure{Package: pkg})
+		if len(testFailures[pkg]) == 0 && !builtFailed[pkg] {
+			packageFailures = append(packageFailures, Failure{Package: pkg, Kind: FailedPackage})
 		}
 	}
+
+	// One entry per broken package. The build-fail event and the fail
+	// event that accompanies it name the same package, so without this a
+	// single compile error is reported twice.
+	buildFailures = dedupeByPackage(buildFailures)
 
 	for pkg, tests := range testFailures {
 		entry, listed := tolerated[pkg]
@@ -180,6 +282,7 @@ func Classify(events []Event, tolerated map[string]Tolerance) (hard, warned []Fa
 		}
 	}
 	hard = append(hard, buildFailures...)
+	hard = append(hard, packageFailures...)
 
 	sortFailures(hard)
 	sortFailures(warned)
@@ -348,18 +451,28 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 	seen := make(map[string]bool, len(failures))
 	var targets []Failure
 	for _, f := range failures {
-		if f.Test == "" {
-			// A build failure. Never re-run and never tolerated: a package
-			// that does not compile did not lose a race.
+		if f.Kind == FailedBuild {
+			// Never re-run and never tolerated: a package that does not
+			// compile did not lose a race.
 			confirmed = append(confirmed, f)
 			continue
 		}
-		key := f.Package + "\x00" + TopLevel(f.Test)
+		// A package-level failure is re-run as a WHOLE package, with no
+		// -run pattern, because there is no test to name. This is the
+		// shape a timeout takes, and a timeout under parallel load is the
+		// commonest contention symptom there is -- so skipping it, as this
+		// pass first did, was declining to examine the very failure it
+		// exists for.
+		target := Failure{Package: f.Package, Kind: f.Kind}
+		if f.Kind == FailedTest {
+			target.Test = TopLevel(f.Test)
+		}
+		key := target.Package + "\x00" + target.Test
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		targets = append(targets, Failure{Package: f.Package, Test: TopLevel(f.Test)})
+		targets = append(targets, target)
 	}
 
 	if len(targets) > maxIsolationRetries {
@@ -376,22 +489,27 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 		if echo != nil {
 			fmt.Fprintf(echo, "flakegate: re-running %s %s alone\n", target.Package, target.Test)
 		}
-		passed, runErr := runAlone(target, args)
-		if runErr != nil {
-			// The re-run could not be performed at all, which is not
-			// evidence of anything about the test. Reported as confirmed,
-			// because the alternative is tolerating a failure on the
-			// strength of a check that did not happen.
+		verdict, runErr := runAlone(target, args)
+		switch {
+		case runErr != nil, verdict == isolationInconclusive:
+			// The re-run did not answer the question: it could not be
+			// started, or it produced no verdict for this test at all --
+			// a build error in the isolated run, a -run pattern that
+			// matched nothing, a binary that died before reporting.
+			//
+			// Reported as confirmed, because the alternative is tolerating
+			// a failure on the strength of a check that did not happen.
+			// Said out loud, because "failed again when re-run alone" is
+			// not what happened and this gate's whole value is that its
+			// sentences are true.
 			if echo != nil {
-				fmt.Fprintf(echo, "flakegate: could not re-run %s %s (%v); treating it as confirmed\n",
+				fmt.Fprintf(echo, "flakegate: re-running %s %s did not produce a verdict (%v); treating it as confirmed\n",
 					target.Package, target.Test, runErr)
 			}
 			confirmed = append(confirmed, target)
-			continue
-		}
-		if passed {
+		case verdict == isolationPassed:
 			contention = append(contention, target)
-		} else {
+		default:
 			confirmed = append(confirmed, target)
 		}
 	}
@@ -401,46 +519,141 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 	return confirmed, contention, nil, nil
 }
 
-// runAlone runs one test in one package and reports whether it passed.
+// isolationVerdict is what one re-run established.
+type isolationVerdict int
+
+const (
+	// isolationInconclusive means the re-run answered nothing about this
+	// target: it did not build, nothing matched, or the binary died before
+	// reporting a result. Never treated as a pass.
+	isolationInconclusive isolationVerdict = iota
+	isolationPassed
+	isolationFailed
+)
+
+// runAlone re-runs one target and reports what happened.
+//
+// It reads go test's own -json stream rather than its exit status, and that
+// is the difference between a verdict and a guess. A non-zero exit means
+// "something went wrong", which covers the test failing, the package not
+// compiling, a -run pattern matching nothing, and the toolchain itself
+// falling over -- and only the first of those is evidence about the test.
+// Inferring from the exit code alone reported a link step that ran out of
+// memory as "this test failed again", which is a sentence that sends
+// somebody looking for a defect the run never examined.
 //
 // The same flags the full run used, so the re-run is the same test under
 // the same race detector and the same build tags; only the scope changes.
-// -count=1 is forced regardless, because a cached pass would answer a
-// question nobody asked.
-func runAlone(target Failure, args []string) (bool, error) {
-	full := []string{"test"}
+func runAlone(target Failure, args []string) (isolationVerdict, error) {
+	full := []string{"test", "-json"}
 	full = append(full, args...)
-	full = append(full, "-count=1", "-run", "^"+regexp.QuoteMeta(target.Test)+"$", target.Package)
+	if !hasCountFlag(args) {
+		full = append(full, "-count=1")
+	}
+	if target.Test != "" {
+		full = append(full, "-run", "^"+regexp.QuoteMeta(target.Test)+"$")
+	}
+	full = append(full, target.Package)
 
 	// #nosec G204 -- args is the caller's own fixed literal slice, and the
 	// package and test names come from go test's own -json output for this
 	// module, never from user input. The test name is regexp-quoted and
 	// anchored, so it cannot widen the selection either.
 	cmd := exec.Command("go", full...)
-	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 
-	if err := cmd.Run(); err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			// A non-zero exit is the test failing, which is an answer
-			// rather than an error.
-			return false, nil
-		}
-		return false, err
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		// Could not start the toolchain at all.
+		return isolationInconclusive, err
 	}
-	return true, nil
+
+	return verdictFrom(out, target), nil
+}
+
+// verdictFrom reads a re-run's event stream for this target's own result.
+//
+// A package-level target takes the package's verdict; a named test takes
+// its own, ignoring the package result around it. A build failure in the
+// re-run is inconclusive rather than a failure, because it says the tree
+// changed under us and nothing about the test.
+func verdictFrom(stream []byte, target Failure) isolationVerdict {
+	verdict := isolationInconclusive
+
+	for _, line := range bytes.Split(stream, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var evt Event
+		if err := json.Unmarshal(line, &evt); err != nil {
+			continue
+		}
+		if evt.Action == "build-fail" || evt.FailedBuild != "" {
+			return isolationInconclusive
+		}
+		if evt.Package != target.Package {
+			continue
+		}
+
+		// A named test answers for itself. Its subtests do not: a parent
+		// that fails because one subtest did is still a failure, and the
+		// parent's own event carries that.
+		if target.Test != "" && evt.Test != target.Test {
+			continue
+		}
+		if target.Test == "" && evt.Test != "" {
+			continue
+		}
+
+		switch evt.Action {
+		case "pass":
+			verdict = isolationPassed
+		case "fail":
+			verdict = isolationFailed
+		}
+	}
+	return verdict
+}
+
+// hasCountFlag reports whether the caller already fixed a count, so the
+// re-run does not append a second one.
+func hasCountFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-count" || strings.HasPrefix(a, "-count=") {
+			return true
+		}
+	}
+	return false
 }
 
 // FirstSentence is the opening sentence of a waiver reason.
 //
 // The reasons in flaky-packages.json are paragraphs by design -- each is a
 // record of what was observed and when -- and printing one in full for
-// every tolerated failure buries the list of failures under the
-// explanations. The whole reason is one file away.
+// every tolerated failure buries the failures under the explanations. The
+// whole reason is one file away.
+//
+// It breaks at ". " rather than at "." because these reasons are full of
+// dotted names. Cutting at the first period alone reported four of the
+// nineteen real entries as a citation fragment: "FAILURE_PATTERNS.",
+// "CLAUDE.", "internal/ent/conformance_backends_test.". A period with no
+// space after it is inside a name, not between sentences.
+//
+// A reason with no sentence break is returned whole rather than cut at an
+// arbitrary width: a long line is a nuisance, a silently truncated reason
+// is misinformation.
 func FirstSentence(reason string) string {
-	if i := strings.IndexByte(reason, '.'); i >= 0 && i < len(reason)-1 {
+	if i := strings.Index(reason, ". "); i >= 0 {
 		return reason[:i+1]
+	}
+	// A reason that is exactly one sentence, ending in a period with
+	// nothing after it.
+	if strings.HasSuffix(reason, ".") && strings.Count(reason, ".") == 1 {
+		return reason
+	}
+	if i := strings.IndexByte(reason, '\n'); i >= 0 {
+		return strings.TrimSpace(reason[:i])
 	}
 	return reason
 }

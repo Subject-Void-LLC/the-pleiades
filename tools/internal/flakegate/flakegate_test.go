@@ -72,17 +72,40 @@ func TestClassify_TestFailureOutsideToleratedPackagesIsHard(t *testing.T) {
 	}
 }
 
+// TestClassify_BuildFailureIsAlwaysHard uses the event shape real `go test
+// -json` emits, which is not the shape this test used to assert.
+//
+// A build event names its package in ImportPath and leaves Package empty --
+// `go help buildjson` says so in as many words -- and this test fed
+// {Action: "build-fail", Package: "tests/e2e"}, a shape the toolchain never
+// produces. So it asserted the decoder's own invention and could not fail
+// while the product recorded every build failure against the empty string.
+// Both spellings the toolchain really uses are covered here.
 func TestClassify_BuildFailureIsAlwaysHard(t *testing.T) {
-	events := []Event{{Action: "build-fail", Package: "tests/e2e"}}
-	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
-
-	hard, warned := Classify(events, tolerated)
-	if len(warned) != 0 {
-		t.Errorf("warned = %+v, want none", warned)
+	cases := map[string]string{
+		"a test file did not compile":     "tests/e2e.test",
+		"a non-test file did not compile": "tests/e2e [tests/e2e.test]",
 	}
-	want := []Failure{{Package: "tests/e2e", Test: ""}}
-	if !reflect.DeepEqual(hard, want) {
-		t.Errorf("hard = %+v, want %+v", hard, want)
+	for name, importPath := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Both events the toolchain emits for ONE broken package. The
+			// pair is the point: reported separately they became two
+			// failures, one of them nameless.
+			events := []Event{
+				{Action: "build-fail", ImportPath: importPath},
+				{Action: "fail", Package: "tests/e2e", FailedBuild: importPath},
+			}
+			tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
+
+			hard, warned := Classify(events, tolerated)
+			if len(warned) != 0 {
+				t.Errorf("warned = %+v, want none: a package that does not compile did not lose a race", warned)
+			}
+			want := []Failure{{Package: "tests/e2e", Kind: FailedBuild}}
+			if !reflect.DeepEqual(hard, want) {
+				t.Errorf("hard = %+v, want %+v (one broken package is one failure, named)", hard, want)
+			}
+		})
 	}
 }
 
@@ -94,12 +117,20 @@ func TestClassify_FailedBuildMarkerIsAlwaysHard(t *testing.T) {
 	if len(warned) != 0 {
 		t.Errorf("warned = %+v, want none", warned)
 	}
-	want := []Failure{{Package: "tests/e2e", Test: ""}}
+	want := []Failure{{Package: "tests/e2e", Kind: FailedBuild}}
 	if !reflect.DeepEqual(hard, want) {
 		t.Errorf("hard = %+v, want %+v", hard, want)
 	}
 }
 
+// TestClassify_PackageFailWithNoTestFailureIsHard covers a TIMEOUT, which
+// is a different thing from a build failure and used to be merged with one.
+//
+// go test reports a package that exceeded its -timeout as a bare
+// package-level fail with no test to blame. Classified as a build failure,
+// the isolation pass skipped it and printed "build failed" -- so the
+// commonest contention symptom there is was the one shape the pass declined
+// to examine.
 func TestClassify_PackageFailWithNoTestFailureIsHard(t *testing.T) {
 	events := []Event{{Action: "fail", Package: "tests/e2e"}}
 	tolerated := map[string]Tolerance{"tests/e2e": {Reason: "known Docker contention"}}
@@ -108,9 +139,14 @@ func TestClassify_PackageFailWithNoTestFailureIsHard(t *testing.T) {
 	if len(warned) != 0 {
 		t.Errorf("warned = %+v, want none", warned)
 	}
-	want := []Failure{{Package: "tests/e2e", Test: ""}}
+	want := []Failure{{Package: "tests/e2e", Kind: FailedPackage}}
 	if !reflect.DeepEqual(hard, want) {
 		t.Errorf("hard = %+v, want %+v", hard, want)
+	}
+	// And it is re-runnable, which is the whole difference: a build
+	// failure is confirmed without being asked twice, a timeout is not.
+	if hard[0].Kind == FailedBuild {
+		t.Error("a timeout was classified as a build failure, so the isolation pass would skip it")
 	}
 }
 
@@ -358,13 +394,52 @@ func TestIsolate_OneReRunPerParentTest(t *testing.T) {
 // printing one in full per failure buries the failures under the
 // explanations.
 func TestFirstSentence(t *testing.T) {
-	long := "CLASS: HARNESS-ONLY (classified 2026-09-15). The rest of this is several hundred words."
-	if got := FirstSentence(long); got != "CLASS: HARNESS-ONLY (classified 2026-09-15)." {
-		t.Errorf("FirstSentence = %q", got)
+	cases := map[string]string{
+		// The shape every real entry has: a classification, then prose.
+		"CLASS: HARNESS-ONLY (classified 2026-09-15). The rest is several hundred words.": "CLASS: HARNESS-ONLY (classified 2026-09-15).",
+		// The four real entries that a cut-at-the-first-period broke. A
+		// dotted name is not a sentence end.
+		"FAILURE_PATTERNS.md #61 records this. More prose follows.":            "FAILURE_PATTERNS.md #61 records this.",
+		"CLAUDE.md names this package. And then some.":                         "CLAUDE.md names this package.",
+		"internal/ent/conformance_backends_test.go provisions postgres. More.": "internal/ent/conformance_backends_test.go provisions postgres.",
+		// One sentence, nothing after it.
+		"A single sentence.": "A single sentence.",
+		// No sentence break at all: returned whole rather than cut at an
+		// arbitrary width, because a silently truncated reason is
+		// misinformation and a long line is only a nuisance.
+		"no full stop here": "no full stop here",
 	}
-	// A reason with no sentence break is returned whole rather than cut at
-	// an arbitrary width.
-	if got := FirstSentence("no full stop here"); got != "no full stop here" {
-		t.Errorf("FirstSentence = %q", got)
+	for reason, want := range cases {
+		if got := FirstSentence(reason); got != want {
+			t.Errorf("FirstSentence(%q)\n = %q\nwant %q", reason, got, want)
+		}
+	}
+}
+
+// TestFirstSentence_AgainstTheRealWaivers is the check that matters, since
+// the defect was found in the committed file rather than in a fixture.
+//
+// Every real reason must yield something a reader can act on. A fragment
+// ending in a dotted name means the cut landed inside a citation.
+func TestFirstSentence_AgainstTheRealWaivers(t *testing.T) {
+	tolerated, err := LoadTolerated(filepath.Join("..", "..", "..", "flaky-packages.json"))
+	if err != nil {
+		t.Fatalf("loading flaky-packages.json: %v", err)
+	}
+	if len(tolerated) == 0 {
+		t.Fatal("no waivers loaded, so this test proves nothing")
+	}
+
+	for pkg, entry := range tolerated {
+		got := FirstSentence(entry.Reason)
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("%s: the reason renders empty", pkg)
+			continue
+		}
+		// The failure shape: a cut that landed inside a filename leaves a
+		// fragment whose last word carries a dot but no space after it.
+		if fields := strings.Fields(got); len(fields) < 3 {
+			t.Errorf("%s: the reason renders as %q, which is a fragment rather than a sentence", pkg, got)
+		}
 	}
 }

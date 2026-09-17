@@ -152,9 +152,19 @@ func (a *LogArchive) WriteTo(ctx context.Context, w io.Writer, jobID string) err
 // thousand messages to reach the interesting branch.
 //
 // The eight lines that adapt a real consumer to this shape stay in WriteTo,
-// where they are thin enough to read as obviously correct, and the broker
-// half is exercised for real by the SSE viewer's own tests against the same
-// subject and the same consumer config.
+// where they are thin enough to read as obviously correct.
+//
+// KNOWN GAP, stated rather than implied. Nothing in this repository drives
+// these two broker calls against a real broker. This file's tests fake the
+// consumer, and internal/api's SSE viewer -- which an earlier version of
+// this comment claimed covered the broker half -- fakes JetStream too
+// (mockJetStreamForLogs in logs_test.go) and calls Consume rather than the
+// Info and FetchNoWait used here. So what IS proven is the request this
+// file builds and every decision it makes about the answer; what is NOT
+// proven is that a real nats-server replies the way the fakes do. Closing
+// it means adding internal/api to the container packages, which moves a
+// fast parallel package into the serial docker group: a change to the
+// gate's shape rather than to this file.
 type fetchBatch func(n int) ([][]byte, error)
 
 // drainInto writes every message a fetcher will give, up to the bound.
