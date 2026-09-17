@@ -58,10 +58,13 @@ func TestAlwaysFails(t *testing.T) { t.Fatal("deliberately broken") }
 	}
 	t.Cleanup(func() { _ = os.Chdir(restore) })
 
-	confirmed, contention, err := Isolate([]Failure{
+	confirmed, contention, notRun, err := Isolate([]Failure{
 		{Package: "gateproof", Test: "TestAlwaysPasses"},
 		{Package: "gateproof", Test: "TestAlwaysFails"},
 	}, nil, nil)
+	if len(notRun) != 0 {
+		t.Fatalf("two failures were deferred rather than re-run: %+v", notRun)
+	}
 	if err != nil {
 		t.Fatalf("Isolate: %v", err)
 	}
@@ -112,9 +115,12 @@ func TestBrokenInsideAListedPackage(t *testing.T) { t.Fatal("a real defect") }
 	// Isolate is not told about the waiver list at all, and that is the
 	// design: the list decides what a failure is CALLED, never whether it
 	// counts. testgate hands it every failure, listed or not.
-	confirmed, contention, err := Isolate([]Failure{
+	confirmed, contention, notRun, err := Isolate([]Failure{
 		{Package: "listedpkg", Test: "TestBrokenInsideAListedPackage"},
 	}, nil, nil)
+	if len(notRun) != 0 {
+		t.Fatalf("one failure was deferred rather than re-run: %+v", notRun)
+	}
 	if err != nil {
 		t.Fatalf("Isolate: %v", err)
 	}

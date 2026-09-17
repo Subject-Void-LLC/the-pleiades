@@ -290,11 +290,23 @@ func RunGoTestJSON(args []string, echo io.Writer) ([]Event, error) {
 // re-run.
 //
 // A run with more failures than this is not a contended machine losing a
-// race; it is a change that broke something, and re-running forty tests one
-// at a time to learn that would cost more wall clock than the whole suite.
-// Past the bound the failures are reported as they stand, which is the
-// stricter answer.
-const maxIsolationRetries = 12
+// race; it is a change that broke something, and re-running that many one at
+// a time would cost more wall clock than the whole suite. Past the bound the
+// failures are reported AS NOT RE-RUN, under their own heading, rather than
+// folded in with the ones that were: a gate that says a test failed twice
+// when it was only asked once is worse than one with no isolation pass at
+// all, because the sentence is what a reader acts on.
+//
+// Thirty rather than a dozen because a loaded machine really does produce
+// more than a dozen. One container that fails to start takes its whole
+// conformance suite with it, so a single provisioning loss can be seven
+// failures on its own, and a bound that trips on that turns the pass off
+// exactly when it is most needed.
+const maxIsolationRetries = 30
+
+// MaxIsolationRetries is the bound, exported so the gate can name the
+// number in the sentence it prints rather than repeating the literal.
+const MaxIsolationRetries = maxIsolationRetries
 
 // TopLevel is the parent test a name belongs to, which is the unit the
 // isolation pass re-runs.
@@ -330,7 +342,7 @@ func TopLevel(test string) string {
 // What it cannot do is separate contention from a genuine concurrency bug:
 // both fail together and pass alone. That limit is worth stating rather
 // than implying, because it is the one shape this pass will wave through.
-func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, contention []Failure, err error) {
+func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, contention, notRun []Failure, err error) {
 	// One re-run per parent test, since a parent and three of its subtests
 	// are one fixture and one answer.
 	seen := make(map[string]bool, len(failures))
@@ -352,10 +364,12 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 
 	if len(targets) > maxIsolationRetries {
 		if echo != nil {
-			fmt.Fprintf(echo, "flakegate: %d distinct test failures, more than the %d this pass re-runs; reporting them as they stand\n",
+			fmt.Fprintf(echo, "flakegate: %d distinct test failures, more than the %d this pass re-runs; none were re-run\n",
 				len(targets), maxIsolationRetries)
 		}
-		return append(confirmed, targets...), nil, nil
+		sortFailures(confirmed)
+		sortFailures(targets)
+		return confirmed, nil, targets, nil
 	}
 
 	for _, target := range targets {
@@ -384,7 +398,7 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 
 	sortFailures(confirmed)
 	sortFailures(contention)
-	return confirmed, contention, nil
+	return confirmed, contention, nil, nil
 }
 
 // runAlone runs one test in one package and reports whether it passed.

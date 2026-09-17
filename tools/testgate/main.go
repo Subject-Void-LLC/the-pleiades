@@ -93,7 +93,7 @@ func run(integration bool) error {
 	// consecutive runs and were warned about every time, and the defect
 	// behind them was a total outage.
 	failures := append(append([]flakegate.Failure{}, listed...), warned...)
-	confirmed, contention, err := flakegate.Isolate(failures, args, os.Stdout)
+	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("re-running failures in isolation: %w", err)
 	}
@@ -111,6 +111,23 @@ func run(integration bool) error {
 			fmt.Printf("  %s: %s (not listed; tolerated on this run's own evidence)\n", f.Package, f.Test)
 		}
 		fmt.Println()
+	}
+
+	if len(notRun) > 0 {
+		// Their own heading, because they were never asked twice. Saying
+		// they failed again would be the gate reporting a check it did not
+		// perform, which is worse than having no isolation pass at all.
+		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) were NOT re-run, because more than %d distinct tests failed:\n\n", len(notRun), flakegate.MaxIsolationRetries)
+		for _, f := range notRun {
+			if f.Test == "" {
+				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
+		}
+		fmt.Fprintln(os.Stderr, "\nThat many failures at once is a change that broke something, not a busy machine. "+
+			"If you believe otherwise, re-run one of them alone and see.")
+		return fmt.Errorf("%d failure(s), too many to re-run in isolation", len(notRun))
 	}
 
 	if len(confirmed) > 0 {

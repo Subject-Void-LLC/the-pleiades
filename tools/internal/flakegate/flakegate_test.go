@@ -275,13 +275,16 @@ func TestTopLevel(t *testing.T) {
 // TestIsolate_ABuildFailureIsNeverReRun pins the one shape that is always
 // confirmed: a package that does not compile did not lose a race.
 func TestIsolate_ABuildFailureIsNeverReRun(t *testing.T) {
-	confirmed, contention, err := Isolate(
+	confirmed, contention, notRun, err := Isolate(
 		[]Failure{{Package: "example.com/broken"}}, nil, nil)
 	if err != nil {
 		t.Fatalf("Isolate: %v", err)
 	}
 	if len(contention) != 0 {
 		t.Errorf("a build failure was tolerated as contention: %+v", contention)
+	}
+	if len(notRun) != 0 {
+		t.Errorf("a build failure was deferred rather than confirmed: %+v", notRun)
 	}
 	if len(confirmed) != 1 || confirmed[0].Package != "example.com/broken" {
 		t.Errorf("confirmed = %+v, want the build failure", confirmed)
@@ -296,7 +299,7 @@ func TestIsolate_ABuildFailureIsNeverReRun(t *testing.T) {
 // are reported as they stand, which is the stricter answer.
 func TestIsolate_TooManyFailuresAreNotReRun(t *testing.T) {
 	var many []Failure
-	for i := 0; i < 40; i++ {
+	for i := 0; i < MaxIsolationRetries+10; i++ {
 		many = append(many, Failure{
 			Package: "example.com/pkg",
 			Test:    "TestNumber" + strconv.Itoa(i),
@@ -304,19 +307,26 @@ func TestIsolate_TooManyFailuresAreNotReRun(t *testing.T) {
 	}
 
 	var echo bytes.Buffer
-	confirmed, contention, err := Isolate(many, nil, &echo)
+	confirmed, contention, notRun, err := Isolate(many, nil, &echo)
 	if err != nil {
 		t.Fatalf("Isolate: %v", err)
 	}
 	if len(contention) != 0 {
 		t.Errorf("%d failures were tolerated without being re-run", len(contention))
 	}
-	if len(confirmed) != len(many) {
-		t.Errorf("confirmed %d of %d failures", len(confirmed), len(many))
+	// Reported as NOT RE-RUN rather than as confirmed. Calling them
+	// confirmed would have the gate state a check it never performed,
+	// which is worse than having no isolation pass at all: the sentence is
+	// what a reader acts on.
+	if len(confirmed) != 0 {
+		t.Errorf("%d failures were called confirmed without being re-run: %+v", len(confirmed), confirmed)
+	}
+	if len(notRun) != len(many) {
+		t.Errorf("notRun holds %d of %d failures", len(notRun), len(many))
 	}
 	// And it says so, rather than silently applying a cap: a gate that
 	// truncates quietly reads as "everything was checked".
-	if !strings.Contains(echo.String(), "reporting them as they stand") {
+	if !strings.Contains(echo.String(), "none were re-run") {
 		t.Errorf("the bound was applied silently: %q", echo.String())
 	}
 }
@@ -332,7 +342,7 @@ func TestIsolate_OneReRunPerParentTest(t *testing.T) {
 		{Package: "example.com/nope", Test: "TestThing/two"},
 		{Package: "example.com/nope", Test: "TestOther"},
 	}
-	confirmed, _, err := Isolate(failures, nil, nil)
+	confirmed, _, _, err := Isolate(failures, nil, nil)
 	if err != nil {
 		t.Fatalf("Isolate: %v", err)
 	}
