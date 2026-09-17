@@ -141,7 +141,7 @@ func runWrite(args []string) error {
 		return errors.New("gatereceipt write: the working tree has uncommitted changes, so this run proved nothing about any commit and no receipt was written")
 	}
 
-	head, err := revParse("HEAD")
+	head, err := headCommit()
 	if err != nil {
 		return err
 	}
@@ -228,10 +228,16 @@ func workingTreeDirty() (bool, error) {
 	return len(strings.TrimSpace(string(out))) > 0, nil
 }
 
-func revParse(rev string) (string, error) {
-	out, err := exec.Command("git", "rev-parse", rev).Output()
+// headCommit is the revision a receipt names.
+//
+// HEAD is a literal rather than a parameter, and deliberately so: this
+// command resolves exactly one revision, and taking it as a variable is
+// both a gosec G204 finding and an invitation to pass something a caller
+// controls into a subprocess argument.
+func headCommit() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
 	if err != nil {
-		return "", fmt.Errorf("gatereceipt: git rev-parse %s: %w", rev, err)
+		return "", fmt.Errorf("gatereceipt: git rev-parse HEAD: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

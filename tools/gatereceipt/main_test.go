@@ -55,7 +55,7 @@ func newRepo(t *testing.T) string {
 
 func headOf(t *testing.T) string {
 	t.Helper()
-	sha, err := revParse("HEAD")
+	sha, err := headCommit()
 	if err != nil {
 		t.Fatalf("rev-parse HEAD: %v", err)
 	}
