@@ -595,6 +595,7 @@ helm-lint:
 # target becoming any less strict.
 ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
+	@go run ./tools/gatereceipt write --target ci
 
 # ci-remote is the subset .github/workflows/ci.yml runs: every check that
 # is cheap, deterministic and needs no infrastructure. It is `ci` minus
@@ -668,6 +669,7 @@ push-gate-coverage:
 # through, and re-run, before a push reaches that real gate.
 push-gate: build devtools vet fmt tidy-check push-gate-race test-repeat push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
+	@go run ./tools/gatereceipt write --target push-gate
 
 # templ-gen regenerates the view layer's templates. templ emits a
 # _templ.go beside every .templ, and both are committed.

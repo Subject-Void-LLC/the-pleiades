@@ -1,32 +1,28 @@
 #!/bin/sh
 #
-# pre-push: run `make push-gate`, everything the GitHub Actions workflow's
-# `make ci` runs (the same build/vet/fmt/gosec/govulncheck/coverage/docs
-# checks, against the same pinned scanner versions: see the Makefile's
-# GOSEC_VERSION and GOVULNCHECK_VERSION, which .github/workflows/ci.yml
-# installs by calling `make tools` rather than naming versions of its
-# own), except test-race/test-integration run through tools/testgate
-# instead of bare `go test`. testgate still fails this hook on anything
-# `make ci` would fail on; the one thing it does differently is print a
-# warning, rather than fail, for a test failure confined to a package
-# flaky-packages.json names with a written reason -- packages that
-# provision real ephemeral Docker containers or real multi-replica timing
-# races, which FAILURE_PATTERNS.md #61 already documents flaking under
-# this sandboxed environment's own full parallel `-race` load and passing
-# individually every time. `make ci` itself (what GitHub Actions actually
-# runs) is untouched by any of this and stays exactly as strict as before.
+# pre-push: check that this exact commit has already passed the local gate.
 #
-# Enable once per clone with `make hooks`. Skip a single push with
-# `git push --no-verify` -- worth knowing about, because push-gate still
-# runs the full `-race` suite and several packages dial real ephemeral
-# Docker containers, so a full run takes minutes and needs Docker up.
+# It does NOT run the gate. That is the whole point, and the reason is
+# mechanical rather than a preference. Git opens its connection to the
+# remote BEFORE running this hook, because it needs the remote's ref
+# advertisement to build the lines it feeds us on stdin. A hook that then
+# runs a twenty minute suite hands git back a connection that died long
+# ago, and the push fails with SIGPIPE, exit 141, and no output at all
+# while the gate prints "all checks passed". That was reproduced five
+# times on this repository before the cause was found.
 #
-# Nothing here is a substitute for CI: this runs on one machine, with one
-# Go toolchain, and a green run here can still meet a red run there (a
-# newly published vulnerability advisory being the likeliest reason, since
-# govulncheck queries a live database, or a warned-but-not-blocked failure
-# above that would have been a real failure on a less contended machine).
-# It closes the gap; it does not pretend to eliminate it.
+# So the gate is a process a developer runs on its own schedule:
+#
+#     make push-gate     # or make ci, which is stricter
+#     git push
+#
+# `make push-gate` and `make ci` each write a receipt naming the commit
+# they verified. This hook reads it back. A receipt is only issued from a
+# clean tree, which makes this arrangement STRICTER than running the suite
+# here used to be: that proved something about the working tree and then
+# pushed commits, and with uncommitted edits those are different code.
+#
+# Skip a single push with `git push --no-verify`.
 
 set -eu
 
@@ -38,9 +34,13 @@ set -eu
 # deletes refs adds no code for CI to check, so running the full suite for
 # it would be pure delay; anything else gets the real run.
 only_deletes=yes
+shas=""
 while read -r _local_ref local_sha _remote_ref _remote_sha; do
 	case "$local_sha" in
-	*[!0]*) only_deletes=no ;;
+	*[!0]*)
+		only_deletes=no
+		shas="$shas $local_sha"
+		;;
 	esac
 done
 
@@ -48,8 +48,11 @@ if [ "$only_deletes" = yes ]; then
 	exit 0
 fi
 
-echo "pre-push: running 'make push-gate' (everything 'make ci' runs, tolerant of known-flaky tests in flaky-packages.json); skip with 'git push --no-verify'"
-
-# exec, so make's own exit status is the hook's exit status and a failing
-# check aborts the push.
-exec make push-gate
+# Ask about each commit actually being sent, rather than about HEAD: a
+# push can send a ref that is not checked out, and the receipt has to
+# describe the thing travelling.
+for sha in $shas; do
+	if ! go run ./tools/gatereceipt verify --commit "$sha"; then
+		exit 1
+	fi
+done
