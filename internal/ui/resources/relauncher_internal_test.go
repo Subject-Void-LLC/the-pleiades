@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 )
 
 // TestJobRelauncher_ANilDispatcherIsANilInterface is the regression guard.
@@ -67,5 +68,36 @@ func TestJobCanceller_ARealCancellerIsPassedThrough(t *testing.T) {
 	canceller := dispatch.NewCanceller(nil, nil, nil)
 	if got := jobCanceller(Deps{JobCanceller: canceller}); got == nil {
 		t.Fatal("jobCanceller dropped a real canceller, so no job could ever be stopped from the browser")
+	}
+}
+
+// TestJobJournalAndLogArchive_ConvertBothWays covers the two conversions
+// added beside jobRelauncher, for the identical reason.
+//
+// Each is three lines whose whole job is the typed-nil trap, and each has a
+// branch a harness never reaches: the conformance suite wires neither port,
+// so without this the non-nil half is declared and never executed, which is
+// how a "simplification" back to a direct assignment would pass every test
+// and then draw a Tasks tab that panics on its first read.
+func TestJobJournalAndLogArchive_ConvertBothWays(t *testing.T) {
+	// Absent, which is what the conformance harness and any composition
+	// without a database or a broker really is.
+	if got := jobJournal(Deps{}); got != nil {
+		t.Errorf("jobJournal(no store) = %v, want an untyped nil", got)
+	}
+	if got := jobLogArchive(Deps{}); got != nil {
+		t.Errorf("jobLogArchive(no broker) = %v, want an untyped nil", got)
+	}
+
+	// Present, which is every real Controller. The value has to arrive as
+	// a usable interface rather than being dropped, or the Tasks tab and
+	// the downloads are silently absent on a deployment that wired them.
+	store := journal.NewEntStore(nil)
+	if got := jobJournal(Deps{JobJournal: store}); got == nil {
+		t.Error("jobJournal dropped a wired store, so the Tasks tab would never be drawn")
+	}
+	archive := api.NewLogArchive(nil)
+	if got := jobLogArchive(Deps{JobLogs: archive}); got == nil {
+		t.Error("jobLogArchive dropped a wired archive, so the log download would never be offered")
 	}
 }

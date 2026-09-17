@@ -19,6 +19,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -47,15 +48,37 @@ const archiveFetchBatch = 256
 // response open.
 const archiveFetchTimeout = 10 * time.Second
 
+// logConsumer is the pair of questions this file asks a JetStream consumer:
+// how much is left, and give me the next batch.
+//
+// jetstream.Consumer satisfies it as declared. Naming the two methods used
+// rather than taking the whole interface is what lets the decisions below
+// -- whether to offer the control, what to do when the broker refuses --
+// be exercised without a container, while the calls that actually reach a
+// broker stay one line each and are proven by the SSE viewer against the
+// same stream and the same consumer configuration.
+type logConsumer interface {
+	Info(ctx context.Context) (*jetstream.ConsumerInfo, error)
+	FetchNoWait(batch int) (jetstream.MessageBatch, error)
+}
+
 // LogArchive drains one job's retained log output.
 type LogArchive struct {
 	js jetstream.JetStream
+
+	// open obtains the consumer for one job. It is the real broker call in
+	// every composition and is replaced only by this package's own tests,
+	// which is why it is unexported and has no setter: a caller that could
+	// swap it could make a download read a subject nobody authorised.
+	open func(ctx context.Context, jobID string) (logConsumer, error)
 }
 
 // NewLogArchive constructs an archive over the shared JetStream handle
 // topology.EnsureStream has already provisioned the stream on.
 func NewLogArchive(js jetstream.JetStream) *LogArchive {
-	return &LogArchive{js: js}
+	a := &LogArchive{js: js}
+	a.open = a.consumerFor
+	return a
 }
 
 // Retained reports whether the broker still holds output for this job.
@@ -71,7 +94,10 @@ func NewLogArchive(js jetstream.JetStream) *LogArchive {
 // control. The failure an operator can act on is a missing link, never a
 // file that turns out to be empty after they have sent it to somebody.
 func (a *LogArchive) Retained(ctx context.Context, jobID string) bool {
-	consumer, err := a.consumerFor(ctx, jobID)
+	if a == nil || a.open == nil {
+		return false
+	}
+	consumer, err := a.open(ctx, jobID)
 	if err != nil {
 		return false
 	}
@@ -91,53 +117,83 @@ func (a *LogArchive) Retained(ctx context.Context, jobID string) bool {
 // loses its last line and stays readable, which is the right failure for an
 // artefact somebody is saving in order to investigate something.
 func (a *LogArchive) WriteTo(ctx context.Context, w io.Writer, jobID string) error {
-	consumer, err := a.consumerFor(ctx, jobID)
+	if a == nil || a.open == nil {
+		return fmt.Errorf("api: no broker is wired, so job %q has no log archive", jobID)
+	}
+	consumer, err := a.open(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("api: opening the log archive for job %q: %w", jobID, err)
 	}
 
+	if err := drainInto(ctx, w, func(n int) ([][]byte, error) {
+		batch, err := consumer.FetchNoWait(n)
+		if err != nil {
+			return nil, err
+		}
+		var out [][]byte
+		for msg := range batch.Messages() {
+			out = append(out, msg.Data())
+		}
+		return out, batch.Error()
+	}); err != nil {
+		return fmt.Errorf("api: draining the log archive for job %q: %w", jobID, err)
+	}
+	return nil
+}
+
+// fetchBatch pulls up to n messages, returning their bodies.
+//
+// A function rather than the jetstream.Consumer itself, so the drain below
+// can be exercised against a message source that is not a broker. What that
+// buys is not convenience: the decisions in drainInto -- where it stops,
+// what it does at the bound, what it writes when it has been cut short --
+// are real behaviour a reader needs pinned, and they are not observable
+// through a container that would have to be persuaded to hold fifty
+// thousand messages to reach the interesting branch.
+//
+// The eight lines that adapt a real consumer to this shape stay in WriteTo,
+// where they are thin enough to read as obviously correct, and the broker
+// half is exercised for real by the SSE viewer's own tests against the same
+// subject and the same consumer config.
+type fetchBatch func(n int) ([][]byte, error)
+
+// drainInto writes every message a fetcher will give, up to the bound.
+func drainInto(ctx context.Context, w io.Writer, fetch fetchBatch) error {
 	written := 0
 	for written < maxArchivedLogMessages {
-		batch, err := consumer.FetchNoWait(archiveFetchBatch)
+		bodies, err := fetch(archiveFetchBatch)
 		if err != nil {
-			return fmt.Errorf("api: draining the log archive for job %q: %w", jobID, err)
+			return err
 		}
 
-		got := 0
-		for msg := range batch.Messages() {
-			got++
-			if _, err := w.Write(append(msg.Data(), '\n')); err != nil {
-				return fmt.Errorf("api: writing the log archive for job %q: %w", jobID, err)
+		// A drained-but-empty fetch is how FetchNoWait says there is
+		// nothing more right now, which for a finished job is the end.
+		if len(bodies) == 0 {
+			return nil
+		}
+
+		for _, body := range bodies {
+			if _, err := w.Write(append(body, '\n')); err != nil {
+				return err
 			}
 			written++
 			if written >= maxArchivedLogMessages {
 				break
 			}
 		}
-		if err := batch.Error(); err != nil {
-			return fmt.Errorf("api: draining the log archive for job %q: %w", jobID, err)
-		}
-
-		// A drained-but-empty fetch is how FetchNoWait says there is
-		// nothing more right now, which for a finished job is the end.
-		if got == 0 {
-			break
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-	}
-
-	if written >= maxArchivedLogMessages {
-		// Said in the file rather than only in a log, because the person
-		// holding the file is the one who needs to know it is partial.
-		if _, err := fmt.Fprintf(w,
-			"{\"pleiades\":\"truncated\",\"reason\":\"this download stops at %d messages; the rest is in the log stream\"}\n",
-			maxArchivedLogMessages); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
-	return nil
+
+	// Said in the FILE rather than only in a log, because the person
+	// holding the file is the one who needs to know it is partial. A
+	// truncated log that looks complete is how somebody concludes a run
+	// finished cleanly when it did not.
+	_, err := fmt.Fprintf(w,
+		"{\"pleiades\":\"truncated\",\"reason\":\"this download stops at %d messages; the rest is in the log stream\"}\n",
+		maxArchivedLogMessages)
+	return err
 }
 
 // consumerFor builds the ephemeral, non-acknowledging consumer scoped to
@@ -148,7 +204,15 @@ func (a *LogArchive) WriteTo(ctx context.Context, w io.Writer, jobID string) err
 // cannot advance a position another reader depends on. The timeout is
 // applied here rather than around the whole drain, so a large but healthy
 // archive is not cut off partway for being large.
-func (a *LogArchive) consumerFor(ctx context.Context, jobID string) (jetstream.Consumer, error) {
+func (a *LogArchive) consumerFor(ctx context.Context, jobID string) (logConsumer, error) {
+	// An archive with no broker answers rather than panicking, and the
+	// answer is the refusing one. A composition without JetStream is real
+	// -- every test harness in this package is one -- and the two callers
+	// both treat a failure here as "there is nothing to download", which
+	// withholds the control instead of crashing the page that draws it.
+	if a == nil || a.js == nil {
+		return nil, errors.New("api: no broker is wired, so no log archive exists")
+	}
 	ctx, cancel := context.WithTimeout(ctx, archiveFetchTimeout)
 	defer cancel()
 	return a.js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.LogViewerConsumerConfig(jobID))
