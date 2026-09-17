@@ -495,14 +495,30 @@ func Port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	waitCtx, cancel := context.WithDeadline(ctx, started.Add(req.timeout))
 	defer cancel()
 
+	// The budget can run out during SETUP as well as during a probe, and
+	// until this was handled the two said different things about one
+	// cause. A deadline that expired while connecting or while choosing a
+	// prober surfaced the transport's own "context deadline exceeded",
+	// which tells an operator the session failed rather than that the wait
+	// they asked for expired -- and skipped the stats a failed wait owes.
+	//
+	// Found by the push gate rather than by review: the setup path is only
+	// slow enough to lose this race on a loaded machine, so it passed
+	// every isolated run and failed under a full parallel suite.
 	conn, err := sdk.Connect(waitCtx, rc, device, params, portFQCN)
 	if err != nil {
+		if waitCtx.Err() != nil {
+			return collection.Result{}, portGaveUp(ctx, rc, req, started)
+		}
 		return collection.Result{}, err
 	}
 	defer func() { _ = conn.Close() }()
 
 	prober, err := portChooseProber(waitCtx, conn)
 	if err != nil {
+		if waitCtx.Err() != nil {
+			return collection.Result{}, portGaveUp(ctx, rc, req, started)
+		}
 		return collection.Result{}, fmt.Errorf("%s: %w", portFQCN, err)
 	}
 
