@@ -4544,3 +4544,69 @@ applies to and shows up in review." The distinction here is real and should be w
 assumed: the variable alone permits nothing, and the thing it consents to IS a per-record
 parameter that shows up in review. The startup WARN exists because the "sets it once and forgets"
 failure is the same one.
+
+## 190. A gate must not run inside a hook whose caller has already opened a network connection; make the gate a process and the hook a receipt check
+
+**The incident.** `.githooks/pre-push` ran `make push-gate`, which takes roughly twenty minutes.
+Git opens its connection to the remote and fetches the ref advertisement BEFORE running that hook,
+because the hook's stdin carries the remote sha for each ref. So the gate ran inside a window git
+was holding a socket open for, and by the time it passed, the remote had dropped it. Every push
+exited 141 with no output while the gate printed "all checks passed". See FAILURE_PATTERNS #229.
+
+**The rule and why it generalises.** A hook is a decision point, not a workload. Whatever invoked
+it is holding resources whose lifetime nobody wrote down: a connection, a lock, a transaction, a
+lease. The longer the hook runs, the more of those expire, and the failure surfaces as something
+unrelated to the hook at a layer that cannot explain it. Run the expensive thing as its own
+process on its own schedule, have it record a verifiable result, and let the hook ask one question
+with an instant answer.
+
+**The receipt shape matters as much as the split.** It binds a COMMIT, not a tree, and it is only
+issued from a clean working tree. That makes the arrangement stricter than the hook it replaced,
+which is worth stating because it looks like a loosening: running the suite in the hook proved
+something about the working tree and then pushed commits, and with uncommitted edits those are
+different code. It records which gate ran, because `push-gate` tolerates a failure confined to a
+`flaky-packages.json` package and `ci` does not, and a reader who cannot tell them apart will
+eventually read a tolerated pass as a strict one. It carries a max age for exactly one reason:
+every check is a pure function of the tree except `govulncheck`, which reads a live advisory
+database, so an old pass still describes the same code while no longer answering that one
+question.
+
+## 191. A test failure in a package NOT on the flaky list is a defect until proven otherwise, and three of three were
+
+**The incident.** Three consecutive `make ci` runs failed in three different packages. The
+temptation each time was to read "different victim each run" as the contention signature and move
+on, because that discriminator is real and this repository documents it. But the discriminator's
+second half is the part that matters: contention is the explanation for a package that
+`flaky-packages.json` names with a written observed reason. For a package outside that list it is
+a hypothesis, not a finding.
+
+`internal/catalog/wait` was a truncate-then-write race that let the test pass for the wrong reason
+(#230). `pkg/serialexec` was a five second budget plus a wait loop blind to its own subprocess
+dying (#231). `internal/catalog/facts` could not be reproduced in eighty targeted runs and was
+left alone, which is the correct third answer and is not the same as waiving it.
+
+**The rule.** Run it alone to classify, then decide by LIST MEMBERSHIP rather than by the
+isolation result. Passing alone tells you the failure is timing sensitive; it tells you nothing
+about whether the timing sensitivity is a defect. A package that provisions containers and is
+listed with a reason has already had that question answered by somebody. A package that spawns one
+local subprocess has not, and adding it to the list to make a red run green converts an unexamined
+bug into a package nothing checks anywhere.
+
+**The third answer.** When it cannot be reproduced, say so and change nothing. A fix you cannot
+demonstrate is a change that does nothing while claiming to, and it costs the next reader the
+assumption that the area was examined.
+
+## 192. The exit status of a pipeline is the last command's, so wrapping a gate in `| tail` reports the pager's success and hides the failure
+
+**The incident.** `make ci | tail` and `git push | tail -20` were both read as green when the real
+command had failed, twice in one session, and the second one hid a push that never happened for
+three attempts. The same shape appears when a long command is wrapped for readability:
+`cmd > log; echo "EXIT=$?"` captures the echo's status if anything is piped after it, and
+`setsid cmd` without `--wait` returns immediately so the caller's status describes the fork, not
+the work.
+
+**The rule.** Capture the status of the command you care about, in its own statement, with nothing
+between: `cmd > log 2>&1; echo "EXIT=$?" >> log`, then read the log. For anything whose result
+will be reported to a person, verify the OUTCOME independently rather than the exit code:
+`git ls-remote` for a push, the artefact on disk for a build. An exit code is a claim about a
+process; the outcome is the thing being claimed.

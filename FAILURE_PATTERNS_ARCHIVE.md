@@ -7932,3 +7932,100 @@ path; what is lost is the refusal arriving at bind time instead of as a failed j
 a new two-place rule, put the load-bearing half where every writer must pass -- the store -- and
 not in a handler, because this repository has two examples of a handler-side check that one of
 its own UIs walks past.
+
+## 229. A pre-push gate outlived the connection git had already opened, so every push died with SIGPIPE and no output while the gate printed "all checks passed"
+
+**Symptom.** `git push` exited 141 after roughly twenty-five minutes. The pre-push hook's
+output ended with `push-gate: all checks passed`. Git itself printed nothing at all: no
+"Enumerating objects", no error, no rejection. `git ls-remote` showed the branch had never
+reached the remote. Reproduced five times, once per attempt, across two different framings of
+the command.
+
+**Root cause.** Git connects to the remote and fetches its ref advertisement BEFORE running
+`pre-push`, because the hook's stdin is one line per ref carrying `<local ref> <local sha>
+<remote ref> <remote sha>` and the remote sha can only come from the remote. The hook then ran
+`make push-gate`, a twenty minute suite. By the time it exited 0, the remote had dropped a
+connection that had been idle the whole time. Git's first write to it raised SIGPIPE, which is
+fatal by default and produces no message. 141 is 128 plus 13.
+
+**Fix.** Separate the gate from the push. `make push-gate` and `make ci` now end by writing
+`.git/pleiades-gate.json` through `tools/gatereceipt`, naming the commit verified, which gate
+ran, and when. `.githooks/pre-push` no longer runs anything: it reads that receipt back for the
+exact commits being pushed and answers in about a second. A receipt is only issued from a clean
+tree, and untracked files count as dirty.
+
+**Lesson.** Two diagnostic moves mattered and both were cheap. First, a delete-only push
+(`git push origin :refs/heads/nonexistent`) skips the hook by design, so it isolates transport,
+auth and write permission in two seconds; it succeeded immediately and proved none of those were
+at fault, leaving elapsed time as the only variable. Second, the exit status of a pipeline is the
+LAST command's, so `git push | tail` reports tail's 0 and hides everything. Both should have been
+reached on attempt two rather than attempt five.
+
+## 230. os.WriteFile truncates before it writes, and a test polling that file observed the empty window as an answer
+
+**Symptom.** `TestSearch_WaitsForAPatternToDisappear` failed under `make ci`'s `-count=3` pass
+with `the file holds "", want "starting up\nloading configuration\n" untouched`, naming contents
+the test had written itself. It passed alone every time.
+
+**Root cause.** The helper changed a watched file with `os.WriteFile`, which opens with `O_TRUNC`
+and then writes, leaving the file empty between the two calls. Every test in that package is a
+reader polling the same file while the helper changes it, so the window is observable. The method
+under test waits for a line to be GONE, and an empty file satisfies that for the wrong reason:
+under load it returned on the truncated file, and the test's own closing read then saw "" as well.
+
+**Fix.** Write a sibling temp file and `os.Rename` over the target, so a concurrent reader sees
+the old contents or the new and never neither. Applied to the two sites that rewrite a file
+something is already watching, and deliberately not to the two that create a file which did not
+exist, where an empty first instant is the answer rather than a race.
+
+**Lesson.** Reproduced deterministically before fixing, by holding the file empty past one probe
+interval, which produced the exact message on demand. A flake that cannot be reproduced should not
+be "fixed": the change would do nothing while claiming to. Note also that the test could PASS for
+the wrong reason, which is the more dangerous half and is invisible until the timing shifts.
+
+## 231. A five second budget for a subprocess to appear fired under suite load, and the loop waiting for it never noticed the subprocess had died
+
+**Symptom.** `TestExec_RoundTripsThroughARealPTYPair` failed `make ci` with `socat never created
+both PTY links`. socat was installed; the test passed alone in under a second, fifty times, and
+twenty more under `-race`.
+
+**Root cause.** Two defects in one helper. The wait for socat to create its PTY symlinks was
+bounded at five seconds, which is inside the range a loaded machine delays a subprocess by: `make
+ci` runs twenty-one container packages serially and the whole suite three times over. Separately,
+the loop only ever polled for the symlinks, so a socat that exited immediately still produced
+"never created both PTY links" after the full wait, naming the symptom and sending the reader to
+look at PTYs rather than at socat's own error.
+
+**Fix.** Thirty seconds, which is not a claim about how long socat should take but the point at
+which waiting longer tells us nothing new. And `cmd.Wait` now runs once on its own goroutine with
+the loop reading the result, so a dead socat fails in milliseconds saying what happened. Both
+copies of the helper, identically.
+
+**Lesson.** A timeout that fires on load reports a defect that is not there and hides the next
+real one. When a wait loop has a subprocess, "still starting" and "already gone" are different
+answers and a loop that cannot tell them apart will mislabel one as the other forever.
+
+## 232. Every device creatable through the API or the UI is permanently un-dispatchable, because nothing can write the host property the dispatcher requires
+
+**Symptom.** Not observed as a failure, because nothing has looked. Found while deciding whether
+a one-command local stack should seed a demo fleet.
+
+**Root cause.** `internal/dispatch/worker_devices.go` skips any device whose properties carry no
+`host`, recording `OutcomeSkipped` with `device %q has no host property`, because there is nowhere
+for the Runner to connect. But `deviceWriteSchema` in `internal/apispec/apispec.go` deliberately
+carries no properties field, and the UI's device form is name/type/state/tags only. Both omissions
+are deliberate and documented: the property bag holds decrypted enable secrets and API keys, and
+the masking ruleset that would make it safe to serve belongs to a phase that does not exist yet.
+The consequence, which neither comment states, is that the only devices a job can actually run
+against are ones written directly into the database through an ent client with the envelope hook
+installed, which is what `tests/e2e/harness_seed_test.go` does.
+
+**Fix.** None. Recorded deliberately rather than patched: the fix belongs to whichever phase owns
+device properties and the masking ruleset, and widening the write schema without that ruleset is
+the exact surface being deferred.
+
+**Lesson.** `make ui-dev` seeds six devices and looks like a working fleet precisely because it
+runs no Runner. A local stack that runs a real one would present the same fleet and skip every
+device on the first launch, which is worse than an empty page. Two deliberate omissions in
+different files can compose into a third property nobody decided on, and no single file's comment
+is wrong.

@@ -231,6 +231,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 226. A form's prefill was computed, sorted, and dropped, so saving it as drawn unbound every credential a template ran as
 227. Four action redirects left off the UI's mount prefix, so a successful write answered with a 404
 228. Two doc comments asserted a two-place safety check that had one place, one of them naming a log-masking control that does not exist
+229. A pre-push gate outlived the connection git had already opened, so every push died with SIGPIPE and no output while the gate printed "all checks passed"
+230. os.WriteFile truncates before it writes, and a test polling that file observed the empty window as an answer
+231. A five second budget for a subprocess to appear fired under suite load, and the loop waiting for it never noticed the subprocess had died
+232. Every device creatable through the API or the UI is permanently un-dispatchable, because nothing can write the host property the dispatcher requires
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
