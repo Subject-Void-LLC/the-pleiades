@@ -74,6 +74,11 @@ type EnvelopeService struct {
 	hasPrevious     bool
 }
 
+// DefaultKeyVersion is the version tag a key carries when none is
+// configured: what the controller reads an unset MASTER_ENCRYPTION_KEY_VERSION
+// as, and so the tag every value sealed under such a key carries.
+const DefaultKeyVersion = "v1"
+
 // NewEnvelopeService constructs an EnvelopeService from a required current
 // KEK (exactly 32 bytes) and its version tag (non-empty, must not contain
 // "$", the field delimiter every envelope string uses), plus an optional

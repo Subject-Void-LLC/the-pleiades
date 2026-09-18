@@ -44,7 +44,7 @@ func recordKeyFirstUse(ctx context.Context, client *ent.Client, logger *slog.Log
 	)
 	record, created, err := registry.Register(ctx, keyregistry.Record{
 		Fingerprint: crypto.Fingerprint(key),
-		Version:     getenv("MASTER_ENCRYPTION_KEY_VERSION", "v1"),
+		Version:     getenv("MASTER_ENCRYPTION_KEY_VERSION", crypto.DefaultKeyVersion),
 		Origin:      keyregistry.OriginFirstUse,
 		Possession:  keyregistry.PossessionNotApplicable,
 	})

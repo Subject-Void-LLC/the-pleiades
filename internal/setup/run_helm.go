@@ -88,5 +88,5 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 		fmt.Fprintln(out, notCheckedNotice(display))
 	}
 	fmt.Fprintln(out, helmSummary(dir.Show(HelmSecretFile), dir.Show(HelmValuesFile), opts, key))
-	return Result{File: display, Key: key, KeyVersion: "v1", Possession: possession}, nil
+	return Result{File: display, Key: key, KeyVersion: crypto.DefaultKeyVersion, Possession: possession}, nil
 }

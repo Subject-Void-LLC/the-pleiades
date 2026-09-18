@@ -133,7 +133,7 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 		return Result{}, err
 	}
 
-	result := Result{File: display, KeyVersion: "v1"}
+	result := Result{File: display, KeyVersion: crypto.DefaultKeyVersion}
 	if v, ok := file.Get(VarMasterKeyVersion); ok {
 		result.KeyVersion = v
 	}

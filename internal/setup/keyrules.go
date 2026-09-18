@@ -145,7 +145,7 @@ func sealedCounts(c *crypto.Census) string {
 	var lines []string
 	for _, col := range c.Columns {
 		if col.Sealed > 0 {
-			lines = append(lines, "  "+countPhrase(col.Noun, col.Sealed))
+			lines = append(lines, "  "+CountPhrase(col.Noun, col.Sealed))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -160,14 +160,14 @@ func heldCounts(c *crypto.Census, held []string) string {
 			n += col.Opens[name]
 		}
 		if n > 0 {
-			lines = append(lines, "  "+countPhrase(col.Noun, n))
+			lines = append(lines, "  "+CountPhrase(col.Noun, n))
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 
-// countPhrase names n rows of one column in words, singular or plural.
-func countPhrase(noun string, n int) string {
+// CountPhrase names n rows of one column in words, singular or plural.
+func CountPhrase(noun string, n int) string {
 	plural := n != 1
 	switch noun {
 	case "credentials":

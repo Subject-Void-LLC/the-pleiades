@@ -306,7 +306,7 @@ func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 	if err != nil {
 		return nil, err
 	}
-	currentVersion := getenv("MASTER_ENCRYPTION_KEY_VERSION", "v1")
+	currentVersion := getenv("MASTER_ENCRYPTION_KEY_VERSION", crypto.DefaultKeyVersion)
 
 	havePreviousKey := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS") != ""
 	havePreviousVersion := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION") != ""
