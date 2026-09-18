@@ -115,8 +115,15 @@ services:
       # own from its own secret store, and the controller's DB_DSN below
       # has to match whatever that is.
       POSTGRES_PASSWORD: password
+    # Published on loopback only. On every interface, this port and the
+    # password above were full read and write access to the control plane's
+    # database for anything that could reach this machine: password hashes,
+    # sessions, role bindings, and every row the master key protects. The
+    # stack itself reaches postgres over its own network and needs no
+    # published port at all; this one is for a client on this machine, such
+    # as the bare controller in the getting-started guide.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # The named volume, not the anonymous one this image's own VOLUME
       # directive creates when the mount is left unstated. The volumes
@@ -290,8 +297,14 @@ services:
     # leases, so losing it loses in-flight work along with every job the
     # runners had not acknowledged yet. /data is the named volume below.
     command: ["-js", "-sd", "/data", "-m", "8222"]
+    # Published on loopback only. This broker runs with no authorization,
+    # and dispatch messages carry the credentials their jobs run with, so on
+    # every interface anything that could reach this machine could subscribe
+    # to pleiades.> and read them, or publish onto the stream. The runner
+    # here reaches it over the stack's own network; this port is for a
+    # process on this machine.
     ports:
-      - "4222:4222"
+      - "127.0.0.1:4222:4222"
     volumes:
       - nats-data:/data
     healthcheck:

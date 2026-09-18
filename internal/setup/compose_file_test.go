@@ -154,3 +154,23 @@ func TestComposeSetupServiceIsConfinedToWhatItNeeds(t *testing.T) {
 		t.Errorf("setup counts %q and the controller opens %q; setup must count the database the controller uses", env["DB_DSN"], controllerDSN)
 	}
 }
+
+// TestComposePublishesTheDatabaseAndBrokerOnLoopbackOnly pins the two ports
+// that were open on every interface. The database's password is in this
+// file, and the broker has no authorization while its dispatch messages
+// carry job credentials, so either one published beyond this machine is
+// readable by anything that can reach it.
+func TestComposePublishesTheDatabaseAndBrokerOnLoopbackOnly(t *testing.T) {
+	_, services := readComposeFile(t)
+	for _, name := range []string{"postgres", "nats"} {
+		ports := services[name].Ports
+		if len(ports) == 0 {
+			t.Errorf("%s publishes no port; this test would pass by checking nothing", name)
+		}
+		for _, p := range ports {
+			if !strings.HasPrefix(p, "127.0.0.1:") {
+				t.Errorf("%s publishes %q on every interface; bind it to 127.0.0.1", name, p)
+			}
+		}
+	}
+}
