@@ -128,9 +128,13 @@ func (h *harness) assertJobView(t *testing.T, job jobResponse, jobID string) {
 
 	byName := map[string]string{}
 	reasons := map[string]string{}
+	results := map[string]string{}
+	finished := map[string]string{}
 	for _, task := range job.Tasks {
 		byName[task.DeviceName] = task.Outcome
 		reasons[task.DeviceName] = task.Reason
+		results[task.DeviceName] = task.Result
+		finished[task.DeviceName] = task.FinishedAt
 	}
 
 	for _, name := range []string{"rtr1", "rtr2"} {
@@ -141,6 +145,34 @@ func (h *harness) assertJobView(t *testing.T, job jobResponse, jobID string) {
 			t.Fatalf("device %s was dispatched but carries the reason %q", name, reasons[name])
 		}
 	}
+	// What the RUNNER reported, which is a different fact from what the
+	// Controller decided and was asserted nowhere in this suite.
+	//
+	// "dispatched" means a message was handed to a Runner. It says nothing
+	// about whether the device ever ran anything, and for the whole life
+	// of the result pipeline this test could not have told the difference:
+	// a job reached "completed" when its fan-out ended. It now reaches
+	// "completed" only when every dispatched device has reported, so these
+	// are the assertions that make this test cover the thing that changed.
+	for _, name := range []string{"rtr1", "rtr2"} {
+		if results[name] != "succeeded" {
+			t.Fatalf("device %s result = %q, want succeeded: the job ended without this device reporting a real outcome. %s",
+				name, results[name], describeTasks(job))
+		}
+		if finished[name] == "" {
+			t.Fatalf("device %s has no finished_at, so nothing records when its run ended: %s", name, describeTasks(job))
+		}
+	}
+	// A device that was never dispatched cannot have reported, and a
+	// result on one would mean a result was recorded against the wrong
+	// row.
+	if results["rtr5"] != "" {
+		t.Fatalf("device rtr5 was skipped but carries the result %q: %s", results["rtr5"], describeTasks(job))
+	}
+	if finished["rtr5"] != "" {
+		t.Fatalf("device rtr5 was skipped but carries a finished_at: %s", describeTasks(job))
+	}
+
 	if byName["rtr5"] != "skipped" {
 		t.Fatalf("device rtr5 outcome = %q, want skipped: %s", byName["rtr5"], describeTasks(job))
 	}

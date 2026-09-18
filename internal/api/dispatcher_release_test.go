@@ -190,7 +190,7 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
 		api.WithTemplates(templates), api.WithLaunchConfigs(templates))
-	jobsHandler := api.NewJobHandler(jobStore)
+	jobsHandler := api.NewJobHandler(jobStore, jobStore)
 
 	// The real auth pipeline, wired exactly as cmd/controller/main.go
 	// wires it: one AdmissionChain, shared by both the enforcing
@@ -257,8 +257,13 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	// 10,000 sequential, individually recorded per-device outcomes.
 	job := pollJobUntilTerminal(t, ctx, jobStore, launch.JobID, 60*time.Second)
 
-	if job.State != "completed" {
-		t.Fatalf("job State = %q, want %q", job.State, "completed")
+	// "running", not "completed": this gate dispatches to ten thousand
+	// real devices, so the Controller finishing its fan-out is exactly
+	// what it measures, and the run itself continues until those devices
+	// report back. A gate asserting "completed" here would be asserting
+	// that nothing was dispatched.
+	if job.State != "running" {
+		t.Fatalf("job State = %q, want %q", job.State, "running")
 	}
 	if job.DispatchedCount != releaseGateDeviceCount {
 		t.Errorf("DispatchedCount = %d, want %d", job.DispatchedCount, releaseGateDeviceCount)

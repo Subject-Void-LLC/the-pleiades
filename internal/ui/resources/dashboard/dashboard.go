@@ -50,6 +50,8 @@ var buckets = []struct {
 }{
 	{"completed", "Completed", "badge-ok"},
 	{"failed", "Failed", "badge-failed"},
+	{"canceled", "Canceled", "badge-neutral"},
+	{"running", "Running", "badge-changed"},
 	{"fanning_out", "Fanning out", "badge-changed"},
 	{"pending", "Pending", "badge-skipped"},
 }

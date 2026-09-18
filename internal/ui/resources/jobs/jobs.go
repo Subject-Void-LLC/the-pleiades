@@ -22,12 +22,38 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // Name is this view's registration key and URL segment.
 const Name = "jobs"
+
+// JournalReader is the sliver of the run journal this view needs.
+//
+// A narrow port rather than *journal.EntStore, matching the Interface
+// Segregation this package already applies to the Dispatcher: a view that
+// took the store whole would gain the ability to WRITE journal entries as a
+// side effect of being able to show them, and a journal a UI can write to
+// is not an audit trail.
+//
+// It is optional at the composition root and a nil one draws no section at
+// all, which is the honest rendering for a deployment that has not wired
+// the journal rather than a tab that is permanently empty for everybody.
+type JournalReader interface {
+	// ForJob returns the job's entries oldest first per device, and
+	// reports whether the read was capped. The bound belongs to the
+	// implementation; this port only carries the answer.
+	ForJob(ctx context.Context, jobID string, limit int) ([]engine.JournalEntry, bool, error)
+}
+
+// journalLimit is what the Tasks section asks for.
+//
+// Below internal/journal's own cap, deliberately: this is a table on a
+// detail page, and a reader who needs twenty thousand rows is doing an
+// export rather than reading a page. The section says when it has capped.
+const journalLimit = 500
 
 // fields drive the table, the dispatch form, the detail list, validation
 // and the mobile card layout from one declaration.
@@ -101,7 +127,12 @@ func stateBadge(state string) string {
 		return "badge-ok"
 	case "failed":
 		return "badge-failed"
-	case "fanning_out":
+	case "canceled":
+		// Neutral rather than badge-failed. A canceled run did not break,
+		// somebody stopped it, and colouring the two alike would undo the
+		// distinction the state exists to draw.
+		return "badge-neutral"
+	case "fanning_out", "running":
 		return "badge-changed"
 	case "pending":
 		return "badge-skipped"
@@ -174,7 +205,29 @@ var taskFields = []view.Field{
 	// list by hand.
 	{Name: "device", Label: "DEVICE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "devices"},
 	{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true, BadgeClass: taskBadge},
+	// Result is a second column rather than more values in OUTCOME,
+	// because the two answer different questions and an operator needs
+	// both. Outcome says whether this device was handed to a Runner;
+	// result says what the Runner made of it. A device reading
+	// "dispatched" with an empty result has not reported back yet, which
+	// is exactly what a job sitting in "running" is waiting for.
+	{Name: "result", Label: "RESULT", Kind: view.KindBadge, InList: true, BadgeClass: resultBadge},
 	{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
+}
+
+// resultBadge colours what the Runner reported for one device.
+//
+// The empty value is the common case and reads neutral rather than
+// failed: a device that has not reported yet has not gone wrong.
+func resultBadge(result string) string {
+	switch result {
+	case string(dispatch.ResultSucceeded):
+		return "badge-ok"
+	case string(dispatch.ResultFailed):
+		return "badge-failed"
+	default:
+		return "badge-neutral"
+	}
 }
 
 // deviceOutcomes is the drill-down section: one row per device this job
@@ -202,7 +255,14 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 					Cells: view.Cells{
 						"device":  t.DeviceName,
 						"outcome": t.Outcome.String(),
-						"reason":  t.Reason,
+						"result":  t.Result.String(),
+						// The Runner's own sentence when it has one,
+						// falling back to the Controller's reason for a
+						// device that never ran. One column, because a
+						// reader wants to know why this device is in the
+						// state it is in, and only one of the two is ever
+						// populated for a given device.
+						"reason": firstNonEmpty(t.ResultReason, t.Reason),
 					},
 					// The stored device id, which is what the link is
 					// built from. The cell shows the name: a cell showing
@@ -223,7 +283,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore, runner Relauncher) error {
+func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, entries JournalReader, logs LogArchive) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -269,16 +329,20 @@ func Register(jobs dispatch.JobStore, runner Relauncher) error {
 			Get:  &apispec.GetJob,
 			// No Create: dispatching is a runbook's action, offered on the
 			// Runbooks view where an operator already has the runbook in
-			// front of them. No Update and no Delete either -- there is no
-			// job:write scope, no JobStore.Cancel and no cancellation path
-			// anywhere in this build, so offering any of them would be a
-			// button for a route nobody mounted.
+			// front of them. No Update and no Delete either: a job is a
+			// historical record, and editing or erasing one would be
+			// editing the audit trail. Stopping a running job is a
+			// different thing entirely and is offered as an action below.
 		},
-		Actions: []view.RecordAction{relaunchAction(runner)},
-		// Withdraws Relaunch on the jobs it would fail on: one still
-		// running, and one that never came from a template.
-		Applies:  applies,
-		Sections: []view.Section{deviceOutcomes(jobs)},
+		Actions: []view.RecordAction{cancelAction(canceller), relaunchAction(runner)},
+		// Withdraws each control on the jobs it would fail on: Relaunch on
+		// one still running, and on one that never came from a template;
+		// Cancel on one that has already stopped. The two are exclusive by
+		// construction, since both read the same terminalStates map from
+		// opposite sides, so a record never offers both at once.
+		Applies:   applies,
+		Sections:  sections(jobs, entries),
+		Downloads: downloads(entries, logs, jobs),
 		// AWX's job page opens on Output, and this one does too. Somebody
 		// opening a job has nearly always come to see what happened rather
 		// than to re-read what it was asked to do, and the details are one
@@ -294,6 +358,18 @@ func Register(jobs dispatch.JobStore, runner Relauncher) error {
 		},
 		Handlers: view.MustBind[*dispatch.Job](reader{jobs}, nil, projector),
 	})
+}
+
+// firstNonEmpty returns the first of its arguments that is not empty, or
+// the empty string. It exists so the reason column can prefer the Runner's
+// own explanation without a caller writing the same conditional inline.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // formatTime renders a timestamp in the one format this UI uses.
@@ -317,6 +393,7 @@ func formatTime(t time.Time) string {
 var terminalStates = map[string]bool{
 	"completed": true,
 	"failed":    true,
+	"canceled":  true,
 }
 
 // stillRunning reports whether a job's record page is worth refreshing.

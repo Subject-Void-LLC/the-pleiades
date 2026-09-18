@@ -270,9 +270,17 @@ func (b *capturingBus) lastContext() context.Context {
 	return b.contexts[len(b.contexts)-1]
 }
 
-// pollJobUntilTerminal polls store.Get for jobID until its State reaches a
-// terminal value ("completed" or "failed") or timeout elapses, sleeping a
-// short, fixed interval between polls.
+// pollJobUntilTerminal polls store.Get for jobID until its fan-out has
+// finished or timeout elapses, sleeping a short, fixed interval between
+// polls.
+//
+// "Finished" means the Controller has stopped working on this job, which
+// is three states rather than two. "completed" and "failed" are the
+// endings a fan-out that handed nothing to a Runner reaches. "running" is
+// the ending of one that did: the Controller is done, and the devices are
+// executing. Callers here are testing the fan-out, so that is the line
+// they wait on; a caller wanting the end of the RUN would have to wait for
+// results to come back, which is a different subject and needs a Runner.
 //
 // This is a bounded retry loop, not a single blind time.Sleep used as the
 // synchronization primitive itself: IMPLEMENTATION.md's own Phase 18
@@ -298,11 +306,11 @@ func pollJobUntilTerminal(t testing.TB, ctx context.Context, store dispatch.JobS
 		if err != nil {
 			t.Fatalf("polling job %s: %v", jobID, err)
 		}
-		if job.State == "completed" || job.State == "failed" {
+		if job.State == "completed" || job.State == "failed" || job.State == "running" {
 			return job
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("job %s did not reach a terminal state within %s (last observed state %q)", jobID, timeout, job.State)
+			t.Fatalf("job %s's fan-out did not finish within %s (last observed state %q)", jobID, timeout, job.State)
 		}
 		time.Sleep(pollInterval)
 	}

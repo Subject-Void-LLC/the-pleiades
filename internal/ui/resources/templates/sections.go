@@ -33,18 +33,42 @@ const sectionLimit = 50
 // at rest and redacted on the way out, so a page that listed answers would
 // be a page arguing about which of them it may show. What a survey asks is
 // not secret; what somebody answered is.
-func surveySection(store launch.Store) view.Section {
+func surveySection(store launch.Store, execAllowed bool) view.Section {
 	return view.Section{
 		Status:  view.StatusImplemented,
-		Title:   "Survey",
+		Title:   surveyTitle,
 		Summary: "What a launching operator is asked, in the order they are asked it. Answers merge into extra variables.",
 		Empty:   "This template asks nothing at launch. Every value it runs with is the one it was saved with, or one a launch may override.",
+		Actions: []string{addQuestionName},
+		// Edit and remove, then the two move controls. The order they are
+		// declared in is the order they render in, so the destructive one
+		// does not sit between the two an operator presses repeatedly.
+		RowActions: []view.RowAction{
+			editQuestionAction(store, execAllowed),
+			removeQuestionAction(store),
+			moveQuestionUpAction(store),
+			moveQuestionDownAction(store),
+		},
 		Fields: []view.Field{
+			// The position, rendered because the order is the authored
+			// thing this section is about: a reader who cannot see which
+			// question is third cannot tell what "move up" would do.
+			{Name: "order", Label: "#", Kind: view.KindText, InList: true},
 			{Name: "variable", Label: "VARIABLE", Kind: view.KindText, InList: true, MobilePrimary: true},
 			{Name: "label", Label: "QUESTION", Kind: view.KindText, InList: true},
 			{Name: "type", Label: "TYPE", Kind: view.KindText, InList: true},
 			{Name: "required", Label: "REQUIRED", Kind: view.KindBadge, InList: true, BadgeClass: requiredBadge},
 			{Name: "choices", Label: "CHOICES", Kind: view.KindText, InList: true},
+			// Program content is shown as a column rather than left in the
+			// edit form, because it is the one property of a question that
+			// changes what the platform will accept from whoever launches
+			// it. A reviewer scanning a template's survey should be able to
+			// see which questions are armed without opening each one, and
+			// whether the deployment is honouring the flag at all.
+			{
+				Name: "program", Label: "PROGRAM CONTENT", Kind: view.KindBadge, InList: true,
+				BadgeClass: programBadge,
+			},
 		},
 		Rows: func(ctx context.Context, parentID string) ([]view.Row, error) {
 			tmpl, ok := load(ctx, store, parentID)
@@ -61,15 +85,19 @@ func surveySection(store launch.Store) view.Section {
 			}
 
 			rows := make([]view.Row, 0, len(tmpl.Survey.Questions))
-			for _, q := range tmpl.Survey.Questions {
+			for i, q := range tmpl.Survey.Questions {
 				rows = append(rows, view.Row{
 					ID: q.Variable,
 					Cells: view.Cells{
+						// One-based, because this column is read by a person
+						// counting down a form, not by the resolver.
+						"order":    strconv.Itoa(i + 1),
 						"variable": q.Variable,
 						"label":    q.Label,
 						"type":     string(q.Type),
 						"required": yesNo(q.Required),
 						"choices":  strings.Join(q.Choices, ", "),
+						"program":  programCell(q, execAllowed),
 					},
 				})
 			}
@@ -80,6 +108,40 @@ func surveySection(store launch.Store) view.Section {
 
 // requiredBadge marks the questions that will refuse a launch if left
 // blank, so the ones that stop work are visible at a glance.
+// programCell says whether a question accepts program content, and whether
+// the deployment is honouring that.
+//
+// Three states rather than two, because the middle one is the one that
+// confuses people: a template author ticks the box, the deployment refuses
+// program content anyway, and without this the page would show a question
+// as armed while every launch refuses it.
+func programCell(q launch.Question, execAllowed bool) string {
+	switch {
+	case !q.AllowProgramContent:
+		return ""
+	case execAllowed:
+		return "accepted"
+	default:
+		return "refused here"
+	}
+}
+
+// programBadge colours the program-content column.
+//
+// "accepted" is the state worth noticing, so it takes the changed fill
+// rather than the ok one: a question that will take a script is not a
+// success, it is a thing to look at.
+func programBadge(value string) string {
+	switch value {
+	case "accepted":
+		return "badge-changed"
+	case "refused here":
+		return "badge-skipped"
+	default:
+		return "badge-neutral"
+	}
+}
+
 func requiredBadge(value string) string {
 	if value == "yes" {
 		return "badge-changed"
@@ -264,6 +326,12 @@ func stateBadge(state string) string {
 		return "badge-ok"
 	case "failed":
 		return "badge-failed"
+	case "canceled":
+		// Neutral, matching the Jobs view's own badge for the same state.
+		// Without this arm a canceled run falls to the default below and
+		// reads as still in progress, on a page whose whole purpose is
+		// showing what this template has already done.
+		return "badge-neutral"
 	default:
 		return "badge-changed"
 	}

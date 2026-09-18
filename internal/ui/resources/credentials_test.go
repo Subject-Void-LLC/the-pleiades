@@ -143,3 +143,56 @@ func TestTemplateCredentialsActionIsGatedByTheCredentialScope(t *testing.T) {
 		t.Errorf("GET the credentials action as a viewer = %d, want %d", w.Code, http.StatusForbidden)
 	}
 }
+
+// TestTemplateCredentialsFormRendersWhatIsAlreadyBound is a data-loss
+// regression guard, and the loss it guards against was live.
+//
+// The control replaces a template's whole credential list, which its own
+// help text says. It resolved the currently bound ids, sorted them, and
+// dropped them, because a record action had nowhere to put a form value
+// before the prefill seam existed. So a template bound to a credential
+// rendered a multi-select with nothing selected, and pressing the button as
+// drawn replaced that binding with none: the template silently stopped
+// authenticating as anything, and nothing on the page suggested it would.
+//
+// The fixture binds template 1 to one credential, so "selected" appearing
+// against that option is the whole assertion.
+func TestTemplateCredentialsFormRendersWhatIsAlreadyBound(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	body := h.get(t, "/ui/templates/1/credentials").Body.String()
+
+	const bound = "conformance credential (Conformance API)"
+	if !strings.Contains(body, bound) {
+		t.Fatalf("the bound credential is not offered at all, so this proves nothing:\n%s", body)
+	}
+	if !strings.Contains(body, "selected>"+bound) {
+		t.Errorf("the credential this template is bound to rendered unselected, so saving the form as drawn would unbind it:\n%s", body)
+	}
+}
+
+// TestRecordActionRedirectsStayInsideTheUIMount is a regression guard for a
+// bug all four hand-built action redirects had at once.
+//
+// Each built the path itself and each left off the UI's mount prefix, so a
+// successful write sent the operator to /templates/1 rather than
+// /ui/templates/1. The save had already happened; what they saw was a 404,
+// which reads as though it had not.
+//
+// Asserting the prefix rather than the exact path, because the point is
+// that the handler owns the prefix and a call site does not.
+func TestRecordActionRedirectsStayInsideTheUIMount(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	w := h.post(t, "/ui/templates/1/credentials", map[string]string{"credentials": "1"})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("binding credentials = %d, want a redirect: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/ui/") {
+		t.Errorf("Location = %q, which is outside the UI mount, so a successful save lands on a 404", loc)
+	}
+	if !strings.Contains(loc, "templates/1") {
+		t.Errorf("Location = %q, want it to return to the record that was written", loc)
+	}
+}

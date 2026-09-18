@@ -265,8 +265,11 @@ Things a real Ansible user will look for and not currently find:
 - No `handlers` / `notify`, no `tags`, no `become`, no `serial`, no `roles`, no
   `ignore_errors`, no `changed_when` / `failed_when`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
-- No notifications, no webhooks, no surveys, no approval workflows, no
-  execution environments.
+- No notifications, no webhooks, no approval workflows, no execution
+  environments. Surveys ARE built: a template can ask a launching operator for
+  typed values that merge into extra variables, authored from the template's own
+  Survey section, with AWX's seven question types plus a `file` question that
+  carries a text file's content.
 - No Vault, KMS or other external secrets manager as a first-class integration.
   Credential types can read an input from a file on the Controller, which covers a
   Vault Agent sidecar or an External Secrets Operator, and the eight named external

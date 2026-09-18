@@ -293,3 +293,74 @@ func TestJournalSubjectAll(t *testing.T) {
 		t.Errorf("JournalSubject(\">\") = %q, expected it to be sanitized into a literal token", topology.JournalSubject(">"))
 	}
 }
+
+// TestControlSubject is LogSubject's mirror for the per-job control
+// subject, the one subject in this package carried over core NATS.
+func TestControlSubject(t *testing.T) {
+	tests := []struct {
+		name  string
+		jobID string
+		want  string
+	}{
+		{"uuid job id", "abc-123", "pleiades.jobs.control.abc-123-5942d94f"},
+		{"empty job id", "", "pleiades.jobs.control.unnamed-e3b0c442"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := topology.ControlSubject(tt.jobID); got != tt.want {
+				t.Errorf("ControlSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
+			}
+		})
+	}
+
+	// Under StreamSubjectRoot like everything else here. Being core NATS
+	// changes how it is delivered, not where it lives: a subject outside
+	// the root would be an exception in the one package whose premise is
+	// that there are none.
+	if got := topology.ControlSubject("job-1"); !strings.HasPrefix(got, "pleiades.") {
+		t.Errorf("ControlSubject(%q) = %q, does not fall under StreamSubjectRoot %q", "job-1", got, topology.StreamSubjectRoot)
+	}
+
+	// It must not collide with any other per-job space. A control message
+	// landing in the log, result or journal space would be delivered to a
+	// durable consumer that would then fail to decode it forever.
+	for _, other := range []string{
+		topology.LogSubject("job-1"),
+		topology.ResultSubject("job-1"),
+		topology.JournalSubject("job-1"),
+		topology.DispatchSubject("job-1"),
+	} {
+		if topology.ControlSubject("job-1") == other {
+			t.Errorf("ControlSubject collides with %q", other)
+		}
+	}
+
+	// Two different jobs must never share a control subject. This is the
+	// property that stops one operator's cancel aborting somebody else's
+	// running job, and it is the reason the subject carries a hash rather
+	// than only a sanitized id.
+	if topology.ControlSubject("job-1") == topology.ControlSubject("job-2") {
+		t.Error("two different job ids produced one control subject, so a cancel would reach the wrong job")
+	}
+	// Sanitizing alone would collapse these two, since both reduce to the
+	// same legal token. The appended hash is what keeps them apart.
+	if topology.ControlSubject("job/1") == topology.ControlSubject("job.1") {
+		t.Error("two job ids differing only in an illegal character produced one control subject")
+	}
+}
+
+// TestControlSubjectAll pins the wildcard the Runner's subscribe grant and
+// the Controller's publish grant both name.
+func TestControlSubjectAll(t *testing.T) {
+	got := topology.ControlSubjectAll()
+	if want := "pleiades.jobs.control.>"; got != want {
+		t.Errorf("ControlSubjectAll() = %q, want %q", got, want)
+	}
+
+	// The same trap every other All function here exists to avoid: the
+	// per-job builder sanitizes, so a wildcard passed through it becomes a
+	// literal token rather than a pattern.
+	if built := topology.ControlSubject(">"); built == got {
+		t.Error("ControlSubject(\">\") happens to equal the wildcard, so this function would look unnecessary")
+	}
+}

@@ -26,6 +26,8 @@ const (
 	FieldHelp = "help"
 	// FieldQuestionType holds the string denoting the question_type field in the database.
 	FieldQuestionType = "question_type"
+	// FieldAllowProgramContent holds the string denoting the allow_program_content field in the database.
+	FieldAllowProgramContent = "allow_program_content"
 	// FieldRequired holds the string denoting the required field in the database.
 	FieldRequired = "required"
 	// FieldDefaultValue holds the string denoting the default_value field in the database.
@@ -60,6 +62,7 @@ var Columns = []string{
 	FieldLabel,
 	FieldHelp,
 	FieldQuestionType,
+	FieldAllowProgramContent,
 	FieldRequired,
 	FieldDefaultValue,
 	FieldChoices,
@@ -102,6 +105,8 @@ var (
 	LabelValidator func(string) error
 	// QuestionTypeValidator is a validator for the "question_type" field. It is called by the builders before save.
 	QuestionTypeValidator func(string) error
+	// DefaultAllowProgramContent holds the default value on creation for the "allow_program_content" field.
+	DefaultAllowProgramContent bool
 	// DefaultRequired holds the default value on creation for the "required" field.
 	DefaultRequired bool
 	// DefaultMinValue holds the default value on creation for the "min_value" field.
@@ -148,6 +153,11 @@ func ByHelp(opts ...sql.OrderTermOption) OrderOption {
 // ByQuestionType orders the results by the question_type field.
 func ByQuestionType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldQuestionType, opts...).ToFunc()
+}
+
+// ByAllowProgramContent orders the results by the allow_program_content field.
+func ByAllowProgramContent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAllowProgramContent, opts...).ToFunc()
 }
 
 // ByRequired orders the results by the required field.

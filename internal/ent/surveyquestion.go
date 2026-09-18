@@ -31,6 +31,8 @@ type SurveyQuestion struct {
 	Help string `json:"help,omitempty"`
 	// QuestionType holds the value of the "question_type" field.
 	QuestionType string `json:"question_type,omitempty"`
+	// AllowProgramContent holds the value of the "allow_program_content" field.
+	AllowProgramContent bool `json:"allow_program_content,omitempty"`
 	// Required holds the value of the "required" field.
 	Required bool `json:"required,omitempty"`
 	// DefaultValue holds the value of the "default_value" field.
@@ -77,7 +79,7 @@ func (*SurveyQuestion) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case surveyquestion.FieldChoices:
 			values[i] = new([]byte)
-		case surveyquestion.FieldRequired:
+		case surveyquestion.FieldAllowProgramContent, surveyquestion.FieldRequired:
 			values[i] = new(sql.NullBool)
 		case surveyquestion.FieldID, surveyquestion.FieldMinValue, surveyquestion.FieldMaxValue, surveyquestion.FieldDisplayOrder:
 			values[i] = new(sql.NullInt64)
@@ -143,6 +145,12 @@ func (_m *SurveyQuestion) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field question_type", values[i])
 			} else if value.Valid {
 				_m.QuestionType = value.String
+			}
+		case surveyquestion.FieldAllowProgramContent:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field allow_program_content", values[i])
+			} else if value.Valid {
+				_m.AllowProgramContent = value.Bool
 			}
 		case surveyquestion.FieldRequired:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -247,6 +255,9 @@ func (_m *SurveyQuestion) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("question_type=")
 	builder.WriteString(_m.QuestionType)
+	builder.WriteString(", ")
+	builder.WriteString("allow_program_content=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AllowProgramContent))
 	builder.WriteString(", ")
 	builder.WriteString("required=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Required))

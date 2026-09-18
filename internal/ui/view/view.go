@@ -26,6 +26,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"regexp"
 	"sort"
@@ -122,6 +123,20 @@ func (d Descriptor) Candidates() []auth.Affordance {
 			continue
 		}
 		out = append(out, auth.Affordance{Rel: a.Endpoint.Rel, Scope: a.Endpoint.Scope})
+	}
+	// A section's row controls are gated on this same permitted set, so a
+	// relation reached only from one has to be offered for evaluation. Left
+	// out, the generator is never asked about it, it is never permitted,
+	// and every one of those controls is silently withheld from everybody
+	// -- a Remove button that is simply never drawn, which reads as a
+	// design decision rather than as a bug.
+	for _, s := range d.Sections {
+		for _, a := range s.RowActions {
+			if a.Endpoint == nil {
+				continue
+			}
+			out = append(out, auth.Affordance{Rel: a.Endpoint.Rel, Scope: a.Endpoint.Scope})
+		}
 	}
 	return out
 }
@@ -238,6 +253,22 @@ type Section struct {
 	// registered as one.
 	Rows func(ctx context.Context, parentID string) ([]Row, error)
 
+	// Note is an optional line rendered under the heading, resolved per
+	// RECORD rather than declared once, which is the whole distinction
+	// from Summary above.
+	//
+	// It exists because a section had no way to say anything true of the
+	// rows it just loaded. The first thing that needed one is a bounded
+	// read: a table capped at five hundred rows of a larger run shows a
+	// partial record of what happened while looking exactly like a
+	// complete one, and on an audit trail that is the worst available
+	// outcome. Logging the cap tells the operator nothing, because the
+	// operator is not reading the log.
+	//
+	// It is prose, not markup, and it is escaped like any other text. A
+	// section that wants to say something structural wants a column.
+	Note func(ctx context.Context, parentID string) string
+
 	// Empty is what renders when there are none. It is required for the
 	// same reason StatusDeclared exists: an empty table and a thing that
 	// has not happened yet look identical, and "no devices have reported
@@ -269,11 +300,255 @@ type Section struct {
 	// panel says is not wired -- the contradiction StatusDeclared exists to
 	// remove.
 	Actions []string
+
+	// RowActions are controls on one row of this section rather than on
+	// the record it hangs off: "Remove" on a credential type's input,
+	// "Remove" on one of its injectors.
+	//
+	// Declared here rather than named from the parent's Actions, the way
+	// the header half is, because a row action's target is different in
+	// kind. A record action acts on the record the URL names; a row action
+	// acts on one element of a document that record holds, and which
+	// element is the only thing separating one control in the table from
+	// the one on the line below it.
+	//
+	// Only an implemented section may declare them, for the reason Actions
+	// gives, and they render only where a parent id exists, for the reason
+	// Actions gives.
+	RowActions []RowAction
 }
 
 // Implemented reports whether this section reaches a real port, the same
 // question Descriptor.Implemented answers and defaulted the same way.
 func (s Section) Implemented() bool { return s.Status == StatusImplemented }
+
+// RowPosition is where a row sits in the list a control is drawn on.
+//
+// It exists so RowAction.Applies can withhold a control whose only possible
+// outcome on this row is a refusal, which for an ordered list means the two
+// ends: "move up" on the first row, "move down" on the last. A Row cannot
+// answer that itself. Its Cells are display strings a section author chose
+// and its ID is author data, so reading an ordinal back out of either would
+// be parsing a label, and a section that happened not to render an order
+// column could not be reordered at all.
+//
+// Zero-based, matching the slice the resolver is walking. Count is how many
+// rows that section LOADED rather than how many the store holds, which is
+// the honest bound: a control can only move a row past one the page is
+// showing.
+type RowPosition struct {
+	Index int
+	Count int
+}
+
+// First reports whether this row is the first of its list.
+func (p RowPosition) First() bool { return p.Index <= 0 }
+
+// Last reports whether this row is the last of its list.
+//
+// A single-row list is both First and Last, which is the correct reading:
+// neither direction moves it anywhere, so both controls are withheld.
+func (p RowPosition) Last() bool { return p.Index >= p.Count-1 }
+
+// RowAction is a control on one row of a section.
+//
+// The header half of the section write path shipped first: a section names
+// one of its parent record's actions and renders a button that acts on the
+// record, which is how "Add input" reaches a credential type. That left
+// every section a one way door. An input could be added to a credential
+// type and never removed, an injector added and never removed, and the only
+// route back was the JSON API or the database.
+//
+// It began as two ids and no Values, on the reasoning that a row control
+// never prompts: removing a row needs no form and reordering one needs no
+// form, while editing a row in place needs a form prefilled from that row,
+// which RecordAction has no seam for (its own doc comment records that its
+// form prefills nothing). That reasoning was right about the hazard and
+// wrong about the conclusion. The seam was built here instead, because a
+// row is the one thing on the page that already exists and can therefore be
+// read back: Fields and Form arrive together or not at all, and Register
+// refuses one without the other precisely so the empty-boxes-that-blank-the
+// -row failure cannot be reintroduced by declaring half of it.
+type RowAction struct {
+	// Name is the URL segment: /{resource}/{id}/{name}/{row}. It shares
+	// one namespace with the parent's RecordActions, because both occupy
+	// the same segment of the same route, and Register enforces that.
+	Name string
+
+	// Label is the button text.
+	Label string
+
+	// Endpoint carries the scope and relation this control is gated on,
+	// exactly as a RecordAction does. Two controls may name one endpoint:
+	// adding to a document and removing from it are usually the same API
+	// operation, and the affordance question has one answer for both.
+	Endpoint *apispec.Endpoint
+
+	// Heading is the form's own title when this control prompts.
+	Heading string
+
+	// Confirm is what a confirmation dialog asks before the control posts.
+	// Empty posts straight through.
+	//
+	// Setting it also renders the control as a destructive one, because
+	// the only reason to interrupt somebody on their way to a button is
+	// that what is behind it is hard to undo.
+	//
+	// Refused beside Fields. A confirming control posts from inside a
+	// dialog whose only content is the CSRF token, so on a prompting
+	// control that submission would reach Submit with every control blank
+	// and look like a deliberate save: the silent blanking this whole seam
+	// exists to prevent, arriving through the one door nobody is watching.
+	// A form is already the interruption.
+	Confirm string
+
+	// Fields prompt before the action runs. Empty means no prompt, which
+	// is what Remove wants: removing a row needs no form, and neither does
+	// moving one.
+	//
+	// There is deliberately no FieldsFor. A record action has one because
+	// a launch form is not the same form twice; a row control's fields are
+	// the same for every row of its section and only the VALUES differ, so
+	// one field set per control is the whole truth and a per row
+	// resolution would be a second answer that could disagree.
+	//
+	// The form is an EDIT form, because a row is a thing that already
+	// exists. Immutable therefore means what it means everywhere else: the
+	// control naming the row is offered by the add form beside this one
+	// and withheld here, so one field slice serves both.
+	Fields []Field
+
+	// Form produces the values that prefill this row's controls, and is
+	// required exactly when Fields is present.
+	//
+	// Prompting and prefilling are one decision on a row, not two, and
+	// Register enforces it. A prompt with no prefill renders the row's
+	// current values as empty boxes and silently blanks whichever ones the
+	// operator does not retype, which is precisely the failure this seam
+	// was built to remove; allowing the combination would leave the trap
+	// open at the one place it is most likely to be sprung.
+	//
+	// It re-reads the row rather than being handed the Row the table drew,
+	// and that is not redundancy. A Row's Cells are display strings and a
+	// form value is a submission token, the same disagreement
+	// Projector.Row and Projector.Form already have one level up. A
+	// credential type's input renders "yes" in its REQUIRED column where a
+	// checkbox reads only the literal "true", renders "string" in TYPE
+	// where the select posts its own value, and its MULTILINE, HELP and
+	// DEFAULT never appear in a column at all. A prefill built from cells
+	// would be wrong in three controls and blank in three more.
+	Form func(ctx context.Context, parentID, rowID string) (map[string]string, error)
+
+	// Applies withholds this control from a row it could not work on, the
+	// same job Descriptor.Applies does for a record. Nil offers it on
+	// every row.
+	//
+	// It takes the row's position as well as the row, because the first
+	// control that needed this could not be written without it: "move up"
+	// on the first row of an ordered list is a button whose only possible
+	// outcome is a refusal. A Row carries no ordinal -- its Cells are
+	// display strings and its ID is author data -- so the position comes
+	// from the resolver, which is counting the rows anyway.
+	//
+	// Gating here is about not drawing a dead control and never about
+	// safety: the row may stop qualifying between the page rendering and
+	// the button being pressed, so Submit is still the authority and still
+	// has to refuse.
+	Applies func(row Row, at RowPosition) bool
+
+	// Submit performs the action and returns where to send the caller
+	// afterwards. An empty redirect returns them to the parent record.
+	//
+	// It receives both identities and adjudicates neither. rowID is the row
+	// the URL named; v carries what the form was told, narrowed to the
+	// controls that form actually offered. A resource whose identity column
+	// is also an editable control decides for itself whether the two
+	// disagreeing is a rename or a refusal, because only it knows.
+	//
+	// v is the zero Values for a control that does not prompt: it declares
+	// nothing, so it can read nothing. A FieldErrors result redisplays the
+	// form with the message on the control that caused it; a Refused
+	// reaches the notice page, which is where a control with no form has
+	// always sent one.
+	Submit func(ctx context.Context, parentID, rowID string, v Values) (redirect string, errs FieldErrors, err error)
+}
+
+// Prompts reports whether this control renders a form before it runs.
+func (a RowAction) Prompts() bool { return len(a.Fields) > 0 }
+
+// ResolveValues returns this row's prefill, and an empty map for a control
+// that does not prompt.
+func (a RowAction) ResolveValues(ctx context.Context, parentID, rowID string) (map[string]string, error) {
+	if a.Form == nil {
+		return map[string]string{}, nil
+	}
+	values, err := a.Form(ctx, parentID, rowID)
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return map[string]string{}, nil
+	}
+	return values, nil
+}
+
+// Confirms reports whether this control interrupts before it posts.
+func (a RowAction) Confirms() bool { return strings.TrimSpace(a.Confirm) != "" }
+
+// Refused is a refusal a row action's Submit returns when the reason is one
+// the operator can act on, as against a failure that is nobody's doing.
+//
+// The two must not be answered the same way. "An injector depends on this
+// input" is a rule the person who pressed the button can satisfy by
+// removing the injector first; a store that could not be reached is not.
+// Without this distinction both reach serverError, which logs the real
+// reason where the operator cannot see it and answers them with the words
+// "internal error", so a fixable refusal reads as a fault in the product.
+//
+// Wrap the store's error rather than restating it: Unwrap keeps errors.Is
+// working for whatever is above, and the message shown is the store's own
+// words, because the store is the authority on why it refused.
+type Refused struct {
+	// Message is what the operator is told. The store's own sentence.
+	Message string
+
+	// Err is the refusal being carried, kept reachable for errors.Is.
+	Err error
+}
+
+// Error makes Refused an error carrying the message it shows.
+func (r Refused) Error() string { return r.Message }
+
+// Unwrap keeps errors.Is and errors.As working through the wrapper.
+func (r Refused) Unwrap() error { return r.Err }
+
+// Refuse wraps an error as a refusal shown to the operator in its own
+// words. A nil error refuses nothing and returns nil, so a caller can hand
+// it a store result without first asking whether there was one.
+func Refuse(err error) error {
+	if err == nil {
+		return nil
+	}
+	return Refused{Message: err.Error(), Err: err}
+}
+
+// RowAction finds a row action by name across every section that declares
+// one.
+//
+// One lookup across all sections rather than per section, because the route
+// carries no section: /{resource}/{id}/{action}/{row} names the control and
+// the row and nothing between them. Register keeps that honest by refusing
+// two sections to declare the same name.
+func (d Descriptor) RowAction(name string) (RowAction, bool) {
+	for _, s := range d.Sections {
+		for _, a := range s.RowActions {
+			if a.Name == name {
+				return a, true
+			}
+		}
+	}
+	return RowAction{}, false
+}
 
 // RecordAction is a named operation offered on one record, beyond create,
 // read, update and delete.
@@ -329,6 +604,30 @@ type RecordAction struct {
 	// the form did not offer them.
 	FieldsFor func(ctx context.Context, id string) ([]Field, error)
 
+	// Form produces the values that prefill this action's prompt.
+	//
+	// Nil prefills nothing, which is right for an ADD and right for a
+	// launch: appending an input to a credential type starts from nothing,
+	// and every answer to a survey is given afresh. What it is not right
+	// for is a form that REPLACES something the record already holds, and
+	// that shape shipped without it. bindCredentialsAction resolved a
+	// template's bound credentials into a variable, had nowhere to put it
+	// and dropped it, so the multi-select rendered with nothing selected
+	// and submitting the form as drawn unbound every credential the
+	// template authenticated as.
+	//
+	// Same name, same return type and same job as Handlers.Form, the edit
+	// form's own prefill, because a second answer to "where do a form's
+	// existing values come from" is a second one to keep in step with
+	// every Field kind that ever renders a value. The map is keyed by
+	// Field.Name and encoded the way a submission encodes it: "true" for a
+	// checked box, the option's own value for a select, a comma joined
+	// list for a multi select. A key naming no rendered control is refused
+	// rather than ignored, and so is a value for a password control; see
+	// NarrowPrefill for both, and for why silently dropping either is the
+	// failure this seam exists to prevent.
+	Form func(ctx context.Context, id string) (map[string]string, error)
+
 	// Submit performs the action and returns where to send the caller
 	// afterwards. A FieldErrors result redisplays the form with the
 	// message attached to the control that caused it, exactly as a create
@@ -354,15 +653,163 @@ func (a RecordAction) ResolveFields(ctx context.Context, id string) ([]Field, er
 	return a.FieldsFor(ctx, id)
 }
 
+// ResolveValues returns this prompt's prefill for one record, and an empty
+// map for an action that declares none.
+//
+// An empty map rather than a nil one, so a caller never has to ask which
+// kind of nothing it was handed.
+func (a RecordAction) ResolveValues(ctx context.Context, id string) (map[string]string, error) {
+	if a.Form == nil {
+		return map[string]string{}, nil
+	}
+	values, err := a.Form(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return map[string]string{}, nil
+	}
+	return values, nil
+}
+
 // reservedRecordSegments are the path segments the fixed route table
 // already owns beneath a record. An action may not take one of these: chi
 // resolves a static segment before a parameter, so the action would
 // register cleanly and then never be reachable -- the silent failure this
 // check exists to convert into a refusal at startup.
+//
+// "download" is here because internal/ui/web/handler.go says it is. That
+// file mounts the static segments above the parameterised action route and
+// states that Register refuses a clash, which was true of the first three
+// and not of the fourth for as long as downloads have existed: a section
+// row action named "download" registered cleanly and was then shadowed by
+// the download route forever, with nothing anywhere reporting it.
 var reservedRecordSegments = map[string]bool{
-	"edit": true,
-	"logs": true,
-	"new":  true,
+	"download": true,
+	"edit":     true,
+	"logs":     true,
+	"new":      true,
+}
+
+// DownloadSpec declares one thing a record can be downloaded AS.
+//
+// A list rather than a single spec, and resolved per record rather than
+// declared once, because the two downloads a job has are complementary and
+// neither exists for every job. The run journal is durable forever and is
+// written only by the native runbook executor, so a playbook job has none;
+// the log output lives in the broker's retention window and carries
+// per-task detail only for a playbook job, so for a runbook job it is two
+// lines and after the window it is nothing at all.
+//
+// Offering both on every record would hand an operator an empty file about
+// half the time. Offering only what this record actually has is the same
+// rule RowAction.Applies follows one level down: a control whose only
+// possible outcome is a refusal must not be drawn.
+//
+// Available is the chooser's gate and Write is the authority. A record can
+// stop qualifying between the page rendering and the link being followed --
+// a log window can expire -- so Write still has to cope, exactly as a row
+// action's Submit does.
+type DownloadSpec struct {
+	// Name is the URL segment: /{resource}/{id}/download/{name}. It shares
+	// no namespace with actions, because it sits behind its own static
+	// segment, but it must still be a legal path token.
+	Name string
+
+	// Label is what the control says. It names the ARTEFACT rather than
+	// the act, because the control already says Download: "Run journal
+	// (JSON)" tells a reader what they will get, where "Download JSON"
+	// tells them what they already knew.
+	Label string
+
+	// Summary is an optional line explaining what this download is and,
+	// where it matters, what it is not. The log download's says how long
+	// the broker keeps it, because an operator who finds it missing next
+	// month should have been told.
+	Summary string
+
+	// ContentType is the response's media type, declared and never
+	// sniffed, matching the stance internal/ui/static takes for the same
+	// reason: a browser deciding for itself that a file is executable
+	// script is precisely what the nosniff header exists to stop.
+	ContentType string
+
+	// Filename is the name the browser saves under, with {id} replaced by
+	// the record's identifier. A pattern rather than a function, for the
+	// reason StreamSpec.PathPattern gives: substituting into a validated
+	// pattern means the escaping happens once, here.
+	Filename string
+
+	// Available reports whether this record has anything to download in
+	// this form. Nil offers it on every record, which is right only for a
+	// format that cannot be empty.
+	Available func(ctx context.Context, id string) bool
+
+	// Write streams the body. It owns the encoding and nothing else: the
+	// status, the headers and the disposition are set before it is called,
+	// so an error it returns after the first byte can only be logged.
+	//
+	// That is the same constraint the SSE stream lives under and it is why
+	// Available exists: the decision that a download is possible has to be
+	// made before the response is committed.
+	Write func(ctx context.Context, w io.Writer, id string) error
+}
+
+// validateDownloads checks a descriptor's download declarations.
+func validateDownloads(name string, downloads []DownloadSpec) error {
+	seen := make(map[string]bool, len(downloads))
+	for _, dl := range downloads {
+		switch {
+		case !namePattern.MatchString(dl.Name):
+			return fmt.Errorf("view %q download name %q must match %s", name, dl.Name, namePattern)
+		case seen[dl.Name]:
+			return fmt.Errorf("view %q declares download %q twice", name, dl.Name)
+		case strings.TrimSpace(dl.Label) == "":
+			// A link with no text has no accessible name.
+			return fmt.Errorf("view %q download %q has no label", name, dl.Name)
+		case strings.TrimSpace(dl.ContentType) == "":
+			// Declared and never sniffed, so an absent one is not a
+			// default to fill in: it is a decision nobody made.
+			return fmt.Errorf("view %q download %q declares no content type", name, dl.Name)
+		case !strings.Contains(dl.Filename, "{id}"):
+			// Every record would otherwise save under one name, and a
+			// reader with three jobs' journals in a folder could not tell
+			// them apart.
+			return fmt.Errorf("view %q download %q has no {id} in its filename %q", name, dl.Name, dl.Filename)
+		case dl.Write == nil:
+			return fmt.Errorf("view %q download %q has no Write function", name, dl.Name)
+		}
+		seen[dl.Name] = true
+	}
+	return nil
+}
+
+// Offers reports whether this download is available for one record.
+func (d DownloadSpec) Offers(ctx context.Context, id string) bool {
+	return d.Available == nil || d.Available(ctx, id)
+}
+
+// FilenameFor is the name a record saves under.
+//
+// The id is sanitised to the characters a filename may safely carry rather
+// than escaped, because the result goes into a Content-Disposition header
+// where a quote or a newline is a header-injection question rather than a
+// display one.
+func (d DownloadSpec) FilenameFor(id string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, id)
+	if safe == "" {
+		safe = "record"
+	}
+	return strings.ReplaceAll(d.Filename, "{id}", safe)
 }
 
 // StreamSpec declares that a resource's records have a live event stream.
@@ -533,6 +980,11 @@ type Descriptor struct {
 	// a live event stream, which is what makes /{resource}/{id}/logs
 	// resolve for this resource and 404 for every other one.
 	Stream *StreamSpec
+
+	// Downloads are the forms a record can be saved AS, resolved per
+	// record. Declaring any is what makes /{resource}/{id}/download/{name}
+	// resolve for this resource and 404 for every other one.
+	Downloads []DownloadSpec
 
 	// Sections are tables of related records: a job's per-device outcomes
 	// on its detail page, the operator notices on the dashboard. They are
@@ -802,7 +1254,7 @@ func Register(d Descriptor) error {
 	if err := validateFields(d.Fields); err != nil {
 		return fmt.Errorf("view %q %s", d.Name, err)
 	}
-	if err := validateOps(d.Name, d.Ops, d.Actions); err != nil {
+	if err := validateOps(d.Name, d.Ops, d.Actions, d.Sections); err != nil {
 		return err
 	}
 	if err := validateChart(d.Name, d.Chart); err != nil {
@@ -823,6 +1275,12 @@ func Register(d Descriptor) error {
 	if err := validateActions(d.Name, d.Actions); err != nil {
 		return err
 	}
+	if err := validateRowActions(d.Name, d.Sections, d.Actions); err != nil {
+		return err
+	}
+	if err := validateDownloads(d.Name, d.Downloads); err != nil {
+		return err
+	}
 
 	switch {
 	case d.Implemented() && d.Handlers == nil:
@@ -840,6 +1298,12 @@ func Register(d Descriptor) error {
 		return fmt.Errorf("view %q is declared but carries a refresh", d.Name)
 	case !d.Implemented() && d.Stream != nil:
 		return fmt.Errorf("view %q is declared but carries a stream", d.Name)
+	case !d.Implemented() && len(d.Downloads) > 0:
+		// And a download most of all. The record page renders the honest
+		// "not implemented" panel, while /download/{format} would serve
+		// the real bytes at 200 -- a view telling every reader it is
+		// unbuilt while handing out files.
+		return fmt.Errorf("view %q is declared but declares downloads", d.Name)
 
 	// A view that lists records renders a detail link on every row, so
 	// without a Get endpoint each of those links is a button this UI drew
@@ -934,6 +1398,12 @@ func validateSections(name string, sections []Section, actions []RecordAction) e
 			// would post to a write path the same panel says is not wired.
 			return fmt.Errorf("view %q detail section %q is declared but declares header actions", name, s.Title)
 		}
+		if len(s.RowActions) > 0 && !s.Implemented() {
+			// The same contradiction one row down. A declared section has
+			// no rows either, so this is a control that could never even
+			// be drawn.
+			return fmt.Errorf("view %q detail section %q is declared but declares row actions", name, s.Title)
+		}
 		for _, a := range s.Actions {
 			if !declared[a] {
 				// A section header action names one of the parent view's
@@ -976,6 +1446,13 @@ func validateActions(name string, actions []RecordAction) error {
 			return fmt.Errorf("view %q action %q has no Submit function", name, a.Name)
 		case a.Prompts() && strings.TrimSpace(a.Heading) == "":
 			return fmt.Errorf("view %q action %q prompts but has no heading", name, a.Name)
+		case a.Form != nil && !a.Prompts():
+			// A prefill for a form that never renders. Harmless today and
+			// a trap tomorrow: it reads as though the action carries the
+			// record's current values, so whoever later gives the action
+			// fields will believe the prefill is already wired and will
+			// not check that it reaches anything.
+			return fmt.Errorf("view %q action %q declares a prefill but no fields, so nothing renders it", name, a.Name)
 		}
 		seen[a.Name] = true
 
@@ -1014,7 +1491,74 @@ func validateStream(name string, stream *StreamSpec) error {
 
 // validateOps checks that every endpoint a view names is one the API
 // really declares, and that the view's relations are unambiguous.
-func validateOps(name string, ops Ops, actions []RecordAction) error {
+// validateRowActions refuses a row control that could not be reached,
+// could not be gated, or would shadow another control's route.
+//
+// Names are checked against the parent's RecordActions and against every
+// other section's row actions, because all three occupy the same segment of
+// the same route. Two declarations sharing a name would register cleanly
+// and one of them would silently never run.
+func validateRowActions(name string, sections []Section, actions []RecordAction) error {
+	seen := make(map[string]string, len(actions))
+	for _, a := range actions {
+		seen[a.Name] = "an action"
+	}
+
+	for _, s := range sections {
+		for _, a := range s.RowActions {
+			switch {
+			case !namePattern.MatchString(a.Name):
+				return fmt.Errorf("view %q section %q row action name %q must match %s",
+					name, s.Title, a.Name, namePattern)
+			case reservedRecordSegments[a.Name]:
+				// chi resolves a static segment before a parameter, so
+				// this control would register cleanly and never be
+				// reachable.
+				return fmt.Errorf("view %q section %q row action %q collides with a reserved path segment",
+					name, s.Title, a.Name)
+			case seen[a.Name] != "":
+				return fmt.Errorf("view %q section %q row action %q collides with %s of the same name",
+					name, s.Title, a.Name, seen[a.Name])
+			case strings.TrimSpace(a.Label) == "":
+				// A button with no text has no accessible name.
+				return fmt.Errorf("view %q section %q row action %q has no label", name, s.Title, a.Name)
+			case a.Endpoint == nil:
+				// Without an endpoint there is no scope to enforce and no
+				// relation to gate the control on, so the button would
+				// render for everybody and the route would be unguarded.
+				return fmt.Errorf("view %q section %q row action %q names no endpoint, so nothing gates it",
+					name, s.Title, a.Name)
+			case a.Submit == nil:
+				return fmt.Errorf("view %q section %q row action %q has no Submit function", name, s.Title, a.Name)
+			case a.Prompts() && a.Form == nil:
+				// The whole point of the seam. A prompt with no prefill
+				// renders the row's current values as empty boxes and
+				// blanks whichever ones the operator does not retype, and
+				// nothing on the page shows it happening.
+				return fmt.Errorf("view %q section %q row action %q prompts but declares no prefill, so its form would blank the row", name, s.Title, a.Name)
+			case a.Form != nil && !a.Prompts():
+				return fmt.Errorf("view %q section %q row action %q declares a prefill but no fields, so nothing renders it", name, s.Title, a.Name)
+			case a.Prompts() && strings.TrimSpace(a.Heading) == "":
+				return fmt.Errorf("view %q section %q row action %q prompts but has no heading", name, s.Title, a.Name)
+			case a.Prompts() && a.Confirms():
+				// A confirming control posts from a dialog carrying only
+				// the CSRF token, so on a prompting control that
+				// submission reaches Submit with every field blank and
+				// looks like a deliberate save. The form is already the
+				// interruption.
+				return fmt.Errorf("view %q section %q row action %q both prompts and confirms, so the dialog would submit a blank form", name, s.Title, a.Name)
+			}
+
+			if err := validateFields(a.Fields); err != nil {
+				return fmt.Errorf("view %q section %q row action %q %s", name, s.Title, a.Name, err)
+			}
+			seen[a.Name] = fmt.Sprintf("a row action on section %q", s.Title)
+		}
+	}
+	return nil
+}
+
+func validateOps(name string, ops Ops, actions []RecordAction, sections []Section) error {
 	known := make(map[string]apispec.Endpoint, len(apispec.Endpoints))
 	for _, e := range apispec.Endpoints {
 		known[e.Name] = e
@@ -1028,6 +1572,19 @@ func validateOps(name string, ops Ops, actions []RecordAction) error {
 	for _, a := range actions {
 		if a.Endpoint != nil {
 			endpoints = append(endpoints, a.Endpoint)
+		}
+	}
+	// A section's row controls are gated by the same Affordances map and
+	// rendered on the same page, so an endpoint reached only from one is
+	// checked here too. Left out, a row action naming a stale copy of an
+	// endpoint would render the old scope's button against the new
+	// scope's route, which is the failure the stale check above exists
+	// for.
+	for _, s := range sections {
+		for _, a := range s.RowActions {
+			if a.Endpoint != nil {
+				endpoints = append(endpoints, a.Endpoint)
+			}
 		}
 	}
 
@@ -1047,10 +1604,20 @@ func validateOps(name string, ops Ops, actions []RecordAction) error {
 		if e.Rel == "" {
 			return fmt.Errorf("view %q names endpoint %q, which declares no link relation", name, e.Name)
 		}
-		if prev, dup := seenRel[e.Rel]; dup {
-			// Two operations sharing a relation makes a permitted
-			// result ambiguous: a template asking Can(rel) could not
-			// tell which of the two it was told about.
+		if prev, dup := seenRel[e.Rel]; dup && prev != e.Name {
+			// Two DIFFERENT operations sharing a relation makes a
+			// permitted result ambiguous: a template asking Can(rel)
+			// could not tell which of the two it was told about.
+			//
+			// One endpoint named twice is a different thing and is
+			// allowed. Two controls can be two affordances onto a single
+			// API operation -- adding an input to a credential type and
+			// removing one are both its set-inputs endpoint -- and there
+			// the single answer Can(rel) gives is not ambiguous but
+			// correct, because the caller either may set that document or
+			// may not. Refusing it forced a second endpoint to exist for
+			// no reason but this check, which is a relation invented to
+			// satisfy a validator rather than to describe the API.
 			return fmt.Errorf("view %q uses relation %q for both %s and %s", name, e.Rel, prev, e.Name)
 		}
 		seenRel[e.Rel] = e.Name

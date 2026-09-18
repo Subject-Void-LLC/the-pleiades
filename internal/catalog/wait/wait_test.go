@@ -213,6 +213,53 @@ func waitWrite(t *testing.T, path, contents string) {
 	}
 }
 
+// waitReplace changes a watched file's contents atomically.
+//
+// os.WriteFile opens with O_TRUNC and then writes, so a reader polling
+// that file can observe it EMPTY between the two. Every test in this
+// package is exactly that reader: the method under test is watching the
+// file while this helper changes it.
+//
+// The empty window is not a state any of these tests means to produce,
+// and it is not harmless. TestSearch_WaitsForAPatternToDisappear asks the
+// method to wait until a line is GONE, and an empty file satisfies that
+// for the wrong reason -- so under load the method could return early on
+// the truncated file, and the test's own closing read then saw "" too and
+// failed on contents it had written itself. A test that can pass for the
+// wrong reason and fail for no reason is worth a helper.
+//
+// The temp file is a sibling so the rename stays within one filesystem,
+// where it is atomic: a concurrent reader sees the old contents or the
+// new, never neither.
+func waitReplace(t *testing.T, path, contents string) {
+	t.Helper()
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), "replacing-*")
+	if err != nil {
+		t.Errorf("creating the replacement for %s: %v", path, err)
+		return
+	}
+	name := tmp.Name()
+	if _, err := tmp.WriteString(contents); err != nil {
+		tmp.Close()
+		t.Errorf("writing the replacement for %s: %v", path, err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		t.Errorf("closing the replacement for %s: %v", path, err)
+		return
+	}
+	// Matched to what waitWrite creates, so a method that inspects the
+	// mode cannot tell the two helpers apart.
+	if err := os.Chmod(name, 0o600); err != nil {
+		t.Errorf("setting the mode on the replacement for %s: %v", path, err)
+		return
+	}
+	if err := os.Rename(name, path); err != nil {
+		t.Errorf("replacing %s: %v", path, err)
+	}
+}
+
 // waitAfter runs change once, after the given delay, on its own
 // goroutine, and makes the test wait for it however the test ends.
 //

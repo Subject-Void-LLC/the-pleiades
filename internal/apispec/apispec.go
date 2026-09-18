@@ -139,6 +139,10 @@ var jobTaskSchema = map[string]any{
 		"device_name": map[string]any{"type": "string"},
 		"outcome":     map[string]any{"type": "string"},
 		"reason":      map[string]any{"type": "string", "description": "Present only for a skipped or failed outcome."},
+		"result": map[string]any{"type": "string", "enum": []string{"succeeded", "failed"},
+			"description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on."},
+		"result_reason": map[string]any{"type": "string", "description": "Present only for a failed result."},
+		"finished_at":   map[string]any{"type": "string", "format": "date-time", "description": "When this device reported back. Absent until it does."},
 	},
 }
 
@@ -195,6 +199,39 @@ var GetJob = Endpoint{
 		{Status: http.StatusOK, Description: "The job's current state.", Schema: jobResponseSchema},
 		{Status: http.StatusBadRequest, Description: "id is not a UUID.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No job with that ID exists.", Schema: errorSchema("")},
+	},
+}
+
+// CancelJob is POST /jobs/{id}/cancel: stop a job that is still running.
+//
+// It takes runbook:execute, the scope that starts a run, rather than a
+// job:write of its own. Stopping a run and starting one are the two ends
+// of the same authority, and RelaunchJob on this same resource already
+// reads that way.
+var CancelJob = Endpoint{
+	Name:    "cancel_job",
+	Method:  http.MethodPost,
+	Pattern: "/jobs/{id}/cancel",
+	Scope:   auth.ScopeRunbookExecute,
+	Rel:     auth.RelCancel,
+	Summary: "Cancel a running job",
+	Description: "Stops a job and returns at once. What this guarantees is the record and the fan-out: the " +
+		"job settles to \"canceled\" naming whoever stopped it, and no device the job has not already reached " +
+		"is dispatched to. What it cannot guarantee is work already running on a device. That is signalled " +
+		"best-effort to whichever Runner holds it, a task declaring itself un-interruptible runs to " +
+		"completion by design, and one device may already have been dispatched to in the instant the cancel " +
+		"landed. A job that has already finished is a 409 rather than a success, because reporting success " +
+		"for having stopped nothing would tell a caller it had done something it had not.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "string", Description: "The job ID, a UUID."},
+	},
+	Responses: []Response{
+		{Status: http.StatusAccepted, Description: "The job was canceled. It is returned as it now stands; poll it for the final tallies, which the stopping fan-out records.", Schema: jobResponseSchema},
+		{Status: http.StatusBadRequest, Description: "id is not a UUID.", Schema: errorSchema("")},
+		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The job has already finished, so there was nothing to stop.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No job with that ID exists.", Schema: errorSchema("")},
+		{Status: http.StatusInternalServerError, Description: "The job could not be canceled.", Schema: errorSchema("")},
 	},
 }
 
@@ -732,11 +769,13 @@ var Endpoints = []Endpoint{
 	ListJobs,
 	GetJob,
 	StreamJobLogs,
+	CancelJob,
 	RelaunchJob,
 	ListTemplates,
 	GetTemplate,
 	CreateTemplate,
 	UpdateTemplate,
+	SetTemplateSurvey,
 	DeleteTemplate,
 	CopyTemplate,
 	LaunchTemplate,

@@ -20,9 +20,9 @@ import (
 // template means the same thing here that it meant there. Obeying that
 // principle forces two types, because AWX has two vocabularies:
 //
-//   - A survey question has seven types (text, textarea, password, integer,
-//     float, multiplechoice, multiselect) and encodes secrecy IN the type,
-//     as "password".
+//   - A survey question has eight types (text, textarea, password, integer,
+//     float, multiplechoice, multiselect, file) and encodes secrecy IN the
+//     type: "password" and "file" are the secret ones.
 //   - A credential input has two types (string, boolean) and encodes
 //     secrecy in an ORTHOGONAL boolean, beside an orthogonal format.
 //
@@ -32,11 +32,21 @@ import (
 // or a shared supertype plus two constraint sets, which is more code than
 // the two flat types and hides which constraint belongs to which entity.
 //
-// What IS shared, and must be, is the secret-decision seam.
+// What IS shared, and must be, is the SHAPE of the secret-decision seam:
 // launch.Survey.SecretVariables and InputSchema.SecretFields are each the
-// single place their entity decides what is secret, and both feed
-// redact.Literals. Two places deciding that would eventually disagree, and
-// the disagreement would be silent in the dangerous direction.
+// single place their entity decides what is secret, so no caller reaches
+// its own conclusion. Two places deciding that would eventually disagree,
+// and the disagreement would be silent in the dangerous direction.
+//
+// They do NOT both feed redact.Literals, and this comment used to say they
+// did. Only the credential half does, through credtype/target.go and the
+// legacy adapter's inject.go. SecretVariables feeds the saved-configuration
+// redaction and the two replay refusals, and nothing adds a survey answer's
+// VALUE to the log masker -- so a password or file answer echoed back by a
+// module lands in the job log unredacted. That is a real gap, recorded here
+// rather than quietly fixed, because adding a 32 KiB file answer to the
+// process-wide literal set would scrub enormous unrelated substrings out of
+// every later log line.
 
 // InputType is the type of one credential input value.
 //

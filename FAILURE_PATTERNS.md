@@ -218,6 +218,23 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 215. The contrast gate measured a colour pair that was not on the screen, so a whole skin rendered its text on the wrong background at 1.5:1 while every test passed
 
 ---
+216. `SubscribeCancel` returned before the broker registered the subscription, so a cancel racing the start of a run was dropped forever rather than delivered late
+217. Job results were published only when `RUNNER_WAL_DIR` was set, and nothing in the module ever consumed them
+218. `http.request`'s documented `timeout` could not raise the TLS handshake deadline, and the verifying path shared the process-wide transport its own comment said it must not
+219. A view's relation check refused one endpoint named by two controls, and said so by naming that endpoint twice
+220. A row control's relation was missing from the candidate set, so every one of them was withheld from everybody, including an administrator
+221. A managed credential type offered Add input and Add injector, both of which the store refuses in its second statement
+222. Two publishers on one stream minted the same message id, so every job result was discarded as a duplicate of the dispatch that caused it
+223. A job whose devices all reported before its fan-out finished was parked in a state nothing sweeps
+224. The flake waiver tolerated a whole package, so a total regression printed "passed" five times
+225. A test harness decoded every poll into one reused value, so one device's skip reason appeared on another device's row
+226. A form's prefill was computed, sorted, and dropped, so saving it as drawn unbound every credential a template ran as
+227. Four action redirects left off the UI's mount prefix, so a successful write answered with a 404
+228. Two doc comments asserted a two-place safety check that had one place, one of them naming a log-masking control that does not exist
+229. A pre-push gate outlived the connection git had already opened, so every push died with SIGPIPE and no output while the gate printed "all checks passed"
+230. os.WriteFile truncates before it writes, and a test polling that file observed the empty window as an answer
+231. A five second budget for a subprocess to appear fired under suite load, and the loop waiting for it never noticed the subprocess had died
+232. Every device creatable through the API or the UI is permanently un-dispatchable, because nothing can write the host property the dispatcher requires
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

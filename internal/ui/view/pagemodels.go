@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"net/url"
 	"path"
 	"strconv"
@@ -213,12 +214,23 @@ type DetailModel struct {
 	// to the record's own fields for anything it does not recognise: this
 	// value arrives from whatever somebody pasted into an address bar.
 	Tab string
+
+	// Downloads are the forms this record can be saved as, already
+	// resolved against it. Populated by the handler through
+	// ResolveDownloads; an empty one renders no control at all.
+	Downloads []DownloadLink
 }
 
 // LoadedSection is one Section with its rows in hand.
 type LoadedSection struct {
 	Spec Section
 	Rows []Row
+
+	// Note is what Section.Note returned for this record, already
+	// resolved. Held here rather than called from the template, because a
+	// template that called a hook would be doing IO during rendering, and
+	// a failure there has nowhere to go: the response has already begun.
+	Note string
 }
 
 // ID is the section's DOM identifier, derived from its title so the
@@ -338,6 +350,64 @@ func (m DetailModel) Actions() []RecordActionLink {
 type RecordActionLink struct {
 	Label string
 	Href  string
+}
+
+// DownloadLink is one offered download, already resolved.
+//
+// Resolved by the handler rather than by the template, for the reason
+// LoadedSection.Note gives: DownloadSpec.Available takes a context and may
+// ask a broker, and a template that did IO while rendering has nowhere to
+// report a failure, because the response has already begun.
+type DownloadLink struct {
+	// Name is the format's declared name, carried through only so the
+	// rendered note has a stable identifier the link can point at with
+	// aria-describedby. It is unique per descriptor, which Register
+	// enforces, and that is what makes the identifier collision free.
+	Name string
+
+	Label   string
+	Summary string
+	Href    string
+}
+
+// NoteID is the DOM identifier of this download's visible caveat.
+//
+// Empty when there is no caveat, so the template renders neither the note
+// nor a reference to one: an aria-describedby pointing at an element that
+// was never drawn is worse than no description, because a screen reader
+// announces nothing and the markup claims otherwise.
+func (d DownloadLink) NoteID() string {
+	if strings.TrimSpace(d.Summary) == "" {
+		return ""
+	}
+	return "download-" + d.Name + "-note"
+}
+
+// ResolveDownloads returns the downloads this record actually has,
+// addressed and labelled.
+//
+// Called with the request's context, once, before rendering. A format whose
+// Available says no is absent rather than disabled: a disabled control says
+// "this is yours, but not now", where the truth for an expired log window
+// is that it is gone and waiting will not bring it back.
+func (m DetailModel) ResolveDownloads(ctx context.Context) []DownloadLink {
+	if len(m.Descriptor.Downloads) == 0 || m.Row.ID == "" {
+		return nil
+	}
+	base := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), "download")
+	out := make([]DownloadLink, 0, len(m.Descriptor.Downloads))
+	for _, dl := range m.Descriptor.Downloads {
+		if !dl.Offers(ctx, m.Row.ID) {
+			continue
+		}
+		out = append(out, DownloadLink{
+			Name:    dl.Name,
+			Label:   dl.Label,
+			Summary: dl.Summary,
+			Href:    path.Join(base, dl.Name),
+		})
+	}
+	return out
 }
 
 // CanStream reports whether this record offers a live log stream, which is
@@ -562,6 +632,15 @@ type ActionModel struct {
 	// ID is the record this action runs against.
 	ID string
 
+	// Row is the row this action runs against, empty for a record action.
+	//
+	// It is also what makes a row prompt an EDIT form and a record prompt
+	// not one, with no second mode flag that could disagree: a row is a
+	// thing that already exists, so Immutable has a referent there, while
+	// a record action's prompt is a set of arguments to an operation
+	// (launch, copy, add an input) where it has none.
+	Row string
+
 	// Fields is the prompt as resolved for this record, which is not
 	// always the action's own declaration: a launch form renders only the
 	// fields the template being launched actually opened.
@@ -591,6 +670,12 @@ func (m ActionModel) Form() FormModel {
 			// controls differ per record renders the record's own.
 			Fields: m.Fields,
 		},
+		// The ROW, not the record. FormModel reads this only to decide
+		// Editing(), and that is exactly the decision wanted: a row prompt
+		// edits something that exists, so it drops the Immutable controls
+		// the add form beside it offers, and a record prompt keeps them
+		// because there is nothing yet for them to be immutable about.
+		ID:      m.Row,
 		Values:  m.Values,
 		Errors:  m.Errors,
 		Options: m.Options,
@@ -598,7 +683,12 @@ func (m ActionModel) Form() FormModel {
 }
 
 // Heading names the action and the record it will run against.
-func (m ActionModel) Heading() string { return m.Action.Heading + ": " + m.ID }
+func (m ActionModel) Heading() string {
+	if m.Row != "" {
+		return m.Action.Heading + ": " + m.Row
+	}
+	return m.Action.Heading + ": " + m.ID
+}
 
 // SubmitLabel is the button text, the action's own label rather than
 // "Save": what this does is run something, not store something.
@@ -606,11 +696,65 @@ func (m ActionModel) SubmitLabel() string { return m.Action.Label }
 
 // Action is where the form posts, and CancelHref returns to the record.
 func (m ActionModel) ActionHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+	target := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+	if m.Row == "" {
+		return target
+	}
+	// The form posts to the same four segment address the control linked
+	// to, so the GET that drew it and the POST that runs it name the same
+	// row and cannot drift apart.
+	return path.Join(target, url.PathEscape(m.Row))
 }
 
 func (m ActionModel) CancelHref() string {
 	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+}
+
+// NoticeModel is what a write path says when it was refused for a reason
+// the operator can act on.
+//
+// It exists because the alternative already in the tree is worse than it
+// looks. A refusal that reaches serverError is logged in full and answered
+// with the words "internal error", which tells the person who caused it
+// nothing and tells them it was not their doing, when removing an input two
+// injectors depend on is precisely their doing and precisely fixable.
+//
+// The message is the store's own words rather than a restatement, for the
+// reason every other refusal in this UI shows the store's: the store is the
+// authority on why it refused, and a paraphrase drifts from the rule it
+// paraphrases.
+//
+// Deliberately a page rather than a flash on the record it came from. A
+// flash has to survive a redirect, which means either server-side state
+// keyed per session or a message reflected out of the URL, and a
+// server-generated sentence that arrives through a query parameter is a
+// sentence anybody can put there.
+type NoticeModel struct {
+	Page       PageModel
+	Descriptor Descriptor
+
+	// ID is the record this was refused on, for the trail and the way back.
+	ID string
+
+	// Heading is the fact in a few words, and Body is the store's own
+	// explanation.
+	Heading string
+	Body    string
+}
+
+// Zero is the refusal as the shared zero-state component renders it, so a
+// refusal looks like every other problem state in the application rather
+// than like a page of its own.
+func (m NoticeModel) Zero() ZeroState {
+	return ZeroState{
+		Heading: m.Heading,
+		Body:    m.Body,
+		Tone:    ZoneProblem,
+		Actions: []ChromeAction{{
+			Label: "Back to the record",
+			Href:  path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID)),
+		}},
+	}
 }
 
 // DeclaredModel is the honest panel a StatusDeclared view renders.

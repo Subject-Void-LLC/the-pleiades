@@ -49,6 +49,24 @@ type TableModel struct {
 	// surrounding heading does not. Empty renders no caption element.
 	Caption string
 
+	// CSRFToken is this request's token, carried because a row control is
+	// a form submission and every form submission in this UI presents one.
+	// Empty on every table that renders no controls.
+	CSRFToken string
+
+	// RowControls are the per-row controls, one slice per row, parallel to
+	// Rows and either empty or exactly as long.
+	//
+	// Parallel to Rows rather than keyed by row id, because a section's row
+	// ids are only unique by convention: they are whatever the section's
+	// projection put there, and a map would silently collapse two rows that
+	// happened to agree. An index cannot.
+	//
+	// Only a section under a record ever fills this in. A collection page
+	// has no record for a row control to hang off, and the main list's rows
+	// are records with their own pages rather than elements of a document.
+	RowControls [][]RowControl
+
 	// Preview renders the column headers even though there are no rows,
 	// with the zero state beneath them.
 	//
@@ -68,8 +86,39 @@ func (t TableModel) ShowsColumns() bool {
 }
 
 // ColumnSpan is the header row's width, for the cell the zero state sits in
-// when a preview has no rows to fill it.
-func (t TableModel) ColumnSpan() string { return strconv.Itoa(len(t.Columns)) }
+// when a preview has no rows to fill it. The controls column counts: a
+// zero state that stopped short of the table's real width leaves a stray
+// empty cell beside it.
+func (t TableModel) ColumnSpan() string {
+	span := len(t.Columns)
+	if t.HasRowControls() {
+		span++
+	}
+	return strconv.Itoa(span)
+}
+
+// HasRowControls reports whether this table renders a trailing controls
+// column at all, so a table with none draws no empty header cell for one.
+func (t TableModel) HasRowControls() bool {
+	for _, controls := range t.RowControls {
+		if len(controls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ControlsAt is one row's controls, by the row's position in Rows.
+//
+// Bounds checked rather than assumed. The two slices are built together and
+// should always agree, but a template that ranged past the end would panic
+// inside a render, which answers a page with a blank screen.
+func (t TableModel) ControlsAt(i int) []RowControl {
+	if i < 0 || i >= len(t.RowControls) {
+		return nil
+	}
+	return t.RowControls[i]
+}
 
 // HasRows reports whether the table renders at all, as against its zero
 // state.
@@ -273,6 +322,44 @@ func (m ListModel) ZeroState() ZeroState {
 // Paged reports whether this is a continuation rather than the first page.
 func (m ListModel) Paged() bool { return m.Cursor != "" }
 
+// RowControl is one resolved row action: what to draw, where it posts, and
+// what it asks first.
+//
+// A finished control rather than a declaration, for the reason ChromeAction
+// is: the resolver is the one place holding the parent id, the prefix and
+// the caller's permitted set, so the template renders what it is handed and
+// decides nothing.
+type RowControl struct {
+	// Label is the button text.
+	Label string
+
+	// Href is the POST target. A row control is always a form submission,
+	// never a link: it changes state, and a GET that changes state is one
+	// a link prefetcher or a corporate scanner eventually runs.
+	Href string
+
+	// Confirm is the dialog's question, empty when the control posts
+	// straight through.
+	Confirm string
+
+	// DialogID is the element id the confirmation dialog carries, unique
+	// within the page. Empty when there is no dialog.
+	DialogID string
+
+	// Prompts says this control opens a form rather than acting at once,
+	// which makes it the one row control that is a LINK.
+	//
+	// Every other one posts, because it changes state and a GET that
+	// changes state is one a prefetcher eventually runs. This one changes
+	// nothing until its form is submitted, and the form posts back to the
+	// same address, so the GET is safe and is the only way to reach a page
+	// that has to be drawn before anything happens.
+	Prompts bool
+}
+
+// Confirms reports whether this control opens a dialog before posting.
+func (c RowControl) Confirms() bool { return c.DialogID != "" }
+
 // SectionView is one section together with the context it needs to render.
 //
 // LoadedSection is what a handler produces and knows nothing about URLs; this
@@ -291,6 +378,13 @@ type SectionView struct {
 	// that fills this in is the one place that knows the parent id, so the
 	// template renders whatever it is handed and decides nothing.
 	Actions []ChromeAction
+
+	// RowControls are this section's per-row controls, resolved by the
+	// same resolver and parallel to Rows.
+	RowControls [][]RowControl
+
+	// CSRFToken is this request's token, for the forms those controls are.
+	CSRFToken string
 }
 
 // HasActions reports whether this section renders any header control, so
@@ -313,9 +407,11 @@ func (s SectionView) Table() TableModel {
 		// something else -- a job's per-device outcome is not a record of
 		// the Jobs view -- so the row as a whole leads nowhere and it is
 		// the referencing cells inside it that do.
-		RecordView: "",
-		Empty:      s.ZeroState(),
-		Caption:    s.Spec.Title,
+		RecordView:  "",
+		Empty:       s.ZeroState(),
+		Caption:     s.Spec.Title,
+		RowControls: s.RowControls,
+		CSRFToken:   s.CSRFToken,
 	}
 }
 
@@ -344,6 +440,8 @@ func (m DetailModel) SectionViews() []SectionView {
 			LoadedSection: s,
 			Prefix:        m.Page.Prefix,
 			Actions:       m.Descriptor.sectionActions(s.Spec, m.Page.Prefix, m.Row, m.Aff),
+			RowControls:   m.Descriptor.rowControls(s, m.Page.Prefix, m.Row, m.Aff),
+			CSRFToken:     m.Page.CSRFToken,
 		})
 	}
 	return out
@@ -384,6 +482,74 @@ func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff 
 				Kind:  ActionNormal,
 			})
 			break
+		}
+	}
+	return out
+}
+
+// rowControls resolves one section's row actions for every row it loaded.
+//
+// Each control passes four filters, and the first three are the header
+// half's own, evaluated once for the whole action rather than per row:
+// there is a parent record to act on, the caller holds the relation the
+// endpoint declares, and the parent record itself still qualifies. A
+// managed credential type refuses every write, so withholding "Remove"
+// from its rows is the same judgement as withholding "Add input" from its
+// header, and reaching that judgement twice in two places is how the two
+// drift apart.
+//
+// The fourth is the row's own, and it is the only one evaluated per row.
+func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff Affordances) [][]RowControl {
+	if parent.ID == "" || len(s.Spec.RowActions) == 0 || len(s.Rows) == 0 {
+		return nil
+	}
+
+	offered := make([]RowAction, 0, len(s.Spec.RowActions))
+	for _, a := range s.Spec.RowActions {
+		if !permits(a.Endpoint, aff) {
+			continue
+		}
+		if d.Applies != nil && a.Endpoint != nil && !d.Applies(parent, a.Endpoint.Rel) {
+			continue
+		}
+		offered = append(offered, a)
+	}
+	if len(offered) == 0 {
+		return nil
+	}
+
+	out := make([][]RowControl, len(s.Rows))
+	for i, row := range s.Rows {
+		if row.ID == "" {
+			// There is nothing to address. A control here would post to
+			// the parent's own action route with a trailing empty
+			// segment, which is a 404 at best.
+			continue
+		}
+		// The position is over every row the section loaded, including any
+		// skipped above for having no id. Counting only the addressable
+		// ones would make the ordinal disagree with the order the table
+		// renders, and a "move up" withheld from the wrong row is worse
+		// than one withheld from none.
+		at := RowPosition{Index: i, Count: len(s.Rows)}
+		for _, a := range offered {
+			if a.Applies != nil && !a.Applies(row, at) {
+				continue
+			}
+			control := RowControl{
+				Label:   a.Label,
+				Href:    path.Join(prefix, d.Name, url.PathEscape(parent.ID), a.Name, url.PathEscape(row.ID)),
+				Confirm: a.Confirm,
+				Prompts: a.Prompts(),
+			}
+			if a.Confirms() {
+				// The row's index rather than its id. An id is author
+				// data and two of them can slug to the same string,
+				// which would give two dialogs one element id and open
+				// the wrong row's confirmation.
+				control.DialogID = s.ID() + "-" + a.Name + "-" + strconv.Itoa(i)
+			}
+			out[i] = append(out[i], control)
 		}
 	}
 	return out

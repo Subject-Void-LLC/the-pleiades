@@ -170,7 +170,14 @@ func testAction(types credstore.TypeReader, eng render.Engine) view.RecordAction
 				errs.Add("values", err.Error())
 				return "", errs, nil
 			}
-			return "/" + Name + "/" + id, nil, nil
+			// An empty redirect, which sends the caller back to this record
+			// through the handler's own resourcePath. These four used to
+			// build the path by hand and every one of them left off the
+			// UI's mount prefix, so a successful write redirected to
+			// /templates/1 rather than /ui/templates/1 and answered the
+			// operator with a 404 after the save had already happened.
+			// The handler knows the prefix; a call site does not.
+			return "", nil, nil
 		},
 	}
 }
@@ -313,13 +320,26 @@ func Register(store credstore.Store, orgs inventory.OrganizationLister, eng rend
 			Update: &apispec.UpdateCredentialType,
 			Delete: &apispec.DeleteCredentialType,
 		},
-		// A managed type is refused by the store on both an edit and a
-		// delete, so the affordance is withdrawn rather than offered and
-		// then refused. It is keyed on the relation because a predicate
-		// that ignored it would withdraw every affordance, leaving the
-		// page looking as though the caller could do nothing at all.
+		// A managed type is refused by the store on every write, so the
+		// affordance is withdrawn rather than offered and then refused. It
+		// is keyed on the relation because a predicate that ignored it
+		// would withdraw every affordance, leaving the page looking as
+		// though the caller could do nothing at all.
+		//
+		// The two set-* relations belong here for the same reason the edit
+		// and delete ones do, and were missing: the schema and injector
+		// controls reach UpdateType, which refuses a managed type in its
+		// second statement, so every one of them was being offered on a
+		// platform type and answered with a refusal.
 		Applies: func(r view.Row, rel auth.LinkRel) bool {
-			if managedRow(r) && (rel == apispec.UpdateCredentialType.Rel || rel == apispec.DeleteCredentialType.Rel) {
+			if !managedRow(r) {
+				return true
+			}
+			switch rel {
+			case apispec.UpdateCredentialType.Rel,
+				apispec.DeleteCredentialType.Rel,
+				apispec.SetCredentialTypeInputs.Rel,
+				apispec.SetCredentialTypeInjectors.Rel:
 				return false
 			}
 			return true

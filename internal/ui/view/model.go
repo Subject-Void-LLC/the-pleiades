@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
@@ -232,6 +233,59 @@ func NewValues(fields []Field, raw url.Values, editing bool) (Values, []string) 
 	return Values{declared: declared, raw: raw, editing: editing}, undeclared
 }
 
+// NarrowPrefill checks a prefill map against the controls a form will
+// actually render, and refuses one that could lose or leak a value.
+//
+// The mirror of NewValues, and it exists for the same reason. A submission
+// carrying a field nobody declared is refused rather than ignored, because
+// silently dropping input somebody believed was accepted is how they end up
+// certain they changed something they did not. A PREFILL naming a control
+// nobody declared is that same mistake from the other side, and it is
+// worse: the control renders empty, the operator does not retype a value
+// they cannot see, and the save writes the blank over what was stored.
+// Nothing on the page shows it, and this is the only place it can be seen.
+//
+// A non-empty value for a password control is refused too. field.templ
+// writes a password's value into a value attribute, and the comment
+// justifying that rests on a survey password being answered once per launch
+// and never read back. A prefilled form is exactly the case that reasoning
+// excludes, so a stored secret would be rendered into the page source. An
+// EMPTY value is allowed, so the "leave blank to keep the current one" form
+// stays possible: what is refused is prefilling a secret, not offering the
+// control.
+//
+// editing selects the mode the form renders in, and is taken rather than
+// assumed so a caller cannot check a prefill against a control set the form
+// does not draw. An edit form withholds an Immutable control, so on an edit
+// a prefill naming one is a value nothing renders, which is the case this
+// function exists to catch.
+func NarrowPrefill(fields []Field, editing bool, values map[string]string) error {
+	declared := make(map[string]Field, len(fields))
+	for _, f := range fields {
+		if !f.WritableOn(editing) {
+			continue
+		}
+		declared[f.Name] = f
+	}
+
+	unknown := make([]string, 0, len(values))
+	for name, value := range values {
+		f, ok := declared[name]
+		if !ok {
+			unknown = append(unknown, name)
+			continue
+		}
+		if f.Kind == KindPassword && value != "" {
+			return fmt.Errorf("prefill carries a value for the password control %q, which would render the secret into the page", name)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("prefill names %v, which this form does not render, so the value would be lost on the next save", unknown)
+	}
+	return nil
+}
+
 // Get returns the submitted value for a declared field, or the empty
 // string for one this descriptor never declared.
 func (v Values) Get(name string) string {
@@ -266,6 +320,24 @@ func (v Values) Bool(name string) bool {
 // storage, so a Bind that skips an absent immutable field is not leaving
 // it unset: it is declining to overwrite what only storage knows.
 func (v Values) Editing() bool { return v.editing }
+
+// Declares reports whether the form this submission came from rendered a
+// control of this name.
+//
+// It answers a question Get and Bool cannot, and the difference is where a
+// silent data loss lives. An unchecked checkbox submits nothing, and so
+// does a checkbox the form never drew, so Bool returns false for both --
+// but the first is somebody turning a flag off and the second is a form
+// with no opinion about it. A handler that cannot tell them apart clears
+// the stored value every time a control is conditionally withheld.
+//
+// It reads the DECLARED set rather than the submitted keys, because that is
+// what the renderer drew from: a control that was rendered and left empty
+// still declares itself.
+func (v Values) Declares(name string) bool {
+	_, ok := v.declared[name]
+	return ok
+}
 
 // Fields returns the fields this submission was narrowed against, in
 // declaration order where the caller preserved one and otherwise in map

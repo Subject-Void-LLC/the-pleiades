@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -191,6 +192,79 @@ func (h *Handler) chartData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// download serves one record in one of the forms its view declares.
+//
+// It resolves the descriptor itself rather than through the shared helper,
+// for the reason chartData gives: this route does not serve HTML, and
+// answering a caller that asked for a file with a page of markup is worse
+// than a 404, because a browser saves it under the requested name and the
+// operator opens a corrupt artefact instead of learning it does not exist.
+//
+// Every header is set before Write is called, which is what makes the
+// Available gate load-bearing rather than decorative: once the first byte
+// is written the status is committed, and a failure after that can only be
+// logged. A partial file is the one outcome worth working to avoid here,
+// since the caller has no way to tell one from a complete one.
+func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
+	d, ok := h.resourceOf(r)
+	if !ok || len(d.Downloads) == 0 {
+		h.notFound(w, r)
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	format := chi.URLParam(r, "format")
+
+	var spec *view.DownloadSpec
+	for i := range d.Downloads {
+		if d.Downloads[i].Name == format {
+			spec = &d.Downloads[i]
+			break
+		}
+	}
+	if spec == nil {
+		h.notFound(w, r)
+		return
+	}
+
+	// The same scope reading the record needs. A download is a read of one
+	// record in another encoding, so a caller who may not open the page
+	// may not save it either, and gating it on anything else would make
+	// the file the way around the page.
+	if d.Ops.Get == nil || !h.permits(r.Context(), identityFrom(r.Context()), d.Ops.Get.Scope) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Checked again here, not merely when the link was drawn. The page may
+	// have been rendered while the record still had something to give --
+	// a log retention window is the case that really expires -- and a link
+	// followed afterwards must answer honestly rather than save an empty
+	// file under a confident name.
+	if !spec.Offers(r.Context(), id) {
+		h.notFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", spec.ContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// The filename is sanitised by FilenameFor rather than escaped,
+	// because this is a header rather than a document: a quote or a
+	// newline reaching here is a header-injection question.
+	w.Header().Set("Content-Disposition", `attachment; filename="`+spec.FilenameFor(id)+`"`)
+
+	if err := spec.Write(r.Context(), w, id); err != nil {
+		// Nowhere to report it: the status went out with the first byte.
+		// Logged with the format and the record so an operator who is
+		// handed a short file has something to correlate it against.
+		h.cfg.Logger.ErrorContext(r.Context(), "failed to write download",
+			slog.String("resource", d.Name),
+			slog.String("format", format),
+			slog.String("error", err.Error()))
+	}
+}
+
 // stream renders the live log page for one record.
 //
 // The page holds no log data itself. It carries the stream's URL in a data
@@ -288,7 +362,35 @@ func (h *Handler) actionForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderAction(w, r, d, action, id, fields, map[string]string{}, view.FieldErrors{}, http.StatusOK)
+	values, ok := h.actionValues(w, r, d, action, id, fields)
+	if !ok {
+		return
+	}
+	h.renderAction(w, r, d, action, id, fields, values, view.FieldErrors{}, http.StatusOK)
+}
+
+// actionValues resolves an action's prefill for one record and checks it
+// against the controls the form will draw.
+//
+// A failure here fails the request rather than rendering the form empty,
+// for the reason actionFields fails rather than rendering no controls, and
+// with more at stake. An empty prompt is a form that does nothing; a
+// SILENTLY empty prefill is a form that looks like the record's current
+// state, is not, and writes its blanks over what was stored the moment
+// somebody presses the button they were offered.
+func (h *Handler) actionValues(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RecordAction, id string, fields []view.Field) (map[string]string, bool) {
+
+	values, err := action.ResolveValues(r.Context(), id)
+	if err != nil {
+		h.serverError(w, r, "resolve prefill for "+d.Name+"/"+action.Name, err)
+		return nil, false
+	}
+	if err := view.NarrowPrefill(fields, false, values); err != nil {
+		h.serverError(w, r, "prefill for "+d.Name+"/"+action.Name, err)
+		return nil, false
+	}
+	return values, true
 }
 
 // actionFields resolves an action's prompt for one record.
@@ -404,6 +506,219 @@ func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
 	h.redirect(w, r, redirect)
 }
 
+// lookupRowAction resolves the descriptor, the control and the two ids a
+// row action is addressed by, enforcing the control's scope on the way.
+//
+// Shared by the GET that draws the form and the POST that runs it, so the
+// two cannot come to different conclusions about what the URL named or who
+// is allowed to reach it.
+func (h *Handler) lookupRowAction(w http.ResponseWriter, r *http.Request) (view.Descriptor, view.RowAction, string, string, bool) {
+	d, ok := h.resourceOf(r)
+	if !ok {
+		h.notFound(w, r)
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+	if !d.Implemented() {
+		h.renderDeclared(w, r, d)
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+
+	action, found := d.RowAction(chi.URLParam(r, "action"))
+	if !found {
+		h.notFound(w, r)
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+	if !h.permits(r.Context(), identityFrom(r.Context()), action.Endpoint.Scope) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+
+	id, row := chi.URLParam(r, "id"), chi.URLParam(r, "row")
+	if row == "" {
+		h.notFound(w, r)
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+	return d, action, id, row, true
+}
+
+// rowActionForm renders a row control's prompt, prefilled from the row.
+//
+// A control that does not prompt answers 404 rather than redirecting, which
+// is where this differs from actionForm one segment up. A record action's
+// control is a link in a header, so a caller can genuinely arrive at its
+// URL by clicking and redirecting them to the record is a kindness. A non
+// prompting row control is a form button and never a link, so nothing on
+// any page draws a GET here: one that arrives was typed, prefetched or
+// scanned. There is no page at this address, and saying so is the honest
+// answer.
+func (h *Handler) rowActionForm(w http.ResponseWriter, r *http.Request) {
+	d, action, id, row, ok := h.lookupRowAction(w, r)
+	if !ok {
+		return
+	}
+	if !action.Prompts() {
+		h.notFound(w, r)
+		return
+	}
+
+	fields := action.Fields
+	values, err := action.ResolveValues(r.Context(), id, row)
+	if err != nil {
+		h.rowActionFailed(w, r, d, action, id, err)
+		return
+	}
+	// Narrowed against the EDIT set, because that is what this form draws:
+	// the control naming the row is Immutable, offered by the add form
+	// beside this one and withheld here, so a prefill naming it would be a
+	// value nothing renders.
+	if err := view.NarrowPrefill(fields, true, values); err != nil {
+		h.serverError(w, r, "prefill for "+d.Name+"/"+action.Name, err)
+		return
+	}
+	h.renderRowAction(w, r, d, action, id, row, fields, values, view.FieldErrors{}, http.StatusOK)
+}
+
+// renderRowAction resolves every select's options before rendering, so no
+// template performs I/O. It is renderAction's twin and differs only in
+// carrying the row.
+func (h *Handler) renderRowAction(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RowAction, id, row string, fields []view.Field, values map[string]string,
+	errs view.FieldErrors, status int) {
+
+	options := map[string][]view.Option{}
+	for _, f := range fields {
+		if !f.OffersChoices() || f.Options == nil {
+			continue
+		}
+		opts, err := f.Options(r.Context())
+		if err != nil {
+			h.serverError(w, r, "resolve options for "+f.Name, err)
+			return
+		}
+		options[f.Name] = opts
+	}
+
+	model := view.ActionModel{
+		Page:       h.page(r, d.Title, d.Name),
+		Descriptor: d,
+		// A synthesized RecordAction carrying this control's own label and
+		// heading, because ActionModel renders one form and a row control
+		// differs from a record action only in what it is addressed by.
+		Action:  view.RecordAction{Name: action.Name, Label: action.Label, Heading: action.Heading},
+		ID:      id,
+		Row:     row,
+		Fields:  fields,
+		Values:  values,
+		Errors:  errs,
+		Options: options,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if err := render.Action(model).Render(r.Context(), w); err != nil {
+		h.serverError(w, r, "render row action", err)
+	}
+}
+
+// runRowAction performs a row action: one control on one row of one of the
+// record's sections.
+//
+// The gates are the record action path's, in the same order and for the same
+// reasons. RowAction.Applies is deliberately NOT re-consulted here, exactly
+// as lookupAction does not re-consult Descriptor.Applies: a row can stop
+// qualifying between the page rendering and the button being pressed, so a
+// check here would narrow that race without closing it, and a caller who
+// posts the URL by hand never passed through the renderer at all. Submit is
+// the authority, and a row action whose Submit trusts the control it was
+// reached from is wrong however many times this handler asks.
+func (h *Handler) runRowAction(w http.ResponseWriter, r *http.Request) {
+	d, action, id, row, ok := h.lookupRowAction(w, r)
+	if !ok {
+		return
+	}
+
+	var values view.Values
+	fields := action.Fields
+	if action.Prompts() {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "malformed form submission", http.StatusBadRequest)
+			return
+		}
+		// editing true: the row exists, so an Immutable control was never
+		// drawn and a submission carrying one did not come from this form.
+		var undeclared []string
+		values, undeclared = view.NewValues(fields, r.PostForm, true)
+		if len(undeclared) > 0 {
+			http.Error(w, "submission contains fields this action does not declare", http.StatusBadRequest)
+			return
+		}
+		if errs := view.Validate(r.Context(), fields, values); errs.Any() {
+			h.renderRowAction(w, r, d, action, id, row, fields, submittedValues(fields, values), errs,
+				http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
+	redirect, errs, err := action.Submit(r.Context(), id, row, values)
+	if err != nil {
+		h.rowActionFailed(w, r, d, action, id, err)
+		return
+	}
+	if errs.Any() {
+		h.renderRowAction(w, r, d, action, id, row, fields, submittedValues(fields, values), errs,
+			http.StatusUnprocessableEntity)
+		return
+	}
+
+	if redirect == "" {
+		redirect = resourcePath(h.cfg.Prefix, d.Name, id)
+	}
+	h.redirect(w, r, redirect)
+}
+
+// submittedValues echoes a failed submission back to the form, so a
+// redisplay shows what was typed rather than clearing it.
+func submittedValues(fields []view.Field, values view.Values) map[string]string {
+	out := make(map[string]string, len(fields))
+	for _, f := range fields {
+		out[f.Name] = values.Get(f.Name)
+	}
+	return out
+}
+
+// rowActionFailed answers a row control's error, separating a refusal the
+// operator can act on from a fault that is nobody's doing.
+func (h *Handler) rowActionFailed(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RowAction, id string, err error) {
+
+	var refused view.Refused
+	if errors.As(err, &refused) {
+		// A rule the operator can satisfy, answered in the store's own
+		// words rather than logged where they cannot see it. 422 rather
+		// than 500, the same status a form's validation failure carries.
+		h.renderNotice(w, r, d, id, action.Label+" was refused", refused.Message)
+		return
+	}
+	h.serverError(w, r, "run "+d.Name+"/"+action.Name, err)
+}
+
+// renderNotice answers a refused write with the reason, in the operator's
+// own terms and on a page they can get back from.
+func (h *Handler) renderNotice(w http.ResponseWriter, r *http.Request, d view.Descriptor, id, heading, body string) {
+	model := view.NoticeModel{
+		Page:       h.page(r, d.Title, d.Name),
+		Descriptor: d,
+		ID:         id,
+		Heading:    heading,
+		Body:       body,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	if err := render.Notice(model).Render(r.Context(), w); err != nil {
+		h.serverError(w, r, "render notice", err)
+	}
+}
+
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	d, ok := h.resolve(w, r, func(o view.Ops) *apispec.Endpoint { return o.Get })
 	if !ok {
@@ -432,6 +747,11 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		// answers to that question.
 		Tab: r.URL.Query().Get("tab"),
 	}
+
+	// Resolved here rather than inside Chrome(), which has no context and
+	// must not acquire one: deciding whether a download exists can mean
+	// asking the broker how much of a job's output it still holds.
+	model.Downloads = model.ResolveDownloads(r.Context())
 
 	// A record page's title is the record, not the view it belongs to. The
 	// browser tab is the one place a reader distinguishes eight open jobs
@@ -487,7 +807,13 @@ func (h *Handler) loadSections(r *http.Request, d view.Descriptor, id string) []
 				slog.String("error", err.Error()))
 			rows = nil
 		}
-		out = append(out, view.LoadedSection{Spec: spec, Rows: rows})
+		// Resolved after the rows, because the only thing a note has to
+		// say so far is about the rows that were just loaded.
+		var note string
+		if spec.Note != nil {
+			note = spec.Note(r.Context(), id)
+		}
+		out = append(out, view.LoadedSection{Spec: spec, Rows: rows, Note: note})
 	}
 	return out
 }

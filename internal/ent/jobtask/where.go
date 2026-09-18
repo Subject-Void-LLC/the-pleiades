@@ -80,6 +80,16 @@ func Reason(v string) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldReason, v))
 }
 
+// ResultReason applies equality check predicate on the "result_reason" field. It's identical to ResultReasonEQ.
+func ResultReason(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldResultReason, v))
+}
+
+// FinishedAt applies equality check predicate on the "finished_at" field. It's identical to FinishedAtEQ.
+func FinishedAt(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldFinishedAt, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldCreatedAt, v))
@@ -383,6 +393,161 @@ func ReasonEqualFold(v string) predicate.JobTask {
 // ReasonContainsFold applies the ContainsFold predicate on the "reason" field.
 func ReasonContainsFold(v string) predicate.JobTask {
 	return predicate.JobTask(sql.FieldContainsFold(FieldReason, v))
+}
+
+// ResultEQ applies the EQ predicate on the "result" field.
+func ResultEQ(v Result) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldResult, v))
+}
+
+// ResultNEQ applies the NEQ predicate on the "result" field.
+func ResultNEQ(v Result) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldResult, v))
+}
+
+// ResultIn applies the In predicate on the "result" field.
+func ResultIn(vs ...Result) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldResult, vs...))
+}
+
+// ResultNotIn applies the NotIn predicate on the "result" field.
+func ResultNotIn(vs ...Result) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldResult, vs...))
+}
+
+// ResultIsNil applies the IsNil predicate on the "result" field.
+func ResultIsNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldIsNull(FieldResult))
+}
+
+// ResultNotNil applies the NotNil predicate on the "result" field.
+func ResultNotNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotNull(FieldResult))
+}
+
+// ResultReasonEQ applies the EQ predicate on the "result_reason" field.
+func ResultReasonEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldResultReason, v))
+}
+
+// ResultReasonNEQ applies the NEQ predicate on the "result_reason" field.
+func ResultReasonNEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldResultReason, v))
+}
+
+// ResultReasonIn applies the In predicate on the "result_reason" field.
+func ResultReasonIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldResultReason, vs...))
+}
+
+// ResultReasonNotIn applies the NotIn predicate on the "result_reason" field.
+func ResultReasonNotIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldResultReason, vs...))
+}
+
+// ResultReasonGT applies the GT predicate on the "result_reason" field.
+func ResultReasonGT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldResultReason, v))
+}
+
+// ResultReasonGTE applies the GTE predicate on the "result_reason" field.
+func ResultReasonGTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldResultReason, v))
+}
+
+// ResultReasonLT applies the LT predicate on the "result_reason" field.
+func ResultReasonLT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldResultReason, v))
+}
+
+// ResultReasonLTE applies the LTE predicate on the "result_reason" field.
+func ResultReasonLTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldResultReason, v))
+}
+
+// ResultReasonContains applies the Contains predicate on the "result_reason" field.
+func ResultReasonContains(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContains(FieldResultReason, v))
+}
+
+// ResultReasonHasPrefix applies the HasPrefix predicate on the "result_reason" field.
+func ResultReasonHasPrefix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasPrefix(FieldResultReason, v))
+}
+
+// ResultReasonHasSuffix applies the HasSuffix predicate on the "result_reason" field.
+func ResultReasonHasSuffix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasSuffix(FieldResultReason, v))
+}
+
+// ResultReasonIsNil applies the IsNil predicate on the "result_reason" field.
+func ResultReasonIsNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldIsNull(FieldResultReason))
+}
+
+// ResultReasonNotNil applies the NotNil predicate on the "result_reason" field.
+func ResultReasonNotNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotNull(FieldResultReason))
+}
+
+// ResultReasonEqualFold applies the EqualFold predicate on the "result_reason" field.
+func ResultReasonEqualFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEqualFold(FieldResultReason, v))
+}
+
+// ResultReasonContainsFold applies the ContainsFold predicate on the "result_reason" field.
+func ResultReasonContainsFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContainsFold(FieldResultReason, v))
+}
+
+// FinishedAtEQ applies the EQ predicate on the "finished_at" field.
+func FinishedAtEQ(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldFinishedAt, v))
+}
+
+// FinishedAtNEQ applies the NEQ predicate on the "finished_at" field.
+func FinishedAtNEQ(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldFinishedAt, v))
+}
+
+// FinishedAtIn applies the In predicate on the "finished_at" field.
+func FinishedAtIn(vs ...time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldFinishedAt, vs...))
+}
+
+// FinishedAtNotIn applies the NotIn predicate on the "finished_at" field.
+func FinishedAtNotIn(vs ...time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldFinishedAt, vs...))
+}
+
+// FinishedAtGT applies the GT predicate on the "finished_at" field.
+func FinishedAtGT(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldFinishedAt, v))
+}
+
+// FinishedAtGTE applies the GTE predicate on the "finished_at" field.
+func FinishedAtGTE(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldFinishedAt, v))
+}
+
+// FinishedAtLT applies the LT predicate on the "finished_at" field.
+func FinishedAtLT(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldFinishedAt, v))
+}
+
+// FinishedAtLTE applies the LTE predicate on the "finished_at" field.
+func FinishedAtLTE(v time.Time) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldFinishedAt, v))
+}
+
+// FinishedAtIsNil applies the IsNil predicate on the "finished_at" field.
+func FinishedAtIsNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldIsNull(FieldFinishedAt))
+}
+
+// FinishedAtNotNil applies the NotNil predicate on the "finished_at" field.
+func FinishedAtNotNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotNull(FieldFinishedAt))
 }
 
 // HasJob applies the HasEdge predicate on the "job" edge.

@@ -47,6 +47,18 @@ type Chrome struct {
 	// comparable control plane puts them.
 	Actions []ChromeAction
 
+	// Downloads are the forms this record can be saved as, already
+	// resolved against it.
+	//
+	// They are NOT ChromeActions, and the reason is a caveat rather than a
+	// layout preference. A download's Summary says what the file is and,
+	// for the log, how long it exists before the broker drops it, which is
+	// something a reader needs BEFORE they save it and cannot recover
+	// afterwards from the file itself. A control on the title row has
+	// nowhere to put a sentence, so this renders as its own small list
+	// where each entry's caveat is visible text.
+	Downloads []DownloadLink
+
 	// Tabs are this record's parts. Empty on a page that has none, which
 	// is what stops a list rendering an empty tab strip.
 	Tabs []Tab
@@ -59,6 +71,12 @@ type Chrome struct {
 // that offers a choice between one thing: it reads as a broken tab bar rather
 // than as a page with nothing else on it.
 func (c Chrome) HasTabs() bool { return len(c.Tabs) > 1 }
+
+// HasDownloads reports whether the downloads block renders at all.
+//
+// Unlike HasTabs, one is enough: a single download is a complete offer,
+// where a single tab is a tab bar offering a choice between one thing.
+func (c Chrome) HasDownloads() bool { return len(c.Downloads) > 0 }
 
 // HeaderClass distinguishes a header that carries tabs from one that does
 // not, because the two need different bottom spacing and a template must not
@@ -346,6 +364,10 @@ func (m DetailModel) Chrome() Chrome {
 	for _, a := range m.Actions() {
 		c.Actions = append(c.Actions, ChromeAction{Label: a.Label, Href: a.Href, Kind: ActionPrimary})
 	}
+	// Downloads are handed over whole rather than flattened into the
+	// action row, so each one's caveat renders as a sentence somebody can
+	// read. See the field's own comment.
+	c.Downloads = m.Downloads
 	if m.CanEdit() {
 		c.Actions = append(c.Actions, ChromeAction{Label: "Edit", Href: m.EditHref(), Kind: ActionNormal})
 	}
@@ -556,6 +578,17 @@ func (m StreamModel) Chrome() Chrome {
 }
 
 // Chrome assembles a declared view's header.
+// Chrome assembles the refusal page's header. The trail leads back through
+// the record, because that is where the operator was and where the thing
+// they tried to change still is.
+func (m NoticeModel) Chrome() Chrome {
+	return Chrome{
+		Crumbs:  recordCrumbs(m.Page.Prefix, m.Descriptor, m.ID, "", false),
+		Title:   m.Heading,
+		Summary: m.Descriptor.Summary,
+	}
+}
+
 func (m DeclaredModel) Chrome() Chrome {
 	return Chrome{
 		Crumbs:  listCrumbs(m.Page.Prefix, m.Descriptor, true),

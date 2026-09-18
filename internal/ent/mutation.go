@@ -9402,6 +9402,8 @@ type JobMutation struct {
 	failed_count         *int
 	addfailed_count      *int
 	failure_reason       *string
+	canceled_at          *time.Time
+	canceled_by          *string
 	fence                *int64
 	addfence             *int64
 	fields               *map[string]interface{}
@@ -10362,6 +10364,104 @@ func (m *JobMutation) ResetFailureReason() {
 	delete(m.clearedFields, job.FieldFailureReason)
 }
 
+// SetCanceledAt sets the "canceled_at" field.
+func (m *JobMutation) SetCanceledAt(t time.Time) {
+	m.canceled_at = &t
+}
+
+// CanceledAt returns the value of the "canceled_at" field in the mutation.
+func (m *JobMutation) CanceledAt() (r time.Time, exists bool) {
+	v := m.canceled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCanceledAt returns the old "canceled_at" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldCanceledAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCanceledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCanceledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCanceledAt: %w", err)
+	}
+	return oldValue.CanceledAt, nil
+}
+
+// ClearCanceledAt clears the value of the "canceled_at" field.
+func (m *JobMutation) ClearCanceledAt() {
+	m.canceled_at = nil
+	m.clearedFields[job.FieldCanceledAt] = struct{}{}
+}
+
+// CanceledAtCleared returns if the "canceled_at" field was cleared in this mutation.
+func (m *JobMutation) CanceledAtCleared() bool {
+	_, ok := m.clearedFields[job.FieldCanceledAt]
+	return ok
+}
+
+// ResetCanceledAt resets all changes to the "canceled_at" field.
+func (m *JobMutation) ResetCanceledAt() {
+	m.canceled_at = nil
+	delete(m.clearedFields, job.FieldCanceledAt)
+}
+
+// SetCanceledBy sets the "canceled_by" field.
+func (m *JobMutation) SetCanceledBy(s string) {
+	m.canceled_by = &s
+}
+
+// CanceledBy returns the value of the "canceled_by" field in the mutation.
+func (m *JobMutation) CanceledBy() (r string, exists bool) {
+	v := m.canceled_by
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCanceledBy returns the old "canceled_by" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldCanceledBy(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCanceledBy is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCanceledBy requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCanceledBy: %w", err)
+	}
+	return oldValue.CanceledBy, nil
+}
+
+// ClearCanceledBy clears the value of the "canceled_by" field.
+func (m *JobMutation) ClearCanceledBy() {
+	m.canceled_by = nil
+	m.clearedFields[job.FieldCanceledBy] = struct{}{}
+}
+
+// CanceledByCleared returns if the "canceled_by" field was cleared in this mutation.
+func (m *JobMutation) CanceledByCleared() bool {
+	_, ok := m.clearedFields[job.FieldCanceledBy]
+	return ok
+}
+
+// ResetCanceledBy resets all changes to the "canceled_by" field.
+func (m *JobMutation) ResetCanceledBy() {
+	m.canceled_by = nil
+	delete(m.clearedFields, job.FieldCanceledBy)
+}
+
 // SetFence sets the "fence" field.
 func (m *JobMutation) SetFence(i int64) {
 	m.fence = &i
@@ -10669,7 +10769,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 23)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -10720,6 +10820,12 @@ func (m *JobMutation) Fields() []string {
 	}
 	if m.failure_reason != nil {
 		fields = append(fields, job.FieldFailureReason)
+	}
+	if m.canceled_at != nil {
+		fields = append(fields, job.FieldCanceledAt)
+	}
+	if m.canceled_by != nil {
+		fields = append(fields, job.FieldCanceledBy)
 	}
 	if m.fence != nil {
 		fields = append(fields, job.FieldFence)
@@ -10775,6 +10881,10 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.FailedCount()
 	case job.FieldFailureReason:
 		return m.FailureReason()
+	case job.FieldCanceledAt:
+		return m.CanceledAt()
+	case job.FieldCanceledBy:
+		return m.CanceledBy()
 	case job.FieldFence:
 		return m.Fence()
 	case job.FieldFields:
@@ -10826,6 +10936,10 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldFailedCount(ctx)
 	case job.FieldFailureReason:
 		return m.OldFailureReason(ctx)
+	case job.FieldCanceledAt:
+		return m.OldCanceledAt(ctx)
+	case job.FieldCanceledBy:
+		return m.OldCanceledBy(ctx)
 	case job.FieldFence:
 		return m.OldFence(ctx)
 	case job.FieldFields:
@@ -10961,6 +11075,20 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetFailureReason(v)
+		return nil
+	case job.FieldCanceledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCanceledAt(v)
+		return nil
+	case job.FieldCanceledBy:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCanceledBy(v)
 		return nil
 	case job.FieldFence:
 		v, ok := value.(int64)
@@ -11140,6 +11268,12 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldFailureReason) {
 		fields = append(fields, job.FieldFailureReason)
 	}
+	if m.FieldCleared(job.FieldCanceledAt) {
+		fields = append(fields, job.FieldCanceledAt)
+	}
+	if m.FieldCleared(job.FieldCanceledBy) {
+		fields = append(fields, job.FieldCanceledBy)
+	}
 	if m.FieldCleared(job.FieldFields) {
 		fields = append(fields, job.FieldFields)
 	}
@@ -11183,6 +11317,12 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldFailureReason:
 		m.ClearFailureReason()
+		return nil
+	case job.FieldCanceledAt:
+		m.ClearCanceledAt()
+		return nil
+	case job.FieldCanceledBy:
+		m.ClearCanceledBy()
 		return nil
 	case job.FieldFields:
 		m.ClearFields()
@@ -11251,6 +11391,12 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldFailureReason:
 		m.ResetFailureReason()
+		return nil
+	case job.FieldCanceledAt:
+		m.ResetCanceledAt()
+		return nil
+	case job.FieldCanceledBy:
+		m.ResetCanceledBy()
 		return nil
 	case job.FieldFence:
 		m.ResetFence()
@@ -11364,6 +11510,9 @@ type JobTaskMutation struct {
 	device_name   *string
 	outcome       *jobtask.Outcome
 	reason        *string
+	result        *jobtask.Result
+	result_reason *string
+	finished_at   *time.Time
 	clearedFields map[string]struct{}
 	job           *int
 	clearedjob    bool
@@ -11699,6 +11848,153 @@ func (m *JobTaskMutation) ResetReason() {
 	delete(m.clearedFields, jobtask.FieldReason)
 }
 
+// SetResult sets the "result" field.
+func (m *JobTaskMutation) SetResult(j jobtask.Result) {
+	m.result = &j
+}
+
+// Result returns the value of the "result" field in the mutation.
+func (m *JobTaskMutation) Result() (r jobtask.Result, exists bool) {
+	v := m.result
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResult returns the old "result" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldResult(ctx context.Context) (v jobtask.Result, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResult is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResult requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResult: %w", err)
+	}
+	return oldValue.Result, nil
+}
+
+// ClearResult clears the value of the "result" field.
+func (m *JobTaskMutation) ClearResult() {
+	m.result = nil
+	m.clearedFields[jobtask.FieldResult] = struct{}{}
+}
+
+// ResultCleared returns if the "result" field was cleared in this mutation.
+func (m *JobTaskMutation) ResultCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldResult]
+	return ok
+}
+
+// ResetResult resets all changes to the "result" field.
+func (m *JobTaskMutation) ResetResult() {
+	m.result = nil
+	delete(m.clearedFields, jobtask.FieldResult)
+}
+
+// SetResultReason sets the "result_reason" field.
+func (m *JobTaskMutation) SetResultReason(s string) {
+	m.result_reason = &s
+}
+
+// ResultReason returns the value of the "result_reason" field in the mutation.
+func (m *JobTaskMutation) ResultReason() (r string, exists bool) {
+	v := m.result_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResultReason returns the old "result_reason" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldResultReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResultReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResultReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResultReason: %w", err)
+	}
+	return oldValue.ResultReason, nil
+}
+
+// ClearResultReason clears the value of the "result_reason" field.
+func (m *JobTaskMutation) ClearResultReason() {
+	m.result_reason = nil
+	m.clearedFields[jobtask.FieldResultReason] = struct{}{}
+}
+
+// ResultReasonCleared returns if the "result_reason" field was cleared in this mutation.
+func (m *JobTaskMutation) ResultReasonCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldResultReason]
+	return ok
+}
+
+// ResetResultReason resets all changes to the "result_reason" field.
+func (m *JobTaskMutation) ResetResultReason() {
+	m.result_reason = nil
+	delete(m.clearedFields, jobtask.FieldResultReason)
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (m *JobTaskMutation) SetFinishedAt(t time.Time) {
+	m.finished_at = &t
+}
+
+// FinishedAt returns the value of the "finished_at" field in the mutation.
+func (m *JobTaskMutation) FinishedAt() (r time.Time, exists bool) {
+	v := m.finished_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinishedAt returns the old "finished_at" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldFinishedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinishedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinishedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinishedAt: %w", err)
+	}
+	return oldValue.FinishedAt, nil
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (m *JobTaskMutation) ClearFinishedAt() {
+	m.finished_at = nil
+	m.clearedFields[jobtask.FieldFinishedAt] = struct{}{}
+}
+
+// FinishedAtCleared returns if the "finished_at" field was cleared in this mutation.
+func (m *JobTaskMutation) FinishedAtCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldFinishedAt]
+	return ok
+}
+
+// ResetFinishedAt resets all changes to the "finished_at" field.
+func (m *JobTaskMutation) ResetFinishedAt() {
+	m.finished_at = nil
+	delete(m.clearedFields, jobtask.FieldFinishedAt)
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -11772,7 +12068,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 9)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -11790,6 +12086,15 @@ func (m *JobTaskMutation) Fields() []string {
 	}
 	if m.reason != nil {
 		fields = append(fields, jobtask.FieldReason)
+	}
+	if m.result != nil {
+		fields = append(fields, jobtask.FieldResult)
+	}
+	if m.result_reason != nil {
+		fields = append(fields, jobtask.FieldResultReason)
+	}
+	if m.finished_at != nil {
+		fields = append(fields, jobtask.FieldFinishedAt)
 	}
 	return fields
 }
@@ -11811,6 +12116,12 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Outcome()
 	case jobtask.FieldReason:
 		return m.Reason()
+	case jobtask.FieldResult:
+		return m.Result()
+	case jobtask.FieldResultReason:
+		return m.ResultReason()
+	case jobtask.FieldFinishedAt:
+		return m.FinishedAt()
 	}
 	return nil, false
 }
@@ -11832,6 +12143,12 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldOutcome(ctx)
 	case jobtask.FieldReason:
 		return m.OldReason(ctx)
+	case jobtask.FieldResult:
+		return m.OldResult(ctx)
+	case jobtask.FieldResultReason:
+		return m.OldResultReason(ctx)
+	case jobtask.FieldFinishedAt:
+		return m.OldFinishedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -11883,6 +12200,27 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetReason(v)
 		return nil
+	case jobtask.FieldResult:
+		v, ok := value.(jobtask.Result)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResult(v)
+		return nil
+	case jobtask.FieldResultReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResultReason(v)
+		return nil
+	case jobtask.FieldFinishedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinishedAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -11916,6 +12254,15 @@ func (m *JobTaskMutation) ClearedFields() []string {
 	if m.FieldCleared(jobtask.FieldReason) {
 		fields = append(fields, jobtask.FieldReason)
 	}
+	if m.FieldCleared(jobtask.FieldResult) {
+		fields = append(fields, jobtask.FieldResult)
+	}
+	if m.FieldCleared(jobtask.FieldResultReason) {
+		fields = append(fields, jobtask.FieldResultReason)
+	}
+	if m.FieldCleared(jobtask.FieldFinishedAt) {
+		fields = append(fields, jobtask.FieldFinishedAt)
+	}
 	return fields
 }
 
@@ -11932,6 +12279,15 @@ func (m *JobTaskMutation) ClearField(name string) error {
 	switch name {
 	case jobtask.FieldReason:
 		m.ClearReason()
+		return nil
+	case jobtask.FieldResult:
+		m.ClearResult()
+		return nil
+	case jobtask.FieldResultReason:
+		m.ClearResultReason()
+		return nil
+	case jobtask.FieldFinishedAt:
+		m.ClearFinishedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask nullable field %s", name)
@@ -11958,6 +12314,15 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldReason:
 		m.ResetReason()
+		return nil
+	case jobtask.FieldResult:
+		m.ResetResult()
+		return nil
+	case jobtask.FieldResultReason:
+		m.ResetResultReason()
+		return nil
+	case jobtask.FieldFinishedAt:
+		m.ResetFinishedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
@@ -24451,31 +24816,32 @@ func (m *SessionMutation) ResetEdge(name string) error {
 // SurveyQuestionMutation represents an operation that mutates the SurveyQuestion nodes in the graph.
 type SurveyQuestionMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int
-	created_at       *time.Time
-	updated_at       *time.Time
-	variable         *string
-	label            *string
-	help             *string
-	question_type    *string
-	required         *bool
-	default_value    *string
-	choices          *[]string
-	appendchoices    []string
-	min_value        *int
-	addmin_value     *int
-	max_value        *int
-	addmax_value     *int
-	display_order    *int
-	adddisplay_order *int
-	clearedFields    map[string]struct{}
-	template         *int
-	clearedtemplate  bool
-	done             bool
-	oldValue         func(context.Context) (*SurveyQuestion, error)
-	predicates       []predicate.SurveyQuestion
+	op                    Op
+	typ                   string
+	id                    *int
+	created_at            *time.Time
+	updated_at            *time.Time
+	variable              *string
+	label                 *string
+	help                  *string
+	question_type         *string
+	allow_program_content *bool
+	required              *bool
+	default_value         *string
+	choices               *[]string
+	appendchoices         []string
+	min_value             *int
+	addmin_value          *int
+	max_value             *int
+	addmax_value          *int
+	display_order         *int
+	adddisplay_order      *int
+	clearedFields         map[string]struct{}
+	template              *int
+	clearedtemplate       bool
+	done                  bool
+	oldValue              func(context.Context) (*SurveyQuestion, error)
+	predicates            []predicate.SurveyQuestion
 }
 
 var _ ent.Mutation = (*SurveyQuestionMutation)(nil)
@@ -24803,6 +25169,42 @@ func (m *SurveyQuestionMutation) OldQuestionType(ctx context.Context) (v string,
 // ResetQuestionType resets all changes to the "question_type" field.
 func (m *SurveyQuestionMutation) ResetQuestionType() {
 	m.question_type = nil
+}
+
+// SetAllowProgramContent sets the "allow_program_content" field.
+func (m *SurveyQuestionMutation) SetAllowProgramContent(b bool) {
+	m.allow_program_content = &b
+}
+
+// AllowProgramContent returns the value of the "allow_program_content" field in the mutation.
+func (m *SurveyQuestionMutation) AllowProgramContent() (r bool, exists bool) {
+	v := m.allow_program_content
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAllowProgramContent returns the old "allow_program_content" field's value of the SurveyQuestion entity.
+// If the SurveyQuestion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SurveyQuestionMutation) OldAllowProgramContent(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAllowProgramContent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAllowProgramContent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAllowProgramContent: %w", err)
+	}
+	return oldValue.AllowProgramContent, nil
+}
+
+// ResetAllowProgramContent resets all changes to the "allow_program_content" field.
+func (m *SurveyQuestionMutation) ResetAllowProgramContent() {
+	m.allow_program_content = nil
 }
 
 // SetRequired sets the "required" field.
@@ -25196,7 +25598,7 @@ func (m *SurveyQuestionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SurveyQuestionMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, surveyquestion.FieldCreatedAt)
 	}
@@ -25214,6 +25616,9 @@ func (m *SurveyQuestionMutation) Fields() []string {
 	}
 	if m.question_type != nil {
 		fields = append(fields, surveyquestion.FieldQuestionType)
+	}
+	if m.allow_program_content != nil {
+		fields = append(fields, surveyquestion.FieldAllowProgramContent)
 	}
 	if m.required != nil {
 		fields = append(fields, surveyquestion.FieldRequired)
@@ -25253,6 +25658,8 @@ func (m *SurveyQuestionMutation) Field(name string) (ent.Value, bool) {
 		return m.Help()
 	case surveyquestion.FieldQuestionType:
 		return m.QuestionType()
+	case surveyquestion.FieldAllowProgramContent:
+		return m.AllowProgramContent()
 	case surveyquestion.FieldRequired:
 		return m.Required()
 	case surveyquestion.FieldDefaultValue:
@@ -25286,6 +25693,8 @@ func (m *SurveyQuestionMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldHelp(ctx)
 	case surveyquestion.FieldQuestionType:
 		return m.OldQuestionType(ctx)
+	case surveyquestion.FieldAllowProgramContent:
+		return m.OldAllowProgramContent(ctx)
 	case surveyquestion.FieldRequired:
 		return m.OldRequired(ctx)
 	case surveyquestion.FieldDefaultValue:
@@ -25348,6 +25757,13 @@ func (m *SurveyQuestionMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetQuestionType(v)
+		return nil
+	case surveyquestion.FieldAllowProgramContent:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAllowProgramContent(v)
 		return nil
 	case surveyquestion.FieldRequired:
 		v, ok := value.(bool)
@@ -25517,6 +25933,9 @@ func (m *SurveyQuestionMutation) ResetField(name string) error {
 		return nil
 	case surveyquestion.FieldQuestionType:
 		m.ResetQuestionType()
+		return nil
+	case surveyquestion.FieldAllowProgramContent:
+		m.ResetAllowProgramContent()
 		return nil
 	case surveyquestion.FieldRequired:
 		m.ResetRequired()

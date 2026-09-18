@@ -364,11 +364,13 @@ var (
 		{Name: "kind", Type: field.TypeString, Nullable: true},
 		{Name: "actor", Type: field.TypeString},
 		{Name: "organization_id", Type: field.TypeInt, Nullable: true},
-		{Name: "state", Type: field.TypeEnum, Enums: []string{"pending", "fanning_out", "completed", "failed"}, Default: "pending"},
+		{Name: "state", Type: field.TypeEnum, Enums: []string{"pending", "fanning_out", "running", "completed", "failed", "canceled"}, Default: "pending"},
 		{Name: "dispatched_count", Type: field.TypeInt, Default: 0},
 		{Name: "skipped_count", Type: field.TypeInt, Default: 0},
 		{Name: "failed_count", Type: field.TypeInt, Default: 0},
 		{Name: "failure_reason", Type: field.TypeString, Nullable: true},
+		{Name: "canceled_at", Type: field.TypeTime, Nullable: true},
+		{Name: "canceled_by", Type: field.TypeString, Nullable: true},
 		{Name: "fence", Type: field.TypeInt64, Default: 0},
 		{Name: "fields", Type: field.TypeJSON, Nullable: true},
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
@@ -396,6 +398,9 @@ var (
 		{Name: "device_name", Type: field.TypeString},
 		{Name: "outcome", Type: field.TypeEnum, Enums: []string{"dispatched", "skipped", "failed"}},
 		{Name: "reason", Type: field.TypeString, Nullable: true},
+		{Name: "result", Type: field.TypeEnum, Nullable: true, Enums: []string{"succeeded", "failed"}},
+		{Name: "result_reason", Type: field.TypeString, Nullable: true},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -406,7 +411,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[7]},
+				Columns:    []*schema.Column{JobTasksColumns[10]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -415,7 +420,7 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[7]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[10]},
 			},
 		},
 	}
@@ -834,6 +839,7 @@ var (
 		{Name: "label", Type: field.TypeString},
 		{Name: "help", Type: field.TypeString, Nullable: true},
 		{Name: "question_type", Type: field.TypeString},
+		{Name: "allow_program_content", Type: field.TypeBool, Default: false},
 		{Name: "required", Type: field.TypeBool, Default: false},
 		{Name: "default_value", Type: field.TypeString, Nullable: true},
 		{Name: "choices", Type: field.TypeJSON, Nullable: true},
@@ -850,7 +856,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "survey_questions_templates_survey_questions",
-				Columns:    []*schema.Column{SurveyQuestionsColumns[13]},
+				Columns:    []*schema.Column{SurveyQuestionsColumns[14]},
 				RefColumns: []*schema.Column{TemplatesColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -859,12 +865,12 @@ var (
 			{
 				Name:    "surveyquestion_display_order_template_survey_questions",
 				Unique:  false,
-				Columns: []*schema.Column{SurveyQuestionsColumns[12], SurveyQuestionsColumns[13]},
+				Columns: []*schema.Column{SurveyQuestionsColumns[13], SurveyQuestionsColumns[14]},
 			},
 			{
 				Name:    "surveyquestion_variable_template_survey_questions",
 				Unique:  true,
-				Columns: []*schema.Column{SurveyQuestionsColumns[3], SurveyQuestionsColumns[13]},
+				Columns: []*schema.Column{SurveyQuestionsColumns[3], SurveyQuestionsColumns[14]},
 			},
 		},
 	}

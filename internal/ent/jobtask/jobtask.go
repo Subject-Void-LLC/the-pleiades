@@ -27,6 +27,12 @@ const (
 	FieldOutcome = "outcome"
 	// FieldReason holds the string denoting the reason field in the database.
 	FieldReason = "reason"
+	// FieldResult holds the string denoting the result field in the database.
+	FieldResult = "result"
+	// FieldResultReason holds the string denoting the result_reason field in the database.
+	FieldResultReason = "result_reason"
+	// FieldFinishedAt holds the string denoting the finished_at field in the database.
+	FieldFinishedAt = "finished_at"
 	// EdgeJob holds the string denoting the job edge name in mutations.
 	EdgeJob = "job"
 	// Table holds the table name of the jobtask in the database.
@@ -49,6 +55,9 @@ var Columns = []string{
 	FieldDeviceName,
 	FieldOutcome,
 	FieldReason,
+	FieldResult,
+	FieldResultReason,
+	FieldFinishedAt,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "job_tasks"
@@ -109,6 +118,29 @@ func OutcomeValidator(o Outcome) error {
 	}
 }
 
+// Result defines the type for the "result" enum field.
+type Result string
+
+// Result values.
+const (
+	ResultSucceeded Result = "succeeded"
+	ResultFailed    Result = "failed"
+)
+
+func (r Result) String() string {
+	return string(r)
+}
+
+// ResultValidator is a validator for the "result" field enum values. It is called by the builders before save.
+func ResultValidator(r Result) error {
+	switch r {
+	case ResultSucceeded, ResultFailed:
+		return nil
+	default:
+		return fmt.Errorf("jobtask: invalid enum value for result field: %q", r)
+	}
+}
+
 // OrderOption defines the ordering options for the JobTask queries.
 type OrderOption func(*sql.Selector)
 
@@ -145,6 +177,21 @@ func ByOutcome(opts ...sql.OrderTermOption) OrderOption {
 // ByReason orders the results by the reason field.
 func ByReason(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldReason, opts...).ToFunc()
+}
+
+// ByResult orders the results by the result field.
+func ByResult(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldResult, opts...).ToFunc()
+}
+
+// ByResultReason orders the results by the result_reason field.
+func ByResultReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldResultReason, opts...).ToFunc()
+}
+
+// ByFinishedAt orders the results by the finished_at field.
+func ByFinishedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFinishedAt, opts...).ToFunc()
 }
 
 // ByJobField orders the results by job field.

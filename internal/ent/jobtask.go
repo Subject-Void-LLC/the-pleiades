@@ -30,6 +30,12 @@ type JobTask struct {
 	Outcome jobtask.Outcome `json:"outcome,omitempty"`
 	// Reason holds the value of the "reason" field.
 	Reason string `json:"reason,omitempty"`
+	// Result holds the value of the "result" field.
+	Result jobtask.Result `json:"result,omitempty"`
+	// ResultReason holds the value of the "result_reason" field.
+	ResultReason string `json:"result_reason,omitempty"`
+	// FinishedAt holds the value of the "finished_at" field.
+	FinishedAt time.Time `json:"finished_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobTaskQuery when eager-loading is set.
 	Edges        JobTaskEdges `json:"edges"`
@@ -64,9 +70,9 @@ func (*JobTask) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case jobtask.FieldID:
 			values[i] = new(sql.NullInt64)
-		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason:
+		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason:
 			values[i] = new(sql.NullString)
-		case jobtask.FieldCreatedAt, jobtask.FieldUpdatedAt:
+		case jobtask.FieldCreatedAt, jobtask.FieldUpdatedAt, jobtask.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
 		case jobtask.ForeignKeys[0]: // job_tasks
 			values[i] = new(sql.NullInt64)
@@ -126,6 +132,24 @@ func (_m *JobTask) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field reason", values[i])
 			} else if value.Valid {
 				_m.Reason = value.String
+			}
+		case jobtask.FieldResult:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field result", values[i])
+			} else if value.Valid {
+				_m.Result = jobtask.Result(value.String)
+			}
+		case jobtask.FieldResultReason:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field result_reason", values[i])
+			} else if value.Valid {
+				_m.ResultReason = value.String
+			}
+		case jobtask.FieldFinishedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field finished_at", values[i])
+			} else if value.Valid {
+				_m.FinishedAt = value.Time
 			}
 		case jobtask.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -192,6 +216,15 @@ func (_m *JobTask) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("reason=")
 	builder.WriteString(_m.Reason)
+	builder.WriteString(", ")
+	builder.WriteString("result=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Result))
+	builder.WriteString(", ")
+	builder.WriteString("result_reason=")
+	builder.WriteString(_m.ResultReason)
+	builder.WriteString(", ")
+	builder.WriteString("finished_at=")
+	builder.WriteString(_m.FinishedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

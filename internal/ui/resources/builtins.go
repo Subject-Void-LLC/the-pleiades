@@ -27,6 +27,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
@@ -55,12 +56,29 @@ type Deps struct {
 	// Activity is the append-only record of who changed what. Read-only
 	// here: the views never write to it, and the only writer is the
 	// audited store the composition root wraps Access with.
-	Activity   activity.Store
-	Inventory  inventory.Repository
-	Sets       inventory.SetStore
-	Announce   announce.Store
-	Factory    *inventory.ItemFactory
-	Jobs       dispatch.JobStore
+	Activity  activity.Store
+	Inventory inventory.Repository
+	Sets      inventory.SetStore
+	Announce  announce.Store
+	Factory   *inventory.ItemFactory
+	Jobs      dispatch.JobStore
+	// JobCanceller is the one path a cancel takes: it settles the record
+	// AND signals a Runner already executing the job. Jobs above can do
+	// only the first, so a view that cancelled through it would stop the
+	// job on paper and leave the runbook running on the device.
+	JobCanceller *dispatch.Canceller
+
+	// JobJournal is the run journal, read-only here. It is what the Jobs
+	// view's Tasks tab is built on, and it is optional: a deployment
+	// without one draws no Tasks tab at all rather than an empty one,
+	// because having no journal is a property of the installation and not
+	// of any job.
+	JobJournal *journal.EntStore
+
+	// JobLogs drains a job's retained log output for a download. Optional
+	// and absent in any composition with no broker, which withholds the
+	// control rather than offering one that cannot produce a file.
+	JobLogs    *api.LogArchive
 	Runbooks   runbook.Source
 	Dispatcher *api.Dispatcher
 

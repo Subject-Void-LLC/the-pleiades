@@ -51,7 +51,11 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 				// be guessing at controls.
 				return nil, nil
 			}
-			return launchFields(ctx, tmpl, creds, id)
+			// The deployment's half of the survey file rule, read from the
+			// dispatcher rather than from the environment here, so the
+			// form says what this Controller will actually do when the
+			// answer is submitted.
+			return launchFields(ctx, tmpl, creds, id, dispatcher.AllowsProgramContent())
 		},
 
 		Submit: func(ctx context.Context, id string, v view.Values) (string, view.FieldErrors, error) {
@@ -128,7 +132,7 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 // Order matters. The fields decide how the run is bounded and the survey
 // asks for values the automation reads, so the launch controls come first
 // and the questions follow, which is the order AWX prompts in too.
-func launchFields(ctx context.Context, tmpl launch.Template, creds credentials, id string) ([]view.Field, error) {
+func launchFields(ctx context.Context, tmpl launch.Template, creds credentials, id string, execAllowed bool) ([]view.Field, error) {
 	d, err := tmpl.Descriptor()
 	if err != nil {
 		// A template whose kind is no longer registered offers no controls.
@@ -148,7 +152,7 @@ func launchFields(ctx context.Context, tmpl launch.Template, creds credentials, 
 
 	if tmpl.Survey.Asks() {
 		for _, q := range tmpl.Survey.Questions {
-			out = append(out, questionField(q))
+			out = append(out, questionField(q, execAllowed))
 		}
 	}
 
@@ -256,7 +260,7 @@ func savedValue(spec launch.FieldSpec, defaults launch.Fields) string {
 // reason the question carries a type: the value is encrypted at rest, read
 // back as a redaction marker, and must not be typed into a box that shows
 // it or that a browser offers to remember.
-func questionField(q launch.Question) view.Field {
+func questionField(q launch.Question, execAllowed bool) view.Field {
 	f := view.Field{
 		Name:         surveyPrefix + q.Variable,
 		Label:        strings.ToUpper(q.Label),
@@ -291,11 +295,54 @@ func questionField(q launch.Question) view.Field {
 	case launch.QuestionMultiSelect:
 		f.Kind = view.KindLookup
 		f.Options = choiceOptions(q.Choices)
+	case launch.QuestionFile:
+		// A text area holding the file's own content, and the honest
+		// reading of that is that this is a PASTE rather than an upload:
+		// every write in this UI is parsed with r.ParseForm, which does not
+		// read a multipart body at all, so an <input type="file"> here
+		// would post the filename and silently blank every other control on
+		// the form. A file picker is a separate piece of work on the form
+		// pipeline; the type's rules, its bound and its secrecy are real
+		// either way, and what reaches the automation is identical.
+		f.Kind = view.KindLongText
+		// The question's own bound when it set one, so the control stops
+		// where the resolver will. Clamped to the platform's, which
+		// Survey.Validate already refuses to let a question exceed.
+		f.MaxLen = launch.MaxFileAnswerBytes
+		if q.Max > 0 && q.Max < f.MaxLen {
+			f.MaxLen = q.Max
+		}
+		f.Help = strings.TrimSuffix(f.Help, " ") + fileAnswerHelp(q, execAllowed)
 	default:
 		f.Kind = view.KindText
 		f.MaxLen = q.Max
 	}
 	return f
+}
+
+// fileAnswerHelp is what a file question says under its control, and it
+// differs by whether the answer will be accepted as a program.
+//
+// Two sentences rather than one, and the extra only when it is true,
+// because that is the moment a disclosure is worth anything: a paragraph in
+// a document nobody opens is not a disclosure, and a warning shown on every
+// file question regardless of state is one people learn to scroll past.
+func fileAnswerHelp(q launch.Question, execAllowed bool) string {
+	base := " Paste the file's text. Up to " + strconv.Itoa(launch.MaxFileAnswerBytes/1024) +
+		" KB of UTF-8 text; a binary file is refused. The answer is treated as secret, so it is " +
+		"encrypted in any configuration you save and is never replayed by a relaunch or a schedule."
+
+	switch {
+	case q.AllowProgramContent && execAllowed:
+		return base + " This question and this deployment both accept program content, so a file opening " +
+			"with an interpreter line is allowed. What you paste is handed to the automation unchanged, and " +
+			"if the automation runs it, it runs with the runner's own privileges."
+	case q.AllowProgramContent:
+		return base + " This question is marked as accepting program content, but this deployment does not " +
+			"permit it, so a file opening with an interpreter line is still refused."
+	default:
+		return base + " A file opening with an interpreter line is refused."
+	}
 }
 
 func choiceOptions(choices []string) func(context.Context) ([]view.Option, error) {

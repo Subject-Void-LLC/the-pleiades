@@ -6013,11 +6013,28 @@
                           "device_name": {
                             "type": "string"
                           },
+                          "finished_at": {
+                            "description": "When this device reported back. Absent until it does.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
                           "outcome": {
                             "type": "string"
                           },
                           "reason": {
                             "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          },
+                          "result": {
+                            "description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on.",
+                            "enum": [
+                              "succeeded",
+                              "failed"
+                            ],
+                            "type": "string"
+                          },
+                          "result_reason": {
+                            "description": "Present only for a failed result.",
                             "type": "string"
                           }
                         },
@@ -6082,6 +6099,226 @@
         ],
         "summary": "Get a job's current state",
         "x-link-relation": "self"
+      }
+    },
+    "/jobs/{id}/cancel": {
+      "post": {
+        "description": "Stops a job and returns at once. What this guarantees is the record and the fan-out: the job settles to \"canceled\" naming whoever stopped it, and no device the job has not already reached is dispatched to. What it cannot guarantee is work already running on a device. That is signalled best-effort to whichever Runner holds it, a task declaring itself un-interruptible runs to completion by design, and one device may already have been dispatched to in the instant the cancel landed. A job that has already finished is a 409 rather than a success, because reporting success for having stopped nothing would tell a caller it had done something it had not.",
+        "operationId": "cancel_job",
+        "parameters": [
+          {
+            "description": "The job ID, a UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "dispatched": {
+                      "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
+                      "type": "integer"
+                    },
+                    "failed": {
+                      "type": "integer"
+                    },
+                    "failure_reason": {
+                      "description": "Why a failed job could not run. Empty for every other state.",
+                      "type": "string"
+                    },
+                    "inventory": {
+                      "description": "The device set it targeted.",
+                      "type": "integer"
+                    },
+                    "job_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "description": "Which registered launch kind ran, and therefore which execution adapter handled it.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenant it belongs to, inherited from that inventory.",
+                      "type": "integer"
+                    },
+                    "runbook_id": {
+                      "type": "string"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "tasks": {
+                      "items": {
+                        "properties": {
+                          "device_id": {
+                            "type": "string"
+                          },
+                          "device_name": {
+                            "type": "string"
+                          },
+                          "finished_at": {
+                            "description": "When this device reported back. Absent until it does.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          },
+                          "result": {
+                            "description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on.",
+                            "enum": [
+                              "succeeded",
+                              "failed"
+                            ],
+                            "type": "string"
+                          },
+                          "result_reason": {
+                            "description": "Present only for a failed result.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "template": {
+                      "description": "The saved definition this job was launched from.",
+                      "type": "integer"
+                    },
+                    "template_name": {
+                      "description": "That template's name as it was at launch. Captured rather than resolved live: a job's history has to outlive the template.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job was canceled. It is returned as it now stands; poll it for the final tallies, which the stopping fan-out records."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a UUID."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No identity on the request context."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No job with that ID exists."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job has already finished, so there was nothing to stop."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job could not be canceled."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:execute"
+            ]
+          }
+        ],
+        "summary": "Cancel a running job",
+        "x-link-relation": "cancel"
       }
     },
     "/jobs/{id}/logs": {
@@ -10131,6 +10368,10 @@
                               "questions": {
                                 "items": {
                                   "properties": {
+                                    "allow_program_content": {
+                                      "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                      "type": "boolean"
+                                    },
                                     "choices": {
                                       "description": "The permitted values for the two choice types.",
                                       "items": {
@@ -10139,7 +10380,7 @@
                                       "type": "array"
                                     },
                                     "default": {
-                                      "description": "Used when an answer is absent and the question is not required.",
+                                      "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                       "type": "string"
                                     },
                                     "help": {
@@ -10151,11 +10392,11 @@
                                       "type": "string"
                                     },
                                     "max": {
-                                      "description": "See min.",
+                                      "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                       "type": "integer"
                                     },
                                     "min": {
-                                      "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                      "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                       "type": "integer"
                                     },
                                     "required": {
@@ -10163,7 +10404,7 @@
                                       "type": "boolean"
                                     },
                                     "type": {
-                                      "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                      "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                       "type": "string"
                                     },
                                     "variable": {
@@ -10275,6 +10516,10 @@
                       "questions": {
                         "items": {
                           "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
                             "choices": {
                               "description": "The permitted values for the two choice types.",
                               "items": {
@@ -10283,7 +10528,7 @@
                               "type": "array"
                             },
                             "default": {
-                              "description": "Used when an answer is absent and the question is not required.",
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                               "type": "string"
                             },
                             "help": {
@@ -10295,11 +10540,11 @@
                               "type": "string"
                             },
                             "max": {
-                              "description": "See min.",
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                               "type": "integer"
                             },
                             "min": {
-                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                               "type": "integer"
                             },
                             "required": {
@@ -10307,7 +10552,7 @@
                               "type": "boolean"
                             },
                             "type": {
-                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                               "type": "string"
                             },
                             "variable": {
@@ -10430,6 +10675,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -10438,7 +10687,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -10450,11 +10699,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -10462,7 +10711,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -10731,6 +10980,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -10739,7 +10992,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -10751,11 +11004,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -10763,7 +11016,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -10897,6 +11150,10 @@
                       "questions": {
                         "items": {
                           "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
                             "choices": {
                               "description": "The permitted values for the two choice types.",
                               "items": {
@@ -10905,7 +11162,7 @@
                               "type": "array"
                             },
                             "default": {
-                              "description": "Used when an answer is absent and the question is not required.",
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                               "type": "string"
                             },
                             "help": {
@@ -10917,11 +11174,11 @@
                               "type": "string"
                             },
                             "max": {
-                              "description": "See min.",
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                               "type": "integer"
                             },
                             "min": {
-                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                               "type": "integer"
                             },
                             "required": {
@@ -10929,7 +11186,7 @@
                               "type": "boolean"
                             },
                             "type": {
-                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                               "type": "string"
                             },
                             "variable": {
@@ -11052,6 +11309,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -11060,7 +11321,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -11072,11 +11333,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -11084,7 +11345,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -11561,6 +11822,10 @@
                         "questions": {
                           "items": {
                             "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
                               "choices": {
                                 "description": "The permitted values for the two choice types.",
                                 "items": {
@@ -11569,7 +11834,7 @@
                                 "type": "array"
                               },
                               "default": {
-                                "description": "Used when an answer is absent and the question is not required.",
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
                                 "type": "string"
                               },
                               "help": {
@@ -11581,11 +11846,11 @@
                                 "type": "string"
                               },
                               "max": {
-                                "description": "See min.",
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
                                 "type": "integer"
                               },
                               "min": {
-                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
                                 "type": "integer"
                               },
                               "required": {
@@ -11593,7 +11858,7 @@
                                 "type": "boolean"
                               },
                               "type": {
-                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
                                 "type": "string"
                               },
                               "variable": {
@@ -12215,6 +12480,290 @@
         ],
         "summary": "Launch a template",
         "x-link-relation": "execute"
+      }
+    },
+    "/templates/{id}/survey": {
+      "put": {
+        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey so a client that edits only the questions does not round-trip the rest of the template. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, a file question carrying a default or a maximum above 32768, allow_program_content set on a question that is not a file, or a minimum above its maximum.",
+        "operationId": "set_template_survey",
+        "parameters": [
+          {
+            "description": "The template's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "survey": {
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                        "type": "boolean"
+                      },
+                      "questions": {
+                        "items": {
+                          "properties": {
+                            "allow_program_content": {
+                              "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                              "type": "boolean"
+                            },
+                            "choices": {
+                              "description": "The permitted values for the two choice types.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
+                              "type": "string"
+                            },
+                            "help": {
+                              "description": "The line under the label.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What the form asks.",
+                              "type": "string"
+                            },
+                            "max": {
+                              "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
+                              "type": "integer"
+                            },
+                            "min": {
+                              "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
+                              "type": "integer"
+                            },
+                            "required": {
+                              "description": "Refuses a launch that leaves it blank.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
+                              "type": "string"
+                            },
+                            "variable": {
+                              "description": "The extra-variable name the answer is written to.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "allow_simultaneous": {
+                      "description": "Permits more than one job from this template to run at once.",
+                      "type": "boolean"
+                    },
+                    "defaults": {
+                      "description": "How to run it: the values this template was saved with, keyed by launch field name.",
+                      "type": "object"
+                    },
+                    "definition": {
+                      "description": "The reference the kind resolves: a runbook id, a playbook path.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "What this template is for.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "inventory": {
+                      "description": "The device set this runs against.",
+                      "type": "integer"
+                    },
+                    "inventory_name": {
+                      "description": "That inventory's name, carried so a list does not render a bare foreign key.",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "description": "The registry key of what this runs: runbook, playbook.",
+                      "type": "string"
+                    },
+                    "kind_label": {
+                      "description": "That kind's display label. Absent when this controller no longer registers the kind.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary, derived from the inventory and never submitted.",
+                      "type": "integer"
+                    },
+                    "organization_name": {
+                      "description": "That organization's name.",
+                      "type": "string"
+                    },
+                    "prompts": {
+                      "description": "The fields a launch may override. Everything else is locked to what defaults says, and a launch supplying a locked field is told so by name rather than having it applied or dropped.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "required_capabilities": {
+                      "description": "A plan-time hint recorded when the template was saved. The executor acquires capabilities for real at run time.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "survey": {
+                      "properties": {
+                        "enabled": {
+                          "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                          "type": "boolean"
+                        },
+                        "questions": {
+                          "items": {
+                            "properties": {
+                              "allow_program_content": {
+                                "description": "File questions only. Permits an answer that opens with an interpreter line. It is one of TWO gates and opens nothing on its own: the deployment must also set PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT, which is a live kill switch. Note that a file without an interpreter line is not thereby safe -- what an answer can do is decided by what the automation does with it.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "The permitted values for the two choice types.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "Used when an answer is absent and the question is not required. A file question may not carry one.",
+                                "type": "string"
+                              },
+                              "help": {
+                                "description": "The line under the label.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What the form asks.",
+                                "type": "string"
+                              },
+                              "max": {
+                                "description": "See min. On a file question the platform's own cap applies as well, and is the lower of the two.",
+                                "type": "integer"
+                              },
+                              "min": {
+                                "description": "Bounds a numeric answer, the length of a text one, or the BYTE count of a file one. Zero means unbounded.",
+                                "type": "integer"
+                              },
+                              "required": {
+                                "description": "Refuses a launch that leaves it blank.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect, file. Ansible's own question types plus file, so a survey imported from AWX means the same thing here.",
+                                "type": "string"
+                              },
+                              "variable": {
+                                "description": "The extra-variable name the answer is written to.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated template."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the survey is not answerable."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "template:write"
+            ]
+          }
+        ],
+        "summary": "Replace a template's survey",
+        "x-link-relation": "set-survey"
       }
     },
     "/users": {

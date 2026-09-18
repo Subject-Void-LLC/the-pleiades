@@ -7437,3 +7437,595 @@ token, something has to prove which one is actually behind the text, or the suit
 measuring a hypothetical. The tell is a token that only one rule consumes: `--bg` was read
 by `.block` alone while `--body-bg` covered everything else, and that imbalance was visible
 in the file long before anyone looked at the skin.
+
+## 216. `natsControl.SubscribeCancel` returned before the broker had registered the subscription, so a cancel arriving in that window was dropped permanently rather than delivered late
+
+**Symptom:** found while building job cancel, by its own test, before it shipped.
+`TestNATSControl_CancelReachesEverySubscriber` failed for the entire length of its timeout
+rather than intermittently, and only when a second connection was subscribed: delivery to a
+subscriber on the PUBLISHING connection always worked, delivery to any other connection failed
+roughly one run in three. The first diagnosis was wrong and worth recording. The failure
+appeared under parallel load, `internal/event` is a listed flaky package, and the obvious
+reading was FAILURE_PATTERNS #61 resource contention. Widening the deadline from two seconds to
+thirty is what disproved that: the test then failed for the full thirty seconds, which no amount
+of scheduling delay explains.
+
+**Root cause:** nats.go buffers the `SUB` protocol line and writes it asynchronously, so
+`nc.Subscribe` returning says nothing about whether the server knows the subscription exists. A
+cancel is a plain core publish with no queue, no acknowledgement and no redelivery, so a message
+published before the server has processed the `SUB` is not queued for that subscriber, it is
+routed to nobody and discarded. Losing the race therefore does not make delivery late, it makes
+delivery never. The same-connection case passed consistently because the `SUB` and the `PUB`
+share one write buffer and reach the server in that order in a single flush, which is exactly
+the asymmetry that made the bug look like a delivery-model problem rather than a registration
+one. In production the window sits where it does the most harm: `executeWithLease` subscribes
+immediately before calling `Execute`, so the vulnerable moment is the first instants of a run,
+which is when an operator who has just launched something is most likely to stop it.
+
+**Fix:** `SubscribeCancel` (`internal/event/control.go`) calls `FlushWithContext` after
+subscribing, bounded by `subscribeRegistrationTimeout`, and unsubscribes and returns an error if
+that flush fails rather than handing back a subscription the server may not have. The test's own
+raw wildcard subscription needed the identical treatment and did not get it in the first pass,
+which is why `TestNATSControl_PublishesUnderTheDeclaredSubject` then failed once in three runs by
+itself: the test carried the very race the implementation had just been fixed for. Both sides
+flush now, and the pair has run clean eight times consecutively.
+
+**Lesson:** see `LESSONS_LEARNED.md` #181.
+
+## 217. Job results were published only when `RUNNER_WAL_DIR` was set, and nothing in the module ever consumed them
+
+**Symptom:** found while planning job cancel, by asking what a `running` job state would be built
+on. `topology.ResultSubjectAll()` had exactly two non-test references in the whole module: the
+Runner's own publish, and the Runner's publish permission in `internal/meshid/grant.go`. Nothing
+subscribed. Separately, `reportResult` (`internal/runner/agent_wal.go`) returned immediately when
+`a.wal == nil`, and the WAL is only constructed when an operator sets `RUNNER_WAL_DIR`
+(`cmd/runner/main.go`), so a default deployment published nothing at all. The subject carried real
+traffic in a WAL-enabled deployment and reached nobody in any of them.
+
+**Root cause:** two independent halves of one feature, each individually reasonable. PLAN.md
+Section 16's State Desync Mitigation describes a Runner buffering a result in a local
+write-ahead log and retrying, and the option was built as one unit, so the DURABILITY of a
+result and the REPORTING of it became the same switch. Nothing noticed, because the consumer
+side was never built: a publish nobody reads produces no error, no backlog a person would see,
+and no failing test. The gap was invisible for as long as the platform never asked a question
+whose answer depended on it, and `completed` meaning "the fan-out finished" was exactly such a
+platform. It stopped being invisible the moment a job needed to stay `running` until its devices
+reported, at which point a Runner reporting nothing would leave every job it touched running
+forever.
+
+**Fix:** reporting and durability are separate options now. `WithResultReporting` publishes every
+outcome and is wired unconditionally by `cmd/runner`; `WithResultWAL` adds the durable retry on
+top and stays behind `RUNNER_WAL_DIR`. `internal/dispatch.ResultConsumer` is the missing other
+end, one durable consumer shared by every Controller replica. Its end-to-end test publishes on
+the subject a Runner derives rather than calling the handler directly, because a handler-only
+test would have passed throughout the entire period the subject reached nobody.
+
+**Lesson:** a port with a publisher and no consumer is not half-built, it is unbuilt, and it
+reports success the whole time. When a producer's output is not read by anything, nothing about
+the producer working is evidence the feature works, so the absence has to be checked for
+directly: ask who subscribes, by symbol reference rather than by reading the producer. The
+related trap is the one this pair produced together, that an optional durability wrapper quietly
+became an optional feature switch, so check whether an option gates the mechanism or only its
+resilience.
+
+## 218. `http.request`'s documented `timeout` could not raise the TLS handshake deadline, so a slow endpoint failed after ten seconds having been told it had sixty
+
+**Symptom:** surfaced as a test failure in this repository's own gate, not as a report from a
+user, and the first reading of it was wrong. `TestRequest_VerifiesCertificatesByDefault`
+(`internal/catalog/http`) failed under full parallel `-race` load with
+`net/http: TLS handshake timeout` where it expected an error naming the certificate, having
+taken 16.43 seconds for a handshake against a local `httptest` server. The package provisions no
+containers and passes `-count=5` in isolation in about a second, so it did not qualify for a
+`flaky-packages.json` entry and could not be dismissed as contention even though contention was
+what exposed it.
+
+**Root cause:** `requestSpec.client()` returned a bare `&http.Client{}` on the verifying path. A
+nil `Transport` means `http.DefaultTransport`, whose `TLSHandshakeTimeout` is a fixed ten seconds
+set in `net/http`'s own package initialization. The method bounds its request with
+`context.WithTimeout(ctx, spec.timeout)`, which is the number the `timeout` parameter documents
+as "how long to wait for the whole request including reading the body", and that context has no
+influence on the transport's separate handshake deadline. So there were two deadlines, an
+operator could set only one of them, and the one they could not set was the shorter. A task given
+`timeout: 60` against a device under load, or across a link with real latency, failed at ten
+seconds. The skip-verify path cloned `DefaultTransport` and therefore carried the identical cap,
+inheriting the defect while looking like it had its own configuration.
+
+A second, quieter fault sat in the same three lines. The function's own doc comment said "a fresh
+client each time rather than a shared one", and gave the reason: a pooled connection established
+without certificate verification must never be handed to a later task that asked for
+verification. The skip-verify branch honored that by cloning. The verifying branch returned the
+process-wide shared transport, so the stated property held only on the path that did not need it.
+
+**Fix:** both paths clone, both set `TLSHandshakeTimeout` to the task's own timeout, and only the
+skip-verify branch attaches a `tls.Config`. The request context and the handshake deadline are
+now the same number, so there is one budget and the operator sets it.
+`internal/catalog/http/client_internal_test.go` pins all three properties, and is an in-package
+test deliberately: proving the handshake budget behaviorally needs a server that stalls a
+handshake for longer than ten seconds, which is a test that asserts by waiting. Each of its three
+cases was run against the original code and fails there.
+
+**Lesson:** a timeout parameter is a promise about the whole operation, and a library default
+underneath it can quietly own a shorter one. When exposing a timeout, enumerate every deadline
+the call can hit rather than only the one being set, and note that a nil field is a configuration
+choice: `&http.Client{}` is not an unconfigured client, it is the shared default one. The
+diagnostic habit that found this is also worth keeping, and it is the same one
+`LESSONS_LEARNED.md` #181 records: the failure was under container load in a suite full of
+genuine container flakes, and what separated it from one was that the package provisions nothing
+and the timing was reproducible in kind rather than in occurrence.
+
+---
+
+## 219. A view's relation check refused one endpoint named by two controls, and said so by naming that endpoint twice
+
+**Symptom:** declaring a Remove control beside the Add control on a credential type's Inputs tab
+made the view refuse to register at all, with
+`view "credential-types" uses relation "set-inputs" for both set_credential_type_inputs and
+set_credential_type_inputs`. The same endpoint on both sides of "for both" is the tell.
+
+**Root cause:** `validateOps` walks every endpoint a descriptor names and refuses two that share
+a link relation, because `Affordances` is keyed by relation and a template asking `Can(rel)` could
+not say which of two operations it had been told about. The check compared relations and never
+compared the endpoints behind them, so an endpoint named twice tripped it exactly as two different
+endpoints sharing a relation would.
+
+The case it hits is not ambiguity. Adding an input to a credential type and removing one are both
+its set-inputs endpoint: the stored document is replaced either way, and the affordance question
+has one answer for both controls. There is one relation, one scope and one API operation, and the
+single answer `Can(set-inputs)` gives is correct rather than ambiguous.
+
+The cost of the false positive was not the refusal but what the refusal pushed an author toward.
+The only way past it was to invent a second endpoint with a second relation describing no separate
+operation, which puts a relation in the JSON `_links` array that no API operation corresponds to.
+
+**Fix:** the dedupe compares the endpoint name as well as the relation, so two DIFFERENT endpoints
+sharing a relation are still refused and one endpoint named twice is allowed. The existing
+refusal test (two genuinely different endpoints) still passes and is the negative control;
+`TestRegister_AcceptsOneEndpointNamedTwice` is the positive one and fails against the old check
+with exactly the message above.
+
+**Lesson:** a uniqueness check over a derived key needs to know what the key was derived from. A
+duplicate key means "two things collided" only when the two things are actually distinct, and a
+message that prints the same value on both sides of "for both" is the shape that says the check
+lost track of which is which.
+
+---
+
+## 220. A row control's relation was missing from the candidate set, so every one of them was withheld from everybody, including an administrator
+
+**Symptom:** the new Remove control on a credential type's Inputs tab rendered for nobody. No
+error, no log line, no 403. The table drew its rows and the actions column simply was not there,
+which is indistinguishable from a deliberate decision not to offer one.
+
+**Root cause:** `Descriptor.Candidates` is what the HATEOAS generator is ASKED about. It collected
+the endpoints of a view's operations and of its record actions, and a section's row actions had
+been added to the descriptor without being added to it. The resolver then asked
+`permits(a.Endpoint, aff)` about a relation that had never been offered for evaluation, was
+therefore never in the permitted set, and answered no for every caller at every role.
+
+The failure is silent by construction, because withholding a control is exactly what the
+affordance layer is supposed to do when a caller may not use it. There is no way to tell "you are
+not permitted this" from "nobody asked whether you were permitted this" by looking at the page,
+which is what makes it worth writing down rather than only fixing.
+
+**Fix:** `Candidates` walks each section's row actions too. The test is
+`TestDescriptor_CandidatesOffersARowActionsRelation` for the unit, and the router-level
+`TestRowAction_RendersOnlyWhereItApplies` for the behaviour; removing the new loop makes the
+second report that no control posts to any row.
+
+**Lesson:** every gated affordance needs its relation in two places, the gate and the candidate
+set, and only one of them fails loudly when it is missing. When adding a new kind of gated
+control, find the enumeration the authorization layer is driven from and add to it in the same
+change, then prove a permitted caller can see the control rather than only that an unpermitted
+one cannot.
+
+---
+
+## 221. A managed credential type offered Add input and Add injector, both of which the store refuses in its second statement
+
+**Symptom:** found while adding the row controls rather than reported. A platform-shipped
+credential type rendered "Add input" and "Add injector" on its own tabs. Pressing either reached
+`UpdateType`, which refuses a managed type before it validates anything, and the operator was
+answered with a field error on a form they should never have been offered.
+
+**Root cause:** `Descriptor.Applies` for the view already withdrew the record's own edit and
+delete relations on a managed row, with a comment explaining that the store refuses both so the
+affordance is withdrawn rather than offered and then refused. The two section write relations,
+`set-inputs` and `set-injectors`, were not in that predicate. They reach the same `UpdateType` and
+hit the same refusal, so the reasoning applied to them exactly and the list had simply not been
+extended when the header half of the section write path shipped.
+
+**Fix:** the predicate switches over all four write relations. The new test drives a managed type's
+two tabs and asserts neither offers an add or a remove; against the old predicate it fails on all
+four controls, which is what confirms this was live rather than theoretical.
+
+**Lesson:** a predicate that enumerates relations is a list that goes stale every time a relation
+is added, and nothing fails when it does. When a new write relation is introduced on a resource
+that already withdraws affordances conditionally, the predicate is part of the change, not a
+follow-up. A test that drives the withdrawing case through the real router is the only thing that
+notices.
+
+---
+
+## 222. Two publishers on one stream minted the same message id, so every job result was discarded as a duplicate of the dispatch that caused it
+
+**Symptom:** every job hung in `running` forever. Not in tests only: in every deployment on the
+branch. `tests/e2e` reported `job <uuid> did not reach a terminal state within its budget; last
+observed state "running"` on four tests, at 304 seconds each, and then the package was killed at
+`22m0s`. The controller logs showed the poller getting a clean 200 every 28 milliseconds and the
+state never changing.
+
+**Root cause:** the Controller stamps each per-device dispatch with the JetStream message id
+`"<jobID>:<deviceID>"` (`internal/dispatch/worker_devices.go`). The Runner published that
+device's *result* under the byte-identical id (`internal/runner/agent_wal.go`). JetStream's
+producer-side duplicate window is scoped to the **stream**, not to the subject, and
+`internal/topology` puts every subject in one stream (`pleiades.>`), so a message id in this
+system is global. The result collapsed onto the dispatch that had caused it seconds earlier.
+
+Three things conspired to make it invisible rather than merely wrong:
+
+1. The broker answers a suppressed duplicate with `PubAck{Duplicate: true}` and a **nil error**.
+   `internal/event/nats.go` discarded the ack with `_`, so a dropped publish and a delivered one
+   were the same value at every layer above.
+2. `publishResult` therefore returned true, and `flushOne` acknowledged the WAL entry, deleting
+   the only durable copy. The retry mechanism was defeated by the same nil error.
+3. The Runner's own publish-failure log was at `Debug`, and `cmd/runner` builds its logger at
+   `LevelInfo`. Even a genuine, error-returning failure would have said nothing.
+
+The duplicate window is `min(outage budget, 5m)`, which produces a perverse selection: a job
+whose devices report back inside five minutes hangs, and a job slower than that completes. Fast
+jobs failing and slow ones passing is exactly the shape that reads as flake.
+
+**Provenance, which is the part worth not misreading.** The collision predates `main` by five
+weeks and was inert, because nothing consumed the result subject at all (FAILURE_PATTERNS #217
+is the same subject's earlier story). The commit that made a job's ending depend on a message the
+broker had always been dropping is what turned a dormant collision into a total outage. The
+trigger is not the defect.
+
+**Fix:** the result publishes under a namespaced key, `"result:" + entry.ID`. The WAL's own entry
+id stays `(JobID, DeviceID)`, because a redelivered dispatch must re-report as the same entry;
+only the key on the wire has to leave the dispatch's namespace.
+`internal/adapters/native/journal.go` already namespaced its own key this way, for this reason,
+so the precedent was in the tree and was not followed.
+
+Two hardening changes went in beside it, and they matter more than the one-liner.
+`internal/event/nats.go` now warns when a `PubAck` comes back `Duplicate: true`, which is the
+log line that would have made this visible on day one. And `internal/event/nats_dedup_test.go`
+gained the case whose absence let it ship: both existing real-broker dedup tests publish to a
+**single topic**, so they are equally consistent with a subject-scoped window and a stream-scoped
+one. They passed while three doc comments in this module asserted the subject-scoped model,
+including the one directly above the offending line, which described the two keys agreeing
+"exactly, for the identical reason" as the mechanism working correctly.
+
+**Lesson:** a test that exercises a mechanism through a single instance of the dimension the
+mechanism is actually keyed on proves nothing about that dimension, and will happily coexist with
+documentation asserting the wrong model. Dedup keyed on a stream, tested on one subject, teaches
+"per subject". The second lesson is the ack: an API that reports "I did not do what you asked"
+through a success return needs its result read, and a wrapper that discards it converts a loud
+failure into a silent one for every caller it will ever have.
+
+---
+
+## 223. A job whose devices all reported before its fan-out finished was parked in a state nothing sweeps
+
+**Symptom:** none yet, and that is why it is recorded. It was found while fixing #222 and was
+masked by it: no result ever arrived, so this window was never reached. It becomes live the
+moment results do.
+
+**Root cause:** a `JobTask` row is written inside the fan-out loop, and `SettleRunning` runs
+after the loop finishes. A result can therefore be recorded while the loop is still walking. If
+the *last* outstanding result lands in that window, `RecordResult` correctly reports that the job
+is waiting on nothing, and the `CompleteRunning` that follows matches no row, because the job is
+still `fanning_out` rather than `running`. That no-match is deliberately one of the ordinary
+endings (another result got there first, or the job was cancelled) and returns nil.
+`SettleRunning` then moves the job to `running` with zero outstanding tasks and nothing left in
+the system that would ever end it. `dispatch.Reaper` looks only at `fanning_out`, so nothing
+sweeps it.
+
+The window is not narrow. The e2e suite's runbook is a `noop` that finishes in microseconds,
+which is exactly the shape that reports back before a fan-out over the rest of its group has
+finished.
+
+**Fix:** `SettleRunning` re-asks whether anything is outstanding and completes the job itself
+when nothing is. Re-asking rather than tracking, for the same reason `RecordResult` counts rows
+rather than keeping a counter: two parties can reach this conclusion at once, and
+`CompleteRunning`'s own `running` guard makes the second a no-op. Both callers now ask through
+one helper so they cannot drift into disagreeing about what outstanding means.
+
+**Lesson:** when a state transition is driven by an external event and the state it transitions
+*from* is set afterwards, the event can always arrive first, and the guarded write that makes
+the race safe is also what makes the early arrival silent. A "nothing matched, which is fine"
+branch needs asking what happens if it is reached because the state has not been set *yet*
+rather than because it has already moved on.
+
+---
+
+## 224. The flake waiver tolerated a whole package, so a total regression printed "passed" five times
+
+**Symptom:** `make push-gate` reported `testgate: passed (warnings above)` on five consecutive
+runs while every job in the system hung forever. The previous session's handoff recorded, truthfully
+and misleadingly, that "both test phases pass, their only failures confined to packages
+`flaky-packages.json` already names".
+
+**Root cause:** `flakegate.Classify` keyed tolerance on the package import path alone. Every entry
+in `flaky-packages.json` names the specific tests it observed flaking, in prose, because the
+file's own policy is that an entry records evidence rather than a guess. The code never read that
+prose, so a package with one known-flaky test tolerated every test in it, including three that had
+never been seen to flake and one that was failing deterministically.
+
+Two further holes in the same function: a package-level failure is promoted to a hard build
+failure only when the package produced *no* per-test failures, so the `Test killed with quit: ran
+too long (22m0s)` was swallowed alongside the four tolerated tests. And nothing re-runs a warned
+test in isolation, although "reproduced as clean, fast passes every time when rerun in isolation"
+is the evidence `flaky-packages.json`'s own entries cite for being there.
+
+**Fix:** an entry may name its tests and then tolerates only those. An entry with no list keeps
+covering its package, which is an unnarrowed entry rather than a second policy. `tests/e2e` is
+narrowed to the tests its prose already named. The other eighteen entries are deliberately left
+unnarrowed, because narrowing them is real work against real evidence rather than a mechanical
+edit. The package-kill rule and the isolation re-run are recorded in `HANDOFF_DOCUMENT.md` as
+decisions rather than improvised.
+
+**Lesson:** a waiver's scope must be the scope of the evidence that justified it. Writing the
+evidence in prose beside a broader machine-readable rule means the rule is what runs and the
+prose is what gets read during review, and the two drift the moment something new fails in the
+same package. If an entry can say which test, it must say which test.
+
+---
+
+## 225. A test harness decoded every poll into one reused value, so one device's skip reason appeared on another device's row
+
+**Symptom:** `tests/e2e`'s `TestGrandIntegration` failed with `device rtr1 was dispatched but
+carries the reason "device \"rtr5\" has no host property"`. A skipped device's reason text on a
+dispatched device's row. Three separate investigations went looking in the fan-out, which is
+where the assertion's own wording pointed, and none of them found anything, because nothing is
+wrong there.
+
+**Root cause:** the leak is introduced inside the harness, after the HTTP bytes arrive. The API
+never emitted a wrong `reason`; a fresh decode of the identical response body is clean.
+
+`pollJobUntilTerminal` declared its decode target once, outside the poll loop, and unmarshalled
+every poll into it. `encoding/json` MERGES into what it is handed: it reuses an existing slice's
+elements rather than allocating new ones, and it leaves a struct field untouched when the incoming
+JSON carries no key for it.
+
+Three things had to be true together, and removing any one hides it:
+
+1. The reused target.
+2. `reason` is the only `omitempty` field the harness decoded, so a dispatched task emits no
+   `reason` key and the decoder cannot overwrite the slot's previous occupant. That is exactly
+   why `device_id` and `device_name` never disagreed and only `reason` went stale.
+3. The task list had no stable order. Earlier polls returned `[rtr1, rtr2, rtr5]`; the terminal
+   poll returned `[rtr5, rtr2, rtr1]`. Slot 2 held rtr5's decoded struct, received rtr1's three
+   non-omitempty fields, and kept rtr5's reason.
+
+**Provenance, and why it is worth separating the two halves.** The harness defect is on `main`
+verbatim: `git diff main..HEAD -- tests/e2e/` is empty. What made it fire is new. Before this
+branch a job went `fanning_out` to `completed` with no state in between, so exactly ONE poll ever
+carried task rows and there was nothing to merge into. And `job_tasks` was insert-only, so its
+scan order could not move. The branch removed both protections at once, in the same commit.
+
+**Fix:** decode each poll into a fresh value. Separately and on its own merits, the store now
+orders the eager load, because an endpoint whose array reorders between identical reads is a trap
+for any client written the obvious way, not only for this harness.
+
+Two further things came out of it. The poller's failure messages all rendered the DECODED view,
+so a harness corrupting its own decode reported that corruption as though the server had sent it,
+and no diagnostic in the suite could tell the two apart; it now keeps the last raw body and prints
+it. And the harness decoded only the Controller's fan-out decisions (`device_id`, `device_name`,
+`outcome`, `reason`) and nothing the Runner reported, so the entire result pipeline was reaching
+this test unexamined; it now asserts `result` and `finished_at`.
+
+**Lesson:** `json.Unmarshal` into a reused value is a merge, not a replacement, and `omitempty`
+is what turns that from a curiosity into a data-corruption bug: an absent key leaves the previous
+value in place, so the fields that go stale are exactly the ones a server omits when they are
+empty. The pairing to watch for is a reused decode target, an `omitempty` field, and a collection
+with no guaranteed order. The second lesson is about diagnostics: a failure message built from a
+value the test itself derived cannot distinguish "the server sent this" from "we corrupted it",
+and when a harness can be wrong, its error messages have to carry what actually arrived.
+
+---
+
+## 226. A form's prefill was computed, sorted, and dropped, so saving it as drawn unbound every credential a template ran as
+
+**Symptom:** none reported, which is the point. Found by a design review asking what the
+prefill seam was for. The control looked and behaved like a working form.
+
+**Root cause:** `bindCredentialsAction` sets what a template authenticates as. It is a
+multi-select whose own help text says "Replacing this list replaces what the template
+authenticates as", and its `Submit` does exactly that: whatever is selected becomes the whole
+binding.
+
+Its `FieldsFor` resolved the template's currently bound credential ids into a slice, sorted
+them, and never referred to them again. A record action's form had no prefill hook, so there
+was nowhere to put them. The form therefore rendered with **nothing selected** on a template
+bound to three credentials, and pressing the button as drawn replaced those three with none.
+The template silently stopped authenticating as anything.
+
+The discarded slice is the diagnostic worth remembering. Somebody wrote exactly the value the
+form needed and had nowhere to put it, which is what a missing seam looks like from inside a
+call site. A variable that is built with care and never read is a question, not dead code.
+
+**Why nothing caught it.** The existing test opened the form and asserted the choices were
+offered with their type names, which is true and insufficient: an empty multi-select offers
+every choice exactly as a prefilled one does. Nothing asserted that what the record already
+held was selected, and an empty control and a control holding nothing are the same rendering.
+
+**Fix:** `RecordAction.Form`, the same name and signature as `Handlers.Form`, the edit form's
+own prefill, so there is one answer to "where do a form's existing values come from" rather
+than two to keep in step. A prefill naming a control the form does not render is refused
+rather than dropped, and so is a value for a password control, since `field.templ` writes a
+password into a value attribute.
+
+**Lesson:** a form that REPLACES a collection is a different animal from one that adds to it,
+and the difference is invisible in the markup. Whenever a Submit's semantics are "what you see
+is what it becomes", the form that draws it must be able to show what it currently is, and a
+test for it has to assert the current state is SELECTED rather than merely offered.
+
+---
+
+## 227. Four action redirects left off the UI's mount prefix, so a successful write answered with a 404
+
+**Symptom:** binding a template's credentials, attesting an organization or a team, and testing
+a credential type each redirected to `/templates/1` rather than `/ui/templates/1`. The write had
+already succeeded; the operator saw a 404, which reads as though it had not.
+
+**Root cause:** each of the four built its redirect path by hand and each omitted the prefix the
+UI is mounted at. The handler passes a non-empty redirect through verbatim, and the prefix is
+configuration (`Config.Prefix`), so a hand-built path is wrong at the default and wrong again for
+any deployment that changes it.
+
+**Fix:** all four wanted exactly the record they had just written, which is what the handler
+already builds when a `Submit` returns an EMPTY redirect, through the configured prefix. So the
+fix is to delete the path rather than correct it. The handler knows the prefix; a call site does
+not.
+
+**Why nothing caught it.** Every test of these actions asserted the status code and the stored
+result. None followed the redirect or looked at the `Location` header, so the destination was
+never observed by anything.
+
+**Lesson:** when a handler offers a correct default, a call site that reimplements it is a place
+to check rather than a place to trust, and four independent authors producing the same mistake
+says the default was not obvious enough. Assert the `Location` header, not just the 303: a
+redirect nobody follows in a test is a redirect nobody has tested.
+
+---
+
+## 228. Two doc comments asserted a two-place safety check that had one place, and one of them described a security control that does not exist
+
+**Symptom:** none, which is the point. Both comments read as reassurance and both were believed:
+a design panel working from them proposed building on the enforcement they described, and this
+session very nearly cited one of them as precedent for a new rule.
+
+`internal/credstore/ent_store_credentials.go` said of `credtype.CheckBinding`: "The handler runs
+it too, so a caller gets a conflict naming both credentials rather than an opaque store error,
+and this one exists so a second writer cannot skip it. Two callers, one implementation."
+`go_symbol_references` reports one production caller, the store itself. `internal/api` never
+calls it.
+
+`internal/credtype/inputs.go` said `launch.Survey.SecretVariables` and
+`InputSchema.SecretFields` "both feed redact.Literals". Only the credential half does. The sole
+`Literals().Add` in production is `internal/adapters/legacy/inject.go:83`, from a credential
+artifact. `SecretVariables` has three callers and none is the masker, so a survey password
+answer's VALUE is never added to the log scrubber and a task that echoes one lands it in the job
+log in the clear.
+
+**Root cause:** both comments described an intended arrangement rather than an observed one, and
+nothing re-reads a comment when the code beside it moves. The second is worse than a stale
+comment because it names a security control by the identifier that implements it, which is
+exactly the shape that survives review.
+
+**Fix:** both corrected to say what is true. The `CheckBinding` one now records that being the
+single gate is the STRONGER arrangement, since every writer reaches the store including the
+server-rendered UI's own binding action, which does not go through `internal/api` at all. The
+masker one now states the gap plainly and says why it is not being closed by adding survey
+answers to `redact.Literals`: a 32 KiB file answer in the process-wide literal set would scrub
+enormous unrelated substrings out of every later log line.
+
+**Related, found in the same sweep and NOT fixed:** `routing.CheckInjectable`, the bind-time half
+of the Section 29.4 rule, also has exactly one production caller (`internal/api/credentials.go`),
+while the UI's credential-binding action writes straight to `credstore.Store`. A binding made
+through `/ui` is caught only by the run-time backstop. The secret still never reaches the native
+path; what is lost is the refusal arriving at bind time instead of as a failed job.
+
+**Lesson:** a comment claiming enforcement is a claim to CHECK, never a claim to cite.
+`go_symbol_references` settles it in one call and is cheaper than reading the file. When placing
+a new two-place rule, put the load-bearing half where every writer must pass -- the store -- and
+not in a handler, because this repository has two examples of a handler-side check that one of
+its own UIs walks past.
+
+## 229. A pre-push gate outlived the connection git had already opened, so every push died with SIGPIPE and no output while the gate printed "all checks passed"
+
+**Symptom.** `git push` exited 141 after roughly twenty-five minutes. The pre-push hook's
+output ended with `push-gate: all checks passed`. Git itself printed nothing at all: no
+"Enumerating objects", no error, no rejection. `git ls-remote` showed the branch had never
+reached the remote. Reproduced five times, once per attempt, across two different framings of
+the command.
+
+**Root cause.** Git connects to the remote and fetches its ref advertisement BEFORE running
+`pre-push`, because the hook's stdin is one line per ref carrying `<local ref> <local sha>
+<remote ref> <remote sha>` and the remote sha can only come from the remote. The hook then ran
+`make push-gate`, a twenty minute suite. By the time it exited 0, the remote had dropped a
+connection that had been idle the whole time. Git's first write to it raised SIGPIPE, which is
+fatal by default and produces no message. 141 is 128 plus 13.
+
+**Fix.** Separate the gate from the push. `make push-gate` and `make ci` now end by writing
+`.git/pleiades-gate.json` through `tools/gatereceipt`, naming the commit verified, which gate
+ran, and when. `.githooks/pre-push` no longer runs anything: it reads that receipt back for the
+exact commits being pushed and answers in about a second. A receipt is only issued from a clean
+tree, and untracked files count as dirty.
+
+**Lesson.** Two diagnostic moves mattered and both were cheap. First, a delete-only push
+(`git push origin :refs/heads/nonexistent`) skips the hook by design, so it isolates transport,
+auth and write permission in two seconds; it succeeded immediately and proved none of those were
+at fault, leaving elapsed time as the only variable. Second, the exit status of a pipeline is the
+LAST command's, so `git push | tail` reports tail's 0 and hides everything. Both should have been
+reached on attempt two rather than attempt five.
+
+## 230. os.WriteFile truncates before it writes, and a test polling that file observed the empty window as an answer
+
+**Symptom.** `TestSearch_WaitsForAPatternToDisappear` failed under `make ci`'s `-count=3` pass
+with `the file holds "", want "starting up\nloading configuration\n" untouched`, naming contents
+the test had written itself. It passed alone every time.
+
+**Root cause.** The helper changed a watched file with `os.WriteFile`, which opens with `O_TRUNC`
+and then writes, leaving the file empty between the two calls. Every test in that package is a
+reader polling the same file while the helper changes it, so the window is observable. The method
+under test waits for a line to be GONE, and an empty file satisfies that for the wrong reason:
+under load it returned on the truncated file, and the test's own closing read then saw "" as well.
+
+**Fix.** Write a sibling temp file and `os.Rename` over the target, so a concurrent reader sees
+the old contents or the new and never neither. Applied to the two sites that rewrite a file
+something is already watching, and deliberately not to the two that create a file which did not
+exist, where an empty first instant is the answer rather than a race.
+
+**Lesson.** Reproduced deterministically before fixing, by holding the file empty past one probe
+interval, which produced the exact message on demand. A flake that cannot be reproduced should not
+be "fixed": the change would do nothing while claiming to. Note also that the test could PASS for
+the wrong reason, which is the more dangerous half and is invisible until the timing shifts.
+
+## 231. A five second budget for a subprocess to appear fired under suite load, and the loop waiting for it never noticed the subprocess had died
+
+**Symptom.** `TestExec_RoundTripsThroughARealPTYPair` failed `make ci` with `socat never created
+both PTY links`. socat was installed; the test passed alone in under a second, fifty times, and
+twenty more under `-race`.
+
+**Root cause.** Two defects in one helper. The wait for socat to create its PTY symlinks was
+bounded at five seconds, which is inside the range a loaded machine delays a subprocess by: `make
+ci` runs twenty-one container packages serially and the whole suite three times over. Separately,
+the loop only ever polled for the symlinks, so a socat that exited immediately still produced
+"never created both PTY links" after the full wait, naming the symptom and sending the reader to
+look at PTYs rather than at socat's own error.
+
+**Fix.** Thirty seconds, which is not a claim about how long socat should take but the point at
+which waiting longer tells us nothing new. And `cmd.Wait` now runs once on its own goroutine with
+the loop reading the result, so a dead socat fails in milliseconds saying what happened. Both
+copies of the helper, identically.
+
+**Lesson.** A timeout that fires on load reports a defect that is not there and hides the next
+real one. When a wait loop has a subprocess, "still starting" and "already gone" are different
+answers and a loop that cannot tell them apart will mislabel one as the other forever.
+
+## 232. Every device creatable through the API or the UI is permanently un-dispatchable, because nothing can write the host property the dispatcher requires
+
+**Symptom.** Not observed as a failure, because nothing has looked. Found while deciding whether
+a one-command local stack should seed a demo fleet.
+
+**Root cause.** `internal/dispatch/worker_devices.go` skips any device whose properties carry no
+`host`, recording `OutcomeSkipped` with `device %q has no host property`, because there is nowhere
+for the Runner to connect. But `deviceWriteSchema` in `internal/apispec/apispec.go` deliberately
+carries no properties field, and the UI's device form is name/type/state/tags only. Both omissions
+are deliberate and documented: the property bag holds decrypted enable secrets and API keys, and
+the masking ruleset that would make it safe to serve belongs to a phase that does not exist yet.
+The consequence, which neither comment states, is that the only devices a job can actually run
+against are ones written directly into the database through an ent client with the envelope hook
+installed, which is what `tests/e2e/harness_seed_test.go` does.
+
+**Fix.** None. Recorded deliberately rather than patched: the fix belongs to whichever phase owns
+device properties and the masking ruleset, and widening the write schema without that ruleset is
+the exact surface being deferred.
+
+**Lesson.** `make ui-dev` seeds six devices and looks like a working fleet precisely because it
+runs no Runner. A local stack that runs a real one would present the same fleet and skip every
+device on the first launch, which is worse than an empty page. Two deliberate omissions in
+different files can compose into a third property nobody decided on, and no single file's comment
+is wrong.

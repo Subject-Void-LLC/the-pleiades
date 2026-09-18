@@ -27,6 +27,19 @@ type Config struct {
 	// Answers are this launch's survey answers, merged into extra
 	// variables between the saved configuration and the launch overrides.
 	Answers map[string]any
+
+	// FilePolicy is the deployment's half of the file-answer rules, and it
+	// is STAMPED BY THE DISPATCHER rather than supplied by whoever built
+	// this Config. A caller who could set it could grant themselves the
+	// deployment's consent, which is the one thing the two-gate design
+	// exists to make impossible, so every launch path overwrites whatever
+	// is here immediately before resolving.
+	//
+	// It lives on Config because Config is the only value that reaches
+	// Template.Resolve without widening the Launchable interface, and
+	// because its zero value is the refusing one: a Config nobody stamped
+	// admits no program content.
+	FilePolicy FilePolicy
 }
 
 // extraVarsField is the one field whose layers merge rather than replace.
@@ -110,7 +123,7 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 		base = Fields{}
 	}
 
-	answers, err := t.Survey.Resolve(cfg.Answers)
+	answers, err := t.Survey.Resolve(cfg.Answers, cfg.FilePolicy)
 	if err != nil {
 		return Resolved{}, nil, err
 	}

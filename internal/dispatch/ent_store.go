@@ -203,7 +203,36 @@ func (s *entJobStore) RecentForTemplates(ctx context.Context, templateIDs []int,
 func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, error) {
 	row, err := s.client.Job.Query().
 		Where(job.JobIDEQ(jobID)).
-		WithTasks().
+		// Ordered, which is not tidiness. Without it the eager load emits
+		// no ORDER BY at all, so the database returns these rows in
+		// whatever order it finds them, and that order MOVES: an UPDATE
+		// rewrites a row, and the result pipeline updates every dispatched
+		// task as its device reports. Two consumers read this slice, the
+		// JSON job view and the server-rendered device-outcomes table, so
+		// a person watching a run sees the table reshuffle under them and
+		// a client polling the endpoint gets its array reordered between
+		// identical reads.
+		//
+		// It is also a trap for a client written the obvious way, which is
+		// the stronger argument: a per-task field is omitempty, so a
+		// caller decoding each poll into one reused value keeps a previous
+		// row's value in a slot the new order handed to a different
+		// device. This suite's own harness did exactly that, and the
+		// resulting failure accused the fan-out. FAILURE_PATTERNS.md #225.
+		//
+		// Ascending id is insertion order, which is fan-out order, which
+		// is the inventory's own device ordering. So the list a reader
+		// sees is the order the platform actually worked through.
+		//
+		// NOT covered by a unit test, deliberately, and this comment is
+		// the guard instead. The reshuffle is a PostgreSQL behaviour: an
+		// update rewrites the tuple and an unordered sequential scan then
+		// finds it somewhere else. SQLite returns rows in rowid order
+		// whatever happens, so a test against the in-memory store this
+		// package's tests use passes identically with this line deleted.
+		// A test that cannot fail is worse than none, because it is
+		// counted; catching a regression here needs a real PostgreSQL.
+		WithTasks(func(q *ent.JobTaskQuery) { q.Order(ent.Asc(jobtask.FieldID)) }).
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -227,6 +256,14 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 			DeviceName: t.DeviceName,
 			Outcome:    outcome,
 			Reason:     t.Reason,
+			// Read straight through rather than through ParseResult. The
+			// empty value is the ordinary case here, meaning this device
+			// has not reported back, and ParseResult deliberately refuses
+			// it: that parser guards what arrives off the mesh, where an
+			// empty result is malformed, not what this store itself wrote.
+			Result:       Result(t.Result),
+			ResultReason: t.ResultReason,
+			FinishedAt:   t.FinishedAt,
 		})
 	}
 
@@ -249,6 +286,8 @@ func toJob(row *ent.Job) *Job {
 		SkippedCount:    row.SkippedCount,
 		FailedCount:     row.FailedCount,
 		FailureReason:   row.FailureReason,
+		CanceledAt:      row.CanceledAt,
+		CanceledBy:      row.CanceledBy,
 		CreatedAt:       row.CreatedAt,
 	}
 
@@ -400,6 +439,20 @@ func (s *entJobStore) RecordTask(ctx context.Context, jobID string, fence int64,
 	}
 	if row.Fence != fence {
 		return fmt.Errorf("job %s: %w", jobID, ErrFenced)
+	}
+	// Somebody stopped this job while its fan-out was in flight. Checked
+	// here, on a row this method has already read for the fence, so it
+	// costs no extra query: the fan-out loop learns of a cancel on its
+	// next device rather than by polling, and the devices it has not
+	// reached are never dispatched to. This is the durable half of what
+	// Cancel promises.
+	//
+	// It is checked AFTER the fence, deliberately. A superseded worker is
+	// superseded whatever the job's state is, and telling it the job was
+	// canceled would send it to the wrong conclusion about why it must
+	// stop.
+	if row.State == job.StateCanceled {
+		return fmt.Errorf("job %s: %w", jobID, ErrCanceled)
 	}
 
 	create := s.client.JobTask.Create().

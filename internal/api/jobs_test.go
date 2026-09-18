@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/google/uuid"
@@ -27,16 +28,42 @@ import (
 // the real thing.
 func jobsRouter(t *testing.T, jobs api.JobRepository) http.Handler {
 	t.Helper()
-	handler := api.NewJobHandler(jobs)
+	return jobsRouterWithCanceler(t, jobs, nil)
+}
+
+// jobsRouterWithCanceler is jobsRouter with the one write wired. It is a
+// separate entry point rather than a widened jobsRouter because every
+// read-only test above would otherwise have to name a collaborator it
+// never exercises.
+func jobsRouterWithCanceler(t *testing.T, jobs api.JobRepository, canceler api.JobCanceler) http.Handler {
+	t.Helper()
+	return jobsRouterWithAuth(t, jobs, canceler, alwaysAuthenticated)
+}
+
+// jobsRouterWithAuth is jobsRouterWithCanceler with the authentication
+// middleware chosen by the caller, so a test can drive the path where a
+// request arrives carrying no identity at all.
+func jobsRouterWithAuth(t *testing.T, jobs api.JobRepository, canceler api.JobCanceler, authn func(http.Handler) http.Handler) http.Handler {
+	t.Helper()
+	handler := api.NewJobHandler(jobs, canceler)
+	routes := []api.Route{
+		{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeJobRead, Rel: auth.RelCollection, Handler: handler.List},
+		{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: handler.Get},
+	}
+	// Mounted whatever canceler is, exactly as cmd/controller mounts it,
+	// so the nil case answers a status rather than 404ing on a route that
+	// production does have. Built from the declaration itself rather than
+	// by restating its method, pattern, scope and relation here: a
+	// hand-copied row would let this test keep passing against a scope the
+	// real Controller no longer mounts, which is the one thing it must not
+	// do.
+	routes = append(routes, apispec.CancelJob.Route(handler.Cancel))
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Auth:      alwaysAuthenticated,
+		Auth:      authn,
 		Admission: &fakeAdmitter{},
 		HATEOAS:   allowAllGenerator(t),
-		Routes: []api.Route{
-			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeJobRead, Rel: auth.RelCollection, Handler: handler.List},
-			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: handler.Get},
-		},
+		Routes:    routes,
 	})
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
@@ -117,7 +144,7 @@ func TestJobHandler_UnknownUUIDReturns404(t *testing.T) {
 // through the router (which would answer chi's own generic 404, not this
 // handler's own validation response, and would prove nothing about it).
 func TestJobHandler_EmptyIDReturns400(t *testing.T) {
-	handler := api.NewJobHandler(newTestJobStore(t))
+	handler := api.NewJobHandler(newTestJobStore(t), nil)
 
 	req := httptest.NewRequest(http.MethodGet, api.APIVersionPrefix+"/jobs//", nil)
 	rr := httptest.NewRecorder()

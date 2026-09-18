@@ -80,6 +80,11 @@ func QuestionType(v string) predicate.SurveyQuestion {
 	return predicate.SurveyQuestion(sql.FieldEQ(FieldQuestionType, v))
 }
 
+// AllowProgramContent applies equality check predicate on the "allow_program_content" field. It's identical to AllowProgramContentEQ.
+func AllowProgramContent(v bool) predicate.SurveyQuestion {
+	return predicate.SurveyQuestion(sql.FieldEQ(FieldAllowProgramContent, v))
+}
+
 // Required applies equality check predicate on the "required" field. It's identical to RequiredEQ.
 func Required(v bool) predicate.SurveyQuestion {
 	return predicate.SurveyQuestion(sql.FieldEQ(FieldRequired, v))
@@ -453,6 +458,16 @@ func QuestionTypeEqualFold(v string) predicate.SurveyQuestion {
 // QuestionTypeContainsFold applies the ContainsFold predicate on the "question_type" field.
 func QuestionTypeContainsFold(v string) predicate.SurveyQuestion {
 	return predicate.SurveyQuestion(sql.FieldContainsFold(FieldQuestionType, v))
+}
+
+// AllowProgramContentEQ applies the EQ predicate on the "allow_program_content" field.
+func AllowProgramContentEQ(v bool) predicate.SurveyQuestion {
+	return predicate.SurveyQuestion(sql.FieldEQ(FieldAllowProgramContent, v))
+}
+
+// AllowProgramContentNEQ applies the NEQ predicate on the "allow_program_content" field.
+func AllowProgramContentNEQ(v bool) predicate.SurveyQuestion {
+	return predicate.SurveyQuestion(sql.FieldNEQ(FieldAllowProgramContent, v))
 }
 
 // RequiredEQ applies the EQ predicate on the "required" field.

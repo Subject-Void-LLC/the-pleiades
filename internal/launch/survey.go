@@ -24,10 +24,20 @@ var ErrInvalidSurvey = errors.New("launch: survey is not answerable")
 
 // QuestionType is what a survey question accepts.
 //
-// AWX's own type names, deliberately, so a survey imported from an AWX job
-// template means the same thing here that it meant there. A migration that
-// silently reinterpreted `integer` as `float` would change what a playbook
-// received without changing anything a reader could see.
+// The first seven are AWX's own type names, deliberately, so a survey
+// imported from an AWX job template means the same thing here that it meant
+// there. A migration that silently reinterpreted `integer` as `float` would
+// change what a playbook received without changing anything a reader could
+// see.
+//
+// QuestionFile is this platform's own and AWX has no name for it, which is
+// stated here rather than left for a reader to discover: the sentence above
+// used to describe the whole set and would otherwise now be false. The
+// direction of the difference is what makes it safe. A survey authored in
+// AWX still means exactly what it meant, because every type it can name is
+// here; a survey authored here that asks for a file has no AWX equivalent
+// and would not survive a round trip out, which is the honest cost of
+// having a type they do not.
 type QuestionType string
 
 // The question types.
@@ -39,22 +49,85 @@ const (
 	QuestionFloat       QuestionType = "float"
 	QuestionChoice      QuestionType = "multiplechoice"
 	QuestionMultiSelect QuestionType = "multiselect"
+
+	// QuestionFile carries a file's own text as the answer, so automation
+	// can parse or scan something an operator supplies at launch rather
+	// than something the template was saved with.
+	//
+	// The answer IS the content, as a string, and that is the whole of the
+	// contract: no filename, no declared media type, no handle to fetch
+	// later. On the wire it is indistinguishable from a textarea answer,
+	// which is what lets every existing consumer of an extra variable read
+	// it unchanged. What the type adds over a textarea is the bound, the
+	// proof that the content is text, the program-content rule, and
+	// secrecy by default.
+	QuestionFile QuestionType = "file"
 )
 
-// validQuestionTypes is the membership test a survey is validated against.
-var validQuestionTypes = map[QuestionType]bool{
-	QuestionText:        true,
-	QuestionTextarea:    true,
-	QuestionPassword:    true,
-	QuestionInteger:     true,
-	QuestionFloat:       true,
-	QuestionChoice:      true,
-	QuestionMultiSelect: true,
+// questionTypes is every type a survey may ask, in the order a form offers
+// them: the free-text ones, then the numeric ones, then the bounded ones.
+//
+// An ordered slice rather than a set literal, because there are now two
+// consumers and they need different things from one declaration. Validate
+// needs membership; the authoring form needs a list to render as options,
+// in an order that is the same on every page load, which ranging over a map
+// is not. Deriving the membership test from the slice is what keeps a type
+// from being offered by a form that the resolver would then refuse.
+var questionTypes = []QuestionType{
+	QuestionText,
+	QuestionTextarea,
+	QuestionPassword,
+	QuestionInteger,
+	QuestionFloat,
+	QuestionChoice,
+	QuestionMultiSelect,
+	QuestionFile,
 }
+
+// QuestionTypes returns every type a survey may ask, in a stable order.
+//
+// A copy, because the caller is a form builder and a slice handed out of a
+// package is a slice the caller can sort in place. The cost is one small
+// allocation per rendered form.
+func QuestionTypes() []QuestionType {
+	out := make([]QuestionType, len(questionTypes))
+	copy(out, questionTypes)
+	return out
+}
+
+// validQuestionTypes is the membership test a survey is validated against,
+// derived from the list above so the two cannot disagree.
+var validQuestionTypes = func() map[QuestionType]bool {
+	m := make(map[QuestionType]bool, len(questionTypes))
+	for _, t := range questionTypes {
+		m[t] = true
+	}
+	return m
+}()
 
 // Secret reports whether an answer to this question must never be stored or
 // rendered in plaintext.
-func (q QuestionType) Secret() bool { return q == QuestionPassword }
+//
+// A file answer is secret, and the asymmetry is what decides it rather than
+// a claim that every file is a credential. Most are not. But the files
+// people actually paste into a launch form are private keys, kubeconfigs
+// and service-account documents, and the two mistakes are not comparable:
+// treating a hostname list as secret costs the ability to replay one stored
+// answer, while treating a private key as public is not recoverable.
+//
+// The cost is narrower than it first reads. What SecretVariables refuses is
+// replaying a STORED answer -- a relaunch or a schedule whose saved
+// configuration actually answers this variable. A template carrying a file
+// question can still be scheduled; what it cannot do is run unattended on a
+// file somebody uploaded once, which is the behaviour to want anyway.
+func (q QuestionType) Secret() bool {
+	switch q {
+	case QuestionPassword, QuestionFile:
+		return true
+	default:
+		return false
+	}
+}
 
 // Question is one thing a launching operator is asked.
 type Question struct {
@@ -85,6 +158,24 @@ type Question struct {
 	// matching AWX's own min/max semantics. Both zero means unbounded.
 	Min int
 	Max int
+
+	// AllowProgramContent is the template author's half of the decision to
+	// accept a file answer that opens with an interpreter line. It is
+	// meaningless on every other type and Validate refuses it there, so a
+	// flag cannot sit on a question where it does nothing and read as
+	// though it does something.
+	//
+	// Per question rather than per template, because a template with three
+	// file questions of which one ingests an install script should not
+	// thereby widen the other two. It is still the template author's
+	// decision in the sense that matters: they are the principal who sets
+	// it, the template is the change-control surface, and template:write
+	// is the scope.
+	//
+	// It permits nothing on its own. See FilePolicy for the deployment's
+	// half and internal/launch/fileanswer.go for what the pair does and
+	// does not buy.
+	AllowProgramContent bool
 }
 
 // Survey is an ordered list of questions.
@@ -158,6 +249,33 @@ func (s Survey) Validate() error {
 				return fmt.Errorf("%w: question %q is a password and must not carry a default",
 					ErrInvalidSurvey, variable)
 			}
+		case QuestionFile:
+			if q.Default != "" {
+				// The same rule the password arm states, for the same
+				// reason and one more. A default file body is a document
+				// nobody uploaded sitting in the template record, copied
+				// into every duplicate; and a file answer is secret, so it
+				// would be a secret stored in the one place on a template
+				// that is not encrypted.
+				return fmt.Errorf("%w: question %q carries a file and must not carry a default",
+					ErrInvalidSurvey, variable)
+			}
+			if q.Max > MaxFileAnswerBytes {
+				// A bound the platform would not honour is worse than no
+				// bound: it tells a template author a limit is in force
+				// that is not.
+				return fmt.Errorf("%w: question %q sets a maximum of %d bytes, above the %d a file answer may be",
+					ErrInvalidSurvey, variable, q.Max, MaxFileAnswerBytes)
+			}
+		}
+
+		if q.AllowProgramContent && q.Type != QuestionFile {
+			// Refused rather than ignored. A flag that is stored, shown in
+			// a form and consulted by nothing is the shape this repository
+			// has shipped before: the control looks like a decision and is
+			// not one.
+			return fmt.Errorf("%w: question %q is a %s and cannot accept program content, which only a file question can",
+				ErrInvalidSurvey, variable, q.Type)
 		}
 
 		if q.Min != 0 || q.Max != 0 {
@@ -189,7 +307,7 @@ func (q Question) offers(value string) bool {
 // since lost a question would otherwise become unlaunchable, and the
 // dropped value cannot reach anything: it is not in the merged map, so
 // nothing reads it.
-func (s Survey) Resolve(answers map[string]any) (map[string]any, error) {
+func (s Survey) Resolve(answers map[string]any, pol FilePolicy) (map[string]any, error) {
 	if !s.Asks() {
 		return nil, nil
 	}
@@ -203,7 +321,7 @@ func (s Survey) Resolve(answers map[string]any) (map[string]any, error) {
 				return nil, fmt.Errorf("%w: %q is required", ErrSurveyAnswer, q.Variable)
 			}
 			if q.Default != "" {
-				value, err := q.coerce(q.Default)
+				value, err := q.coerce(q.Default, pol)
 				if err != nil {
 					return nil, err
 				}
@@ -212,7 +330,7 @@ func (s Survey) Resolve(answers map[string]any) (map[string]any, error) {
 			continue
 		}
 
-		value, err := q.check(raw)
+		value, err := q.check(raw, pol)
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +365,15 @@ func (s Survey) CheckAnswers(answers map[string]any) error {
 		if !supplied || isBlank(raw) {
 			continue
 		}
-		if _, err := q.check(raw); err != nil {
+		// Judged under a policy that PERMITS program content, deliberately.
+		// Storing a launch configuration is not running one, and the
+		// deployment's gate is a property of the Controller that will
+		// eventually run it rather than of the one storing it. Every other
+		// rule -- the size bound, the text proof -- still applies here, so
+		// a configuration cannot be stored carrying something no launch
+		// could ever accept; only the decision that genuinely belongs to
+		// launch time is deferred to it.
+		if _, err := q.check(raw, FilePolicy{AllowProgramContent: true}); err != nil {
 			return err
 		}
 	}
@@ -273,7 +399,7 @@ func isBlank(raw any) bool {
 
 // check validates one supplied answer and returns it in its question's own
 // type.
-func (q Question) check(raw any) (any, error) {
+func (q Question) check(raw any, pol FilePolicy) (any, error) {
 	switch q.Type {
 	case QuestionText, QuestionTextarea, QuestionPassword:
 		s, ok := raw.(string)
@@ -327,6 +453,20 @@ func (q Question) check(raw any) (any, error) {
 		}
 		return chosen, nil
 
+	case QuestionFile:
+		s, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: %q must be a text file", ErrSurveyAnswer, q.Variable)
+		}
+		if err := checkFileAnswer(q, s, pol); err != nil {
+			return nil, err
+		}
+		// The content, unchanged. Not trimmed, because whitespace at
+		// either end of a file is part of the file: a trailing newline is
+		// what makes a PEM parse and a leading one is what makes a
+		// signature verify.
+		return s, nil
+
 	default:
 		return nil, fmt.Errorf("%w: %q has unknown type %q", ErrSurveyAnswer, q.Variable, q.Type)
 	}
@@ -335,8 +475,8 @@ func (q Question) check(raw any) (any, error) {
 // coerce converts a question's declared default into its own type. A
 // default that cannot be coerced is a template that was saved wrong, which
 // Validate is what should have caught.
-func (q Question) coerce(value string) (any, error) {
-	return q.check(anyString(value, q.Type))
+func (q Question) coerce(value string, pol FilePolicy) (any, error) {
+	return q.check(anyString(value, q.Type), pol)
 }
 
 // anyString shapes a stored string default as the Go value its type

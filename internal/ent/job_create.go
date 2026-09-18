@@ -235,6 +235,34 @@ func (_c *JobCreate) SetNillableFailureReason(v *string) *JobCreate {
 	return _c
 }
 
+// SetCanceledAt sets the "canceled_at" field.
+func (_c *JobCreate) SetCanceledAt(v time.Time) *JobCreate {
+	_c.mutation.SetCanceledAt(v)
+	return _c
+}
+
+// SetNillableCanceledAt sets the "canceled_at" field if the given value is not nil.
+func (_c *JobCreate) SetNillableCanceledAt(v *time.Time) *JobCreate {
+	if v != nil {
+		_c.SetCanceledAt(*v)
+	}
+	return _c
+}
+
+// SetCanceledBy sets the "canceled_by" field.
+func (_c *JobCreate) SetCanceledBy(v string) *JobCreate {
+	_c.mutation.SetCanceledBy(v)
+	return _c
+}
+
+// SetNillableCanceledBy sets the "canceled_by" field if the given value is not nil.
+func (_c *JobCreate) SetNillableCanceledBy(v *string) *JobCreate {
+	if v != nil {
+		_c.SetCanceledBy(*v)
+	}
+	return _c
+}
+
 // SetFence sets the "fence" field.
 func (_c *JobCreate) SetFence(v int64) *JobCreate {
 	_c.mutation.SetFence(v)
@@ -499,6 +527,14 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FailureReason(); ok {
 		_spec.SetField(job.FieldFailureReason, field.TypeString, value)
 		_node.FailureReason = value
+	}
+	if value, ok := _c.mutation.CanceledAt(); ok {
+		_spec.SetField(job.FieldCanceledAt, field.TypeTime, value)
+		_node.CanceledAt = value
+	}
+	if value, ok := _c.mutation.CanceledBy(); ok {
+		_spec.SetField(job.FieldCanceledBy, field.TypeString, value)
+		_node.CanceledBy = value
 	}
 	if value, ok := _c.mutation.Fence(); ok {
 		_spec.SetField(job.FieldFence, field.TypeInt64, value)

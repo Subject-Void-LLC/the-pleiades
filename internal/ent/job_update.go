@@ -132,6 +132,46 @@ func (_u *JobUpdate) ClearFailureReason() *JobUpdate {
 	return _u
 }
 
+// SetCanceledAt sets the "canceled_at" field.
+func (_u *JobUpdate) SetCanceledAt(v time.Time) *JobUpdate {
+	_u.mutation.SetCanceledAt(v)
+	return _u
+}
+
+// SetNillableCanceledAt sets the "canceled_at" field if the given value is not nil.
+func (_u *JobUpdate) SetNillableCanceledAt(v *time.Time) *JobUpdate {
+	if v != nil {
+		_u.SetCanceledAt(*v)
+	}
+	return _u
+}
+
+// ClearCanceledAt clears the value of the "canceled_at" field.
+func (_u *JobUpdate) ClearCanceledAt() *JobUpdate {
+	_u.mutation.ClearCanceledAt()
+	return _u
+}
+
+// SetCanceledBy sets the "canceled_by" field.
+func (_u *JobUpdate) SetCanceledBy(v string) *JobUpdate {
+	_u.mutation.SetCanceledBy(v)
+	return _u
+}
+
+// SetNillableCanceledBy sets the "canceled_by" field if the given value is not nil.
+func (_u *JobUpdate) SetNillableCanceledBy(v *string) *JobUpdate {
+	if v != nil {
+		_u.SetCanceledBy(*v)
+	}
+	return _u
+}
+
+// ClearCanceledBy clears the value of the "canceled_by" field.
+func (_u *JobUpdate) ClearCanceledBy() *JobUpdate {
+	_u.mutation.ClearCanceledBy()
+	return _u
+}
+
 // SetFence sets the "fence" field.
 func (_u *JobUpdate) SetFence(v int64) *JobUpdate {
 	_u.mutation.ResetFence()
@@ -299,6 +339,18 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.FailureReasonCleared() {
 		_spec.ClearField(job.FieldFailureReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.CanceledAt(); ok {
+		_spec.SetField(job.FieldCanceledAt, field.TypeTime, value)
+	}
+	if _u.mutation.CanceledAtCleared() {
+		_spec.ClearField(job.FieldCanceledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CanceledBy(); ok {
+		_spec.SetField(job.FieldCanceledBy, field.TypeString, value)
+	}
+	if _u.mutation.CanceledByCleared() {
+		_spec.ClearField(job.FieldCanceledBy, field.TypeString)
 	}
 	if value, ok := _u.mutation.Fence(); ok {
 		_spec.SetField(job.FieldFence, field.TypeInt64, value)
@@ -480,6 +532,46 @@ func (_u *JobUpdateOne) SetNillableFailureReason(v *string) *JobUpdateOne {
 // ClearFailureReason clears the value of the "failure_reason" field.
 func (_u *JobUpdateOne) ClearFailureReason() *JobUpdateOne {
 	_u.mutation.ClearFailureReason()
+	return _u
+}
+
+// SetCanceledAt sets the "canceled_at" field.
+func (_u *JobUpdateOne) SetCanceledAt(v time.Time) *JobUpdateOne {
+	_u.mutation.SetCanceledAt(v)
+	return _u
+}
+
+// SetNillableCanceledAt sets the "canceled_at" field if the given value is not nil.
+func (_u *JobUpdateOne) SetNillableCanceledAt(v *time.Time) *JobUpdateOne {
+	if v != nil {
+		_u.SetCanceledAt(*v)
+	}
+	return _u
+}
+
+// ClearCanceledAt clears the value of the "canceled_at" field.
+func (_u *JobUpdateOne) ClearCanceledAt() *JobUpdateOne {
+	_u.mutation.ClearCanceledAt()
+	return _u
+}
+
+// SetCanceledBy sets the "canceled_by" field.
+func (_u *JobUpdateOne) SetCanceledBy(v string) *JobUpdateOne {
+	_u.mutation.SetCanceledBy(v)
+	return _u
+}
+
+// SetNillableCanceledBy sets the "canceled_by" field if the given value is not nil.
+func (_u *JobUpdateOne) SetNillableCanceledBy(v *string) *JobUpdateOne {
+	if v != nil {
+		_u.SetCanceledBy(*v)
+	}
+	return _u
+}
+
+// ClearCanceledBy clears the value of the "canceled_by" field.
+func (_u *JobUpdateOne) ClearCanceledBy() *JobUpdateOne {
+	_u.mutation.ClearCanceledBy()
 	return _u
 }
 
@@ -680,6 +772,18 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if _u.mutation.FailureReasonCleared() {
 		_spec.ClearField(job.FieldFailureReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.CanceledAt(); ok {
+		_spec.SetField(job.FieldCanceledAt, field.TypeTime, value)
+	}
+	if _u.mutation.CanceledAtCleared() {
+		_spec.ClearField(job.FieldCanceledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CanceledBy(); ok {
+		_spec.SetField(job.FieldCanceledBy, field.TypeString, value)
+	}
+	if _u.mutation.CanceledByCleared() {
+		_spec.ClearField(job.FieldCanceledBy, field.TypeString)
 	}
 	if value, ok := _u.mutation.Fence(); ok {
 		_spec.SetField(job.FieldFence, field.TypeInt64, value)

@@ -52,20 +52,46 @@ func testPTYPair(t *testing.T) (a, b string) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting socat: %v", err)
 	}
+	// Waited on exactly once, here, so the loop below can tell "socat is
+	// still starting" from "socat is gone". Cleanup drains the result
+	// rather than calling Wait a second time, which would error.
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		<-waited
 	})
 
-	deadline := time.Now().Add(5 * time.Second)
+	// Thirty seconds rather than five. This is not a budget for how long
+	// socat SHOULD take -- it takes a few milliseconds on an idle machine
+	// -- it is the point at which waiting longer tells us nothing new.
+	// The old five seconds was inside the range a loaded machine can
+	// delay a subprocess by: `make ci` runs twenty-one container packages
+	// and the whole suite three times over, and this test failed there
+	// while passing alone in under a second. A timeout that fires on load
+	// reports a defect that is not there and hides the next real one.
+	const ptyLinkTimeout = 30 * time.Second
+	started := time.Now()
 	for {
 		_, errA := os.Lstat(a)
 		_, errB := os.Lstat(b)
 		if errA == nil && errB == nil {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("socat never created both PTY links (a err: %v, b err: %v)", errA, errB)
+		// Asked before the deadline, because socat dying is a DIFFERENT
+		// failure and used to be reported as this one: a process that
+		// exited immediately still produced "never created both PTY
+		// links" after the full wait, which names the symptom and sends
+		// the reader to look at PTYs rather than at socat's own error.
+		select {
+		case err := <-waited:
+			waited <- err // put it back, so Cleanup's drain still returns
+			t.Fatalf("socat exited before creating its PTY links: %v", err)
+		default:
+		}
+		if elapsed := time.Since(started); elapsed > ptyLinkTimeout {
+			t.Fatalf("socat never created both PTY links within %s (a err: %v, b err: %v)",
+				elapsed.Round(time.Second), errA, errB)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

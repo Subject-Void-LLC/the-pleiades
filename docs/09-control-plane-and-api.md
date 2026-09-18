@@ -239,10 +239,16 @@ disable the schedule first, or disable the schedule and keep its history.
 ### What cannot be scheduled
 
 A template bound to a credential whose type prompts for an input at launch is refused,
-and so is a saved configuration answering a survey password. Neither value is ever
-stored, so there is nothing to replay — and replaying a secret unattended, on every
-occurrence, under nobody's decision, is a larger version of the concern that already
-stops a relaunch from doing it once.
+and so is a saved configuration answering a survey password or a survey file. Neither
+value is one this platform will replay unattended, on every occurrence, under nobody's
+decision, which is a larger version of the concern that already stops a relaunch from
+doing it once. A prompted credential input is never stored at all; a secret survey
+answer is stored encrypted, and the refusal is about replaying it rather than about
+reading it back.
+
+Note the scope: what is refused is a schedule whose saved configuration ANSWERS such a
+question. A template carrying a password or file question can still be scheduled, so
+long as the configuration the schedule holds leaves that answer out.
 
 ## The SSE job log stream
 

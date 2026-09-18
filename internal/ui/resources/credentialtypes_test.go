@@ -6,7 +6,9 @@
 package resources_test
 
 import (
+	"html"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -358,4 +360,458 @@ func TestCredentialTypesForm_AddInjectorRejectsADangerousEnvName(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("a code-execution env name = %d, want 422 with a field error: %s", w.Code, w.Body.String())
 	}
+}
+
+// removeInputForm is the row control the Inputs tab renders for one input,
+// and removeInjectorForm the same on the Injectors tab. Both are matched as
+// the form's action, because that is the one thing the button, its dialog
+// and the route all have to agree about.
+func removeInputForm(id, input string) string {
+	return `action="/ui/credential-types/` + id + `/remove-input/` + input + `"`
+}
+
+func removeInjectorForm(id, row string) string {
+	return `action="/ui/credential-types/` + id + `/remove-injector/` + row + `"`
+}
+
+// TestCredentialTypes_RemoveInputTakesItOutOfTheSchema is the row half's
+// central case on a real resource: an input added through the header control
+// can be taken back out through the row one.
+//
+// The type's injector document is checked afterwards for the same reason the
+// add test checks it: set-inputs and set-injectors are two narrowings of one
+// store update, and a removal built from the schema alone would blank the
+// document beside it.
+func TestCredentialTypes_RemoveInputTakesItOutOfTheSchema(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+	inputID := strings.ReplaceAll(uniqueName(t, "region"), "-", "_")
+
+	added := h.post(t, "/ui/credential-types/"+id+"/add-input", map[string]string{
+		"id": inputID, "label": "Region", "type": "string",
+	})
+	if added.Code != http.StatusSeeOther {
+		t.Fatalf("adding the input to remove = %d, want a redirect: %s", added.Code, added.Body.String())
+	}
+
+	// The control has to be on the page before it is posted to. A test that
+	// only posted would pass against a route with no button above it, which
+	// is a feature nobody can reach.
+	tab := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if !strings.Contains(tab, removeInputForm(id, inputID)) {
+		t.Fatalf("the Inputs tab renders no Remove control for %q:\n%s", inputID, tab)
+	}
+
+	removed := h.post(t, "/ui/credential-types/"+id+"/remove-input/"+inputID, nil)
+	if removed.Code != http.StatusSeeOther {
+		t.Fatalf("removing the input = %d, want a redirect: %s", removed.Code, removed.Body.String())
+	}
+
+	after := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if strings.Contains(after, inputID) {
+		t.Errorf("the removed input %q is still on the Inputs tab", inputID)
+	}
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String(), "CONFORMANCE_TOKEN") {
+		t.Error("removing an input blanked the type's injector document")
+	}
+}
+
+// TestCredentialTypes_RemoveInputAnInjectorNeedsIsRefusedInTheStoresWords is
+// the case the whole refusal path was built for.
+//
+// The fixture's injector renders {{ api_token }}, so removing api_token
+// leaves a document referencing an input the type no longer declares, and
+// credtype refuses it. What matters is that the person who pressed the
+// button is told which rule stopped them, on a page they can act on, rather
+// than being shown the words "internal error" while the reason goes to a log
+// they cannot read.
+func TestCredentialTypes_RemoveInputAnInjectorNeedsIsRefusedInTheStoresWords(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/remove-input/api_token", nil)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("removing an input an injector needs = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "api_token") {
+		t.Errorf("the refusal does not name the input that caused it:\n%s", w.Body.String())
+	}
+
+	// Refused means nothing changed, not merely that the response said so.
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String(), "api_token") {
+		t.Error("the input was removed despite the refusal")
+	}
+}
+
+// TestCredentialTypes_RemoveInjectorTakesItOutOfTheDocument is the other
+// tab's row control, which addresses a row id the section itself invented
+// ("env-NAME") rather than one the stored document carries.
+func TestCredentialTypes_RemoveInjectorTakesItOutOfTheDocument(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	added := h.post(t, "/ui/credential-types/"+id+"/add-injector", map[string]string{
+		"target": "env", "name": "API_URL", "template": "{{ api_url }}",
+	})
+	if added.Code != http.StatusSeeOther {
+		t.Fatalf("adding the injector to remove = %d, want a redirect: %s", added.Code, added.Body.String())
+	}
+
+	tab := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if !strings.Contains(tab, removeInjectorForm(id, "env-API_URL")) {
+		t.Fatalf("the Injectors tab renders no Remove control for env-API_URL:\n%s", tab)
+	}
+
+	removed := h.post(t, "/ui/credential-types/"+id+"/remove-injector/env-API_URL", nil)
+	if removed.Code != http.StatusSeeOther {
+		t.Fatalf("removing the injector = %d, want a redirect: %s", removed.Code, removed.Body.String())
+	}
+
+	after := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if strings.Contains(after, "API_URL") {
+		t.Errorf("the removed injector is still on the Injectors tab:\n%s", after)
+	}
+	// The one the removal never named must survive, or this is a document
+	// being replaced rather than an entry being taken out of it.
+	if !strings.Contains(after, "CONFORMANCE_TOKEN") {
+		t.Error("removing one injector took the others with it")
+	}
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String(), "api_token") {
+		t.Error("removing an injector blanked the type's input schema")
+	}
+}
+
+// TestCredentialTypes_RemoveRefusesARowThatNamesNothing proves a stale page
+// is answered rather than redirected.
+//
+// A redirect would render the tab again, the row would be absent, and the
+// reader would conclude their click worked. On a page left open while
+// somebody else edited the type, that reading is false.
+func TestCredentialTypes_RemoveRefusesARowThatNamesNothing(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	cases := map[string]string{
+		"an input that is not in the schema":    "/ui/credential-types/" + id + "/remove-input/never_existed",
+		"an injector row with no target prefix": "/ui/credential-types/" + id + "/remove-injector/bare",
+		"an injector that is not in the document": "/ui/credential-types/" + id +
+			"/remove-injector/env-NEVER_EXISTED",
+	}
+	for name, target := range cases {
+		t.Run(name, func(t *testing.T) {
+			if w := h.post(t, target, nil); w.Code != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestCredentialTypes_ManagedTypeWithdrawsTheRemoveControls is the managed
+// case one level down from the record's own.
+//
+// UpdateType refuses a managed type in its second statement, so every schema
+// and injector control on one could only ever fail. The record's edit and
+// delete were already withdrawn for exactly this reason; the set-inputs and
+// set-injectors relations were missing from that predicate, so the add
+// controls were being offered on a platform type and answered with a
+// refusal, and the remove controls would have inherited it.
+func TestCredentialTypes_ManagedTypeWithdrawsTheRemoveControls(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstManagedTypeID(t, h)
+	if id == "" {
+		t.Skip("no managed credential type in the fixture")
+	}
+
+	inputs := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if strings.Contains(inputs, "/remove-input/") {
+		t.Error("a managed type offers a Remove control on its inputs, which the store would refuse")
+	}
+	if strings.Contains(inputs, "/add-input") {
+		t.Error("a managed type offers Add input, which the store would refuse")
+	}
+
+	injectors := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if strings.Contains(injectors, "/remove-injector/") {
+		t.Error("a managed type offers a Remove control on its injectors, which the store would refuse")
+	}
+	if strings.Contains(injectors, "/add-injector") {
+		t.Error("a managed type offers Add injector, which the store would refuse")
+	}
+}
+
+// TestCredentialTypes_EditInputFormIsPrefilledFromTheStoredInput is the
+// prefill seam's whole purpose, proved on a real resource through the real
+// router.
+//
+// Every control must arrive carrying what the input actually holds. One
+// that arrives empty is not a blank control: it is the stored value
+// misrepresented as absent, and saving the form as drawn writes the blank
+// over it. That is why this asserts the boolean and the select too, not
+// only the text: those are the ones a prefill gets wrong quietly, because
+// an unchecked box and a box that was never prefilled render identically.
+func TestCredentialTypes_EditInputFormIsPrefilledFromTheStoredInput(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	// The fixture's api_token is secret and required, which is what makes
+	// the two checkboxes worth asserting.
+	body := h.get(t, "/ui/credential-types/"+id+"/edit-input/api_token").Body.String()
+
+	if !strings.Contains(body, `value="Token"`) {
+		t.Errorf("the LABEL control did not arrive carrying the stored label:\n%s", body)
+	}
+	// Two checked boxes: secret, and required.
+	if got := strings.Count(body, "checked"); got < 2 {
+		t.Errorf("only %d control(s) rendered checked, want at least 2 (secret and required):\n%s", got, body)
+	}
+	if !strings.Contains(body, `<option value="string" selected>`) {
+		t.Errorf("the TYPE select did not open on the input's stored type:\n%s", body)
+	}
+	// The id is Immutable, so the edit form withholds it: an injector
+	// references an input BY id, and a rename here would break every
+	// template using it while looking like a spelling fix.
+	if strings.Contains(body, `name="id"`) {
+		t.Error("the edit form offers the ID control, so an input could be renamed out from under its injectors")
+	}
+}
+
+// TestCredentialTypes_EditInputResubmittedUnchangedChangesNothing is the
+// property this whole seam exists for, and getting it to hold teeth took
+// four tries, each one worth recording because each failure mode is a way
+// this test could have shipped proving nothing.
+//
+// The property: render the edit form, post back exactly what it offered,
+// and everything the input held must still be there. A prefill that
+// silently drops a control fails it, because the dropped value comes back
+// empty and is written over what was stored.
+//
+// What it took to make that true, each found by deleting one prefill and
+// watching the test stay green:
+//
+//  1. Post what the form RENDERED, never a hardcoded body. A literal body
+//     posts the right values whatever the form did.
+//  2. Compare against what the test ITSELF put in, not against the page as
+//     it looked beforehand. A dropped prefill is missing from the before
+//     render and the after render alike, so before == after holds while
+//     the stored value is destroyed. This is the subtle one.
+//  3. Give every control a value that differs from its zero value, because
+//     a stored zero round-trips correctly even with its prefill deleted.
+//  4. Cover secret and default on separate inputs: the store refuses a
+//     secret input carrying a default, so no single input can distinguish
+//     both.
+//
+// It also builds its own credential type. An earlier version added a
+// required input to the shared fixture and broke a sibling conformance
+// test, because every credential of that type then had an unanswered
+// required input.
+func TestCredentialTypes_EditInputResubmittedUnchangedChangesNothing(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+	id := ownTypeForEditing(t, h)
+
+	cases := []struct {
+		name string
+		want map[string]string
+	}{
+		{
+			name: "a secret input",
+			want: map[string]string{
+				"label": "Secret Round Trip", "type": "string",
+				"secret": "true", "required": "true", "multiline": "true",
+				"help": "Help that must survive the round trip.",
+			},
+		},
+		{
+			name: "an input carrying a default",
+			want: map[string]string{
+				"label": "Default Round Trip", "type": "boolean",
+				"help": "Other help.", "default": "true",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inputID := strings.ReplaceAll(uniqueName(t, "rt"), "-", "_")
+			add := map[string]string{"id": inputID}
+			for k, v := range tc.want {
+				add[k] = v
+			}
+			if w := h.post(t, "/ui/credential-types/"+id+"/add-input", add); w.Code != http.StatusSeeOther {
+				t.Fatalf("adding the input = %d: %s", w.Code, w.Body.String())
+			}
+
+			form := h.get(t, "/ui/credential-types/"+id+"/edit-input/"+inputID).Body.String()
+			submitted := renderedFormValues(t, form)
+			if len(submitted) < len(tc.want) {
+				t.Fatalf("read %d control(s) off the form but put in %d, so the prefill already lost something: %v",
+					len(submitted), len(tc.want), submitted)
+			}
+
+			if w := h.post(t, "/ui/credential-types/"+id+"/edit-input/"+inputID, submitted); w.Code != http.StatusSeeOther {
+				t.Fatalf("resubmitting the form unchanged = %d, want a redirect: %s", w.Code, w.Body.String())
+			}
+
+			// Against what this test put in, which is the whole point: an
+			// expectation read off the page would be missing exactly
+			// whatever the prefill was missing.
+			got := renderedFormValues(t, h.get(t, "/ui/credential-types/"+id+"/edit-input/"+inputID).Body.String())
+			for name, want := range tc.want {
+				if got[name] != want {
+					t.Errorf("after resubmitting the form unchanged, %s = %q, want %q: the prefill dropped it and the save wrote the blank",
+						name, got[name], want)
+				}
+			}
+		})
+	}
+}
+
+// ownTypeForEditing creates a credential type this test alone writes to.
+//
+// The fixture's type is shared with every other test in this package and
+// with the conformance suite, so adding a required input to it makes every
+// credential of that type unsaveable and breaks tests that have nothing to
+// do with this one. That happened.
+func ownTypeForEditing(tb testing.TB, h *harness) string {
+	tb.Helper()
+
+	form := body(tb.(*testing.T), h, "/ui/credential-types/new")
+	orgID := optionValue(tb.(*testing.T), form, "organization", "acme")
+	kind := optionValue(tb.(*testing.T), form, "kind", "cloud")
+
+	name := uniqueName(tb.(*testing.T), "round-trip-type")
+	namespace := strings.ReplaceAll(name, "-", "_")
+	if w := h.post(tb.(*testing.T), "/ui/credential-types", map[string]string{
+		"name": name, "description": "owned by the round trip test",
+		"kind": kind, "namespace": namespace, "organization": orgID,
+	}); w.Code >= http.StatusBadRequest {
+		tb.Fatalf("creating the round trip type = %d: %s", w.Code, w.Body.String())
+	}
+
+	for _, candidate := range recordIDs(tb.(*testing.T), h, "credential-types") {
+		if strings.Contains(h.get(tb.(*testing.T), "/ui/credential-types/"+candidate).Body.String(), name) {
+			return candidate
+		}
+	}
+	tb.Fatal("the credential type this test created is not reachable")
+	return ""
+}
+
+// TestCredentialTypes_EditInputWritesWhatWasChanged is the other half, and
+// it is what stops the test above passing against a Submit that does
+// nothing at all.
+func TestCredentialTypes_EditInputWritesWhatWasChanged(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/edit-input/api_url", map[string]string{
+		"label": "Endpoint URL",
+		"type":  "string",
+	})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("editing the input = %d, want a redirect: %s", w.Code, w.Body.String())
+	}
+
+	page := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if !strings.Contains(page, "Endpoint URL") {
+		t.Errorf("the edited label is not on the Inputs tab:\n%s", page)
+	}
+	// The id is unchanged, which is the property the Immutable control
+	// protects: the row is still addressed the way its injectors are.
+	if !strings.Contains(page, "api_url") {
+		t.Error("editing an input changed its id, so any injector referencing it is now broken")
+	}
+}
+
+// TestCredentialTypes_EditControlIsALinkAndRemoveIsAForm pins the one
+// asymmetry in how row controls render.
+//
+// A control that acts at once must post, because a GET that changes state
+// is one a prefetcher eventually runs. A control that opens a form changes
+// nothing until that form is submitted, so it is a link, and it has to be
+// one: a button cannot navigate.
+func TestCredentialTypes_EditControlIsALinkAndRemoveIsAForm(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	tab := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+
+	if !strings.Contains(tab, `href="/ui/credential-types/`+id+`/edit-input/api_token"`) {
+		t.Errorf("the Edit control is not a link to its own form:\n%s", tab)
+	}
+	if !strings.Contains(tab, `action="/ui/credential-types/`+id+`/remove-input/api_token"`) {
+		t.Errorf("the Remove control is not a posting form:\n%s", tab)
+	}
+}
+
+// renderedFormValues reads what a rendered form would submit if somebody
+// pressed its button without touching anything.
+//
+// It exists because the round-trip test above is worthless without it. A
+// hardcoded request body posts the correct values whether or not the form
+// was prefilled, so the test passes with the prefill deleted, which is
+// precisely the regression it is there to catch. That mistake was made and
+// caught here by deleting one prefilled value and watching the test stay
+// green.
+//
+// Deliberately a small reader over this application's own generated markup
+// rather than a general HTML parser: one template emits every control, so
+// the four shapes below are the whole set, and a fifth appearing is a
+// change to that template which should break this loudly rather than be
+// silently skipped.
+func renderedFormValues(tb testing.TB, body string) map[string]string {
+	tb.Helper()
+
+	out := map[string]string{}
+	// A checkbox submits its value only when checked, so an unchecked one
+	// is correctly absent from the map rather than present and empty.
+	for _, m := range regexp.MustCompile(`<input type="checkbox" id="f-[^"]*" name="([^"]+)" value="true"[^>]*>`).FindAllStringSubmatch(body, -1) {
+		if strings.Contains(m[0], " checked") {
+			out[m[1]] = "true"
+		}
+	}
+	// Text and number together: they render as the same shape with a
+	// different type attribute, and a helper that read only one of them
+	// would report a numeric control as missing from a form that draws it,
+	// which reads as a prefill bug that is not there.
+	for _, m := range regexp.MustCompile(`<input type="(?:text|number)" id="f-[^"]*" name="([^"]+)" value="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+		out[m[1]] = html.UnescapeString(m[2])
+	}
+	for _, m := range regexp.MustCompile(`(?s)<select id="f-[^"]*" name="([^"]+)".*?</select>`).FindAllStringSubmatch(body, -1) {
+		if chosen := regexp.MustCompile(`<option value="([^"]*)" selected>`).FindStringSubmatch(m[0]); chosen != nil {
+			out[m[1]] = html.UnescapeString(chosen[1])
+		}
+	}
+	for _, m := range regexp.MustCompile(`(?s)<textarea id="f-[^"]*" name="([^"]+)"[^>]*>(.*?)</textarea>`).FindAllStringSubmatch(body, -1) {
+		out[m[1]] = html.UnescapeString(m[2])
+	}
+	return out
 }

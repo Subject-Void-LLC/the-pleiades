@@ -16,6 +16,10 @@ import (
 type natsBus struct {
 	nc *nats.Conn
 	js jetstream.JetStream
+
+	// logger is the composition root's own, never nil: NewNatsBus
+	// defaults it, so every call site can use it without a guard.
+	logger *slog.Logger
 }
 
 // NewNatsBus connects to an external NATS broker and binds the single
@@ -82,9 +86,14 @@ func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topol
 			"drift", strings.Join(fields, "; "))
 	}
 
+	busLogger := logger
+	if busLogger == nil {
+		busLogger = slog.Default()
+	}
 	return &natsBus{
-		nc: nc,
-		js: js,
+		nc:     nc,
+		js:     js,
+		logger: busLogger,
 	}, nil
 }
 
@@ -123,8 +132,29 @@ func (b *natsBus) Publish(ctx context.Context, topic string, evt Event) error {
 	msg := &nats.Msg{Subject: topic, Data: data, Header: nats.Header{}}
 	InjectTraceContext(ctx, msg.Header)
 
-	if _, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(evt.IdempotencyKey)); err != nil {
+	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(evt.IdempotencyKey))
+	if err != nil {
 		return fmt.Errorf("failed to publish to %s: %w", topic, err)
+	}
+
+	// A suppressed duplicate is NOT an error. The broker stores nothing,
+	// returns PubAck{Duplicate: true}, and returns a nil error with it, so
+	// discarding this ack makes a silently dropped publish indistinguishable
+	// from a delivered one at every layer above this line. That is how
+	// FAILURE_PATTERNS #222 stayed invisible: two publishers on one stream
+	// minted the same message id, every result was collapsed onto the
+	// dispatch that caused it, and nothing anywhere said so.
+	//
+	// It stays a log line rather than an error, deliberately. Dedup working
+	// is the mechanism doing its job, and a caller retrying a publish it
+	// already made should not be handed a failure. But a publisher that
+	// believes it is sending something new wants to know, and this is the
+	// only place that can tell it.
+	if ack != nil && ack.Duplicate {
+		b.logger.Warn("publish suppressed as a duplicate; the broker stored nothing",
+			slog.String("topic", topic),
+			slog.String("idempotency_key", evt.IdempotencyKey),
+			slog.String("stream", ack.Stream))
 	}
 	return nil
 }

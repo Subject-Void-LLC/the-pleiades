@@ -145,7 +145,7 @@ func TestSurvey_ADisabledSurveyAsksNothingWithoutLosingItsQuestions(t *testing.T
 	if survey.Asks() {
 		t.Error("a disabled survey reports that it asks something")
 	}
-	answers, err := survey.Resolve(nil)
+	answers, err := survey.Resolve(nil, launch.FilePolicy{})
 	if err != nil {
 		t.Errorf("a disabled survey refused a launch that supplied no answers: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSurvey_DropsAnAnswerToAQuestionItNoLongerAsks(t *testing.T) {
 	// A relaunch of a job whose template has since lost a question would
 	// otherwise be unlaunchable. The dropped value reaches nothing: it is
 	// not in the merged map, so no runbook or playbook can read it.
-	answers, err := survey.Resolve(map[string]any{"version": "17.6", "removed_question": "value"})
+	answers, err := survey.Resolve(map[string]any{"version": "17.6", "removed_question": "value"}, launch.FilePolicy{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSurvey_ChecksWhatWasSuppliedWithoutDemandingWhatWasNot(t *testing.T) {
 	if err := survey.CheckAnswers(map[string]any{"region": "eu-west"}); err != nil {
 		t.Errorf("CheckAnswers refused a partial configuration: %v", err)
 	}
-	if _, err := survey.Resolve(map[string]any{"region": "eu-west"}); err == nil {
+	if _, err := survey.Resolve(map[string]any{"region": "eu-west"}, launch.FilePolicy{}); err == nil {
 		t.Error("Resolve accepted a launch with no answer to a required question, which is what CheckAnswers is a weaker form of")
 	}
 

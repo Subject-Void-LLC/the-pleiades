@@ -161,7 +161,9 @@ around twenty packages provision real ephemeral containers through `testcontaine
 `tools/coverage-check`, and several of those packages are deliberately
 timing-sensitive (`internal/event`'s Phase 96a gate severs a real broker for 150
 seconds). A permanently red gate gates nothing. So `make ci` is now a gate a human runs,
-and `.githooks/pre-push` (`make hooks`, once per clone) is what makes that automatic.
+and `.githooks/pre-push` (`make hooks`, once per clone) is what stops an ungated commit
+being pushed: it verifies the receipt that run left behind, rather than running the gate
+itself. See below for why that distinction is load bearing.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
@@ -182,8 +184,35 @@ Never `go install` either tool by hand at `@latest`: a newer scanner than the pi
 findings CI will not, and an older one misses findings CI will. The one thing a local run
 still cannot predict is `govulncheck`'s live advisory database.
 
-`.githooks/pre-push` runs `make push-gate`, not `make ci`, deliberately: it is every
-check `ci` runs, with `test-race`/`test-integration` swapped for `tools/testgate`'s own
+**`.githooks/pre-push` does not run the gate. It checks a receipt.** The gate is a
+process you run on its own schedule, and the push is a separate action:
+
+```bash
+make push-gate     # or make ci, which is stricter; ~20 minutes
+git push           # the hook verifies in about a second
+```
+
+The reason is mechanical rather than stylistic. Git opens its connection to the remote
+*before* running `pre-push`, because it needs the remote's ref advertisement to build the
+hook's stdin. A hook that then runs a twenty minute suite hands git back a connection the
+remote dropped long ago, and the push dies writing to it: SIGPIPE, exit 141, no output at
+all, while the gate prints "all checks passed". That was reproduced five times here before
+the cause was found, and nothing about it is discoverable from the symptom.
+
+`make push-gate` and `make ci` each end by writing `.git/pleiades-gate.json` through
+`tools/gatereceipt`, naming the commit they verified, which gate ran, and when. The hook
+reads it back for the exact commits being pushed. It refuses for three distinct reasons and
+says which: no receipt, a receipt for a different commit, or one past `MaxReceiptAge` (a
+day, which exists for `govulncheck` alone, since that is the one check whose answer moves
+without the tree moving). `git push --no-verify` still skips it.
+
+This is **stricter** than running the suite in the hook, which is worth stating because it
+looks like a loosening. That arrangement proved something about the *working tree* and then
+pushed *commits*; with uncommitted edits those are different code, and nothing noticed. A
+receipt is only issued from a clean tree, so the thing verified and the thing pushed are the
+same object by construction.
+
+`push-gate` itself is every check `ci` runs, with `test-race`/`test-integration` swapped for `tools/testgate`'s own
 invocations and `coverage` swapped for `go run ./tools/coverage-check -tolerant` (that
 tool runs its own separate full `go test ./... -cover` internally, so it needed the
 identical tolerance applied a second time, not just once at the test-race/

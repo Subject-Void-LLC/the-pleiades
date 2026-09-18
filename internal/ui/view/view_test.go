@@ -284,6 +284,42 @@ func TestRegister_RejectsAmbiguousRelations(t *testing.T) {
 	}
 }
 
+// TestRegister_AcceptsOneEndpointNamedTwice is the other side of the
+// ambiguity rule, and it is the case that rule used to get wrong.
+//
+// Two controls can be two affordances onto a single API operation: adding
+// an input to a credential type and removing one are both its set-inputs
+// endpoint, because the stored document is replaced either way. The check
+// compared relations without comparing the endpoint behind them, so it read
+// that as ambiguity and refused registration with a message naming the same
+// endpoint twice. The only way past it was to invent a second endpoint and
+// a second relation that described no separate API operation.
+func TestRegister_AcceptsOneEndpointNamedTwice(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
+	d := validDescriptor("accept-shared-endpoint")
+	d.Actions = []view.RecordAction{
+		sharedEndpointAction("add-thing"),
+		sharedEndpointAction("remove-thing"),
+	}
+
+	if err := view.Register(d); err != nil {
+		t.Fatalf("Register() = %v, want nil: two actions may share one endpoint", err)
+	}
+}
+
+// sharedEndpointAction is two actions' worth of declaration differing only
+// in name, so the test above turns on the endpoint and nothing else.
+func sharedEndpointAction(name string) view.RecordAction {
+	return view.RecordAction{
+		Name:     name,
+		Label:    name,
+		Endpoint: &apispec.SetCredentialTypeInputs,
+		Submit: func(context.Context, string, view.Values) (string, view.FieldErrors, error) {
+			return "", nil, nil
+		},
+	}
+}
+
 func TestMustRegister_PanicsOnInvalid(t *testing.T) {
 	t.Cleanup(view.SnapshotForTest())
 	defer func() {

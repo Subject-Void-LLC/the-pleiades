@@ -81,6 +81,20 @@ func (_c *SurveyQuestionCreate) SetQuestionType(v string) *SurveyQuestionCreate 
 	return _c
 }
 
+// SetAllowProgramContent sets the "allow_program_content" field.
+func (_c *SurveyQuestionCreate) SetAllowProgramContent(v bool) *SurveyQuestionCreate {
+	_c.mutation.SetAllowProgramContent(v)
+	return _c
+}
+
+// SetNillableAllowProgramContent sets the "allow_program_content" field if the given value is not nil.
+func (_c *SurveyQuestionCreate) SetNillableAllowProgramContent(v *bool) *SurveyQuestionCreate {
+	if v != nil {
+		_c.SetAllowProgramContent(*v)
+	}
+	return _c
+}
+
 // SetRequired sets the "required" field.
 func (_c *SurveyQuestionCreate) SetRequired(v bool) *SurveyQuestionCreate {
 	_c.mutation.SetRequired(v)
@@ -211,6 +225,10 @@ func (_c *SurveyQuestionCreate) defaults() {
 		v := surveyquestion.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AllowProgramContent(); !ok {
+		v := surveyquestion.DefaultAllowProgramContent
+		_c.mutation.SetAllowProgramContent(v)
+	}
 	if _, ok := _c.mutation.Required(); !ok {
 		v := surveyquestion.DefaultRequired
 		_c.mutation.SetRequired(v)
@@ -260,6 +278,9 @@ func (_c *SurveyQuestionCreate) check() error {
 		if err := surveyquestion.QuestionTypeValidator(v); err != nil {
 			return &ValidationError{Name: "question_type", err: fmt.Errorf(`ent: validator failed for field "SurveyQuestion.question_type": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.AllowProgramContent(); !ok {
+		return &ValidationError{Name: "allow_program_content", err: errors.New(`ent: missing required field "SurveyQuestion.allow_program_content"`)}
 	}
 	if _, ok := _c.mutation.Required(); !ok {
 		return &ValidationError{Name: "required", err: errors.New(`ent: missing required field "SurveyQuestion.required"`)}
@@ -325,6 +346,10 @@ func (_c *SurveyQuestionCreate) createSpec() (*SurveyQuestion, *sqlgraph.CreateS
 	if value, ok := _c.mutation.QuestionType(); ok {
 		_spec.SetField(surveyquestion.FieldQuestionType, field.TypeString, value)
 		_node.QuestionType = value
+	}
+	if value, ok := _c.mutation.AllowProgramContent(); ok {
+		_spec.SetField(surveyquestion.FieldAllowProgramContent, field.TypeBool, value)
+		_node.AllowProgramContent = value
 	}
 	if value, ok := _c.mutation.Required(); ok {
 		_spec.SetField(surveyquestion.FieldRequired, field.TypeBool, value)

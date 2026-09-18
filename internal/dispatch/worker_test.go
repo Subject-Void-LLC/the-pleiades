@@ -34,6 +34,17 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// stateNote explains, in the one place these tests all point at, why a
+// successful fan-out no longer ends in "completed".
+//
+// Several assertions in this package used to read State == "completed" as
+// "the fan-out worked". That reading was only ever true because nothing
+// tracked what happened after a dispatch: "completed" meant the Controller
+// had stopped working, not that the run had ended. It now means every
+// dispatched device has reported back, so a fan-out that handed work to a
+// Runner ends in "running" instead.
+const stateNote = "a fan-out that dispatched to a device ends in running, not completed: the Controller has finished, the device has not"
+
 // fakeRepository is a small local Repository test double, mirroring
 // internal/api/dispatcher_test.go's own MockRepository/MockIterator shape
 // for consistency, but defined fresh here: that one lives in package
@@ -413,8 +424,8 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if job.State != "completed" || job.DispatchedCount != 1 {
-		t.Fatalf("job = %+v, want completed with DispatchedCount=1", job)
+	if job.State != "running" || job.DispatchedCount != 1 {
+		t.Fatalf("job = %+v, want running with DispatchedCount=1 (%s)", job, stateNote)
 	}
 	if len(tasks) != 1 || tasks[0].Outcome != dispatch.OutcomeDispatched {
 		t.Fatalf("tasks = %+v, want one OutcomeDispatched task", tasks)
@@ -802,8 +813,11 @@ func TestWorker_HandleJobRequested_StaleFanOutIsReclaimed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if gotJob.State != "completed" {
-		t.Fatalf("job State after reclaim = %q, want %q (not stuck in fanning_out)", gotJob.State, "completed")
+	// What this proves is that the reclaim finished the fan-out rather
+	// than leaving it stuck in "fanning_out". It dispatched to a device,
+	// so the run itself continues.
+	if gotJob.State != "running" {
+		t.Fatalf("job State after reclaim = %q, want %q (not stuck in fanning_out)", gotJob.State, "running")
 	}
 	if gotJob.DispatchedCount != 1 {
 		t.Fatalf("DispatchedCount after reclaim = %d, want 1", gotJob.DispatchedCount)
@@ -865,8 +879,8 @@ func TestWorker_HandleJobRequested_StaleFanOutReclaimSkipsAlreadyRecordedDevices
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if gotJob.State != "completed" {
-		t.Fatalf("job State after reclaim = %q, want %q", gotJob.State, "completed")
+	if gotJob.State != "running" {
+		t.Fatalf("job State after reclaim = %q, want %q (%s)", gotJob.State, "running", stateNote)
 	}
 	if gotJob.DispatchedCount != 2 {
 		t.Fatalf("DispatchedCount after reclaim = %d, want 2 (1 pre-crash + 1 from the reclaim)", gotJob.DispatchedCount)
@@ -1103,4 +1117,113 @@ func jobIDFromEvent(t *testing.T, evt event.Event) string {
 		t.Fatalf("failed to decode job_id from event: %v", err)
 	}
 	return payload.JobID
+}
+
+// cancelAfterFirstRecordTask cancels the job out from under the running
+// fan-out, once, immediately after the first device's RecordTask write
+// genuinely lands. It mirrors reclaimAfterFirstRecordTask's own shape and
+// exists for the same reason: the cancel has to arrive DURING the loop,
+// which no amount of arranging state before HandleJobRequested can
+// reproduce.
+type cancelAfterFirstRecordTask struct {
+	dispatch.JobStore
+	t     *testing.T
+	jobID string
+	// canceled guards the cancel to fire exactly once. A second call must
+	// observe the already-canceled job rather than cancel it again, which
+	// would be refused as ErrNotCancelable and mask what is being tested.
+	canceled bool
+}
+
+// RecordTask delegates to the wrapped real store first, so the write this
+// call represents lands exactly like production, then stops the job.
+func (s *cancelAfterFirstRecordTask) RecordTask(ctx context.Context, jobID string, fence int64, task dispatch.JobTask) error {
+	err := s.JobStore.RecordTask(ctx, jobID, fence, task)
+	if err != nil || s.canceled {
+		return err
+	}
+	s.canceled = true
+
+	if cErr := s.JobStore.Cancel(ctx, s.jobID, "operator"); cErr != nil {
+		s.t.Fatalf("simulated cancel returned unexpected error: %v", cErr)
+	}
+	return nil
+}
+
+// TestWorker_HandleJobRequested_CanceledMidLoopStopsWithoutError is the
+// durable half of cancel proven at the real seam: a job stopped while its
+// fan-out is running dispatches to no further device, acks its delivery
+// rather than failing it, and leaves a record whose tallies say what the
+// fan-out had actually reached.
+//
+// Three devices, not two, so "stopped" is distinguishable from "ran out of
+// devices": with two, a loop that ignored the cancel entirely would produce
+// the same task count as one that obeyed it on the last iteration.
+func TestWorker_HandleJobRequested_CanceledMidLoopStopsWithoutError(t *testing.T) {
+	ctx := t.Context()
+	realStore, _ := newTestStore(t)
+	bus := newCapturingBus()
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{
+		capableDevice("dev-a", "router-a", "10.0.0.1"),
+		capableDevice("dev-b", "router-b", "10.0.0.2"),
+		capableDevice("dev-c", "router-c", "10.0.0.3"),
+	}}
+
+	evt := requestJob(t, ctx, realStore, "pb-1", "routers")
+	jobID := jobIDFromEvent(t, evt)
+
+	store := &cancelAfterFirstRecordTask{JobStore: realStore, t: t, jobID: jobID}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned %v, want nil (a canceled job must be acked, not retried: redelivering it would achieve nothing)", err)
+	}
+	if !store.canceled {
+		t.Fatal("test setup never reached the simulated cancel: dev-a's RecordTask never succeeded")
+	}
+
+	gotJob, tasks, err := realStore.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("Get returned unexpected error: %v", err)
+	}
+	if gotJob.State != "canceled" {
+		t.Errorf("job State after a mid-loop cancel = %q, want %q: the loop must not have driven it to a terminal state of its own", gotJob.State, "canceled")
+	}
+	if gotJob.CanceledBy != "operator" {
+		t.Errorf("CanceledBy = %q, want %q", gotJob.CanceledBy, "operator")
+	}
+
+	// dev-c is the device that proves the loop stopped. It is never
+	// published to and never recorded, which is the whole promise: work
+	// the job has not yet reached does not happen.
+	if len(tasks) != 1 {
+		t.Fatalf("recorded tasks after the cancel = %d, want 1 (only dev-a, recorded before the cancel landed)", len(tasks))
+	}
+	if tasks[0].DeviceID != "dev-a" {
+		t.Errorf("the one recorded task is for device %q, want %q", tasks[0].DeviceID, "dev-a")
+	}
+	if gotJob.DispatchedCount != 1 {
+		t.Errorf("DispatchedCount on the canceled record = %d, want 1: a canceled job must report what its fan-out actually reached, not zero", gotJob.DispatchedCount)
+	}
+
+	// The known, bounded overshoot, asserted rather than left to be
+	// discovered later. dev-b's dispatch was published BEFORE its
+	// RecordTask refused, because the publish precedes the write, so two
+	// devices were dispatched to while only one was recorded. This window
+	// is inherent: a cancel can land between any publish and its write, so
+	// no ordering removes it, and closing it would cost a second read of
+	// the job per device in a loop built to stream ten thousand of them.
+	// dev-c is what must never be published to.
+	if bus.count() != 2 {
+		t.Errorf("published dispatches = %d, want exactly 2: dev-a, plus dev-b already in flight when the cancel landed, and never dev-c", bus.count())
+	}
+	for _, evt := range bus.published {
+		var payload wire.DispatchPayload
+		if err := json.Unmarshal(evt.Data, &payload); err != nil {
+			t.Fatalf("failed to decode a published dispatch: %v", err)
+		}
+		if payload.DeviceID == "dev-c" {
+			t.Error("dev-c was dispatched to after the job was canceled: the fan-out did not stop")
+		}
+	}
 }

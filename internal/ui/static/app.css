@@ -1205,6 +1205,42 @@ a {
   margin-left: auto;
 }
 
+/* ---- Downloads ----
+ *
+ * Not on the title row, because each entry carries a sentence saying what the
+ * file is and how long it will exist, and a reader needs that before they
+ * choose rather than after they have sent the file to somebody. A row of
+ * buttons has nowhere to put it except a tooltip, which a keyboard user may
+ * never see and a touch user almost certainly will not. */
+.downloads {
+  margin-top: 1rem;
+}
+.downloads h2 {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 0.5rem;
+}
+.downloads ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  list-style: none;
+}
+.downloads li {
+  /* Each entry is as wide as its note wants and no wider, so two downloads
+   * sit side by side on a desk and stack on a phone. */
+  flex: 1 1 22rem;
+  max-width: 34rem;
+}
+.download-note {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+
 /* ---- Tabs ----
  *
  * Links, not the ARIA tab pattern, and therefore no role="tablist" here. Each
@@ -1539,6 +1575,19 @@ select {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-left: auto;
+}
+
+/* The trailing cell a section's row controls sit in.
+ *
+ * Deliberately no smaller button variant. The .btn min-height is the AA
+ * target-size floor, and a table is exactly where the temptation to shrink a
+ * control is strongest and where a cramped target hurts most: rows are close
+ * together, so a near miss lands on the neighbouring row's button rather than
+ * on nothing. The cell is sized by its buttons instead. */
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 /* ---- Detail list ---- */

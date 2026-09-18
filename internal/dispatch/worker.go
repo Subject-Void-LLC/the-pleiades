@@ -286,6 +286,29 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			if fenced(job.JobID, err) {
 				return nil
 			}
+			// Somebody stopped this job. Every device past this point is
+			// left alone, which is the durable half of what Cancel
+			// promises; the one device this iteration was working on has
+			// already been published to, because the publish precedes the
+			// RecordTask write that just refused. That is bounded at one
+			// device and is the price of not re-reading the job's state
+			// before every publish in a loop built to stream ten thousand
+			// of them.
+			if canceled(job.JobID, err) {
+				// The tallies reached before the stop, so the canceled
+				// record does not report zero of everything for a fan-out
+				// that had already dispatched to hundreds of devices. A
+				// failure here leaves the numbers stale rather than the
+				// job wrong, so it is logged and the delivery still acked:
+				// the cancel itself has already succeeded, and redelivering
+				// the fan-out of a canceled job would achieve nothing.
+				if settleErr := w.store.SettleCanceled(ctx, job.JobID, fence, dispatched, skipped, failed); settleErr != nil {
+					slog.Error("failed to record a canceled job's final tallies",
+						slog.String("job_id", job.JobID),
+						slog.String("error", settleErr.Error()))
+				}
+				return nil
+			}
 			return err
 		}
 		switch outcome {
@@ -315,11 +338,29 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
-	if err := w.store.Complete(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
+	// Which of the two endings this fan-out gets turns on one question:
+	// did anything reach a Runner. If nothing did, every device having
+	// been skipped or failed at dispatch, the run really is over and
+	// "completed" is the truth. If something did, the Controller has
+	// finished its work but the run has not, and reporting "completed"
+	// here would be the platform announcing the end of its OWN part as
+	// the end of the job. Those devices are executing, and the job stays
+	// "running" until each of them has reported back.
+	settle := w.store.Complete
+	if dispatched > 0 {
+		settle = w.store.SettleRunning
+	}
+	if err := settle(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
 		if fenced(job.JobID, err) {
 			return nil
 		}
-		return fmt.Errorf("failed to complete job %s: %w", job.JobID, err)
+		// A job cancelled during the very last stretch of its fan-out
+		// leaves nothing to settle, and that is an ordinary ending rather
+		// than a failure worth redelivering.
+		if canceled(job.JobID, err) {
+			return nil
+		}
+		return fmt.Errorf("failed to settle job %s: %w", job.JobID, err)
 	}
 	return nil
 }

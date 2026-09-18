@@ -81,6 +81,48 @@ func (_c *JobTaskCreate) SetNillableReason(v *string) *JobTaskCreate {
 	return _c
 }
 
+// SetResult sets the "result" field.
+func (_c *JobTaskCreate) SetResult(v jobtask.Result) *JobTaskCreate {
+	_c.mutation.SetResult(v)
+	return _c
+}
+
+// SetNillableResult sets the "result" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableResult(v *jobtask.Result) *JobTaskCreate {
+	if v != nil {
+		_c.SetResult(*v)
+	}
+	return _c
+}
+
+// SetResultReason sets the "result_reason" field.
+func (_c *JobTaskCreate) SetResultReason(v string) *JobTaskCreate {
+	_c.mutation.SetResultReason(v)
+	return _c
+}
+
+// SetNillableResultReason sets the "result_reason" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableResultReason(v *string) *JobTaskCreate {
+	if v != nil {
+		_c.SetResultReason(*v)
+	}
+	return _c
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (_c *JobTaskCreate) SetFinishedAt(v time.Time) *JobTaskCreate {
+	_c.mutation.SetFinishedAt(v)
+	return _c
+}
+
+// SetNillableFinishedAt sets the "finished_at" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableFinishedAt(v *time.Time) *JobTaskCreate {
+	if v != nil {
+		_c.SetFinishedAt(*v)
+	}
+	return _c
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_c *JobTaskCreate) SetJobID(id int) *JobTaskCreate {
 	_c.mutation.SetJobID(id)
@@ -169,6 +211,11 @@ func (_c *JobTaskCreate) check() error {
 			return &ValidationError{Name: "outcome", err: fmt.Errorf(`ent: validator failed for field "JobTask.outcome": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.Result(); ok {
+		if err := jobtask.ResultValidator(v); err != nil {
+			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
+		}
+	}
 	if len(_c.mutation.JobIDs()) == 0 {
 		return &ValidationError{Name: "job", err: errors.New(`ent: missing required edge "JobTask.job"`)}
 	}
@@ -221,6 +268,18 @@ func (_c *JobTaskCreate) createSpec() (*JobTask, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Reason(); ok {
 		_spec.SetField(jobtask.FieldReason, field.TypeString, value)
 		_node.Reason = value
+	}
+	if value, ok := _c.mutation.Result(); ok {
+		_spec.SetField(jobtask.FieldResult, field.TypeEnum, value)
+		_node.Result = value
+	}
+	if value, ok := _c.mutation.ResultReason(); ok {
+		_spec.SetField(jobtask.FieldResultReason, field.TypeString, value)
+		_node.ResultReason = value
+	}
+	if value, ok := _c.mutation.FinishedAt(); ok {
+		_spec.SetField(jobtask.FieldFinishedAt, field.TypeTime, value)
+		_node.FinishedAt = value
 	}
 	if nodes := _c.mutation.JobIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

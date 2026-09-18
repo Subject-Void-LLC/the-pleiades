@@ -22,7 +22,24 @@ import (
 // these two calls cannot simply use handleMessage's own ctx.
 const walDurabilityTimeout = 10 * time.Second
 
-// WithResultWAL enables Agent's Write-Ahead-Log result buffering: wal
+// WithResultReporting makes Agent publish every execution outcome to
+// topology.ResultSubject, which is what moves a job out of "running" once
+// its devices have all reported.
+//
+// Without a WAL beside it (see WithResultWAL) reporting is best effort: an
+// outcome that cannot be published at that instant is lost, and the job it
+// belongs to waits for a device that will never report. Durability is the
+// option. Reporting itself is not, which is the correction this made: it
+// used to be reachable only through WithResultWAL, so a Runner started
+// without RUNNER_WAL_DIR published no results at all. That was invisible
+// while nothing consumed them and is not any more.
+func WithResultReporting(bus event.Bus) AgentOption {
+	return func(a *Agent) {
+		a.bus = bus
+	}
+}
+
+// WithResultWAL adds Write-Ahead-Log durability to that reporting: wal
 // durably records every execution outcome before Agent attempts to
 // report it, and bus is what a later flush publishes a still-pending
 // entry through. bus must be an event.Bus, specifically, rather than a
@@ -33,8 +50,8 @@ const walDurabilityTimeout = 10 * time.Second
 // not give it for free.
 //
 // Omitted by default: an Agent built with no WithResultWAL call appends
-// nothing and flushes nothing, identical to this option never having
-// existed, so no existing caller needs to change.
+// nothing and flushes nothing. It still reports, if it was given a bus by
+// WithResultReporting above.
 func WithResultWAL(wal ResultWAL, bus event.Bus) AgentOption {
 	return func(a *Agent) {
 		a.wal = wal
@@ -66,10 +83,11 @@ func WithResultWAL(wal ResultWAL, bus event.Bus) AgentOption {
 // must survive the very cancellation that triggered it cannot be a child
 // of that cancellation.
 //
-// A nil a.wal makes this a complete no-op, the state of every Agent that
-// never opted into WithResultWAL.
+// A nil a.bus makes this a complete no-op: there is nowhere to report to.
+// A nil a.wal reports without durability, which is the ordinary
+// arrangement; see below.
 func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, execErr error) {
-	if a.wal == nil {
+	if a.bus == nil {
 		return
 	}
 
@@ -80,7 +98,8 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 
 	appendCtx, cancel := context.WithTimeout(context.Background(), walDurabilityTimeout)
 	defer cancel()
-	entry, err := a.wal.Append(appendCtx, ResultEntry{
+
+	entry := ResultEntry{
 		// A stable key derived from (JobID, DeviceID), not left blank for
 		// fileWAL.Append to mint a fresh random UUID: this is what stays
 		// the same across a JetStream redelivery of the identical
@@ -92,16 +111,43 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 		// redelivered job publish as an entirely distinct job.result
 		// event that no idempotency-key dedup (event.Bus's own
 		// IdempotencyKey mechanism) could ever collapse back down to one,
-		// since dedup only recognizes a key it has seen before. Mirrors
-		// internal/dispatch/worker_devices.go's own identical
-		// JobID+":"+DeviceID key exactly, for the identical reason.
+		// since dedup only recognizes a key it has seen before.
+		//
+		// It is deliberately the same SHAPE as the key
+		// internal/dispatch/worker_devices.go derives for the DISPATCH,
+		// because both name the same (job, device) pair. It must never be
+		// published under that key: see resultPublishKey.
+		//
+		// This comment used to say that the two keys agreeing "exactly,
+		// for the identical reason" was the point. That was the bug,
+		// written down as a safety property.
 		ID:        payload.JobID + ":" + payload.DeviceID,
 		JobID:     payload.JobID,
 		DeviceID:  payload.DeviceID,
 		RunbookID: payload.RunbookID,
 		Outcome:   outcome,
 		Reason:    reason,
-	})
+	}
+
+	// Without a WAL the outcome is published directly, best effort: if
+	// the bus is unreachable at this instant the result is lost and the
+	// job it belongs to waits for a device that will never report.
+	//
+	// That is worse than the WAL path and it is still far better than the
+	// alternative this replaced, which was publishing nothing at all
+	// unless an operator had set RUNNER_WAL_DIR. Reporting was opt-in
+	// while nothing consumed it, so the gap was invisible; now that a job
+	// stays "running" until its devices report, a Runner that reports
+	// nothing leaves every job it touches running forever. Durability is
+	// the option here. Reporting is not.
+	if a.wal == nil {
+		publishCtx, publishCancel := context.WithTimeout(context.Background(), walDurabilityTimeout)
+		defer publishCancel()
+		a.publishResult(publishCtx, entry)
+		return
+	}
+
+	entry, err := a.wal.Append(appendCtx, entry)
 	if err != nil {
 		a.logger.Error("failed to append wal result entry", slog.String("job_id", payload.JobID), slog.String("error", err.Error()))
 		return
@@ -118,6 +164,56 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 	defer flushCancel()
 	a.flushOne(flushCtx, entry)
 }
+
+// publishResult publishes one outcome to topology.ResultSubject, reporting
+// whether it landed. Shared by the WAL flush and the WAL-less direct path,
+// so both derive the subject and the idempotency key identically.
+func (a *Agent) publishResult(ctx context.Context, entry ResultEntry) bool {
+	evt, err := event.WrapPayload(entry.ID, "job.result", entry)
+	if err != nil {
+		a.logger.Error("failed to wrap result entry", slog.String("id", entry.ID), slog.String("error", err.Error()))
+		return false
+	}
+
+	// entry.ID NAMESPACED, not entry.ID itself, and the namespace is the
+	// whole point rather than decoration.
+	//
+	// JetStream's producer-side dedup window is scoped to the STREAM, not
+	// to the subject. Every subject in this system lives in one stream
+	// ("pleiades.>", internal/topology/stream.go), so a message id is
+	// global across dispatches, results, journals and everything else.
+	// entry.ID is byte-identical to the idempotency key the Controller
+	// stamped on the DISPATCH that caused this execution
+	// (internal/dispatch/worker_devices.go), and that dispatch went into
+	// the same stream seconds earlier, inside the same window. Publishing
+	// the result under it collapsed the result onto the dispatch: the
+	// broker answered PubAck{Duplicate:true} with a NIL error, so every
+	// layer above read a silent discard as a success.
+	//
+	// internal/adapters/native/journal.go already namespaces its own key
+	// the same way, for the same reason. FAILURE_PATTERNS #222.
+	pubCtx := event.WithIdempotencyKey(ctx, resultPublishKey(entry.ID))
+	if err := a.bus.Publish(pubCtx, topology.ResultSubject(entry.JobID), *evt); err != nil {
+		// Warn, not Debug. cmd/runner/main.go builds its logger at
+		// LevelInfo, so a Debug here is not quiet, it is invisible: a
+		// result that genuinely failed to publish leaves a job unable to
+		// finish and said nothing anywhere.
+		a.logger.Warn("failed to publish result entry",
+			slog.String("id", entry.ID), slog.String("job_id", entry.JobID), slog.String("error", err.Error()))
+		return false
+	}
+	return true
+}
+
+// resultPublishKey namespaces a WAL entry's id for publication.
+//
+// The id the WAL files an entry under and the id the message is published
+// under are two different things, and conflating them is what
+// FAILURE_PATTERNS #222 was. The WAL needs (JobID, DeviceID) so that a
+// redelivered dispatch re-reports as the same entry rather than a new one.
+// The STREAM needs a key no other publisher can mint, because JetStream
+// dedups per stream and this module puts every subject in one.
+func resultPublishKey(id string) string { return "result:" + id }
 
 // flushWAL retries delivering every entry still Pending in the WAL. It is
 // called from fetchLoop's own idle-backoff branch: an idle fetch tick has
@@ -146,28 +242,14 @@ func (a *Agent) flushWAL(ctx context.Context) {
 // retry loop) does not treat this as an error of its own, since a future
 // flushWAL call is exactly the retry mechanism for it.
 func (a *Agent) flushOne(ctx context.Context, entry ResultEntry) {
-	evt, err := event.WrapPayload(entry.ID, "job.result", entry)
-	if err != nil {
-		a.logger.Error("failed to wrap wal result entry", slog.String("id", entry.ID), slog.String("error", err.Error()))
-		return
-	}
-
-	// entry.ID as the idempotency key: a redundant flush retry of an
-	// already-delivered entry (this Runner acknowledged it locally, but
-	// crashed before that acknowledgment reached disk) dedups server-side
-	// via the shared event.Bus mechanism, instead of reporting the same
-	// job outcome twice.
-	pubCtx := event.WithIdempotencyKey(ctx, entry.ID)
-	if err := a.bus.Publish(pubCtx, topology.ResultSubject(entry.JobID), *evt); err != nil {
-		a.logger.Debug("failed to flush wal result entry, will retry",
-			slog.String("id", entry.ID), slog.String("job_id", entry.JobID), slog.String("error", err.Error()))
+	if !a.publishResult(ctx, entry) {
 		return
 	}
 
 	if err := a.wal.Acknowledge(ctx, entry.ID); err != nil {
 		// Flushed but not locally acknowledged: the next flushWAL call
 		// will republish it, deduped server-side by the identical
-		// IdempotencyKey above, not silently dropped or double-counted.
+		// resultPublishKey above, not silently dropped or double-counted.
 		a.logger.Error("flushed wal entry but failed to acknowledge it locally; a future retry will redeliver a deduped duplicate",
 			slog.String("id", entry.ID), slog.String("error", err.Error()))
 	}

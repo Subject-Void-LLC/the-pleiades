@@ -336,6 +336,7 @@ func (s *entStore) replaceQuestions(ctx context.Context, templateID int, questio
 			SetLabel(q.Label).
 			SetHelp(q.Help).
 			SetQuestionType(string(q.Type)).
+			SetAllowProgramContent(q.AllowProgramContent).
 			SetRequired(q.Required).
 			SetDefaultValue(q.Default).
 			SetChoices(q.Choices).
@@ -403,10 +404,12 @@ func hydrate(row *ent.Template) Template {
 			Help:     q.Help,
 			Type:     QuestionType(q.QuestionType),
 			Required: q.Required,
-			Default:  q.DefaultValue,
-			Choices:  q.Choices,
-			Min:      q.MinValue,
-			Max:      q.MaxValue,
+
+			AllowProgramContent: q.AllowProgramContent,
+			Default:             q.DefaultValue,
+			Choices:             q.Choices,
+			Min:                 q.MinValue,
+			Max:                 q.MaxValue,
 		})
 	}
 	tmpl.Survey.Questions = questions

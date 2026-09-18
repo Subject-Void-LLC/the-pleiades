@@ -241,11 +241,19 @@ func main() {
 			event.NewNatsDedupStore(dedupKV), topology.DerivedDedupTTLFloor(outageBudget)))
 	}
 
-	// WAL result buffering (PLAN.md Section 16's State Desync
-	// Mitigation) is opt-in: only constructed, and only fail-closed at
-	// startup, when an operator actually asks for it via RUNNER_WAL_DIR.
-	// A Runner that never sets this env var behaves exactly as if
-	// WithResultWAL did not exist.
+	// WAL result buffering (PLAN.md Section 16's State Desync Mitigation)
+	// is opt-in: only constructed, and only fail-closed at startup, when
+	// an operator actually asks for it via RUNNER_WAL_DIR. What the env
+	// var buys is DURABILITY of a result that could not be published at
+	// the moment it happened, not the reporting itself.
+	// Reporting is unconditional. A job stays "running" until every device
+	// it dispatched to has reported back, so a Runner that publishes no
+	// results leaves every job it touches running forever. This used to be
+	// reachable only through the WAL option below, which meant a Runner
+	// started without RUNNER_WAL_DIR reported nothing at all; that was
+	// invisible for as long as nothing consumed results.
+	agentOpts = append(agentOpts, runner.WithResultReporting(bus))
+
 	if walDir := getenv("RUNNER_WAL_DIR", ""); walDir != "" {
 		wal, err := runner.NewFileWAL(walDir)
 		if err != nil {
@@ -253,6 +261,19 @@ func main() {
 		}
 		agentOpts = append(agentOpts, runner.WithResultWAL(wal, bus))
 	}
+
+	// Per-job cancel signals, over the same connection the dispatch
+	// consumer already uses. Core NATS rather than JetStream, for the
+	// reasons internal/event's control channel documents, so this adds a
+	// subscription and no consumer.
+	//
+	// ON by default, unlike the WAL above, because the failure it covers
+	// is one an operator experiences directly: a run they have decided to
+	// stop carrying on against real devices. A Runner whose subscribe
+	// permission is withheld degrades silently to the old behaviour rather
+	// than refusing to start, which is why internal/meshid's Runner grant
+	// names the control space explicitly.
+	agentOpts = append(agentOpts, runner.WithCancelSignals(event.NewNATSControl(nc)))
 
 	// The liveness heartbeat (internal/runner/heartbeat.go), which is
 	// what `runner healthcheck` reads and therefore what an orchestrator

@@ -325,7 +325,7 @@ are gone from this list.
 | `max` | `launch.Question.Max` | none |
 | `min` | `launch.Question.Min` | AWX's own semantics: a numeric bound or a text length |
 | `required` | `launch.Question.Required` | none |
-| `type` | `launch.Question.Type` | our seven QuestionType values are AWX's seven, character for character |
+| `type` | `launch.Question.Type` | every one of AWX's seven type values is ours, character for character; we add an eighth, file, that AWX does not have |
 | `variable` | `launch.Question.Variable` | none |
 
 ### AWX REST envelope (1)

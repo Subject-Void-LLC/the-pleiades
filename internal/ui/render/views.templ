@@ -332,6 +332,18 @@ templ Action(m view.ActionModel) {
 
 // Declared is what a StatusDeclared view renders. It says out loud that it
 // is a skeleton rather than presenting an empty page that looks broken.
+// Notice is a write path's refusal, in the operator's own terms.
+//
+// The whole page is the shared zero state, which is the point: a refusal is
+// a problem state, and this application already has one way of drawing those
+// with one tone, one role and one place the resolving control goes.
+templ Notice(m view.NoticeModel) {
+	@Layout(m.Page) {
+		@pageChrome(m.Chrome())
+		@zeroState(m.Zero())
+	}
+}
+
 templ Declared(m view.DeclaredModel) {
 	@Layout(m.Page) {
 		@pageChrome(m.Chrome())

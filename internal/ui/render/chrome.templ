@@ -29,10 +29,45 @@ templ pageChrome(c view.Chrome) {
 		if c.Summary != "" {
 			<p class="view-summary">{ c.Summary }</p>
 		}
+		if c.HasDownloads() {
+			@downloadList(c.Downloads)
+		}
 		if c.HasTabs() {
 			@tabStrip(c.Tabs)
 		}
 	</header>
+}
+
+// downloadList renders the forms this record can be saved as.
+//
+// A list with visible notes rather than buttons on the title row, because
+// what separates two downloads of the same record is a sentence: one is
+// kept as long as the record and carries no secret, the other is held for
+// the broker's retention window and then is gone. That belongs where a
+// reader sees it before choosing, which rules out a tooltip -- invisible to
+// a keyboard user on some browsers and to a touch user on nearly all of
+// them.
+//
+// The note is a sibling of the link rather than part of its text, and is
+// bound to it with aria-describedby, so a screen reader announces the label
+// as the link's name and the caveat as its description instead of reading
+// one run-on link title.
+templ downloadList(links []view.DownloadLink) {
+	<section class="downloads" aria-labelledby="downloads-heading">
+		<h2 id="downloads-heading">Downloads</h2>
+		<ul>
+			for _, d := range links {
+				<li>
+					if d.NoteID() != "" {
+						<a class="btn" href={ templ.SafeURL(d.Href) } aria-describedby={ d.NoteID() }>{ d.Label }</a>
+						<p class="download-note" id={ d.NoteID() }>{ d.Summary }</p>
+					} else {
+						<a class="btn" href={ templ.SafeURL(d.Href) }>{ d.Label }</a>
+					}
+				</li>
+			}
+		</ul>
+	</section>
 }
 
 // chromeAction renders one control on the title row.
@@ -140,10 +175,17 @@ templ dataTable(t view.TableModel) {
 						for _, col := range t.Columns {
 							<th scope="col">{ col.Label }</th>
 						}
+						if t.HasRowControls() {
+							// Headed rather than blank. A column with no
+							// header is announced by its position, which
+							// tells a screen reader user nothing about
+							// what the buttons under it do.
+							<th scope="col"><span class="visually-hidden">Actions</span></th>
+						}
 					</tr>
 				</thead>
 				<tbody>
-					for _, row := range t.Rows {
+					for i, row := range t.Rows {
 						<tr>
 							for _, col := range t.Columns {
 								// data-label is what a narrow viewport
@@ -152,6 +194,20 @@ templ dataTable(t view.TableModel) {
 								// cell still says what it is.
 								<td data-label={ col.Label } data-primary={ t.IsPrimary(col) }>
 									@tableCell(t, row, col)
+								</td>
+							}
+							if t.HasRowControls() {
+								// The flex container is a div inside the
+								// cell rather than the cell itself:
+								// display:flex on a td takes it out of the
+								// table formatting context, and the column
+								// stops lining up with its own header.
+								<td data-label="Actions" data-primary="false">
+									<div class="row-actions">
+										for _, control := range t.ControlsAt(i) {
+											@rowControl(t, control)
+										}
+									</div>
 								</td>
 							}
 						</tr>
@@ -192,6 +248,41 @@ templ tableCell(t view.TableModel, row view.Row, col view.Field) {
 	}
 }
 
+// rowControl renders one control on one row.
+//
+// Always a form, never a link: it changes state, and a GET that changes
+// state is one a link prefetcher or a corporate scanner eventually runs for
+// somebody. A confirming control posts the same form from inside a dialog
+// instead of from the cell, so what is submitted is identical either way
+// and there is no second submission path to keep in step.
+templ rowControl(t view.TableModel, c view.RowControl) {
+	if c.Prompts {
+		// A link, and the only row control that is one. It changes
+		// nothing: it opens a form, and the form posts back to this same
+		// address. Every other control here posts directly, so a link
+		// would be a state change on a GET.
+		<a class="btn" href={ templ.SafeURL(c.Href) }>{ c.Label }</a>
+	} else if c.Confirms() {
+		<button class="btn btn-danger" type="button" data-dialog-open={ c.DialogID }>{ c.Label }</button>
+		<dialog id={ c.DialogID } aria-labelledby={ c.DialogID + "-heading" }>
+			<div class="block">
+				<h2 id={ c.DialogID + "-heading" }>{ c.Label }?</h2>
+				<p>{ c.Confirm }</p>
+				<form method="post" action={ templ.SafeURL(c.Href) }>
+					<input type="hidden" name="_csrf" value={ t.CSRFToken }/>
+					<button class="btn btn-danger" type="submit">{ c.Label }</button>
+					<button class="btn" type="button" data-dialog-close="true">Cancel</button>
+				</form>
+			</div>
+		</dialog>
+	} else {
+		<form method="post" action={ templ.SafeURL(c.Href) }>
+			<input type="hidden" name="_csrf" value={ t.CSRFToken }/>
+			<button class="btn" type="submit">{ c.Label }</button>
+		</form>
+	}
+}
+
 // sectionPanel renders one related-record table under a record.
 //
 // It is the shared table plus a heading, and nothing else. Everything that
@@ -214,6 +305,9 @@ templ sectionPanel(s view.SectionView) {
 		}
 		if s.Spec.Summary != "" {
 			<p class="view-summary">{ s.Spec.Summary }</p>
+		}
+		if s.Note != "" {
+			<p class="view-summary section-note">{ s.Note }</p>
 		}
 		@dataTable(s.Table())
 	</section>

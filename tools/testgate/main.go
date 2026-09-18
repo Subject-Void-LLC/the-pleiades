@@ -77,27 +77,78 @@ func run(integration bool) error {
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
 	events, waitErr := flakegate.RunGoTestJSON(args, os.Stdout)
-	hard, warned := flakegate.Classify(events, tolerated)
+	listed, warned := flakegate.Classify(events, tolerated)
 
-	if len(warned) > 0 {
-		fmt.Printf("testgate: %d test failure(s) confined to flaky-packages.json packages, treated as warnings:\n\n", len(warned))
-		for _, f := range warned {
-			fmt.Printf("  %s: %s (%s)\n", f.Package, f.Test, tolerated[f.Package])
+	// The isolation pass, and it is what decides. Everything that failed
+	// goes through it -- the failures the list would have tolerated as
+	// well as the ones it would not -- because the question a static list
+	// answers ("is this package known to lose races") is not the question
+	// worth asking ("did THIS test fail because of what else was running").
+	//
+	// A test that passes alone failed because of its neighbours. A test
+	// that fails alone fails, and a reason somebody wrote in a JSON file
+	// months ago does not change that. So a listed package gets no
+	// protection from a real defect, which is the direction this repository
+	// has actually been hurt in: four e2e tests failed identically in five
+	// consecutive runs and were warned about every time, and the defect
+	// behind them was a total outage.
+	failures := append(append([]flakegate.Failure{}, listed...), warned...)
+	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("re-running failures in isolation: %w", err)
+	}
+
+	if len(contention) > 0 {
+		fmt.Printf("\ntestgate: %d failure(s) passed when re-run alone, so they lost a race rather than broke:\n\n", len(contention))
+		for _, f := range contention {
+			if entry, ok := tolerated[f.Package]; ok {
+				fmt.Printf("  %s: %s (listed: %s)\n", f.Package, f.Test, flakegate.FirstSentence(entry.Reason))
+				continue
+			}
+			// Not listed, and it did not need to be: the re-run is the
+			// evidence. Named anyway, because a package that starts
+			// losing races is worth somebody noticing.
+			fmt.Printf("  %s: %s (not listed; tolerated on this run's own evidence)\n", f.Package, f.Test)
 		}
 		fmt.Println()
 	}
 
-	if len(hard) > 0 {
-		fmt.Fprintf(os.Stderr, "testgate: %d failure(s) NOT in flaky-packages.json, or a build failure (never tolerated):\n\n", len(hard))
-		for _, f := range hard {
+	if len(notRun) > 0 {
+		// Their own heading, because they were never asked twice. Saying
+		// they failed again would be the gate reporting a check it did not
+		// perform, which is worse than having no isolation pass at all.
+		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) were NOT re-run, because more than %d distinct tests failed:\n\n", len(notRun), flakegate.MaxIsolationRetries)
+		for _, f := range notRun {
 			if f.Test == "" {
-				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
 		}
-		fmt.Fprintln(os.Stderr, "\nFix it, or if this package genuinely provisions real ephemeral infrastructure and this is a resource-contention flake (confirm by rerunning the exact failing test in isolation), add a flaky-packages.json entry with a written reason.")
-		return fmt.Errorf("%d failure(s) outside flaky-packages.json", len(hard))
+		fmt.Fprintln(os.Stderr, "\nThat many failures at once is a change that broke something, not a busy machine. "+
+			"If you believe otherwise, re-run one of them alone and see.")
+		return fmt.Errorf("%d failure(s), too many to re-run in isolation", len(notRun))
+	}
+
+	if len(confirmed) > 0 {
+		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) failed AGAIN when re-run alone, or could not be re-run at all:\n\n", len(confirmed))
+		for _, f := range confirmed {
+			if f.Test == "" {
+				// Named by kind, because "build failed" was printed for a
+				// TIMEOUT too until the two were separated, and a reader
+				// sent to look for a compile error in a package that
+				// compiles fine has been sent the wrong way.
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
+				continue
+			}
+			if _, ok := tolerated[f.Package]; ok {
+				fmt.Fprintf(os.Stderr, "  %s: %s (its package is in flaky-packages.json, which does not cover failing alone)\n", f.Package, f.Test)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
+		}
+		fmt.Fprintln(os.Stderr, "\nThese are not contention. Fix them.")
+		return fmt.Errorf("%d failure(s) confirmed in isolation", len(confirmed))
 	}
 
 	// waitErr (go test's own exit status) is otherwise ignored: a non-zero
@@ -110,10 +161,10 @@ func run(integration bool) error {
 		return fmt.Errorf("go test produced no output at all: %w", waitErr)
 	}
 
-	if len(warned) == 0 {
+	if len(contention) == 0 {
 		fmt.Println("testgate: all tests passed")
 	} else {
-		fmt.Println("testgate: passed (warnings above)")
+		fmt.Println("testgate: passed (every failure above passed when re-run alone)")
 	}
 	return nil
 }

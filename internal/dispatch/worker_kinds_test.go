@@ -81,8 +81,8 @@ func TestWorker_APlaybookJobIsPreparedThroughItsOwnSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.State != "completed" {
-		t.Fatalf("job state = %q (reason %q), want completed", got.State, got.FailureReason)
+	if got.State != "running" {
+		t.Fatalf("job state = %q (reason %q), want running: %s", got.State, got.FailureReason, stateNote)
 	}
 	if got.DispatchedCount != 1 {
 		t.Errorf("dispatched %d devices, want 1", got.DispatchedCount)
@@ -189,7 +189,7 @@ func TestWorker_AnEmptyKindStillMeansRunbook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.State != "completed" {
-		t.Fatalf("job state = %q (reason %q), want completed", got.State, got.FailureReason)
+	if got.State != "running" {
+		t.Fatalf("job state = %q (reason %q), want running: %s", got.State, got.FailureReason, stateNote)
 	}
 }

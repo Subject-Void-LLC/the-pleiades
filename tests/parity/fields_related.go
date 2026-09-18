@@ -196,19 +196,30 @@ var SurveySpecFields = []Field{
 
 // SurveyQuestionFields classifies one survey question.
 //
-// The best-represented resource in the corpus, and not by accident: our
-// seven question types are AWX's seven, character for character
+// The best-represented resource in the corpus, and not by accident: every
+// one of AWX's seven question types is ours, character for character
 // (text, textarea, password, integer, float, multiplechoice, multiselect),
 // so the type vocabulary needs no translation at all.
 //
-// One divergence is deliberate and worth keeping: we refuse a password
+// That is a SUPERSET claim now rather than an equality, and the direction
+// is what keeps it safe. We have an eighth type, `file`, which AWX has no
+// name for. An AWX survey still means exactly what it meant, because every
+// type it can name is here; a survey authored here that asks for a file has
+// no AWX equivalent, so it is the EXPORT direction that has nothing to say,
+// not the import. Parity is measured against what AWX can express, which is
+// unchanged.
+//
+// Two divergences are deliberate and worth keeping. We refuse a password
 // question that carries a default, because a default password is a
-// credential stored in the template. AWX permits it. An import of such a
-// question must drop the default and say so rather than storing it.
+// credential stored in the template; AWX permits it, so an import of such a
+// question must drop the default and say so rather than storing it. And the
+// `file` type refuses program content unless both a deployment variable and
+// the question itself permit it, which has no AWX counterpart because the
+// type does not exist there.
 var SurveyQuestionFields = []Field{
 	{Name: "variable", Status: Represented, Ours: "launch.Question.Variable"},
 	{Name: "required", Status: Represented, Ours: "launch.Question.Required"},
-	{Name: "type", Status: Represented, Ours: "launch.Question.Type", Note: "our seven QuestionType values are AWX's seven, character for character"},
+	{Name: "type", Status: Represented, Ours: "launch.Question.Type", Note: "every one of AWX's seven type values is ours, character for character; we add an eighth, file, that AWX does not have"},
 	{Name: "min", Status: Represented, Ours: "launch.Question.Min", Note: "AWX's own semantics: a numeric bound or a text length"},
 	{Name: "max", Status: Represented, Ours: "launch.Question.Max"},
 	{

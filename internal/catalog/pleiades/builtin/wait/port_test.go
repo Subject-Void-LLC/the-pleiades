@@ -1178,3 +1178,70 @@ func TestPort_StatRecordFailureOnTimeoutIsReported(t *testing.T) {
 		t.Errorf("error = %q, want it to carry what recording returned rather than only the timeout", err)
 	}
 }
+
+// TestPort_ABudgetSpentDuringSetupStillReportsTheWait is the regression the
+// push gate found, which review had not.
+//
+// The deadline covers the connection and the tool check as well as every
+// probe, but only the probe path converted an expiry into this task's own
+// message. So the same cause -- the budget running out -- said "timed out
+// waiting for host:port to be started" when it happened between probes and
+// "remoteexec: run command: context deadline exceeded" when it happened
+// while connecting, which tells an operator the session broke rather than
+// that their wait expired.
+//
+// Reproduced deterministically by pointing the task at a listener that
+// ACCEPTS and then says nothing: the SSH handshake hangs there until the
+// budget is gone, where the real failure needed a machine loaded enough to
+// make a working handshake outrun two seconds.
+func TestPort_ABudgetSpentDuringSetupStillReportsTheWait(t *testing.T) {
+	silent := portSilentListener(t)
+	// Credentials from a real server, so the run gets past auth and stalls
+	// where this test is about: the handshake against a socket that never
+	// answers.
+	rc := newPortContext(startPortServer(t))
+
+	_, err := wait.Port(context.Background(), rc,
+		&portTarget{Stub: newPortStub(), host: silent.host, port: silent.port},
+		portParams(map[string]any{
+			"port":    silent.port,
+			"timeout": 1,
+			"sleep":   1,
+		}))
+	if err == nil {
+		t.Fatal("a wait whose budget expired during setup was reported as success")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error = %q, want this task's own expiry rather than the transport's", err)
+	}
+	if !strings.Contains(err.Error(), "to be started") {
+		t.Errorf("error = %q, want it to say what it was waiting for", err)
+	}
+}
+
+// portSilentListener accepts connections and never writes, so an SSH
+// handshake against it hangs until its caller's deadline.
+func portSilentListener(t *testing.T) portServer {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Held open and never spoken to. Closed by the deferred
+			// listener close when the test ends.
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	return portServer{host: "127.0.0.1", port: addr.Port}
+}

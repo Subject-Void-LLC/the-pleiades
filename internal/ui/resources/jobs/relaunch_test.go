@@ -65,6 +65,12 @@ func TestRelaunchable_IsOfferedOnlyWhereItWorks(t *testing.T) {
 		// copy of work already running.
 		{"a pending job", jobRow("pending", "nightly backup"), false},
 		{"a job fanning out", jobRow("fanning_out", "nightly backup"), false},
+		{"a running job", jobRow("running", "nightly backup"), false},
+		// A canceled job is finished, so running it again is exactly what
+		// somebody who stopped it and fixed the reason wants. The
+		// dispatcher's own Relaunch has no state guard at all, so nothing
+		// downstream refuses this.
+		{"a canceled job from a template", jobRow("canceled", "nightly backup"), true},
 		// No template to repeat: a pre-Phase-21 job named a group and a
 		// runbook directly, and there is no saved definition.
 		{"a completed job with no template", jobRow("completed", ""), false},

@@ -106,9 +106,13 @@ type Job struct {
 	// by the time a background worker picks the job up.
 	Actor string
 	// State is the job's current lifecycle position: "pending",
-	// "fanning_out", "completed", or "failed" (see
+	// "fanning_out", "completed", "failed", or "canceled" (see
 	// internal/ent/schema/job.go's State field for why "failed" exists
-	// as its own state rather than being folded into "completed").
+	// as its own state rather than being folded into "completed", and
+	// why "canceled" is its own state rather than a kind of "failed").
+	//
+	// The schema also declares "running", which nothing writes yet: see
+	// that field's own comment for why the value exists ahead of a writer.
 	State string
 	// DispatchedCount, SkippedCount, and FailedCount are the terminal
 	// per-device tallies, final once State is "completed". They read 0
@@ -134,6 +138,18 @@ type Job struct {
 	// echo a storage error, which can carry a table name, a column or a
 	// host.
 	FailureReason string
+
+	// CanceledAt and CanceledBy record who stopped this job and when, and
+	// are the zero value for every State other than "canceled".
+	//
+	// Kept apart from FailureReason rather than folded into it, because
+	// the two answer different questions: FailureReason says why the
+	// platform could not proceed, and these say which person decided it
+	// should not. CanceledBy holds that person's identity subject, which
+	// is often not Actor: a scheduled job is launched by the scheduler and
+	// stopped by whoever was watching it.
+	CanceledAt time.Time
+	CanceledBy string
 
 	// CreatedAt is when the job was first persisted.
 	CreatedAt time.Time
@@ -188,6 +204,66 @@ type JobTask struct {
 	// field comment: this is an audit trail, and a device's Properties()
 	// value is never safe to echo into it.
 	Reason string
+	// Result, ResultReason and FinishedAt record what the Runner made of
+	// this device once the runbook actually ran on it, which is a
+	// different fact from Outcome above: that one says whether the
+	// fan-out handed the device off, this one says what happened next.
+	//
+	// All three are the zero value until a result comes back, and stay
+	// that way forever for a device that was skipped or whose dispatch
+	// failed. ResultReason carries the same obligation Reason does: it
+	// crosses the mesh from a Runner into an audit trail, so it must
+	// never echo a device property or a raw internal error.
+	Result       Result
+	ResultReason string
+	FinishedAt   time.Time
+}
+
+// Result is the fixed set of execution outcomes a Runner reports back for
+// one device, as distinct from the Outcome the Controller recorded when it
+// dispatched.
+//
+// Named, parsed and rejected on an unrecognized value for the identical
+// reason Outcome is: silently coercing a value this build does not know
+// would be free to turn a failed run into a successful-looking one.
+type Result string
+
+// The two results a Runner can report, plus the empty value meaning it has
+// not reported yet.
+const (
+	// ResultPending is the zero value: this device has not reported back.
+	// A job with any task in this state is still running.
+	ResultPending Result = ""
+	// ResultSucceeded means the runbook ran on this device and finished
+	// without error.
+	ResultSucceeded Result = "succeeded"
+	// ResultFailed means the runbook ran on this device and did not
+	// finish successfully.
+	ResultFailed Result = "failed"
+)
+
+// String renders the result for storage and log lines.
+func (r Result) String() string {
+	return string(r)
+}
+
+// ParseResult is the inverse of String, for the result consumer hydrating
+// what a Runner put on the wire. It rejects an unrecognized value rather
+// than defaulting, mirroring ParseOutcome exactly.
+//
+// The empty string is deliberately NOT accepted here. A result arriving
+// over the mesh that names no outcome is malformed, and treating it as
+// "not reported yet" would let a bad message quietly leave a job running
+// forever while looking like it had been handled.
+func ParseResult(s string) (Result, error) {
+	switch Result(s) {
+	case ResultSucceeded:
+		return ResultSucceeded, nil
+	case ResultFailed:
+		return ResultFailed, nil
+	default:
+		return "", fmt.Errorf("unknown job task result: %q", s)
+	}
 }
 
 // Outcome is the fixed set of results a JobTask can record. It is a named
@@ -406,6 +482,85 @@ type JobStore interface {
 	// returned; see Complete's own doc comment for the identical
 	// state-plus-fence guard this write is conditioned on and why.
 	Fail(ctx context.Context, jobID string, fence int64, reason string) error
+
+	// SettleRunning ends a fan-out that dispatched to at least one device
+	// by moving jobID from "fanning_out" to "running" and stamping its
+	// tallies, rather than straight to "completed".
+	//
+	// It is Complete's sibling and takes the identical guard. Which of the
+	// two the worker calls is decided by one question: did anything get
+	// handed to a Runner. If nothing did, every device having been skipped
+	// or failed at dispatch, the job is genuinely over and Complete is
+	// right. If something did, the job is not over just because the
+	// Controller has stopped talking, and calling it completed would be
+	// the platform reporting the end of its OWN work as the end of the
+	// run.
+	SettleRunning(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error
+
+	// RecordResult records what a Runner made of one device, and reports
+	// whether that was the last device the job was waiting on.
+	//
+	// It is idempotent by construction: a redelivered result writes the
+	// same values again, and the "was that the last one" answer is taken
+	// from the stored rows rather than from a counter, so a duplicate
+	// cannot move a job to a terminal state twice or push a tally past
+	// what actually happened.
+	//
+	// A result for a device this job never dispatched to, or for an
+	// unknown job, returns ErrJobNotFound: both mean the same thing to the
+	// consumer, which is that there is nothing here to record and
+	// retrying will not change that.
+	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string) (complete bool, err error)
+
+	// CompleteRunning moves jobID from "running" to "completed" once every
+	// dispatched device has reported. It is the only writer of that
+	// transition.
+	//
+	// Separate from RecordResult rather than folded into it, so that the
+	// decision to end a job is one conditional write that either matches a
+	// running job or does nothing at all. Two results arriving at once can
+	// therefore both believe they were last, and only one of them will
+	// actually end the job.
+	CompleteRunning(ctx context.Context, jobID string) error
+
+	// Cancel stops jobID, moving it from "pending" or "fanning_out" to
+	// "canceled" and stamping canceledBy and the current time. It is a
+	// compare-and-swap on the state alone, deliberately taking no fence:
+	// a person pressing cancel is not a participant in the fan-out lease
+	// and holds no claim to present, and requiring one would mean the only
+	// party able to stop a job is the worker running it.
+	//
+	// It returns ErrJobNotFound if jobID names no job, and ErrNotCancelable
+	// if it names one that has already reached a terminal state. Cancelling
+	// an already-canceled job is therefore also ErrNotCancelable rather
+	// than a second successful cancel, which keeps canceled_by honest about
+	// who actually stopped it.
+	//
+	// Cancel settles the RECORD. It does not itself reach a Runner already
+	// executing a dispatch for this job: that is a separate, best-effort
+	// signal (see internal/topology.ControlSubject). What this guarantees
+	// is the durable half, that no device this job has not yet reached will
+	// be dispatched to, which the fan-out loop enforces by way of
+	// RecordTask returning ErrCanceled.
+	Cancel(ctx context.Context, jobID string, canceledBy string) error
+
+	// SettleCanceled stamps the tallies a fan-out had reached at the
+	// moment it was stopped, on a job already in the "canceled" state. It
+	// changes no state: Cancel already did that, and this only fills in
+	// what the worker had managed before it found out.
+	//
+	// It exists because the tallies are shown on a job's own record and
+	// in the job list. Without it a job canceled after three hundred
+	// devices had been dispatched to would report zero of everything
+	// forever, since Complete, the only writer of those columns, never
+	// runs for a canceled job. Zero is the truthful answer only for a job
+	// canceled before any worker claimed it.
+	//
+	// Guarded on state and fence together, like Complete and Fail: the
+	// caller is the worker that was performing the fan-out and must still
+	// hold its claim, and a job that has somehow left "canceled" is not
+	// one whose tallies this call should be writing.
+	SettleCanceled(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error
 }
 
 // ErrJobNotFound is returned by JobStore methods when jobID names no job
@@ -425,3 +580,22 @@ var ErrJobNotFound = errors.New("job not found")
 // comparing errors directly, since every real implementation wraps this
 // rather than returning it bare.
 var ErrFenced = errors.New("job fan-out ownership was reclaimed by another worker")
+
+// ErrCanceled is returned by RecordTask when jobID names a real job whose
+// state is "canceled": somebody stopped it while this fan-out was in
+// flight. Like ErrFenced it means stop and do not retry, and for the same
+// reason, that retrying cannot make it untrue. It is a separate sentinel
+// because the two say opposite things about whether the work should ever
+// happen: a fenced worker was superseded and another worker is doing the
+// job right now, while a canceled job is one nobody should carry on
+// dispatching. A caller that collapsed them would log the wrong cause for
+// whichever of the two it did not name. Callers should use errors.Is.
+var ErrCanceled = errors.New("job was canceled")
+
+// ErrNotCancelable is returned by Cancel when jobID names a real job that
+// has already reached a terminal state. Stopping a job that has already
+// stopped is not a failure of the platform and not a success either, so it
+// is reported rather than silently treated as a no-op: an operator who
+// pressed cancel deserves to be told the run had already finished, instead
+// of being shown a success that implies they stopped something.
+var ErrNotCancelable = errors.New("job is no longer running")

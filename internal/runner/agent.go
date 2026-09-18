@@ -67,6 +67,12 @@ type Agent struct {
 	wal ResultWAL
 	bus event.Bus
 
+	// control is the optional per-job cancel channel (agent_exec.go).
+	// Nil unless WithCancelSignals is passed to NewAgent, in which case
+	// an execution also stops when an operator cancels its job, not only
+	// when a lease heartbeat fails or this process shuts down.
+	control event.CancelSubscriber
+
 	// liveness is the optional liveness heartbeat this Agent runs
 	// alongside its pull loop (heartbeat.go). Nil unless WithHeartbeat is
 	// passed to NewAgent.

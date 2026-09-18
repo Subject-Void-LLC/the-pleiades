@@ -119,6 +119,24 @@ const (
 	// with, and it still carries credential:write; the store is what refuses
 	// a dangerous injector, not the relation.
 	RelSetInjectors LinkRel = "set-injectors"
+
+	// RelSetSurvey is the affordance that replaces a template's survey: the
+	// questions a launching operator is asked, and whether they are asked
+	// at all.
+	//
+	// Its own relation for the reason RelSetInputs gives, and the shape is
+	// the same one: a template already uses RelUpdate for its metadata
+	// edit, so a survey control sharing that relation would give one
+	// resource two candidates a client cannot tell apart and two controls
+	// the UI cannot label separately. It carries the same template:write
+	// scope the metadata edit does. The separation identifies the
+	// affordance; it does not describe a different privilege.
+	//
+	// The consequence is worth naming even so. A survey answer becomes an
+	// extra variable the automation reads, so editing a survey changes what
+	// every future run of that template receives, which is a larger thing
+	// than renaming it.
+	RelSetSurvey LinkRel = "set-survey"
 )
 
 // Affordance is one candidate action, described purely in authorization
