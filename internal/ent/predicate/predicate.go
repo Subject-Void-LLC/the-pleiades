@@ -27,6 +27,9 @@ type CredentialType func(*sql.Selector)
 // Device is the predicate function for device builders.
 type Device func(*sql.Selector)
 
+// EncryptionKey is the predicate function for encryptionkey builders.
+type EncryptionKey func(*sql.Selector)
+
 // Fact is the predicate function for fact builders.
 type Fact func(*sql.Selector)
 

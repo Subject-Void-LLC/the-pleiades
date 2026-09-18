@@ -80,6 +80,10 @@ const (
 	KindUser         = "user"
 	KindBinding      = "role binding"
 	KindContact      = "contact"
+
+	// KindEncryptionKey is a master encryption key, named by its short
+	// fingerprint and never by its value (internal/keyregistry).
+	KindEncryptionKey = "encryption key"
 )
 
 // Entry is one recorded change.

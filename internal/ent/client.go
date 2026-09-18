@@ -22,6 +22,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
@@ -64,6 +65,8 @@ type Client struct {
 	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
+	// EncryptionKey is the client for interacting with the EncryptionKey builders.
+	EncryptionKey *EncryptionKeyClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
 	// Group is the client for interacting with the Group builders.
@@ -124,6 +127,7 @@ func (c *Client) init() {
 	c.CredentialInputSource = NewCredentialInputSourceClient(c.config)
 	c.CredentialType = NewCredentialTypeClient(c.config)
 	c.Device = NewDeviceClient(c.config)
+	c.EncryptionKey = NewEncryptionKeyClient(c.config)
 	c.Fact = NewFactClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.Inventory = NewInventoryClient(c.config)
@@ -244,6 +248,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		CredentialInputSource: NewCredentialInputSourceClient(cfg),
 		CredentialType:        NewCredentialTypeClient(cfg),
 		Device:                NewDeviceClient(cfg),
+		EncryptionKey:         NewEncryptionKeyClient(cfg),
 		Fact:                  NewFactClient(cfg),
 		Group:                 NewGroupClient(cfg),
 		Inventory:             NewInventoryClient(cfg),
@@ -291,6 +296,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		CredentialInputSource: NewCredentialInputSourceClient(cfg),
 		CredentialType:        NewCredentialTypeClient(cfg),
 		Device:                NewDeviceClient(cfg),
+		EncryptionKey:         NewEncryptionKeyClient(cfg),
 		Fact:                  NewFactClient(cfg),
 		Group:                 NewGroupClient(cfg),
 		Inventory:             NewInventoryClient(cfg),
@@ -342,8 +348,8 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
-		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
-		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
+		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
+		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
 		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
 		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
 		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
@@ -357,8 +363,8 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
-		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
-		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
+		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
+		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
 		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
 		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
 		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
@@ -384,6 +390,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.CredentialType.mutate(ctx, m)
 	case *DeviceMutation:
 		return c.Device.mutate(ctx, m)
+	case *EncryptionKeyMutation:
+		return c.EncryptionKey.mutate(ctx, m)
 	case *FactMutation:
 		return c.Fact.mutate(ctx, m)
 	case *GroupMutation:
@@ -1679,6 +1687,139 @@ func (c *DeviceClient) mutate(ctx context.Context, m *DeviceMutation) (Value, er
 		return (&DeviceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Device mutation op: %q", m.Op())
+	}
+}
+
+// EncryptionKeyClient is a client for the EncryptionKey schema.
+type EncryptionKeyClient struct {
+	config
+}
+
+// NewEncryptionKeyClient returns a client for the EncryptionKey from the given config.
+func NewEncryptionKeyClient(c config) *EncryptionKeyClient {
+	return &EncryptionKeyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `encryptionkey.Hooks(f(g(h())))`.
+func (c *EncryptionKeyClient) Use(hooks ...Hook) {
+	c.hooks.EncryptionKey = append(c.hooks.EncryptionKey, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `encryptionkey.Intercept(f(g(h())))`.
+func (c *EncryptionKeyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EncryptionKey = append(c.inters.EncryptionKey, interceptors...)
+}
+
+// Create returns a builder for creating a EncryptionKey entity.
+func (c *EncryptionKeyClient) Create() *EncryptionKeyCreate {
+	mutation := newEncryptionKeyMutation(c.config, OpCreate)
+	return &EncryptionKeyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EncryptionKey entities.
+func (c *EncryptionKeyClient) CreateBulk(builders ...*EncryptionKeyCreate) *EncryptionKeyCreateBulk {
+	return &EncryptionKeyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EncryptionKeyClient) MapCreateBulk(slice any, setFunc func(*EncryptionKeyCreate, int)) *EncryptionKeyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EncryptionKeyCreateBulk{err: fmt.Errorf("calling to EncryptionKeyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EncryptionKeyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EncryptionKeyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EncryptionKey.
+func (c *EncryptionKeyClient) Update() *EncryptionKeyUpdate {
+	mutation := newEncryptionKeyMutation(c.config, OpUpdate)
+	return &EncryptionKeyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EncryptionKeyClient) UpdateOne(_m *EncryptionKey) *EncryptionKeyUpdateOne {
+	mutation := newEncryptionKeyMutation(c.config, OpUpdateOne, withEncryptionKey(_m))
+	return &EncryptionKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EncryptionKeyClient) UpdateOneID(id int) *EncryptionKeyUpdateOne {
+	mutation := newEncryptionKeyMutation(c.config, OpUpdateOne, withEncryptionKeyID(id))
+	return &EncryptionKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EncryptionKey.
+func (c *EncryptionKeyClient) Delete() *EncryptionKeyDelete {
+	mutation := newEncryptionKeyMutation(c.config, OpDelete)
+	return &EncryptionKeyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EncryptionKeyClient) DeleteOne(_m *EncryptionKey) *EncryptionKeyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EncryptionKeyClient) DeleteOneID(id int) *EncryptionKeyDeleteOne {
+	builder := c.Delete().Where(encryptionkey.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EncryptionKeyDeleteOne{builder}
+}
+
+// Query returns a query builder for EncryptionKey.
+func (c *EncryptionKeyClient) Query() *EncryptionKeyQuery {
+	return &EncryptionKeyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEncryptionKey},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EncryptionKey entity by its id.
+func (c *EncryptionKeyClient) Get(ctx context.Context, id int) (*EncryptionKey, error) {
+	return c.Query().Where(encryptionkey.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EncryptionKeyClient) GetX(ctx context.Context, id int) *EncryptionKey {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *EncryptionKeyClient) Hooks() []Hook {
+	return c.hooks.EncryptionKey
+}
+
+// Interceptors returns the client interceptors.
+func (c *EncryptionKeyClient) Interceptors() []Interceptor {
+	return c.inters.EncryptionKey
+}
+
+func (c *EncryptionKeyClient) mutate(ctx context.Context, m *EncryptionKeyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EncryptionKeyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EncryptionKeyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EncryptionKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EncryptionKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EncryptionKey mutation op: %q", m.Op())
 	}
 }
 
@@ -5263,16 +5404,16 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
-		LocalCredential, MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
-		SyncRun, Team, Template, User []ent.Hook
+		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
+		JournalEntry, LocalCredential, MeshSigningKey, Organization, Project, Revision,
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, SyncRun, Team, Template, User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
-		LocalCredential, MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
-		SyncRun, Team, Template, User []ent.Interceptor
+		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
+		JournalEntry, LocalCredential, MeshSigningKey, Organization, Project, Revision,
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, SyncRun, Team, Template, User []ent.Interceptor
 	}
 )

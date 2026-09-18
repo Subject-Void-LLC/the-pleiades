@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
@@ -243,6 +244,29 @@ func init() {
 	device.DefaultState = deviceDescState.Default.(string)
 	// device.StateValidator is a validator for the "state" field. It is called by the builders before save.
 	device.StateValidator = deviceDescState.Validators[0].(func(string) error)
+	encryptionkeyMixin := schema.EncryptionKey{}.Mixin()
+	encryptionkeyMixinFields0 := encryptionkeyMixin[0].Fields()
+	_ = encryptionkeyMixinFields0
+	encryptionkeyFields := schema.EncryptionKey{}.Fields()
+	_ = encryptionkeyFields
+	// encryptionkeyDescCreatedAt is the schema descriptor for created_at field.
+	encryptionkeyDescCreatedAt := encryptionkeyMixinFields0[0].Descriptor()
+	// encryptionkey.DefaultCreatedAt holds the default value on creation for the created_at field.
+	encryptionkey.DefaultCreatedAt = encryptionkeyDescCreatedAt.Default.(func() time.Time)
+	// encryptionkeyDescUpdatedAt is the schema descriptor for updated_at field.
+	encryptionkeyDescUpdatedAt := encryptionkeyMixinFields0[1].Descriptor()
+	// encryptionkey.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	encryptionkey.DefaultUpdatedAt = encryptionkeyDescUpdatedAt.Default.(func() time.Time)
+	// encryptionkey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	encryptionkey.UpdateDefaultUpdatedAt = encryptionkeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// encryptionkeyDescFingerprint is the schema descriptor for fingerprint field.
+	encryptionkeyDescFingerprint := encryptionkeyFields[0].Descriptor()
+	// encryptionkey.FingerprintValidator is a validator for the "fingerprint" field. It is called by the builders before save.
+	encryptionkey.FingerprintValidator = encryptionkeyDescFingerprint.Validators[0].(func(string) error)
+	// encryptionkeyDescVersion is the schema descriptor for version field.
+	encryptionkeyDescVersion := encryptionkeyFields[1].Descriptor()
+	// encryptionkey.VersionValidator is a validator for the "version" field. It is called by the builders before save.
+	encryptionkey.VersionValidator = encryptionkeyDescVersion.Validators[0].(func(string) error)
 	factMixin := schema.Fact{}.Mixin()
 	factMixinFields0 := factMixin[0].Fields()
 	_ = factMixinFields0
