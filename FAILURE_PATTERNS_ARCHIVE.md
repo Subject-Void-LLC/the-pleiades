@@ -8029,3 +8029,144 @@ runs no Runner. A local stack that runs a real one would present the same fleet 
 device on the first launch, which is worse than an empty page. Two deliberate omissions in
 different files can compose into a third property nobody decided on, and no single file's comment
 is wrong.
+
+## 233. ROTATE_ENCRYPTION_KEYS rotated devices alone, so following the rotation guide made every credential and saved survey answer unreadable
+
+**Symptom.** Not observed in a deployment. Found while writing the setup command's recovery matrix,
+which points operators at rotation as the safe way to change the master key, and so had to be true.
+
+**Root cause.** The controller's rotation goroutine called `crypto.RotateDeviceProperties` and
+nothing else. `RotateCredentialInputs` and `RotateSavedLaunchConfigAnswers` existed, were correct,
+and had their own passing tests, and no composition root called either. A fourth encrypted column,
+`mesh_signing_keys.seed`, had no pass at all. Meanwhile the production guide described one pass per
+entity and told operators to remove the old key once every pass reported converting every row, and
+each pass returned only a count of rows converted, so a row it skipped or could not read left no
+trace an operator could check. An operator who followed the guide removed
+`MASTER_ENCRYPTION_KEY_PREVIOUS` with every credential and every saved survey answer still sealed
+under it.
+
+**Fix.** `crypto.RotateAll` runs a pass for every column in `crypto.encryptedColumns`, the one list
+rotation and the setup census share, and `TestEveryEncryptedColumnIsListed` pairs that list with
+every exported write hook, so a new sealed column cannot land without a pass. Each pass returns
+rotated, skipped and unreadable counts. `cmd/controller/rotation.go` logs one line per table and
+says `key rotation complete: no row needs MASTER_ENCRYPTION_KEY_PREVIOUS any more` only when every
+table was read and nothing was skipped. `TestRunKeyRotation_RotatesCredentialsAndSaysTheOldKeyCanGo`
+removes the previous key after the pass and reads a credential back.
+
+**Lesson.** This is the same shape as #93's composition gap one layer up: code that works, tested
+where it lives, and never reached from where the product runs. A pass that reports only what it did
+cannot answer the question its caller has to ask, which is what it did NOT do.
+
+## 234. The chart's existingSecret path silently turned off the reinstall refusal and the pod roll it built on purpose
+
+**Symptom.** Not observed. Found by an adversarial review of the setup command's plan, which had
+chosen to emit a Kubernetes Secret for `secrets.existingSecret`.
+
+**Root cause.** Two guards were computed from values the chart only sees when it renders its own
+Secret. `the-pleiades.postgres.credentialFingerprint` returned empty under `existingSecret`, so the
+retained-data check that refuses a reinstall onto a volume created with a different password did
+nothing. And the controller's `checksum/secret` annotation hashed `secret.yaml`, which renders
+nothing under `existingSecret`, so a replaced Secret never restarted the pods. The chart's own
+comment recommended `existingSecret` as the way to keep secrets out of Helm's release records, so
+the recommended path was the one with both guards off.
+
+**Fix.** `secrets.existingSecretChecksum` and `postgresql.auth.existingSecretFingerprint` let an
+operator-managed Secret supply both, and `controller setup --target helm` writes them beside the
+Secret it emits. The controller now composes `DB_DSN` from `$(POSTGRES_PASSWORD)` under
+`existingSecret` with the in-chart database, so the Secret never repeats a name derived from the
+release. `tools/helm-lint`'s setup profile renders setup's own values file on every run, and the
+kind gate proves both guards in a real cluster.
+
+**Lesson.** When a template offers an operator-managed alternative to a value it would otherwise
+compute, every guard computed from that value needs a supplied-value path, or the alternative
+quietly turns the guard off. A guard comment that says "empty when X" is recording that gap.
+
+## 235. The compose stack published PostgreSQL and an unauthenticated NATS on every interface
+
+**Symptom.** Not observed as an attack. Found while designing how the setup command reaches the
+compose database.
+
+**Root cause.** `docker-compose.yml` published `5432:5432` and `4222:4222` with no host address, so
+both listened on every interface of the machine running the trial stack. The database's password is
+written in the same file, and the broker runs with no authorization while dispatch messages carry
+the credentials their jobs use. Until this phase the master key was published in the file too, so
+anything that could reach the machine could read every credential in plaintext.
+
+**Fix.** Both are published on `127.0.0.1` only. Nothing in the stack needs them published at all;
+the loopback port serves a client on the same machine, as the getting-started guide's bare
+controller is. `TestComposePublishesTheDatabaseAndBrokerOnLoopbackOnly` pins it.
+
+**Lesson.** A trial stack is the thing people leave running on a laptop on a shared network. "It is
+only for local development" is a statement about intent, and a published port is a statement about
+reach, and only the second one is enforced.
+
+## 236. A fuzz property that checked for a secret as a substring of the error was unsound twice over, and the fuzzer found both
+
+**Symptom.** `FuzzParseEnvFile` failed on `MASTER_ENCRYPTION_KEY=ASTER_ENCRYPTION`, then, after a
+rewrite, on `MASTER_ENCRYPTION_KEY=\xc5`. Neither was a defect in the parser.
+
+**Root cause.** The first property said "a refusal never contains a value from the input". The
+value `ASTER_ENCRYPTION` is a substring of the variable name every refusal correctly names, so the
+check could never be sound: a value can always collide with the error's own wording. The replacement
+property parsed the input twice, once with every letter and digit in each secret rotated, and
+required identical refusals. Its first version rotated with `strings.Map`, which replaces an invalid
+UTF-8 byte with U+FFFD, so the rotated input stopped being invalid and was refused for a different
+reason.
+
+**Fix.** The property is differential: an error that does not depend on a value cannot contain it.
+The rotation works on bytes, leaving everything but ASCII letters and digits untouched. Both inputs
+the fuzzer found are kept in `internal/setup/testdata/fuzz/FuzzParseEnvFile` as seeds.
+
+**Lesson.** Prove independence, not absence. A substring check on an error message is refuted by
+any value that happens to spell part of the message, and a fuzzer will find one. And `strings.Map`
+is not a byte-for-byte transform: it normalizes invalid UTF-8, which is exactly the input a parser
+fuzz target exists to send.
+
+## 237. A terminal echoes type-ahead: a secret typed before a hidden prompt appears is shown on the screen
+
+**Symptom.** A pty test that typed a line and a secret in one burst found the secret in the
+terminal's output, even though it was read with `term.ReadPassword`.
+
+**Root cause.** A terminal's line discipline echoes input when it ARRIVES, under whatever settings
+are in force then. `term.ReadPassword` turns echo off when it is called, which is after its prompt
+is printed. Input that arrives before that, from a paste or from typing ahead, has already been
+echoed with the normal settings.
+
+**Fix.** None needed in the code: reading byte by byte (`prompt.Terminal`) loses nothing between an
+echoed line and a hidden one, which the test proves separately. The tests that assert a secret is
+not echoed now wait for echo to be off before typing, as a person at the prompt does, and the
+production guide's possession-check section says that a key pasted before the hidden prompt appears
+is echoed.
+
+**Lesson.** "Read with echo off" is a property of the moment of reading, not of the input. Tests of
+hidden input have to type after the switch, or they prove the wrong thing in both directions.
+
+## 238. A line-by-line .env reader disagrees with docker compose in two measured ways, either of which would have written a second key
+
+**Symptom.** None in production. Measured by `TestParseEnvFile_AgreesWithDockerCompose`, which runs
+a corpus through the real `docker compose config`.
+
+**Root cause.** Docker compose accepts `MASTER_ENCRYPTION_KEY: <key>` (a colon, YAML style) and
+resolves the full key from it. A reader that only split on `=` would call that line someone else's,
+see no key, and add a second `MASTER_ENCRYPTION_KEY=` below it. And compose reads a double-quoted
+value across line breaks, so a line inside another variable's multi-line value that looks like
+`MASTER_ENCRYPTION_KEY=...` is not a setting at all: compose resolved the key there to empty, while
+a line-based reader would have taken it as the key.
+
+**Fix.** The setup command's reader treats a colon like an equals sign when finding a line's name,
+and refuses the colon form on its own lines. It refuses any file where an unowned line opens a
+quoted value it does not close. The corpus test asserts that wherever the reader accepts a file,
+compose resolves every owned variable to the same value.
+
+**Lesson.** A reader for another tool's format is only as correct as a comparison against that
+tool. Refusing what you cannot read identically is safe; guessing is not.
+
+## 239. A new container-backed package missing from DOCKER_DEPENDENT_PACKAGES failed only as a timed-out container, twenty minutes into the push gate
+
+**Symptom.** `make push-gate` failed in `test-repeat` with `TestRegister_RecordsOnceAndReturnsTheExistingRecordAfter/postgres`: `starting postgres: ... wait until ready: ... context deadline exceeded` after 533 retries. The package passed every time it ran on its own.
+
+**Root cause.** `internal/keyregistry` was new, and its tests start a real PostgreSQL container to prove two replicas registering one key produce one row. The Makefile's `DOCKER_DEPENDENT_PACKAGES` names every package whose tests import testcontainers-go, so that `test-repeat` (which runs everything else three times, strictly, in parallel) leaves them out and `test-race` serializes them. The new package was not on the list, so `test-repeat` ran its container three times over on top of the whole module. The list's comment promised that a missing package "FAILS LOUDLY", and it did, but only as a daemon timeout that looks exactly like the flakes the list exists to prevent, at the end of a twenty minute run.
+
+**Fix.** `internal/keyregistry` is on the list. `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed` reads the imports of every `_test.go` file in the module, in every build configuration, and fails in a second when a package importing testcontainers-go is missing from the list. It was mutation-checked by removing the new entry.
+
+**Lesson.** A list a person must remember to update, whose only enforcement is a failure indistinguishable from load, is not enforced. When a convention exists because of how a gate schedules work, check the convention directly, at unit-test speed, rather than waiting for the gate to trip over it.

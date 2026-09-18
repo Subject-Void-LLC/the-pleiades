@@ -145,6 +145,93 @@ templated into it rather than pulled from a chart repository, so there is no
 `helm dependency build` step and the whole chart is one directory. That is what
 makes the air-gapped install below work.
 
+### What setup tells you about later
+
+`controller setup` is the one command that creates the secrets a deployment cannot
+get back, so it says, at the moment it creates them, what depends on each one later.
+This is the same text it prints, in more detail.
+
+**The master encryption key** is required to read anything already stored, and
+nothing regenerates it. A reinstall that restores it is a recovered system; a
+reinstall without it is a new, empty one, and every credential, stored device
+property and saved survey answer from before is unreadable for good. An upgrade
+keeps it as it is. To change it safely, rotate it (see
+[Rotating the master key](#rotating-the-master-key)); never replace it.
+
+**The JWT secret** only has to be the same on every controller replica, or an API
+token works on one and fails on another. Replacing it rejects every API token signed
+with the old one until the token is signed again. Browser sign-ins do not use it and
+are unaffected. It is not needed to read anything stored.
+
+**The database** holds the work. It needs a backup of its own: the key cannot bring
+back a database that is gone, and a backup cannot be read without the key.
+
+**The outage budget** is the one question setup asks: *what is the longest link
+outage this deployment must survive?* The broker keeps every message for 336 times
+the answer, so the default of 30 minutes keeps 7 days and the 12 hour ceiling keeps
+168 days. Dispatch messages carry the credentials their jobs run with, so those stay
+on the broker as long. The broker's duplicate detection stops at 5 minutes and does
+not grow with a larger answer. Raising the budget later is free. Lowering it discards
+messages older than the new window, so the controller refuses to lower it while it
+holds such messages, until you set `PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true` for that
+one start. See [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last).
+
+#### What setup refuses, and the guard on each setting
+
+| Setting | What getting it wrong costs | What changing it takes |
+|---|---|---|
+| `MASTER_ENCRYPTION_KEY` | Everything encrypted under it is unreadable for good | `--destroy-existing-encryption-key` and, at a terminal, typing `destroy <fingerprint>`. Refused outright while any stored row is encrypted under the key, and refused if setup cannot reach the database to count |
+| `PLEIADES_MAX_OUTAGE` | Lowering it discards broker messages | `--max-outage <duration> --force` |
+| `JWT_SECRET` | API tokens signed with the old one stop working | `--new-jwt-secret --force` |
+| The database password (Helm) | The controller cannot connect until it is put back | Written once, never regenerated |
+
+Run again with nothing to change, setup refuses and names the file it would have
+destroyed. Before writing a key it counts, in the database the controller uses, every
+row sealed under any master key, and tries each one against the keys it holds:
+
+- A **first** key is refused if the database already holds encrypted rows. A new key
+  opens none of them, and the key that does is somewhere setup cannot see: most
+  often a `.env` that was deleted while the database volume was kept. The refusal
+  counts them by kind, says whether they are under the key earlier versions of
+  `docker-compose.yml` published (which is public, so that data is readable by
+  anyone who has that file), and names both ways out.
+- A **replacement** is refused while any row opens under the key being replaced, or
+  under the previous key during a rotation. The flag does not override this: a key
+  that protects data is changed by rotating it.
+
+It reads the database without migrating it, and a database it cannot reach, or stops
+reaching partway through, is a refusal rather than a count of zero.
+
+#### The possession check, and what it does not prove
+
+At a terminal, setup shows a new key once on the terminal's alternate screen, then
+leaves that screen and clears the scrollback, and asks you to type or paste the key
+back. It is written to disk only after that.
+
+Re-entering the key proves one thing: you held an exact copy a moment ago. It cannot
+show where that copy is or that it will last, and a paste from a clipboard passes it.
+Setup says so in those words. Without a terminal it shows the key to nobody, runs no
+check, and says that the file is the only copy.
+
+While the key is on screen, Ctrl+C does not stop setup straight away, because in most terminals
+it is the key for stop rather than copy and it is what people press to copy the key. The first
+one says so and keeps the key on screen; a second one stops setup, which writes nothing.
+
+Clearing the screen does not reach everything that saw it. `tmux` and `screen` keep
+their own history, and `script`, `asciinema` and any other terminal recorder keep
+whatever was on screen. And a terminal echoes what you type the moment it arrives,
+so a key pasted before the hidden prompt appears is echoed.
+
+#### When the key came into existence
+
+The activity trail records a key by its fingerprint, never by its value, the moment
+setup generates it: `controller-setup created encryption key 3f9a-c21b (generated by
+setup, possession checked)`. A key generated where no database was reachable, which is
+every Helm install, is recorded by the first controller to start with it, as `first
+used by this database`. The fingerprint is not a secret: it cannot be turned back into
+the key, and anyone who could test a guessed key against it could test it just as
+well against the ciphertext it protects, which sits in the same database.
+
 ### What the chart refuses to install
 
 Some configurations are refused at render time, with the reason in the error,

@@ -235,6 +235,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 230. os.WriteFile truncates before it writes, and a test polling that file observed the empty window as an answer
 231. A five second budget for a subprocess to appear fired under suite load, and the loop waiting for it never noticed the subprocess had died
 232. Every device creatable through the API or the UI is permanently un-dispatchable, because nothing can write the host property the dispatcher requires
+233. ROTATE_ENCRYPTION_KEYS rotated devices alone, so following the rotation guide made every credential and saved survey answer unreadable
+234. The chart's existingSecret path silently turned off the reinstall refusal and the pod roll it built on purpose
+235. The compose stack published PostgreSQL and an unauthenticated NATS on every interface
+236. A fuzz property that checked for a secret as a substring of the error was unsound twice over, and the fuzzer found both
+237. A terminal echoes type-ahead: a secret typed before a hidden prompt appears is shown on the screen
+238. A line-by-line .env reader disagrees with docker compose in two measured ways, either of which would have written a second key
+239. A new container-backed package missing from DOCKER_DEPENDENT_PACKAGES failed only as a timed-out container, twenty minutes into the push gate
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

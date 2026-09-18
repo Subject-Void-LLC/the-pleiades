@@ -4610,3 +4610,52 @@ between: `cmd > log 2>&1; echo "EXIT=$?" >> log`, then read the log. For anythin
 will be reported to a person, verify the OUTCOME independently rather than the exit code:
 `git ls-remote` for a push, the artefact on disk for a build. An exit code is a claim about a
 process; the outcome is the thing being claimed.
+
+## 193. A count that decides whether destroying data is safe must fail in one direction only: read raw storage, trust no label, and treat any read error as a refusal
+
+**The incident.** The setup command refuses to write a master key over data encrypted under another
+one, so it has to count that data first. Three natural ways to count all answer "nothing here" for
+a database full of credentials. An ent client carries the decrypting interceptors, which return
+plaintext, so a count of sealed values through it is zero. An `EnvelopeService` picks a key by the
+version tag stored with each row, and a tag is a label an operator chose, so a count built with the
+default `v1` calls every row written under `v2` unreadable by the key that wrote it. And a read that
+fails partway, or a connection severed mid-query, returns what it had so far, which looks exactly
+like a small or empty table. Each of those errors is in the one direction that permits destroying
+data.
+
+**The rule.** When a count gates an irreversible action, design it so every failure makes it say
+MORE, not less. Read the raw stored values with plain SQL (`ent.OpenExisting`, which cannot carry
+an interceptor and neither migrates nor creates what it reads), decide which key holds a value from
+the key material itself (`crypto.KeyOpens` unwraps only the data key and ignores the tag and the
+binding), count a value that looks sealed but does not parse as sealed, and return an error rather
+than any partial count. Then prove the severed-connection case against a real proxy, because a
+unit test with a failing fake proves only that the fake fails.
+
+## 194. When a tool offers an operator-managed alternative to a value it would otherwise compute, every guard derived from that value needs a supplied-value path
+
+**The incident.** The Helm chart computes two guards from values it renders itself: a fingerprint
+of the database credentials, stamped on the data volume so a reinstall with a different password
+is refused, and a checksum of its Secret, so a changed Secret restarts the pods. Under
+`secrets.existingSecret`, the path the chart's own comments recommend for keeping secrets out of
+Helm's release records, the chart renders no Secret, so both guards computed from nothing and were
+silently off. The fingerprint's comment said so ("empty when secrets.existingSecret is set") and
+read as an explanation rather than a gap.
+
+**The rule.** For each guard, ask what it is computed from and whether every supported path
+supplies that. Where the tool cannot see the value, take the guard's input as a value the operator
+(or the tool that made the Secret) supplies, and prove the recommended path renders it: here
+`tools/helm-lint` renders the setup command's own values file on every run. A comment that begins
+"empty when" is a record of a path the guard does not cover.
+
+## 195. To prove a message never contains a secret, prove the message does not depend on the secret; a substring check is refuted by any value that spells part of the message
+
+**The incident.** `FuzzParseEnvFile` first asserted that no refusal contained a value from its
+input. The fuzzer produced `MASTER_ENCRYPTION_KEY=ASTER_ENCRYPTION`, whose value is part of the
+variable name every refusal correctly names. The check was unsound by construction: some value can
+always collide with the error's own wording.
+
+**The rule.** State the property as independence: parse the input again with each secret changed
+in a way that keeps it exactly as valid (rotate letters within their case and digits within their
+range, byte by byte), and require the two results to be identical. An error that does not change
+when the secret changes cannot be carrying it. Transform bytes, not runes, since the input a parser
+fuzz target exists to send is invalid UTF-8, and a rune-level transform repairs it.
