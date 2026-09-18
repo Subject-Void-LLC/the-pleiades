@@ -1,0 +1,269 @@
+;
+; Archive created at 2026-09-18 18:28:45 UTC
+;     dbname: pleiades
+;     TOC Entries: 258
+;     Compression: -1
+;     Dump Version: 1.14-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 15.19
+;     Dumped by pg_dump version: 15.19
+;
+;
+; Selected TOC Entries:
+;
+280; 1255 16952 FUNCTION public probe_fn() pleiades
+249; 1259 16663 TABLE public activity_entries pleiades
+248; 1259 16662 SEQUENCE public activity_entries_id_seq pleiades
+241; 1259 16583 TABLE public announcements pleiades
+240; 1259 16582 SEQUENCE public announcements_id_seq pleiades
+247; 1259 16643 TABLE public contacts pleiades
+246; 1259 16642 SEQUENCE public contacts_id_seq pleiades
+268; 1259 16842 TABLE public credential_input_sources pleiades
+267; 1259 16841 SEQUENCE public credential_input_sources_id_seq pleiades
+257; 1259 16729 TABLE public credential_types pleiades
+256; 1259 16728 SEQUENCE public credential_types_id_seq pleiades
+259; 1259 16746 TABLE public credentials pleiades
+258; 1259 16745 SEQUENCE public credentials_id_seq pleiades
+218; 1259 16402 TABLE public devices pleiades
+217; 1259 16401 SEQUENCE public devices_id_seq pleiades
+278; 1259 16939 TABLE public encryption_keys pleiades
+277; 1259 16938 SEQUENCE public encryption_keys_id_seq pleiades
+220; 1259 16425 TABLE public facts pleiades
+219; 1259 16424 SEQUENCE public facts_id_seq pleiades
+223; 1259 16446 TABLE public group_children pleiades
+224; 1259 16461 TABLE public group_devices pleiades
+222; 1259 16438 TABLE public groups pleiades
+221; 1259 16437 SEQUENCE public groups_id_seq pleiades
+243; 1259 16598 TABLE public inventories pleiades
+242; 1259 16597 SEQUENCE public inventories_id_seq pleiades
+244; 1259 16611 TABLE public inventory_devices pleiades
+245; 1259 16626 TABLE public inventory_groups pleiades
+228; 1259 16491 TABLE public job_tasks pleiades
+227; 1259 16490 SEQUENCE public job_tasks_id_seq pleiades
+226; 1259 16477 TABLE public jobs pleiades
+225; 1259 16476 SEQUENCE public jobs_id_seq pleiades
+272; 1259 16872 TABLE public journal_entries pleiades
+271; 1259 16871 SEQUENCE public journal_entries_id_seq pleiades
+262; 1259 16780 TABLE public local_credentials pleiades
+261; 1259 16779 SEQUENCE public local_credentials_id_seq pleiades
+270; 1259 16861 TABLE public mesh_signing_keys pleiades
+269; 1259 16860 SEQUENCE public mesh_signing_keys_id_seq pleiades
+216; 1259 16393 TABLE public organizations pleiades
+215; 1259 16392 SEQUENCE public organizations_id_seq pleiades
+279; 1259 16954 VIEW public probe_view pleiades
+274; 1259 16890 TABLE public projects pleiades
+273; 1259 16889 SEQUENCE public projects_id_seq pleiades
+230; 1259 16505 TABLE public revisions pleiades
+229; 1259 16504 SEQUENCE public revisions_id_seq pleiades
+234; 1259 16533 TABLE public role_bindings pleiades
+233; 1259 16532 SEQUENCE public role_bindings_id_seq pleiades
+253; 1259 16696 TABLE public saved_launch_configs pleiades
+252; 1259 16695 SEQUENCE public saved_launch_configs_id_seq pleiades
+266; 1259 16825 TABLE public schedule_occurrences pleiades
+265; 1259 16824 SEQUENCE public schedule_occurrences_id_seq pleiades
+264; 1259 16797 TABLE public schedules pleiades
+263; 1259 16796 SEQUENCE public schedules_id_seq pleiades
+214; 1259 16385 TABLE public schema_migrations pleiades
+239; 1259 16572 TABLE public sessions pleiades
+238; 1259 16571 SEQUENCE public sessions_id_seq pleiades
+255; 1259 16710 TABLE public survey_questions pleiades
+254; 1259 16709 SEQUENCE public survey_questions_id_seq pleiades
+276; 1259 16922 TABLE public sync_runs pleiades
+275; 1259 16921 SEQUENCE public sync_runs_id_seq pleiades
+237; 1259 16556 TABLE public team_users pleiades
+232; 1259 16520 TABLE public teams pleiades
+231; 1259 16519 SEQUENCE public teams_id_seq pleiades
+260; 1259 16764 TABLE public template_credentials pleiades
+251; 1259 16674 TABLE public templates pleiades
+250; 1259 16673 SEQUENCE public templates_id_seq pleiades
+236; 1259 16548 TABLE public users pleiades
+235; 1259 16547 SEQUENCE public users_id_seq pleiades
+3850; 0 16663 TABLE DATA public activity_entries pleiades
+3842; 0 16583 TABLE DATA public announcements pleiades
+3848; 0 16643 TABLE DATA public contacts pleiades
+3869; 0 16842 TABLE DATA public credential_input_sources pleiades
+3858; 0 16729 TABLE DATA public credential_types pleiades
+3860; 0 16746 TABLE DATA public credentials pleiades
+3819; 0 16402 TABLE DATA public devices pleiades
+3879; 0 16939 TABLE DATA public encryption_keys pleiades
+3821; 0 16425 TABLE DATA public facts pleiades
+3824; 0 16446 TABLE DATA public group_children pleiades
+3825; 0 16461 TABLE DATA public group_devices pleiades
+3823; 0 16438 TABLE DATA public groups pleiades
+3844; 0 16598 TABLE DATA public inventories pleiades
+3845; 0 16611 TABLE DATA public inventory_devices pleiades
+3846; 0 16626 TABLE DATA public inventory_groups pleiades
+3829; 0 16491 TABLE DATA public job_tasks pleiades
+3827; 0 16477 TABLE DATA public jobs pleiades
+3873; 0 16872 TABLE DATA public journal_entries pleiades
+3863; 0 16780 TABLE DATA public local_credentials pleiades
+3871; 0 16861 TABLE DATA public mesh_signing_keys pleiades
+3817; 0 16393 TABLE DATA public organizations pleiades
+3875; 0 16890 TABLE DATA public projects pleiades
+3831; 0 16505 TABLE DATA public revisions pleiades
+3835; 0 16533 TABLE DATA public role_bindings pleiades
+3854; 0 16696 TABLE DATA public saved_launch_configs pleiades
+3867; 0 16825 TABLE DATA public schedule_occurrences pleiades
+3865; 0 16797 TABLE DATA public schedules pleiades
+3815; 0 16385 TABLE DATA public schema_migrations pleiades
+3840; 0 16572 TABLE DATA public sessions pleiades
+3856; 0 16710 TABLE DATA public survey_questions pleiades
+3877; 0 16922 TABLE DATA public sync_runs pleiades
+3838; 0 16556 TABLE DATA public team_users pleiades
+3833; 0 16520 TABLE DATA public teams pleiades
+3861; 0 16764 TABLE DATA public template_credentials pleiades
+3852; 0 16674 TABLE DATA public templates pleiades
+3837; 0 16548 TABLE DATA public users pleiades
+3886; 0 0 SEQUENCE SET public activity_entries_id_seq pleiades
+3887; 0 0 SEQUENCE SET public announcements_id_seq pleiades
+3888; 0 0 SEQUENCE SET public contacts_id_seq pleiades
+3889; 0 0 SEQUENCE SET public credential_input_sources_id_seq pleiades
+3890; 0 0 SEQUENCE SET public credential_types_id_seq pleiades
+3891; 0 0 SEQUENCE SET public credentials_id_seq pleiades
+3892; 0 0 SEQUENCE SET public devices_id_seq pleiades
+3893; 0 0 SEQUENCE SET public encryption_keys_id_seq pleiades
+3894; 0 0 SEQUENCE SET public facts_id_seq pleiades
+3895; 0 0 SEQUENCE SET public groups_id_seq pleiades
+3896; 0 0 SEQUENCE SET public inventories_id_seq pleiades
+3897; 0 0 SEQUENCE SET public job_tasks_id_seq pleiades
+3898; 0 0 SEQUENCE SET public jobs_id_seq pleiades
+3899; 0 0 SEQUENCE SET public journal_entries_id_seq pleiades
+3900; 0 0 SEQUENCE SET public local_credentials_id_seq pleiades
+3901; 0 0 SEQUENCE SET public mesh_signing_keys_id_seq pleiades
+3902; 0 0 SEQUENCE SET public organizations_id_seq pleiades
+3903; 0 0 SEQUENCE SET public projects_id_seq pleiades
+3904; 0 0 SEQUENCE SET public revisions_id_seq pleiades
+3905; 0 0 SEQUENCE SET public role_bindings_id_seq pleiades
+3906; 0 0 SEQUENCE SET public saved_launch_configs_id_seq pleiades
+3907; 0 0 SEQUENCE SET public schedule_occurrences_id_seq pleiades
+3908; 0 0 SEQUENCE SET public schedules_id_seq pleiades
+3909; 0 0 SEQUENCE SET public sessions_id_seq pleiades
+3910; 0 0 SEQUENCE SET public survey_questions_id_seq pleiades
+3911; 0 0 SEQUENCE SET public sync_runs_id_seq pleiades
+3912; 0 0 SEQUENCE SET public teams_id_seq pleiades
+3913; 0 0 SEQUENCE SET public templates_id_seq pleiades
+3914; 0 0 SEQUENCE SET public users_id_seq pleiades
+3574; 2606 16669 CONSTRAINT public activity_entries activity_entries_pkey pleiades
+3562; 2606 16590 CONSTRAINT public announcements announcements_pkey pleiades
+3572; 2606 16650 CONSTRAINT public contacts contacts_pkey pleiades
+3611; 2606 16848 CONSTRAINT public credential_input_sources credential_input_sources_pkey pleiades
+3589; 2606 16736 CONSTRAINT public credential_types credential_types_pkey pleiades
+3595; 2606 16752 CONSTRAINT public credentials credentials_pkey pleiades
+3523; 2606 16410 CONSTRAINT public devices devices_pkey pleiades
+3629; 2606 16945 CONSTRAINT public encryption_keys encryption_keys_pkey pleiades
+3525; 2606 16431 CONSTRAINT public facts facts_pkey pleiades
+3530; 2606 16450 CONSTRAINT public group_children group_children_pkey pleiades
+3532; 2606 16465 CONSTRAINT public group_devices group_devices_pkey pleiades
+3528; 2606 16444 CONSTRAINT public groups groups_pkey pleiades
+3564; 2606 16604 CONSTRAINT public inventories inventories_pkey pleiades
+3567; 2606 16615 CONSTRAINT public inventory_devices inventory_devices_pkey pleiades
+3569; 2606 16630 CONSTRAINT public inventory_groups inventory_groups_pkey pleiades
+3538; 2606 16497 CONSTRAINT public job_tasks job_tasks_pkey pleiades
+3536; 2606 16488 CONSTRAINT public jobs jobs_pkey pleiades
+3618; 2606 16886 CONSTRAINT public journal_entries journal_entries_pkey pleiades
+3599; 2606 16788 CONSTRAINT public local_credentials local_credentials_pkey pleiades
+3615; 2606 16868 CONSTRAINT public mesh_signing_keys mesh_signing_keys_pkey pleiades
+3518; 2606 16399 CONSTRAINT public organizations organizations_pkey pleiades
+3623; 2606 16904 CONSTRAINT public projects projects_pkey pleiades
+3543; 2606 16511 CONSTRAINT public revisions revisions_pkey pleiades
+3547; 2606 16540 CONSTRAINT public role_bindings role_bindings_pkey pleiades
+3582; 2606 16702 CONSTRAINT public saved_launch_configs saved_launch_configs_pkey pleiades
+3607; 2606 16833 CONSTRAINT public schedule_occurrences schedule_occurrences_pkey pleiades
+3604; 2606 16805 CONSTRAINT public schedules schedules_pkey pleiades
+3515; 2606 16391 CONSTRAINT public schema_migrations schema_migrations_pkey pleiades
+3558; 2606 16578 CONSTRAINT public sessions sessions_pkey pleiades
+3585; 2606 16720 CONSTRAINT public survey_questions survey_questions_pkey pleiades
+3625; 2606 16930 CONSTRAINT public sync_runs sync_runs_pkey pleiades
+3553; 2606 16560 CONSTRAINT public team_users team_users_pkey pleiades
+3545; 2606 16526 CONSTRAINT public teams teams_pkey pleiades
+3597; 2606 16768 CONSTRAINT public template_credentials template_credentials_pkey pleiades
+3580; 2606 16682 CONSTRAINT public templates templates_pkey pleiades
+3551; 2606 16554 CONSTRAINT public users users_pkey pleiades
+3575; 1259 16670 INDEX public activityentry_actor pleiades
+3576; 1259 16671 INDEX public activityentry_object_kind_object_id pleiades
+3560; 1259 16596 INDEX public announcement_starts_at_ends_at pleiades
+3570; 1259 16661 INDEX public contact_role_display_order pleiades
+3593; 1259 16763 INDEX public credential_name_organization_credentials pleiades
+3612; 1259 16859 INDEX public credentialinputsource_input_id_credential_input_sources pleiades
+3590; 1259 16744 INDEX public credentialtype_kind pleiades
+3591; 1259 16743 INDEX public credentialtype_name_organization_credential_types pleiades
+3592; 1259 16742 INDEX public credentialtype_namespace pleiades
+3519; 1259 16423 INDEX public device_device_id pleiades
+3520; 1259 16421 INDEX public devices_device_id_key pleiades
+3521; 1259 16422 INDEX public devices_name_key pleiades
+3627; 1259 16946 INDEX public encryption_keys_fingerprint_key pleiades
+3526; 1259 16445 INDEX public groups_name_key pleiades
+3565; 1259 16610 INDEX public inventory_name_organization_inventories pleiades
+3533; 1259 16672 INDEX public job_template_id pleiades
+3534; 1259 16489 INDEX public jobs_job_id_key pleiades
+3539; 1259 16503 INDEX public jobtask_outcome_job_tasks pleiades
+3619; 1259 16887 INDEX public journalentry_job_id_device_id_attempt_node_id pleiades
+3620; 1259 16888 INDEX public journalentry_job_id_device_id_attempt_sequence pleiades
+3600; 1259 16794 INDEX public local_credentials_user_local_credential_key pleiades
+3613; 1259 16869 INDEX public mesh_signing_keys_key_id_key pleiades
+3616; 1259 16870 INDEX public meshsigningkey_account_subject pleiades
+3516; 1259 16400 INDEX public organizations_name_key pleiades
+3621; 1259 16915 INDEX public project_name_organization_projects pleiades
+3540; 1259 16518 INDEX public revision_field_name pleiades
+3541; 1259 16517 INDEX public revision_version_device_revisions pleiades
+3548; 1259 16546 INDEX public rolebinding_scope_type_scope_id pleiades
+3583; 1259 16708 INDEX public savedlaunchconfig_name_template_saved_configs pleiades
+3601; 1259 16823 INDEX public schedule_enabled_next_run_schedule_id pleiades
+3602; 1259 16822 INDEX public schedule_name_organization_schedules pleiades
+3608; 1259 16839 INDEX public scheduleoccurrence_occurrence_at_schedule_occurrences pleiades
+3609; 1259 16840 INDEX public scheduleoccurrence_schedule_occurrences pleiades
+3605; 1259 16821 INDEX public schedules_schedule_id_key pleiades
+3554; 1259 16581 INDEX public session_absolute_expires_at pleiades
+3555; 1259 16795 INDEX public session_subject pleiades
+3556; 1259 16580 INDEX public session_token_hash pleiades
+3559; 1259 16579 INDEX public sessions_token_hash_key pleiades
+3586; 1259 16726 INDEX public surveyquestion_display_order_template_survey_questions pleiades
+3587; 1259 16727 INDEX public surveyquestion_variable_template_survey_questions pleiades
+3626; 1259 16936 INDEX public syncrun_started_at_project_sync_runs pleiades
+3577; 1259 16694 INDEX public template_kind_definition pleiades
+3578; 1259 16693 INDEX public template_name_organization_templates pleiades
+3549; 1259 16555 INDEX public users_email_key pleiades
+3671; 2620 16953 TRIGGER public jobs probe_tr pleiades
+3643; 2606 16591 FK CONSTRAINT public announcements announcements_organizations_announcements pleiades
+3649; 2606 16651 FK CONSTRAINT public contacts contacts_organizations_contacts pleiades
+3650; 2606 16656 FK CONSTRAINT public contacts contacts_teams_contacts pleiades
+3666; 2606 16849 FK CONSTRAINT public credential_input_sources credential_input_sources_credentials_input_sources pleiades
+3667; 2606 16854 FK CONSTRAINT public credential_input_sources credential_input_sources_credentials_sourced_by pleiades
+3656; 2606 16737 FK CONSTRAINT public credential_types credential_types_organizations_credential_types pleiades
+3657; 2606 16753 FK CONSTRAINT public credentials credentials_credential_types_credentials pleiades
+3658; 2606 16758 FK CONSTRAINT public credentials credentials_organizations_credentials pleiades
+3630; 2606 16411 FK CONSTRAINT public devices devices_devices_children pleiades
+3631; 2606 16416 FK CONSTRAINT public devices devices_organizations_devices pleiades
+3632; 2606 16432 FK CONSTRAINT public facts facts_devices_facts pleiades
+3633; 2606 16451 FK CONSTRAINT public group_children group_children_group_id pleiades
+3634; 2606 16456 FK CONSTRAINT public group_children group_children_parent_id pleiades
+3635; 2606 16471 FK CONSTRAINT public group_devices group_devices_device_id pleiades
+3636; 2606 16466 FK CONSTRAINT public group_devices group_devices_group_id pleiades
+3644; 2606 16605 FK CONSTRAINT public inventories inventories_organizations_inventories pleiades
+3645; 2606 16621 FK CONSTRAINT public inventory_devices inventory_devices_device_id pleiades
+3646; 2606 16616 FK CONSTRAINT public inventory_devices inventory_devices_inventory_id pleiades
+3647; 2606 16636 FK CONSTRAINT public inventory_groups inventory_groups_group_id pleiades
+3648; 2606 16631 FK CONSTRAINT public inventory_groups inventory_groups_inventory_id pleiades
+3637; 2606 16498 FK CONSTRAINT public job_tasks job_tasks_jobs_tasks pleiades
+3661; 2606 16789 FK CONSTRAINT public local_credentials local_credentials_users_local_credential pleiades
+3668; 2606 16905 FK CONSTRAINT public projects projects_credentials_projects pleiades
+3669; 2606 16910 FK CONSTRAINT public projects projects_organizations_projects pleiades
+3638; 2606 16512 FK CONSTRAINT public revisions revisions_devices_revisions pleiades
+3640; 2606 16541 FK CONSTRAINT public role_bindings role_bindings_teams_role_bindings pleiades
+3654; 2606 16703 FK CONSTRAINT public saved_launch_configs saved_launch_configs_templates_saved_configs pleiades
+3665; 2606 16834 FK CONSTRAINT public schedule_occurrences schedule_occurrences_schedules_occurrences pleiades
+3662; 2606 16806 FK CONSTRAINT public schedules schedules_organizations_schedules pleiades
+3663; 2606 16811 FK CONSTRAINT public schedules schedules_saved_launch_configs_saved_config pleiades
+3664; 2606 16816 FK CONSTRAINT public schedules schedules_templates_schedules pleiades
+3655; 2606 16721 FK CONSTRAINT public survey_questions survey_questions_templates_survey_questions pleiades
+3670; 2606 16931 FK CONSTRAINT public sync_runs sync_runs_projects_sync_runs pleiades
+3641; 2606 16561 FK CONSTRAINT public team_users team_users_team_id pleiades
+3642; 2606 16566 FK CONSTRAINT public team_users team_users_user_id pleiades
+3639; 2606 16527 FK CONSTRAINT public teams teams_organizations_teams pleiades
+3659; 2606 16774 FK CONSTRAINT public template_credentials template_credentials_credential_id pleiades
+3660; 2606 16769 FK CONSTRAINT public template_credentials template_credentials_template_id pleiades
+3651; 2606 16683 FK CONSTRAINT public templates templates_inventories_templates pleiades
+3652; 2606 16688 FK CONSTRAINT public templates templates_organizations_templates pleiades
+3653; 2606 16916 FK CONSTRAINT public templates templates_projects_templates pleiades
