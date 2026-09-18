@@ -3,18 +3,35 @@
 # dispatcher) and one runner (the stateless worker that pulls jobs off the
 # durable consumer group).
 #
-# Bring it up with `docker compose up -d --wait`, which returns only once
-# every service reports healthy. All four carry a healthcheck now: the
-# runner gained one in Phase 20, so `--wait` waits for a runner that has
-# genuinely reached the broker rather than for one that merely started.
-# Create the first administrator with:
+# Bring it up with `make up`. The first time, that runs the controller's
+# setup command in the one-shot `setup` service at the bottom of this file:
+# it generates the master encryption key and the JWT secret, shows you the
+# key once and has you type it back, writes both to .env beside this file,
+# and creates the first administrator. Then it runs `docker compose up -d
+# --wait`, which returns only once every service reports healthy. Browse to
+# https://localhost:8080/ui and sign in.
+#
+# THIS FILE HOLDS NO KEY. It used to carry a working MASTER_ENCRYPTION_KEY
+# and JWT_SECRET under a comment calling them throwaway defaults, which made
+# the documented way in also a way to a deployment holding a published key.
+# The controller now reads both from .env, which docker compose loads from
+# this directory without being told to, and which .gitignore keeps out of
+# commits. Started without one, the controller refuses and names setup.
+#
+# Plain `docker compose up -d --wait` still works once .env exists. Make up
+# adds two things to it: it runs setup when .env is missing a key, and it
+# refuses when your shell exports one of setup's variables, since a shell
+# variable outranks .env and the controller would then run with a key setup
+# never counted.
+#
+# A later administrator, or one setup did not create, comes from:
 #
 #   docker compose run --rm controller bootstrap-admin --email you@example.com
 #
-# then browse to https://localhost:8080/ui. That command works because of
-# the entrypoint: key on the controller service; without it the same line
-# fails with "exec: bootstrap-admin: executable file not found in PATH",
-# and the entrypoint comment explains why.
+# That command works because of the entrypoint: key on the controller
+# service; without it the same line fails with "exec: bootstrap-admin:
+# executable file not found in PATH", and the entrypoint comment explains
+# why.
 #
 # https, and nothing has to come first. The controller refuses to serve
 # plain HTTP unless something in front of it terminates TLS, and with no
@@ -376,7 +393,11 @@ services:
     # from, so writing a version would invent a promise. Whoever owns the
     # registry replaces both halves of this string.
     image: pleiades/controller:dev
-    build:
+    # Anchored so the setup service builds from exactly this block. A
+    # service with an image: and no build: would make `docker compose run`
+    # PULL pleiades/controller:dev from Docker Hub when no local build
+    # exists, and that name is not one this project owns.
+    build: &controller-build
       context: .
       dockerfile: Dockerfile.controller
       # Without these, the image's OCI provenance labels stamp "unknown",
@@ -425,21 +446,32 @@ services:
       # dead: the controller only ever opened a SQLite file, so this
       # compose stack ran on an ephemeral file inside the container while
       # the healthchecked postgres service above sat unused.
-      - DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
+      # Anchored so the setup service counts the database this controller
+      # opens, and not one it happens to be able to reach.
+      - &database-dsn DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
       - NATS_URL=nats://nats:4222
       # The one number that says how long this deployment promises to survive
       # a link outage. Set on BOTH services deliberately: every retention
       # window in the message bus derives from it, and two services agreeing
-      # should not hold by coincidence across two images.
-      - PLEIADES_MAX_OUTAGE=30m
-      # Both of these are required at startup and the controller exits if
-      # either is missing, so without them this service could never have
-      # come up at all. The values are throwaway local-development
-      # defaults, not secrets: MASTER_ENCRYPTION_KEY must be base64 of
-      # exactly 32 bytes, and JWT_SECRET must be at least 32 bytes. A real
-      # deployment supplies its own through its own secret store.
-      - MASTER_ENCRYPTION_KEY=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
-      - JWT_SECRET=local-development-only-not-a-real-secret
+      # should not hold by coincidence across two images. Setup writes it to
+      # .env from the answer to its one question; 30m when .env has none.
+      - PLEIADES_MAX_OUTAGE=${PLEIADES_MAX_OUTAGE:-30m}
+      # From .env, which setup writes. Deliberately ${VAR:-} rather than
+      # ${VAR:?message}: the :? form makes `docker compose config`, `ps` and
+      # `down` fail too, on a machine that has not been set up, which would
+      # break tearing the stack down. With :- an unset key reaches the
+      # controller as empty, and the controller refuses to start and names
+      # the setup command.
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      # Rotation, all empty unless .env sets them. The controller treats an
+      # empty value as unset, so these cost nothing until a rotation needs
+      # them: move the key to _PREVIOUS (with its version) in .env, put the
+      # new one in MASTER_ENCRYPTION_KEY, and set ROTATE_ENCRYPTION_KEYS=true.
+      - MASTER_ENCRYPTION_KEY_VERSION=${MASTER_ENCRYPTION_KEY_VERSION:-}
+      - MASTER_ENCRYPTION_KEY_PREVIOUS=${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
+      - MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION=${MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION:-}
+      - ROTATE_ENCRYPTION_KEYS=${ROTATE_ENCRYPTION_KEYS:-}
       - RUNBOOK_DIR=/app/runbooks
       # There is deliberately no TLS_CERT_FILE and no TLS_KEY_FILE here,
       # and that absence is the whole configuration. It is a real decision
@@ -683,7 +715,7 @@ services:
       # a link outage. Set on BOTH services deliberately: every retention
       # window in the message bus derives from it, and two services agreeing
       # should not hold by coincidence across two images.
-      - PLEIADES_MAX_OUTAGE=30m
+      - PLEIADES_MAX_OUTAGE=${PLEIADES_MAX_OUTAGE:-30m}
       - RUNBOOK_DIR=/app/runbooks
     volumes:
       # The same host directory the controller mounts, at the same path.
@@ -842,6 +874,52 @@ services:
 # it, /data is part of the container's writable layer, which read_only: true
 # makes unwritable, so the controller could not provision a certificate at
 # all.
+  # THE SETUP COMMAND, as a one-shot container. `make up` and `make setup`
+  # run it; `docker compose up` never starts it, because of the profile.
+  #
+  # It runs here rather than on the host for one reason: to count what a
+  # key protects it has to read the database, and DB_DSN above names
+  # postgres:5432, which only resolves on this network. Running here it
+  # reads exactly the database the controller does, needs no Go toolchain on
+  # the host, and needs no database port published to it.
+  #
+  # It writes .env into the directory mounted at /setup (this one, unless
+  # PLEIADES_SETUP_DIR names another), as the user `make setup` passes with
+  # --user, so the file belongs to whoever ran it.
+  setup:
+    profiles:
+      - setup
+    image: pleiades/controller:dev
+    build: *controller-build
+    entrypoint: ["/app/controller", "setup", "--target", "compose", "--dir", "/setup"]
+    environment:
+      # The controller's own DB_DSN, by anchor, and nothing else of the
+      # controller's. In particular no key: setup reads the key .env holds
+      # from the file itself, and a copy in the environment could disagree
+      # with it.
+      - *database-dsn
+      # Only so messages name the file on the host rather than /setup/.env.
+      - PLEIADES_SETUP_HOST_DIR=${PLEIADES_SETUP_DIR:-${PWD:-.}}
+    volumes:
+      - ${PLEIADES_SETUP_DIR:-.}:/setup
+    # At a terminal, setup shows the new key on screen once. Docker keeps a
+    # container's output in its log driver whether or not anyone attached,
+    # and a journald or syslog driver keeps it outside the container's
+    # life, so this service keeps no log at all. Attaching still works: an
+    # attached terminal is a stream, not a log.
+    logging:
+      driver: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   nats-data:

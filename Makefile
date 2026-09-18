@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: up setup setup-env-check build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -689,13 +689,84 @@ templ-gen-check: templ-gen
 	git diff --exit-code -- internal/ui/render
 	test -z "$$(git ls-files --others --exclude-standard -- internal/ui/render)"
 
+# up brings the compose stack up in one command, running setup first when
+# .env does not yet hold a key and a JWT secret.
+#
+# It asks setup itself whether .env is complete (`setup --check`), rather
+# than testing whether the file exists: an operator's .env can hold their
+# own settings and no key, and setup adds to such a file rather than
+# replacing it. --check exits 0 when .env is complete, 3 when it is not yet,
+# and 1 when it cannot be read, which stops here with setup's reason.
+#
+# In a script, pass the administrator's details through to setup:
+#
+#   echo "$$PASSWORD" | make up SETUP_FLAGS="--admin-email you@example.com --password-stdin"
+#
+# The --check runs read nothing, and are given nothing to read: docker
+# compose forwards its standard input into a container even with -T, and
+# drains it whether or not the container reads it. Without </dev/null the
+# check swallowed the password piped in for setup, which then wrote .env and
+# failed with "no secret on standard input". The backup release gate found
+# that on the first `make up` any test ran.
+up: setup-env-check
+	@status=0; \
+	docker compose run --rm --build --no-deps -T --user "$$($(SETUP_USER))" setup --check </dev/null >/dev/null 2>&1 || status=$$?; \
+	case $$status in \
+	  0) ;; \
+	  3) $(MAKE) --no-print-directory setup ;; \
+	  *) docker compose run --rm --no-deps -T --user "$$($(SETUP_USER))" setup --check </dev/null; exit 1 ;; \
+	esac
+	docker compose up -d --wait
+
+# setup runs the controller's setup command in the compose stack's one-shot
+# `setup` service (see the bottom of docker-compose.yml for why it runs on
+# the stack's network rather than on this machine), writing .env here.
+#
+# It stops the controller and runner first. A controller that is running
+# keeps using the key it started with, and anything it writes after setup
+# replaces a key is written under the old one, which the new key cannot
+# read. `make up` starts them again.
+#
+# To change a setting in an existing .env, name it in SETUP_FLAGS:
+#
+#   make setup SETUP_FLAGS="--max-outage 2h --force"
+#   make setup SETUP_FLAGS="--new-jwt-secret --force"
+#   make setup SETUP_FLAGS="--destroy-existing-encryption-key"
+SETUP_FLAGS ?=
+
+# SETUP_USER prints the --user the setup container runs as: this user, so
+# .env belongs to whoever ran setup and docker compose can read it back.
+# Under rootless Docker a container's root already IS this user, and a
+# numeric host uid would map to a different one, so it is 0:0 there.
+SETUP_USER = if docker info --format '{{range .SecurityOptions}}{{.}} {{end}}' 2>/dev/null | grep -q rootless; then echo 0:0; else echo "$$(id -u):$$(id -g)"; fi
+
+setup: setup-env-check
+	@docker compose stop controller runner >/dev/null 2>&1 || true
+	docker compose run --rm --build --user "$$($(SETUP_USER))" setup $(SETUP_FLAGS)
+
+# SETUP_OWNED_VARS are the variables setup writes to, or reads from, .env.
+SETUP_OWNED_VARS := MASTER_ENCRYPTION_KEY MASTER_ENCRYPTION_KEY_VERSION MASTER_ENCRYPTION_KEY_PREVIOUS MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION ROTATE_ENCRYPTION_KEYS JWT_SECRET PLEIADES_MAX_OUTAGE
+
+# setup-env-check refuses when the shell exports one of those variables.
+# docker compose uses a shell variable over the same one in .env, so the
+# controller would run with a value setup never wrote and never counted
+# against. The test is `$${VAR+set}`, which expands to "set" or to nothing
+# and never to the value: a check for a secret must be incapable of
+# printing it.
+setup-env-check:
+	@for v in $(SETUP_OWNED_VARS); do \
+	  if eval "[ -n \"\$${$$v+set}\" ]"; then \
+	    echo "make: $$v is set in your shell, and docker compose uses it over the one in .env, so the controller would run with a value setup never counted. Run 'unset $$v' and try again." >&2; \
+	    exit 1; \
+	  fi; \
+	done
+
 # dev-cert writes a throwaway serving certificate into .dev-certs/, which
 # is gitignored.
 #
 # Nothing requires it any more. The controller provisions its own
 # self-signed certificate when an operator has configured none, so
-# `docker compose up` needs no preparatory command and `make ui-dev`
-# generates its own. This target was kept rather than deleted because it
+# neither `make up` nor `make ui-dev` needs a certificate made first. This target was kept rather than deleted because it
 # covers the OTHER arrangement, the one a real deployment uses: a
 # certificate handed to the controller through TLS_CERT_FILE and
 # TLS_KEY_FILE. That path deserves a way to be exercised locally, and this

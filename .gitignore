@@ -27,6 +27,12 @@ obj/
 # even though the credentials file itself holds only ciphertext.
 .pleiades/
 
+# The compose stack's secrets, which `make up` and `make setup` write: the
+# master encryption key that reads every credential the stack stores, and the
+# JWT secret. It is the only copy of the key, so it is backed up by hand and
+# never committed. Anchored to the module root, where docker compose reads it.
+/.env
+
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
 # private key, so it is ignored even though the key is worthless outside a
 # development machine: a committed key teaches the habit of committing keys,
