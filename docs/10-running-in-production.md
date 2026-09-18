@@ -33,6 +33,10 @@ below says what depends on it. Without a terminal (in a script),
 `make up SETUP_FLAGS="--admin-email you@example.com --password-stdin"` reads the
 administrator's password from standard input and asks nothing else.
 
+`make backup`, `make restore`, `make down` and `make decom` cover the rest of the
+stack's life; [Backup and restore](#backup-and-restore-data-retention-and-purge)
+says what each keeps and removes.
+
 The rest of this section is about the Helm chart. Everything below has been
 rendered and checked; where something has not been run against a real cluster,
 it says so.
@@ -164,7 +168,9 @@ with the old one until the token is signed again. Browser sign-ins do not use it
 are unaffected. It is not needed to read anything stored.
 
 **The database** holds the work. It needs a backup of its own: the key cannot bring
-back a database that is gone, and a backup cannot be read without the key.
+back a database that is gone, and a backup cannot be read without the key. `make
+backup` takes one, and keeps the key out of it; see
+[Backup and restore](#backup-and-restore-data-retention-and-purge).
 
 **The outage budget** is the one question setup asks: *what is the longest link
 outage this deployment must survive?* The broker keeps every message for 336 times
@@ -1582,9 +1588,175 @@ the module catalog once one does.
 
 ## Backup and restore, data retention and purge
 
-Not documented yet. The control plane's data layer (ent-backed) has real schema
-migrations (`internal/ent/migrate`), but no documented backup/restore procedure or
-retention/purge policy exists today.
+The compose stack has four commands for the second day, each a make target:
+
+| Command | What it does | What it keeps |
+|---|---|---|
+| `make backup` | Writes a backup of the database to `./backups` | Everything; the stack keeps running |
+| `make restore BACKUP=<file>` | Replaces the database with a backup, after checking it | A backup of the database it replaced |
+| `make down` | Stops the stack and removes its containers | The database, the broker's messages, `.env` |
+| `make decom` | Removes the deployment for good, after a typed confirmation | `./backups`, the images, the checkout |
+
+They run in the stack's one-shot `backup` service, whose image is the controller
+binary beside PostgreSQL's own `pg_dump` and `pg_restore` at the server's exact
+release. The controller's own image carries neither. For a Helm install, or any
+database this stack does not run, nothing here is wired up yet: back that database
+up with `pg_dump` the way you back up any other, and keep its key the way the next
+section says.
+
+### A backup and its key are kept apart
+
+A backup is useless without the master encryption key: every credential, stored
+device property, saved survey answer and mesh signing seed in it is sealed under
+that key. The key alone restores nothing either. Setup's own words are that the two
+together are everything this deployment stores.
+
+**A backup does not contain the key**, on purpose. A backup gets copied to more
+places than a key does, and a file holding both is a file anyone who finds it can
+read everything in. Instead, a backup's name carries the first eight characters of
+the key's fingerprint:
+
+```text
+backups/pleiades-20260918T141707Z-3f9ac21b.dump
+```
+
+`3f9ac21b` is the key it needs, the same fingerprint setup showed you and the
+activity trail records, as `3f9a-c21b`. Keep the key somewhere the backups are not.
+Losing the machine then loses neither, and finding a backup gives nobody the key.
+
+### Taking a backup
+
+```bash
+make backup
+```
+
+It works with the stack running: PostgreSQL gives `pg_dump` one consistent snapshot
+while the controller keeps working. A stopped stack's database is started for it.
+
+- The file is written under a hidden temporary name at mode 0600, read back through
+  `pg_restore --list`, and checked the way a restore checks one. Only then does it
+  take its real name. A backup that stopped partway, or that no restore would
+  accept, is deleted rather than left looking like a backup.
+- It says what the backup holds ("1 credential, the stored properties of 3
+  devices"), and whether every one of those values opens under the key in `.env`.
+  A value that does not is backed up exactly as it is, and the message says so.
+- It holds password hashes, session hashes, the activity trail and every job's
+  history as they are. Store it the way you would store the database.
+- It does not hold messages waiting on the broker, the controller's self-signed
+  certificate, or the runbook directory.
+- `BACKUP_DIR=<directory>` writes somewhere other than `./backups`.
+
+On the test database, a backup took 123 ms where `pg_dump` alone took 90 ms. The
+difference is the count of sealed values and the read-back, and it grows with the
+number of sealed values, not with the size of the database.
+
+### Restoring
+
+```bash
+make restore BACKUP=backups/pleiades-20260918T141707Z-3f9ac21b.dump
+```
+
+It stops the controller and the runner, since anything they wrote during the restore
+would be lost. Then it takes these steps in order. Until the last one, the live
+database is not touched, and any refusal leaves it exactly as it was:
+
+1. **The file.** It must be a regular file (not a link) in PostgreSQL's custom
+   format, and its table of contents may hold only the kinds of entry a backup of
+   this schema holds: tables, their data, sequences, indexes and constraints. A
+   function, a trigger, a view, or a table this version does not have is refused
+   before anything is loaded.
+2. **A scratch database.** The file is loaded into a new database by a new role
+   that owns that database and nothing else. It is not a superuser, cannot create
+   roles or databases, and cannot run programs or read files on the server. Every
+   statement in the file runs as that role. Then every setting the file could have
+   attached to the database or the role is cleared.
+3. **The key.** Every sealed value is tried against the key in `.env`, and the
+   previous key during a rotation. Each must open under one of them, *and* carry the
+   version tag `.env` gives that key, because the controller finds a value's key by
+   its tag. If not, it refuses, and names the keys the backup's own key registry
+   lists.
+4. **The schema.** The scratch database is brought up to this version's schema, as
+   its role, and then compared with a fresh database this version's migrations
+   build: every table, column, default, constraint, index and sequence, and the
+   absence of any function, trigger, rule, policy, extension or setting. Anything
+   different is refused, including a column default that calls a built-in function.
+   A backup from a newer version is refused here: restore it with that version.
+5. **What the backup could not know.** Jobs the backup caught running are marked
+   failed, with the reason: what they did after the backup is not recorded, so check
+   their devices before running them again. Otherwise they would be picked up and run
+   a second time. Every session is ended, since some may have been signed out or
+   removed since the backup; everyone signs in again. The activity trail records
+   `controller-restore restored database pleiades from <file>`.
+6. **The database being replaced is backed up first**, to
+   `backups/pleiades-<time>-<key>-before-restore.dump`. Restoring that file the same
+   way puts it back.
+7. **The swap.** The two databases trade names in one transaction, and the replaced
+   one is dropped.
+
+Then `make restore` clears the broker, whose queued messages belong to the database
+that was replaced, and brings the stack up with `make up`.
+
+After a restore, a schedule with occurrences between the backup and now runs once,
+for the most recent, and records the rest as skipped, as after any outage. A
+schedule that ran after the backup was taken can therefore run again.
+
+### Restoring onto a new machine
+
+On a machine with no `.env`, the restore asks for the key the backup was taken under,
+naming it by fingerprint, and reads it with echo off. It refuses a key whose
+fingerprint is not the one in the backup's name. Once every check passes, it writes
+the key to `.env`, with the version tag the backup's values carry. `make up` then
+adds a new JWT secret and asks the outage question, as setup always does.
+
+In a script, send the key on standard input:
+
+```bash
+echo "$KEY" | make restore BACKUP=backups/pleiades-20260918T141707Z-3f9ac21b.dump \
+  RESTORE_FLAGS=--key-stdin SETUP_FLAGS=--non-interactive
+```
+
+A backup taken during a key rotation needs both keys. Write them to `.env` as
+`MASTER_ENCRYPTION_KEY` and `MASTER_ENCRYPTION_KEY_PREVIOUS`, each with its version
+tag, before restoring.
+
+### When the key is lost
+
+There is no procedure, because there is nothing a procedure could recover. The
+sealed values in every backup taken under that key are unreadable by anyone, this
+project included: credential secrets, stored device properties, saved survey
+answers and mesh signing seeds.
+
+What is not sealed survives: users and their password hashes, organizations, teams,
+role bindings, inventories and devices (apart from their sealed properties),
+templates, schedules, job history and the activity trail. Nothing keeps that part
+for you yet. A restore refuses a backup whose sealed values the key cannot read,
+because a controller started on it would fail each time it reached one. Setup
+refuses to write a new key over a database holding values sealed under another key,
+for the reason given in [What setup tells you about later](#what-setup-tells-you-about-later).
+Keeping the unsealed part would mean deleting every sealed value first, which no
+command does today.
+
+### Stopping and removing
+
+`make down` stops the stack and removes its containers and network. It keeps the
+database, the broker's stored messages, the controller's certificate and `.env`, and
+`make up` brings the same deployment back.
+
+`make decom` removes the deployment for good: the containers, the network, every
+volume, and `.env` with the key in it. It keeps `./backups`, the images and this
+checkout. First it shows what it removes and what it keeps, including how many
+backups there are, when the newest was taken, and which key it needs. It goes on
+only when you type `decommission <fingerprint>`, so the moment you confirm deleting
+the key is the moment you see which key your backups need. Without a terminal it
+needs `make decom DECOM_FLAGS=--destroy-deployment`. The volumes are removed before
+`.env`, so if removing them fails, the key that reads them is still there.
+
+### Data retention and purge
+
+Not built yet. Jobs, their results and the activity trail are kept until someone
+deletes them, and nothing purges them on a schedule. The broker's retention is the
+one exception, derived from the outage budget (see
+[One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)).
 
 ## Observability and troubleshooting
 

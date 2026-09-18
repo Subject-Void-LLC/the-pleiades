@@ -8170,3 +8170,73 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 **Fix.** `internal/keyregistry` is on the list. `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed` reads the imports of every `_test.go` file in the module, in every build configuration, and fails in a second when a package importing testcontainers-go is missing from the list. It was mutation-checked by removing the new entry.
 
 **Lesson.** A list a person must remember to update, whose only enforcement is a failure indistinguishable from load, is not enforced. When a convention exists because of how a gate schedules work, check the convention directly, at unit-test speed, rather than waiting for the gate to trip over it.
+
+## 240. Every compose release gate ran as the checkout's own compose project, so `make ci` deleted the database of a stack started with `make up`
+
+**Symptom.** None observed, because it was found by reading before it happened. A developer's stack from `make up` was running while the gate was about to run.
+
+**Root cause.** `docker-compose.yml` names its project `pleiades`, and `make up` in a checkout creates exactly that project. Every compose gate in `tests/e2e` (Phase 20's and Phase 83's) starts and ends with `docker compose down -v --remove-orphans`, run in the same checkout, and `scrubbedPackagingEnv` deliberately removed `COMPOSE_PROJECT_NAME`. `make ci` and `make push-gate` run those gates through `test-integration`. So running the gate beside a stack from `make up` removed its database and broker volumes, with exit code 0. The hazard grew in Phase 83, when `make up` in the checkout became the documented way to run a deployment that holds real data.
+
+**Fix.** `packagingCommand` sets `COMPOSE_PROJECT_NAME=pleiades-release-gate` for every compose call, so the gate's volumes are its own. `freshComposeStack` first checks the three published ports and fails with a message naming `make down` (which keeps data) if anything holds them. A separate project cannot also separate fixed host ports.
+
+**Lesson.** A test harness that shares a name with the thing a developer runs will one day act on the developer's copy. Give every destructive test its own namespace, and refuse loudly rather than proceed when it cannot have one.
+
+## 241. A `build:` key does not stop docker compose pulling: with no local image it pulls the `image:` name first, from a namespace this project does not own
+
+**Symptom.** Measured on Compose v5.5.1 with a throwaway project: a service with `image: <name>` and `build:`, run with no local image, printed `Image <name> Pulling`, failed the pull, and only then built. Phase 83's F4 had concluded that sharing the controller's `build:` was enough to stop a pull.
+
+**Root cause.** Compose's default pull policy tries the registry first for any service that names an image. The `pleiades` namespace on Docker Hub is registered to a third party (created 2015, one repository). An image they published as `pleiades/controller:dev` would have run on any fresh clone that ran plain `docker compose up`, with the master key and the database.
+
+**Fix.** `pull_policy: never` on the controller, runner, setup and backup services. Measured: with it, compose builds a missing image and uses a present one without rebuilding (260 ms warm, against 538 ms for `pull_policy: build`). `TestComposeNeverPullsWhatItBuilds` requires it on every service that builds. The Helm chart's default repository points at the same namespace, and is reported rather than changed, because which registry it should name is the user's decision.
+
+**Lesson.** A configuration key describes intent; what the tool does with it is a measurement. Before relying on a key to prevent something, run the tool in the state where it would happen.
+
+## 242. A restore role made NOINHERIT could not create tables in the database it owned
+
+**Symptom.** `pg_restore` as the scratch role failed with `permission denied for schema public`, although the role owned the database.
+
+**Root cause.** In PostgreSQL 15 the `public` schema is owned by `pg_database_owner`, and a database's owner holds that role implicitly. NOINHERIT, added to make the role as narrow as possible, stops a role using the privileges of roles it is a member of, and that includes the implicit one. The earlier manual probe had created the role without NOINHERIT and passed.
+
+**Fix.** The role is INHERIT, the default. It is a member of nothing else, so inheriting grants nothing more.
+
+**Lesson.** A narrowing flag can remove the one grant a design depended on. Test the role exactly as the code creates it, not as a probe did.
+
+## 243. `ALTER ROLE ALL IN DATABASE x RESET ALL` does not clear a role's own setting in that database
+
+**Symptom.** `TestScratch_ClearSettingsRemovesWhatTheFileLeft` planted three settings as the scratch role and found one left after clearing.
+
+**Root cause.** `pg_db_role_setting` has an entry per (database, role) pair. `ALTER ROLE ALL IN DATABASE` clears the entry for all roles (role 0) in that database, not every role's entry there. A setting the role pinned to itself inside the scratch database survived, and it would have applied to every later session there as that role, including the census and the schema comparison.
+
+**Fix.** Clear each place the role can write: the database's settings, the role's settings, and the role's settings inside the database. Then count what is left, and refuse if anything is.
+
+**Lesson.** When a security step is "remove everything", end it by counting what is left rather than trusting the statement's name.
+
+## 244. A setting a restored file attaches to its database applies to the sessions that check it
+
+**Symptom.** Measured by hand before the restore code existed: a database-level `statement_timeout = '1ms'`, set as the restoring role, made the schema comparison's own queries fail.
+
+**Root cause.** `ALTER DATABASE ... SET` and `ALTER ROLE ... SET` take effect for every new session there. A restored file runs as the role that owns the scratch database, and that owner may set them. A timeout fails safe. A `search_path` naming a schema the file created could make a check resolve a function the file wrote instead of the catalog's, and so lie to it.
+
+**Fix.** After loading, the superuser clears every such setting (a catalog edit that runs no code), then counts what is left (see 243). The comparison connections also pin `search_path=pg_catalog`, and the census connection pins `public`.
+
+**Lesson.** Anything that runs inside what it is checking inherits what it is checking. Remove the checked thing's influence over the checker before the check runs.
+
+## 245. `make up`'s documented script form never worked: its check drained the piped password before setup could read it
+
+**Symptom.** Found by the backup release gate, the first test to run `make up` itself. `echo "$PASSWORD" | make up SETUP_FLAGS="--non-interactive --admin-email ... --password-stdin"` wrote `.env` and then failed: `the administrator was not created: no secret on standard input`, exit 2. docs/10 and the Makefile both documented this form.
+
+**Root cause.** `make up` first runs `docker compose run -T ... setup --check` to ask whether `.env` is complete. `-T` turns off the terminal, not standard input: compose still forwards its stdin into the container, and drains it whether or not the container reads a byte. The check read nothing and consumed the password, so `make setup`, run next, found standard input at end of file. Phase 83's handoff recorded "`make up` itself is not run by a test" as a known gap; this is what the gap held.
+
+**Fix.** Both `--check` runs get `</dev/null`. `TestBackupReleaseGate_ComposeFromBackupToACleanMachine` runs the piped form of `make up` twice.
+
+**Lesson.** A command that runs other commands passes its standard input to the first one that asks, and a container runtime asks on its child's behalf. Give every step that must not read input nothing to read. A documented form no test runs is a form nobody has run.
+
+## 246. A sanitizer written for names from an untrusted file cut host paths to 64 characters
+
+**Symptom.** The backup gate's `make restore` said the replaced database "was backed up first, to /tmp/TestBackupReleaseGate_...": the path, the one thing needed to undo the restore, cut off.
+
+**Root cause.** `printable` replaces control characters and caps text at 64 characters, which is right for a table name read out of an archive someone else wrote. It was also used for paths built from the backup directory, which are this deployment's own and often longer than 64 characters.
+
+**Fix.** `printablePath` replaces the same characters with a 4096 character limit, and every path in a message uses it.
+
+**Lesson.** A length cap is a decision about one kind of text. Applied to text whose whole value is being complete, it removes the reason to print it.

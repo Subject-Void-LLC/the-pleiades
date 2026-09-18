@@ -242,6 +242,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 237. A terminal echoes type-ahead: a secret typed before a hidden prompt appears is shown on the screen
 238. A line-by-line .env reader disagrees with docker compose in two measured ways, either of which would have written a second key
 239. A new container-backed package missing from DOCKER_DEPENDENT_PACKAGES failed only as a timed-out container, twenty minutes into the push gate
+240. Every compose release gate ran as the checkout's own compose project, so `make ci` deleted the database of a stack started with `make up`
+241. A `build:` key does not stop docker compose pulling: with no local image it pulls the `image:` name first, from a namespace this project does not own
+242. A restore role made NOINHERIT could not create tables in the database it owned
+243. `ALTER ROLE ALL IN DATABASE x RESET ALL` does not clear a role's own setting in that database
+244. A setting a restored file attaches to its database applies to the sessions that check it
+245. `make up`'s documented script form never worked: its check drained the piped password before setup could read it
+246. A sanitizer written for names from an untrusted file cut host paths to 64 characters
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

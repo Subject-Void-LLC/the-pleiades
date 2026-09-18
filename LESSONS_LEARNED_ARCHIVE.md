@@ -4659,3 +4659,21 @@ in a way that keeps it exactly as valid (rotate letters within their case and di
 range, byte by byte), and require the two results to be identical. An error that does not change
 when the secret changes cannot be carrying it. Transform bytes, not runes, since the input a parser
 fuzz target exists to send is invalid UTF-8, and a rune-level transform repairs it.
+
+## 196. Restoring a file is running its author's code: contain it with a role that can reach nothing else, and accept it only if its schema is exactly what your own migrations make
+
+**The incident.** `pg_restore` executes every statement in an archive, and a custom-format archive can label any SQL with any entry kind. The compose stack's database login is a superuser, so a restore run as that login would run a crafted file's `COPY ... TO PROGRAM`. Running it as a restricted role is not enough on its own: a trigger, a column default or a rule the file leaves behind runs later as whoever next writes to that table, which is the superuser controller. Measured: a default calling `pg_read_file` passes every check on the table of contents, because it is part of a TABLE entry.
+
+**The rule.** Load an untrusted archive into a scratch database as a role that owns that database and nothing else. Clear the settings it could have left. Then compare the result against a fresh database built by your own migrations, catalog by catalog, and refuse any difference. Nothing with more rights touches the scratch database until the comparison passes. A positive comparison ("exactly this") needs no list of dangerous object kinds, and a blocklist is complete only until the day it is not.
+
+## 197. A test's shared namespace is a destructive operation waiting for a developer's data: give every gate that deletes things its own name, and refuse when it cannot have one
+
+**The incident.** Every compose release gate ran `docker compose down -v` as the project the compose file names, which is also the project `make up` creates in the same checkout (FAILURE_PATTERNS 240). Nothing had yet been lost, only because no developer had run the gate with a stack up.
+
+**The rule.** A test that deletes must delete only what it created, and the way to guarantee that is a name nothing else uses. Where a resource cannot be separated by name (host ports), check for it first and refuse with a message naming the safe way to free it.
+
+## 198. A configuration key is a statement of intent; before it guards against something, observe the tool in the state where that something would happen
+
+**The incident.** Phase 83 concluded that a compose service with `build:` would never pull its image. A thirty-second probe on the installed Compose showed it pulls first and builds only when the pull fails, from a Docker Hub namespace a third party owns (FAILURE_PATTERNS 241).
+
+**The rule.** When a security property depends on what a tool does with a setting, build the smallest state where the unwanted behavior would occur (no local image, a missing file, an unset variable) and watch it. Record the measurement next to the setting, and pin it with a test that reads the setting.
