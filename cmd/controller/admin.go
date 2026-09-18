@@ -122,7 +122,8 @@ func isAdminCommand(args []string) bool {
 // Written here rather than transcribed into internal/clispec, and that is a
 // decision rather than an omission: clispec.Root is the `pleiades` tree, and
 // tools/gendocs walks that one tree to produce docs/reference/cli.md. These
-// three commands are therefore outside the generated CLI reference, and are
+// commands, and setup (setup.go), are therefore outside the generated CLI
+// reference, and are
 // documented in prose in the security book instead. Adding a second root to
 // clispec for three commands would mean a second traversal in gendocs and a
 // second consistency test, for a surface an operator reaches once per
@@ -139,6 +140,13 @@ Administrative commands, run on the host rather than over HTTP:
                                       revoke all of its sessions
   unlock          --email <address>   clear a lockout without changing the
                                       password
+
+One command that makes the secrets the others need:
+
+  setup                               generate the master encryption key and
+                                      the JWT secret, write them where the
+                                      deployment reads them, and create the
+                                      first administrator (controller setup -h)
 
 One operational command, which touches no database at all:
 

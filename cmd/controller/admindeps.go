@@ -17,6 +17,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
@@ -24,13 +25,32 @@ import (
 )
 
 // openAdminDeps opens the database and builds the stores a subcommand
-// needs, returning a cleanup the caller defers.
+// needs, returning a cleanup the caller defers. The database and the key
+// both come from the environment, exactly as the server reads them.
 func openAdminDeps(ctx context.Context) (*adminDeps, func(), error) {
 	dsn, err := resolveDatabaseDSN()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve database configuration: %w", err)
 	}
+	// Loaded before the database is opened, because opening it migrates it:
+	// a command run without a usable key stops having changed nothing.
+	envelopeSvc, err := loadEnvelopeService()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to init envelope encryption: %w", err)
+	}
+	return openAdminDepsWith(ctx, dsn, envelopeSvc)
+}
 
+// openAdminDepsWith is openAdminDeps with the database and the envelope
+// service supplied rather than read from the environment.
+//
+// The setup command is the caller that needs it: it has just generated a
+// master key and written it to a file, and has to open the database under
+// that key to record it and to create the first administrator. Handing it
+// the key through the environment instead would put the key where every
+// child process inherits it and /proc publishes it, which is the one place
+// this command is built never to put a secret.
+func openAdminDepsWith(ctx context.Context, dsn string, envelopeSvc *crypto.EnvelopeService) (*adminDeps, func(), error) {
 	// The masking ruleset is installed on this path too. An admin command
 	// logs a subject and an outcome and never a password, but
 	// internal/archtest's TestEverySlogHandlerCarriesTheMaskingRuleset
@@ -48,11 +68,6 @@ func openAdminDeps(ctx context.Context) (*adminDeps, func(), error) {
 	// one and storing it in plaintext on the other. None of the entities
 	// these commands touch is encrypted today, which is exactly why this
 	// would be easy to omit and expensive to have omitted later.
-	envelopeSvc, err := loadEnvelopeService()
-	if err != nil {
-		_ = client.Close()
-		return nil, nil, fmt.Errorf("failed to init envelope encryption: %w", err)
-	}
 	installCryptoHooks(client, envelopeSvc)
 
 	// Through the AUDITED store, not the bare one. A break-glass path that

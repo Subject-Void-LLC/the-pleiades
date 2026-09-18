@@ -104,6 +104,11 @@ const (
 
 	// routeAdmin is the operator subcommands (admin.go).
 	routeAdmin
+
+	// routeSetup is the setup command (setup.go). It is not an admin
+	// command because every admin command opens the database under a key
+	// the environment already holds, and setup is what makes that key.
+	routeSetup
 )
 
 // routeFor resolves an argument vector to exactly one route.
@@ -125,6 +130,13 @@ const (
 func routeFor(args []string) commandRoute {
 	if isHealthcheckCommand(args) {
 		return routeHealthcheck
+	}
+	// Before the admin guard for the same reason the healthcheck is:
+	// isAdminCommand matches "setup" too, and the admin route would open
+	// the database under MASTER_ENCRYPTION_KEY before setup ran, which on a
+	// first install is a key that does not exist yet.
+	if isSetupCommand(args) {
+		return routeSetup
 	}
 	if isAdminCommand(args) {
 		return routeAdmin

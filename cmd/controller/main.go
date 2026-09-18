@@ -294,9 +294,13 @@ func decodeEnvelopeKey(envVar string) ([]byte, error) {
 // so Decrypt can still open rows written under it while every new write
 // uses the new current key (PLAN.md Section 17.2's "loads a secondary
 // key, decrypts... with the old, re-encrypts... with the new").
+//
+// A missing key's error names this binary's own setup command, which is in
+// every image this binary ships in, and nothing else: a repository make
+// target is not there for an operator who pulled only the image.
 func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 	if os.Getenv("MASTER_ENCRYPTION_KEY") == "" {
-		return nil, fmt.Errorf("MASTER_ENCRYPTION_KEY is required")
+		return nil, errMissingMasterKey
 	}
 	currentKey, err := decodeEnvelopeKey("MASTER_ENCRYPTION_KEY")
 	if err != nil {
@@ -320,6 +324,10 @@ func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 	previousVersion := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION")
 	return crypto.NewEnvelopeService(currentKey, currentVersion, previousKey, previousVersion)
 }
+
+// errMissingMasterKey is the refusal a controller started without a master
+// key prints.
+var errMissingMasterKey = errors.New("MASTER_ENCRYPTION_KEY is not set. This binary's setup command generates one and writes it where your deployment reads it: run `controller setup -h` for how, and see the production guide's install section")
 
 // loadKeyProvider builds the auth.KeyProvider this process verifies
 // tokens against. JWKS_URL, when set, selects the real Federated Identity
@@ -513,6 +521,8 @@ func main() {
 	switch args := os.Args[1:]; routeFor(args) {
 	case routeHealthcheck:
 		os.Exit(runHealthcheck(args))
+	case routeSetup:
+		os.Exit(runSetup(args))
 	case routeAdmin:
 		os.Exit(runAdmin(args))
 	case routeServer:
@@ -658,6 +668,16 @@ func main() {
 		fatal("failed to init telemetry", err)
 	}
 
+	// The key is loaded before the database is opened, because opening it
+	// migrates it: a controller started with no key, or a malformed one,
+	// stops here having changed nothing, rather than after bringing the
+	// schema forward for a process that cannot then run. See this file's
+	// own doc comment for why MASTER_ENCRYPTION_KEY has no file fallback.
+	envelopeSvc, err := loadEnvelopeService()
+	if err != nil {
+		fatal("failed to init envelope encryption", err)
+	}
+
 	client, err := ent.OpenDatabase(ctx, ent.Config{
 		DSN:             dbDSN,
 		MaxOpenConns:    maxOpenConns,
@@ -671,13 +691,14 @@ func main() {
 
 	// Envelope encryption is installed before the client is used for
 	// anything else, so no Device write or read anywhere in this process
-	// can bypass it. See this file's own doc comment for why
-	// MASTER_ENCRYPTION_KEY has no file fallback here.
-	envelopeSvc, err := loadEnvelopeService()
-	if err != nil {
-		fatal("failed to init envelope encryption", err)
-	}
+	// can bypass it.
 	installCryptoHooks(client, envelopeSvc)
+
+	// Record the key this controller runs with, the first time any
+	// controller runs with it, so the activity trail can answer when it
+	// came into use even when it was generated somewhere no database was
+	// reachable. Never fatal: see recordKeyFirstUse.
+	recordKeyFirstUse(ctx, client, logger)
 
 	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
 
