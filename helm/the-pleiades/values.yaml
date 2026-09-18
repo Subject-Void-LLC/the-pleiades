@@ -9,27 +9,35 @@
 # have to switch spelling halfway down every block. One spelling, matching the
 # API these values become, is the lesser evil.
 #
-# THREE VALUES HAVE NO DEFAULT AND THE CHART REFUSES TO RENDER WITHOUT THEM:
+# THE SECRETS HAVE NO DEFAULT, AND THE CHART REFUSES TO RENDER WITHOUT THEM.
+#
+# Make them with the controller's own setup command, which writes a Secret
+# manifest and a values file beside it, in one step:
+#
+#   controller setup --target helm --dir ./pleiades-install --namespace pleiades
+#   kubectl create --namespace pleiades -f ./pleiades-install/pleiades-secret.yaml
+#   helm install pleiades ./helm/the-pleiades --namespace pleiades \
+#     -f ./pleiades-install/pleiades-values.yaml
+#
+# `kubectl create` rather than `apply`, so a Secret that already exists is
+# refused rather than replaced. The values file holds no secret. The Secret
+# never passes through a command line or Helm's own release records.
+#
+# Supplying them by hand instead is still supported, as three values:
 #
 #   secrets.masterEncryptionKey    base64 of exactly 32 random bytes
 #   secrets.jwtSecret              at least 32 bytes
-#   postgresql.auth.password       any password, when the in-chart database is on
-#
-# Generate all three at once and keep them somewhere you can find again:
-#
-#   helm install pleiades ./helm/the-pleiades \
-#     --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
-#     --set secrets.jwtSecret="$(openssl rand -hex 32)" \
-#     --set postgresql.auth.password="$(openssl rand -hex 16)"
+#   postgresql.auth.password       any password needing no URL escaping, when
+#                                  the in-chart database is on
 #
 # The chart will not invent them for you, and that is the single most
 # important decision in this file. Helm can generate a random value, and a
 # chart that did would regenerate a DIFFERENT one on the next `helm upgrade`,
 # because `helm template` has no cluster to read the old value back from. A
-# rotated JWT secret signs everybody out. A rotated MASTER_ENCRYPTION_KEY
-# makes every stored credential and every encrypted device property
-# permanently undecryptable, with no error at upgrade time and no way back.
-# Asking for three flags once is cheaper than that.
+# rotated JWT secret rejects every API token signed with the old one. A
+# rotated MASTER_ENCRYPTION_KEY makes every stored credential and every
+# encrypted device property permanently undecryptable, with no error at
+# upgrade time and no way back.
 
 # -- Overrides for the generated object names. nameOverride replaces the chart
 # name inside them; fullnameOverride replaces the whole prefix.
@@ -62,18 +70,25 @@ serviceAccount:
 
 secrets:
   # -- Read every credential from a Secret you manage yourself instead of one
-  # this chart creates. The Secret must carry these keys:
-  # MASTER_ENCRYPTION_KEY, JWT_SECRET, DB_DSN, and POSTGRES_PASSWORD when the
-  # in-chart database is enabled. This is the route for the External Secrets
-  # Operator, a Vault sidecar, or anything else that owns your secrets.
+  # this chart creates. The Secret must carry MASTER_ENCRYPTION_KEY and
+  # JWT_SECRET, plus POSTGRES_PASSWORD when the in-chart database is enabled
+  # (the chart builds the database connection string from it), or DB_DSN when
+  # it is not. `controller setup --target helm` writes such a Secret. This is
+  # also the route for the External Secrets Operator, a Vault sidecar, or
+  # anything else that owns your secrets.
   existingSecret: ""
-  # -- base64 of exactly 32 random bytes: `openssl rand -base64 32`. Every
-  # credential and every encrypted device property in the database is
-  # encrypted under this key. Losing it loses them.
+  # -- A checksum of the existing Secret's content, which setup writes. It is
+  # what restarts the pods when the Secret changes: with an existing Secret
+  # the chart has nothing of its own to hash. Empty means a replaced Secret
+  # reaches the pods only when they next restart for another reason.
+  existingSecretChecksum: ""
+  # -- base64 of exactly 32 random bytes. Every credential and every encrypted
+  # device property in the database is encrypted under this key. Losing it
+  # loses them.
   masterEncryptionKey: ""
-  # -- At least 32 bytes: `openssl rand -hex 32`. Signs API tokens and browser
-  # sessions. Changing it signs everybody out, which is recoverable, unlike
-  # changing the key above.
+  # -- At least 32 bytes. Verifies the bearer tokens the API accepts; browser
+  # sign-ins do not use it. Changing it rejects every API token signed with
+  # the old one, which is recoverable, unlike changing the key above.
   jwtSecret: ""
 
 controller:
@@ -523,6 +538,10 @@ postgresql:
     # the StatefulSet stamps a hash of these three onto its claim, and the next
     # install compares.
     password: ""
+    # -- The same hash, for a release whose password lives in
+    # secrets.existingSecret, where the chart cannot see it. setup writes it.
+    # Empty turns the comparison above off for that release.
+    existingSecretFingerprint: ""
   service:
     port: 5432
   persistence:

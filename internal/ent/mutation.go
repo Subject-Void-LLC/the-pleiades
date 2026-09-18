@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
@@ -59,6 +60,7 @@ const (
 	TypeCredentialInputSource = "CredentialInputSource"
 	TypeCredentialType        = "CredentialType"
 	TypeDevice                = "Device"
+	TypeEncryptionKey         = "EncryptionKey"
 	TypeFact                  = "Fact"
 	TypeGroup                 = "Group"
 	TypeInventory             = "Inventory"
@@ -6989,6 +6991,602 @@ func (m *DeviceMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Device edge %s", name)
+}
+
+// EncryptionKeyMutation represents an operation that mutates the EncryptionKey nodes in the graph.
+type EncryptionKeyMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int
+	created_at    *time.Time
+	updated_at    *time.Time
+	fingerprint   *string
+	version       *string
+	origin        *encryptionkey.Origin
+	possession    *encryptionkey.Possession
+	clearedFields map[string]struct{}
+	done          bool
+	oldValue      func(context.Context) (*EncryptionKey, error)
+	predicates    []predicate.EncryptionKey
+}
+
+var _ ent.Mutation = (*EncryptionKeyMutation)(nil)
+
+// encryptionkeyOption allows management of the mutation configuration using functional options.
+type encryptionkeyOption func(*EncryptionKeyMutation)
+
+// newEncryptionKeyMutation creates new mutation for the EncryptionKey entity.
+func newEncryptionKeyMutation(c config, op Op, opts ...encryptionkeyOption) *EncryptionKeyMutation {
+	m := &EncryptionKeyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeEncryptionKey,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withEncryptionKeyID sets the ID field of the mutation.
+func withEncryptionKeyID(id int) encryptionkeyOption {
+	return func(m *EncryptionKeyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *EncryptionKey
+		)
+		m.oldValue = func(ctx context.Context) (*EncryptionKey, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().EncryptionKey.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withEncryptionKey sets the old EncryptionKey of the mutation.
+func withEncryptionKey(node *EncryptionKey) encryptionkeyOption {
+	return func(m *EncryptionKeyMutation) {
+		m.oldValue = func(context.Context) (*EncryptionKey, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m EncryptionKeyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m EncryptionKeyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *EncryptionKeyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *EncryptionKeyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().EncryptionKey.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *EncryptionKeyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *EncryptionKeyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *EncryptionKeyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *EncryptionKeyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *EncryptionKeyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *EncryptionKeyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetFingerprint sets the "fingerprint" field.
+func (m *EncryptionKeyMutation) SetFingerprint(s string) {
+	m.fingerprint = &s
+}
+
+// Fingerprint returns the value of the "fingerprint" field in the mutation.
+func (m *EncryptionKeyMutation) Fingerprint() (r string, exists bool) {
+	v := m.fingerprint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFingerprint returns the old "fingerprint" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldFingerprint(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFingerprint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFingerprint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFingerprint: %w", err)
+	}
+	return oldValue.Fingerprint, nil
+}
+
+// ResetFingerprint resets all changes to the "fingerprint" field.
+func (m *EncryptionKeyMutation) ResetFingerprint() {
+	m.fingerprint = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *EncryptionKeyMutation) SetVersion(s string) {
+	m.version = &s
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *EncryptionKeyMutation) Version() (r string, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldVersion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *EncryptionKeyMutation) ResetVersion() {
+	m.version = nil
+}
+
+// SetOrigin sets the "origin" field.
+func (m *EncryptionKeyMutation) SetOrigin(e encryptionkey.Origin) {
+	m.origin = &e
+}
+
+// Origin returns the value of the "origin" field in the mutation.
+func (m *EncryptionKeyMutation) Origin() (r encryptionkey.Origin, exists bool) {
+	v := m.origin
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrigin returns the old "origin" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldOrigin(ctx context.Context) (v encryptionkey.Origin, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrigin is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrigin requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrigin: %w", err)
+	}
+	return oldValue.Origin, nil
+}
+
+// ResetOrigin resets all changes to the "origin" field.
+func (m *EncryptionKeyMutation) ResetOrigin() {
+	m.origin = nil
+}
+
+// SetPossession sets the "possession" field.
+func (m *EncryptionKeyMutation) SetPossession(e encryptionkey.Possession) {
+	m.possession = &e
+}
+
+// Possession returns the value of the "possession" field in the mutation.
+func (m *EncryptionKeyMutation) Possession() (r encryptionkey.Possession, exists bool) {
+	v := m.possession
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPossession returns the old "possession" field's value of the EncryptionKey entity.
+// If the EncryptionKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EncryptionKeyMutation) OldPossession(ctx context.Context) (v encryptionkey.Possession, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPossession is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPossession requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPossession: %w", err)
+	}
+	return oldValue.Possession, nil
+}
+
+// ResetPossession resets all changes to the "possession" field.
+func (m *EncryptionKeyMutation) ResetPossession() {
+	m.possession = nil
+}
+
+// Where appends a list predicates to the EncryptionKeyMutation builder.
+func (m *EncryptionKeyMutation) Where(ps ...predicate.EncryptionKey) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the EncryptionKeyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *EncryptionKeyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.EncryptionKey, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *EncryptionKeyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *EncryptionKeyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (EncryptionKey).
+func (m *EncryptionKeyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *EncryptionKeyMutation) Fields() []string {
+	fields := make([]string, 0, 6)
+	if m.created_at != nil {
+		fields = append(fields, encryptionkey.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, encryptionkey.FieldUpdatedAt)
+	}
+	if m.fingerprint != nil {
+		fields = append(fields, encryptionkey.FieldFingerprint)
+	}
+	if m.version != nil {
+		fields = append(fields, encryptionkey.FieldVersion)
+	}
+	if m.origin != nil {
+		fields = append(fields, encryptionkey.FieldOrigin)
+	}
+	if m.possession != nil {
+		fields = append(fields, encryptionkey.FieldPossession)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *EncryptionKeyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case encryptionkey.FieldCreatedAt:
+		return m.CreatedAt()
+	case encryptionkey.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case encryptionkey.FieldFingerprint:
+		return m.Fingerprint()
+	case encryptionkey.FieldVersion:
+		return m.Version()
+	case encryptionkey.FieldOrigin:
+		return m.Origin()
+	case encryptionkey.FieldPossession:
+		return m.Possession()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *EncryptionKeyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case encryptionkey.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case encryptionkey.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case encryptionkey.FieldFingerprint:
+		return m.OldFingerprint(ctx)
+	case encryptionkey.FieldVersion:
+		return m.OldVersion(ctx)
+	case encryptionkey.FieldOrigin:
+		return m.OldOrigin(ctx)
+	case encryptionkey.FieldPossession:
+		return m.OldPossession(ctx)
+	}
+	return nil, fmt.Errorf("unknown EncryptionKey field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *EncryptionKeyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case encryptionkey.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case encryptionkey.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case encryptionkey.FieldFingerprint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFingerprint(v)
+		return nil
+	case encryptionkey.FieldVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case encryptionkey.FieldOrigin:
+		v, ok := value.(encryptionkey.Origin)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrigin(v)
+		return nil
+	case encryptionkey.FieldPossession:
+		v, ok := value.(encryptionkey.Possession)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPossession(v)
+		return nil
+	}
+	return fmt.Errorf("unknown EncryptionKey field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *EncryptionKeyMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *EncryptionKeyMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *EncryptionKeyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown EncryptionKey numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *EncryptionKeyMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *EncryptionKeyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *EncryptionKeyMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown EncryptionKey nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *EncryptionKeyMutation) ResetField(name string) error {
+	switch name {
+	case encryptionkey.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case encryptionkey.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case encryptionkey.FieldFingerprint:
+		m.ResetFingerprint()
+		return nil
+	case encryptionkey.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case encryptionkey.FieldOrigin:
+		m.ResetOrigin()
+		return nil
+	case encryptionkey.FieldPossession:
+		m.ResetPossession()
+		return nil
+	}
+	return fmt.Errorf("unknown EncryptionKey field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *EncryptionKeyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *EncryptionKeyMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *EncryptionKeyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *EncryptionKeyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *EncryptionKeyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *EncryptionKeyMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *EncryptionKeyMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown EncryptionKey unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *EncryptionKeyMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown EncryptionKey edge %s", name)
 }
 
 // FactMutation represents an operation that mutates the Fact nodes in the graph.

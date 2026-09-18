@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -39,6 +40,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
@@ -122,8 +124,8 @@ func requireDockerDaemon(t *testing.T) {
 //
 // dir is the working directory. Every compose invocation needs the
 // repository root, because `docker compose` finds docker-compose.yml
-// relative to the working directory and derives the project name from that
-// directory's own name.
+// relative to the working directory. The project name is always
+// gateComposeProject, never the file's own.
 func packagingCommand(t *testing.T, dir string, env []string, name string, args ...string) *exec.Cmd {
 	t.Helper()
 	// #nosec G204 -- name and args are fixed literals and repository paths
@@ -131,10 +133,82 @@ func packagingCommand(t *testing.T, dir string, env []string, name string, args 
 	// docker build helper carries the same shape and the same reasoning.
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = append(append(scrubbedPackagingEnv(), "COMPOSE_PROJECT_NAME="+gateComposeProject), env...)
 	return cmd
+}
+
+// gateComposeProject is the compose project every gate runs as.
+//
+// docker-compose.yml names its project "pleiades", and `make up` in this
+// checkout creates exactly that project. Every gate here starts from `docker
+// compose down -v`, so run under the file's own name it deleted the database
+// and broker volumes of whatever stack a developer had brought up from the
+// same checkout, as a side effect of `make ci`. Under this name the gate's
+// volumes are pleiades-release-gate_postgres-data and so on, and a
+// developer's stack is never the one it takes down.
+const gateComposeProject = "pleiades-release-gate"
+
+// freshComposeStack is how every compose gate starts: the ports free, the
+// gate's own project down with its volumes, and the same again at cleanup.
+func freshComposeStack(t *testing.T, root string) {
+	t.Helper()
+	requireComposePortsFree(t)
+	t.Cleanup(func() { composeDown(t, root) })
+	composeDown(t, root)
+}
+
+// requireComposePortsFree fails when anything already listens on the ports
+// docker-compose.yml publishes.
+//
+// A separate project name keeps the gate's volumes apart from a developer's,
+// and cannot do the same for host ports: the file publishes fixed ones. A
+// gate started beside a running stack would fail partway through with a
+// bind error that does not say which stack holds the port. This says it
+// first, and names the command that stops a stack without deleting its data.
+func requireComposePortsFree(t *testing.T) {
+	t.Helper()
+	for _, port := range []string{"8080", "5432", "4222"} {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), time.Second)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		t.Fatalf("something on this machine already listens on 127.0.0.1:%s, most likely a stack `make up` started "+
+			"from this checkout. This gate runs as the compose project %q and never touches that stack, but it needs "+
+			"the same ports. Stop it with `make down`, which keeps its data, and run the gate again.", port, gateComposeProject)
+	}
+}
+
+// scrubbedPackagingEnv is this process's environment without the variables
+// that would let the developer's machine decide what a gate tests.
+//
+// Every variable controller setup owns is removed, because docker compose
+// uses a shell variable over the same one in .env: a developer who exported
+// MASTER_ENCRYPTION_KEY would otherwise run every compose gate with their key
+// rather than the one the gate supplies or setup wrote. Every COMPOSE_
+// setting is removed for the same reason one level up, since
+// COMPOSE_PROJECT_NAME or COMPOSE_FILE would point a gate at a different
+// stack. PLEIADES_SETUP_DIR is removed so only a gate that names it moves
+// where setup writes.
+//
+// Removing them, rather than appending an override, is the point: an
+// appended empty value still outranks .env, which is right for a gate that
+// supplies every secret and wrong for one that means compose to read the
+// file setup wrote.
+func scrubbedPackagingEnv() []string {
+	drop := map[string]bool{"PLEIADES_SETUP_DIR": true}
+	for _, name := range setup.ComposeVariables() {
+		drop[name] = true
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if drop[name] || strings.HasPrefix(name, "COMPOSE_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
 }
 
 // runPackagingTool runs one command and returns its combined output plus

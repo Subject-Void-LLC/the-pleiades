@@ -85,6 +85,30 @@ RUN mkdir -p /staging/app/runbooks /staging/data
 # compile. It builds for the architecture it runs on.
 RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /staging/app/controller ./cmd/controller
 
+# THE BACKUP IMAGE: the same controller binary beside PostgreSQL's own
+# pg_dump and pg_restore, for `make backup`, `make restore` and `make decom`
+# (docker-compose.yml's backup service builds this stage by name). It is
+# not the default target, and nothing else starts from it: a build with no
+# --target produces the distroless stage at the bottom of this file, which
+# has no shell and no database tools, and which the controller runs as.
+#
+# PostgreSQL's official image, at the server's own release: pg_dump must be
+# at least the server's major version, and matching the server exactly
+# means the backup is written by the same code that will read it back. The
+# tag is bookworm, not the alpine the server runs, because the binary above
+# links glibc (Debian 12's, through golang:*-bookworm) and alpine has musl.
+# internal/testsupport's TestBackupImageMatchesTheServer holds this
+# version to the server's.
+#
+# Digest-pinned for the same reason the builder is.
+FROM postgres:15.19-bookworm@sha256:5d1d70e254e3c5d7d76847a9deebb18478cd518df37abf6b278d4bdb1fe5d96c AS backup
+
+COPY --from=builder /staging/app/controller /app/controller
+
+# No entrypoint script: the image's own runs initdb logic this container
+# must never run. The make targets pass the subcommand and --user.
+ENTRYPOINT ["/app/controller"]
+
 # gcr.io/distroless/base-debian12 holds glibc, CA certificates and
 # tzdata, and essentially nothing else. There is no shell, no package
 # manager and no busybox, so a process that escapes into this container

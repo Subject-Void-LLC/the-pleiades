@@ -280,6 +280,22 @@ var (
 			},
 		},
 	}
+	// EncryptionKeysColumns holds the columns for the "encryption_keys" table.
+	EncryptionKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "fingerprint", Type: field.TypeString, Unique: true},
+		{Name: "version", Type: field.TypeString},
+		{Name: "origin", Type: field.TypeEnum, Enums: []string{"setup", "first_use"}},
+		{Name: "possession", Type: field.TypeEnum, Enums: []string{"checked", "not_checked", "not_applicable"}},
+	}
+	// EncryptionKeysTable holds the schema information for the "encryption_keys" table.
+	EncryptionKeysTable = &schema.Table{
+		Name:       "encryption_keys",
+		Columns:    EncryptionKeysColumns,
+		PrimaryKey: []*schema.Column{EncryptionKeysColumns[0]},
+	}
 	// FactsColumns holds the columns for the "facts" table.
 	FactsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1160,6 +1176,7 @@ var (
 		CredentialInputSourcesTable,
 		CredentialTypesTable,
 		DevicesTable,
+		EncryptionKeysTable,
 		FactsTable,
 		GroupsTable,
 		InventoriesTable,

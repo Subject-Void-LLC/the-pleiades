@@ -57,8 +57,18 @@ spec:
         {{- /* Rolls the pods when anything in the Secret changes. Without it, an
              operator who rotates the JWT secret gets a Secret with new content
              and pods still holding the old value in their environment, because
-             an environment variable is read once at process start. */}}
+             an environment variable is read once at process start.
+
+             With secrets.existingSecret the chart renders no Secret to hash, so
+             it uses secrets.existingSecretChecksum instead, which `controller
+             setup --target helm` writes beside the Secret it emits. A new
+             Secret from setup comes with a new checksum, and `helm upgrade`
+             with the new values file rolls the pods. */}}
+        {{- if .Values.secrets.existingSecret }}
+        checksum/secret: {{ .Values.secrets.existingSecretChecksum | default "" | quote }}
+        {{- else }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.controller.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -147,6 +157,22 @@ spec:
               value: {{ include "the-pleiades.natsURL" . | quote }}
             - name: PLEIADES_MAX_OUTAGE
               value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
+            {{- if and .Values.secrets.existingSecret .Values.postgresql.enabled }}
+            {{- /* An operator-managed Secret with the in-chart database: the
+                 chart composes the connection string itself, from the password
+                 in that Secret and the service name only the chart knows, so
+                 the Secret never has to repeat a name derived from the release.
+                 Kubernetes expands $(POSTGRES_PASSWORD) from the variable above
+                 it. The password is placed in a URL unescaped, as it always has
+                 been here, so it must need no escaping; setup's is hex. */}}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: DB_DSN
+              value: {{ printf "postgres://%s:$(POSTGRES_PASSWORD)@%s:%v/%s?sslmode=disable" .Values.postgresql.auth.username (include "the-pleiades.postgres.fullname" .) .Values.postgresql.service.port .Values.postgresql.auth.database | quote }}
+            {{- else }}
             - name: DB_DSN
               valueFrom:
                 secretKeyRef:
@@ -157,6 +183,7 @@ spec:
                   name: {{ include "the-pleiades.secretName" . }}
                   key: DB_DSN
                   {{- end }}
+            {{- end }}
             - name: MASTER_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

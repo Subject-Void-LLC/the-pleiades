@@ -489,6 +489,31 @@ func TestRouteFor(t *testing.T) {
 			want: routeHealthcheck,
 		},
 		{
+			// Both setup and admin match this, so this is also about order:
+			// the admin route opens the database under a key setup has not
+			// written yet.
+			name: "setup wins over the admin guard that also matches it",
+			args: []string{setupCommand, "--target", "compose"},
+			want: routeSetup,
+		},
+		{
+			// The admin guard matches these too, and would open the
+			// database under a key before a restore could supply one.
+			name: "backup, restore and decommission win over the admin guard",
+			args: []string{restoreCommand, "--file", "x.dump"},
+			want: routeBackup,
+		},
+		{
+			name: "backup routes to the backup command",
+			args: []string{backupCommand},
+			want: routeBackup,
+		},
+		{
+			name: "decommission routes to the backup command",
+			args: []string{decommissionCommand, "--destroy-deployment"},
+			want: routeBackup,
+		},
+		{
 			name: "no arguments runs the server",
 			args: nil,
 			want: routeServer,
@@ -531,6 +556,9 @@ func TestRouteFor(t *testing.T) {
 	// Guard the premise the ordering rests on. If isAdminCommand ever stops
 	// matching "healthcheck", the order stops mattering and routeFor's
 	// comment becomes misleading rather than wrong, which is harder to spot.
+	if !isAdminCommand([]string{setupCommand}) {
+		t.Error("isAdminCommand no longer matches \"setup\", so routeFor's guard-order reasoning is stale; re-read it before changing the order")
+	}
 	if !isAdminCommand([]string{healthcheckCommand}) {
 		t.Error("isAdminCommand no longer matches \"healthcheck\", so routeFor's guard-order reasoning is stale; re-read it before changing the order")
 	}

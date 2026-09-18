@@ -35,7 +35,8 @@ RoleBindings on its teams. A **token** is validated by the same evaluator the
 `Authorization: Bearer` path uses, and carries its own role and scopes as claims.
 Nothing after the credential check knows which was used.
 
-Create the first account with the controller's own subcommand, on the host:
+`make up` creates the first account as part of setting up the compose stack. Otherwise, create
+it with the controller's own subcommand, on the host:
 
 ```bash
 controller bootstrap-admin --email you@example.com
@@ -88,9 +89,8 @@ request.
 
 #### The self-signed certificate
 
-It exists so that `docker compose up -d --wait` works from a clean checkout with no
-preparatory command, and so that a first run is not a startup error naming a variable
-nobody has heard of yet.
+It exists so that `make up` works from a clean checkout with no certificate made first,
+and so that a first run is not a startup error naming a variable nobody has heard of yet.
 
 Be clear about what it is worth. It **encrypts**: passwords and session cookies cross
 the network sealed, and the `Secure`, `__Host-` prefixed cookie works. It does not

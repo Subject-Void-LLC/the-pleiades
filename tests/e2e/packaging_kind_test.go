@@ -151,6 +151,7 @@ func TestPackagingReleaseGate_KubernetesInstall(t *testing.T) {
 	assertBootstrapAdminWorksThroughKubectlExec(t, root, kubeconfig)
 	assertRunnersAreReady(t, root, kubeconfig)
 	assertALongReleaseNameStillProducesFourWorkingWorkloads(t, root, kubeconfig)
+	assertInstallFromSetupOutput(t, root, kubeconfig)
 	assertReinstallWithAChangedPasswordIsRefused(t, root, kubeconfig)
 }
 

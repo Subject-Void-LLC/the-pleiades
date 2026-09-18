@@ -4610,3 +4610,70 @@ between: `cmd > log 2>&1; echo "EXIT=$?" >> log`, then read the log. For anythin
 will be reported to a person, verify the OUTCOME independently rather than the exit code:
 `git ls-remote` for a push, the artefact on disk for a build. An exit code is a claim about a
 process; the outcome is the thing being claimed.
+
+## 193. A count that decides whether destroying data is safe must fail in one direction only: read raw storage, trust no label, and treat any read error as a refusal
+
+**The incident.** The setup command refuses to write a master key over data encrypted under another
+one, so it has to count that data first. Three natural ways to count all answer "nothing here" for
+a database full of credentials. An ent client carries the decrypting interceptors, which return
+plaintext, so a count of sealed values through it is zero. An `EnvelopeService` picks a key by the
+version tag stored with each row, and a tag is a label an operator chose, so a count built with the
+default `v1` calls every row written under `v2` unreadable by the key that wrote it. And a read that
+fails partway, or a connection severed mid-query, returns what it had so far, which looks exactly
+like a small or empty table. Each of those errors is in the one direction that permits destroying
+data.
+
+**The rule.** When a count gates an irreversible action, design it so every failure makes it say
+MORE, not less. Read the raw stored values with plain SQL (`ent.OpenExisting`, which cannot carry
+an interceptor and neither migrates nor creates what it reads), decide which key holds a value from
+the key material itself (`crypto.KeyOpens` unwraps only the data key and ignores the tag and the
+binding), count a value that looks sealed but does not parse as sealed, and return an error rather
+than any partial count. Then prove the severed-connection case against a real proxy, because a
+unit test with a failing fake proves only that the fake fails.
+
+## 194. When a tool offers an operator-managed alternative to a value it would otherwise compute, every guard derived from that value needs a supplied-value path
+
+**The incident.** The Helm chart computes two guards from values it renders itself: a fingerprint
+of the database credentials, stamped on the data volume so a reinstall with a different password
+is refused, and a checksum of its Secret, so a changed Secret restarts the pods. Under
+`secrets.existingSecret`, the path the chart's own comments recommend for keeping secrets out of
+Helm's release records, the chart renders no Secret, so both guards computed from nothing and were
+silently off. The fingerprint's comment said so ("empty when secrets.existingSecret is set") and
+read as an explanation rather than a gap.
+
+**The rule.** For each guard, ask what it is computed from and whether every supported path
+supplies that. Where the tool cannot see the value, take the guard's input as a value the operator
+(or the tool that made the Secret) supplies, and prove the recommended path renders it: here
+`tools/helm-lint` renders the setup command's own values file on every run. A comment that begins
+"empty when" is a record of a path the guard does not cover.
+
+## 195. To prove a message never contains a secret, prove the message does not depend on the secret; a substring check is refuted by any value that spells part of the message
+
+**The incident.** `FuzzParseEnvFile` first asserted that no refusal contained a value from its
+input. The fuzzer produced `MASTER_ENCRYPTION_KEY=ASTER_ENCRYPTION`, whose value is part of the
+variable name every refusal correctly names. The check was unsound by construction: some value can
+always collide with the error's own wording.
+
+**The rule.** State the property as independence: parse the input again with each secret changed
+in a way that keeps it exactly as valid (rotate letters within their case and digits within their
+range, byte by byte), and require the two results to be identical. An error that does not change
+when the secret changes cannot be carrying it. Transform bytes, not runes, since the input a parser
+fuzz target exists to send is invalid UTF-8, and a rune-level transform repairs it.
+
+## 196. Restoring a file is running its author's code: contain it with a role that can reach nothing else, and accept it only if its schema is exactly what your own migrations make
+
+**The incident.** `pg_restore` executes every statement in an archive, and a custom-format archive can label any SQL with any entry kind. The compose stack's database login is a superuser, so a restore run as that login would run a crafted file's `COPY ... TO PROGRAM`. Running it as a restricted role is not enough on its own: a trigger, a column default or a rule the file leaves behind runs later as whoever next writes to that table, which is the superuser controller. Measured: a default calling `pg_read_file` passes every check on the table of contents, because it is part of a TABLE entry.
+
+**The rule.** Load an untrusted archive into a scratch database as a role that owns that database and nothing else. Clear the settings it could have left. Then compare the result against a fresh database built by your own migrations, catalog by catalog, and refuse any difference. Nothing with more rights touches the scratch database until the comparison passes. A positive comparison ("exactly this") needs no list of dangerous object kinds, and a blocklist is complete only until the day it is not.
+
+## 197. A test's shared namespace is a destructive operation waiting for a developer's data: give every gate that deletes things its own name, and refuse when it cannot have one
+
+**The incident.** Every compose release gate ran `docker compose down -v` as the project the compose file names, which is also the project `make up` creates in the same checkout (FAILURE_PATTERNS 240). Nothing had yet been lost, only because no developer had run the gate with a stack up.
+
+**The rule.** A test that deletes must delete only what it created, and the way to guarantee that is a name nothing else uses. Where a resource cannot be separated by name (host ports), check for it first and refuse with a message naming the safe way to free it.
+
+## 198. A configuration key is a statement of intent; before it guards against something, observe the tool in the state where that something would happen
+
+**The incident.** Phase 83 concluded that a compose service with `build:` would never pull its image. A thirty-second probe on the installed Compose showed it pulls first and builds only when the pull fails, from a Docker Hub namespace a third party owns (FAILURE_PATTERNS 241).
+
+**The rule.** When a security property depends on what a tool does with a setting, build the smallest state where the unwanted behavior would occur (no local image, a missing file, an unset variable) and watch it. Record the measurement next to the setting, and pin it with a test that reads the setting.

@@ -14,9 +14,32 @@ explicitly marked otherwise; nothing below is aspirational.
 ## Installing
 
 There are two supported ways to run the control plane: `docker-compose.yml` on a
-single Docker host, and the Helm chart in `helm/the-pleiades` on Kubernetes. This
-section is about the second one. Everything below has been rendered and checked;
-where something has not been run against a real cluster, it says so.
+single Docker host, and the Helm chart in `helm/the-pleiades` on Kubernetes.
+
+On a Docker host it is one command, run from a checkout of this repository:
+
+```bash
+make up
+```
+
+The first time, that runs the controller's `setup` command in a one-shot
+container on the stack's own network. Setup asks how long a link outage the
+deployment must survive, generates the master encryption key and the JWT
+secret, shows you the key once and has you type it back, writes both to `.env`
+(which docker compose reads without being told to), and creates the first
+administrator. After that, `make up` starts the stack. `.env` is then the only
+copy of the key, so back it up; [Recovering from a lost key](#what-setup-tells-you-about-later)
+below says what depends on it. Without a terminal (in a script),
+`make up SETUP_FLAGS="--admin-email you@example.com --password-stdin"` reads the
+administrator's password from standard input and asks nothing else.
+
+`make backup`, `make restore`, `make down` and `make decom` cover the rest of the
+stack's life; [Backup and restore](#backup-and-restore-data-retention-and-purge)
+says what each keeps and removes.
+
+The rest of this section is about the Helm chart. Everything below has been
+rendered and checked; where something has not been run against a real cluster,
+it says so.
 
 ### Nothing is published, so you build the images first
 
@@ -44,26 +67,66 @@ appears as `ImagePullBackOff` in `kubectl get pods` and, in more detail, in
 
 ### Installing the chart
 
-Three values have no default and the chart refuses to render without them:
+The chart needs a master encryption key, a JWT secret and a database password,
+and will not invent any of them. The controller's `setup` command makes all
+three in one step, as a Kubernetes Secret and a values file that points at it:
 
 ```bash
-helm install pleiades ./helm/the-pleiades \
-  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
-  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
-  --set postgresql.auth.password="$(openssl rand -hex 16)"
+mkdir pleiades-install
+go run ./cmd/controller setup --target helm --dir pleiades-install --namespace pleiades
+kubectl create namespace pleiades
+kubectl create --namespace pleiades -f pleiades-install/pleiades-secret.yaml
+helm install pleiades ./helm/the-pleiades --namespace pleiades \
+  -f pleiades-install/pleiades-values.yaml
 ```
 
-The chart will not generate them for you, and that is deliberate. Helm can
+With no Go toolchain, run the same command from the image you built above. The
+log driver is off because at a terminal setup shows the key on screen, and a
+container's output is otherwise kept by the Docker daemon:
+
+```bash
+docker run --rm -it --log-driver none --user "$(id -u):$(id -g)" \
+  -v "$PWD/pleiades-install:/out" pleiades/controller:dev \
+  /app/controller setup --target helm --dir /out --namespace pleiades
+```
+
+What the two files are:
+
+- `pleiades-secret.yaml` holds the key, the JWT secret and the database
+  password, at mode 0600, and is the only copy of the key. Keep it somewhere
+  safe that is not this machine. Create it with `kubectl create`, not `apply`:
+  `create` refuses to replace a Secret that already exists, and replacing the key
+  of a release that stores data makes that data permanently unreadable.
+- `pleiades-values.yaml` holds no secret. It names the Secret, sets the outage
+  budget, and carries two values that keep guards the chart would otherwise lose
+  with a Secret it did not create: a checksum of the Secret, so a new Secret
+  restarts the pods, and a fingerprint of the database credentials, so a
+  reinstall onto a volume created with a different password is refused (see
+  [Reinstalling over a database that is still there](#reinstalling-over-a-database-that-is-still-there)).
+
+Neither file puts a secret on a command line or into Helm's own release records,
+which is where `--set` values go. Setup writes only new files: run it again over
+the same directory and it refuses, naming the file it would have destroyed. It
+counts nothing before an install, because no database exists yet; to change the
+key of a release that stores data, rotate it (see
+[Rotating the master key](#rotating-the-master-key)).
+
+The chart will not generate these values itself, and that is deliberate. Helm can
 produce a random value, but it would produce a *different* one on the next
 `helm upgrade`, because `helm template` has no cluster to read the previous value
-back from. A rotated `JWT_SECRET` signs everybody out, which is annoying and
-recoverable. A `MASTER_ENCRYPTION_KEY` replaced without
-keeping the old one makes every stored credential and every encrypted device
-property permanently undecryptable, with no error at upgrade time. Rotating it
-properly, by keeping the old key in the previous slot and running a rotation
-pass, is described under [Rotating the master key](#rotating-the-master-key)
-below. Keep all three somewhere you can find again, or hand the chart a
-Secret you manage yourself with `secrets.existingSecret`.
+back from. A rotated `JWT_SECRET` rejects every API token signed with the old one,
+which is annoying and recoverable; browser sign-ins do not use it. A
+`MASTER_ENCRYPTION_KEY` replaced without keeping the old one makes every stored
+credential and every encrypted device property permanently undecryptable, with no
+error at upgrade time.
+
+Supplying the values by hand still works: `secrets.masterEncryptionKey` (base64
+of exactly 32 random bytes), `secrets.jwtSecret` (at least 32 bytes) and
+`postgresql.auth.password` (characters that need no URL escaping), or a Secret you
+manage yourself named in `secrets.existingSecret`. A Secret you manage yourself
+restarts nothing when it changes and disables the reinstall check, unless you
+also set `secrets.existingSecretChecksum` and
+`postgresql.auth.existingSecretFingerprint` the way setup does.
 
 Then create the first administrator, which is the real next step and the one the
 install notes print:
@@ -85,6 +148,95 @@ The chart has no subchart dependencies, on purpose. PostgreSQL and NATS are
 templated into it rather than pulled from a chart repository, so there is no
 `helm dependency build` step and the whole chart is one directory. That is what
 makes the air-gapped install below work.
+
+### What setup tells you about later
+
+`controller setup` is the one command that creates the secrets a deployment cannot
+get back, so it says, at the moment it creates them, what depends on each one later.
+This is the same text it prints, in more detail.
+
+**The master encryption key** is required to read anything already stored, and
+nothing regenerates it. A reinstall that restores it is a recovered system; a
+reinstall without it is a new, empty one, and every credential, stored device
+property and saved survey answer from before is unreadable for good. An upgrade
+keeps it as it is. To change it safely, rotate it (see
+[Rotating the master key](#rotating-the-master-key)); never replace it.
+
+**The JWT secret** only has to be the same on every controller replica, or an API
+token works on one and fails on another. Replacing it rejects every API token signed
+with the old one until the token is signed again. Browser sign-ins do not use it and
+are unaffected. It is not needed to read anything stored.
+
+**The database** holds the work. It needs a backup of its own: the key cannot bring
+back a database that is gone, and a backup cannot be read without the key. `make
+backup` takes one, and keeps the key out of it; see
+[Backup and restore](#backup-and-restore-data-retention-and-purge).
+
+**The outage budget** is the one question setup asks: *what is the longest link
+outage this deployment must survive?* The broker keeps every message for 336 times
+the answer, so the default of 30 minutes keeps 7 days and the 12 hour ceiling keeps
+168 days. Dispatch messages carry the credentials their jobs run with, so those stay
+on the broker as long. The broker's duplicate detection stops at 5 minutes and does
+not grow with a larger answer. Raising the budget later is free. Lowering it discards
+messages older than the new window, so the controller refuses to lower it while it
+holds such messages, until you set `PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true` for that
+one start. See [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last).
+
+#### What setup refuses, and the guard on each setting
+
+| Setting | What getting it wrong costs | What changing it takes |
+|---|---|---|
+| `MASTER_ENCRYPTION_KEY` | Everything encrypted under it is unreadable for good | `--destroy-existing-encryption-key` and, at a terminal, typing `destroy <fingerprint>`. Refused outright while any stored row is encrypted under the key, and refused if setup cannot reach the database to count |
+| `PLEIADES_MAX_OUTAGE` | Lowering it discards broker messages | `--max-outage <duration> --force` |
+| `JWT_SECRET` | API tokens signed with the old one stop working | `--new-jwt-secret --force` |
+| The database password (Helm) | The controller cannot connect until it is put back | Written once, never regenerated |
+
+Run again with nothing to change, setup refuses and names the file it would have
+destroyed. Before writing a key it counts, in the database the controller uses, every
+row sealed under any master key, and tries each one against the keys it holds:
+
+- A **first** key is refused if the database already holds encrypted rows. A new key
+  opens none of them, and the key that does is somewhere setup cannot see: most
+  often a `.env` that was deleted while the database volume was kept. The refusal
+  counts them by kind, says whether they are under the key earlier versions of
+  `docker-compose.yml` published (which is public, so that data is readable by
+  anyone who has that file), and names both ways out.
+- A **replacement** is refused while any row opens under the key being replaced, or
+  under the previous key during a rotation. The flag does not override this: a key
+  that protects data is changed by rotating it.
+
+It reads the database without migrating it, and a database it cannot reach, or stops
+reaching partway through, is a refusal rather than a count of zero.
+
+#### The possession check, and what it does not prove
+
+At a terminal, setup shows a new key once on the terminal's alternate screen, then
+leaves that screen and clears the scrollback, and asks you to type or paste the key
+back. It is written to disk only after that.
+
+Re-entering the key proves one thing: you held an exact copy a moment ago. It cannot
+show where that copy is or that it will last, and a paste from a clipboard passes it.
+Setup says so in those words. Without a terminal it shows the key to nobody, runs no
+check, and says that the file is the only copy.
+
+While the key is on screen, Ctrl+C does not stop setup straight away, because in most terminals
+it is the key for stop rather than copy and it is what people press to copy the key. The first
+one says so and keeps the key on screen; a second one stops setup, which writes nothing.
+
+Clearing the screen does not reach everything that saw it. `tmux` and `screen` keep
+their own history, and `script`, `asciinema` and any other terminal recorder keep
+whatever was on screen. And a terminal echoes what you type the moment it arrives,
+so a key pasted before the hidden prompt appears is echoed.
+
+#### When the key came into existence
+
+The activity trail records a key by its fingerprint, never by its value, the moment
+setup generates it: `controller-setup created encryption key 3f9a-c21b (generated by
+setup, possession checked)`. A key generated where no database was reachable, which is
+every Helm install, is recorded by the first controller to start with it, as `first
+used by this database`. The fingerprint is not a secret: it cannot be turned back into
+the key, and anyone who could test a guessed key against it could test it just as
+well against the ciphertext it protects, which sits in the same database.
 
 ### What the chart refuses to install
 
@@ -226,9 +378,10 @@ refusal names the claim and both real choices:
 Two boundaries worth stating. The check needs a cluster to read, so it is silent
 under `helm template` and `--dry-run=client` and fires on a real `helm install`,
 `helm upgrade` or `--dry-run=server`. And it refuses only a **proven** mismatch:
-a claim this chart did not create carries no stamp, and `secrets.existingSecret`
-means the chart never sees the password, so in both cases it has no evidence and
-does not guess. `tests/e2e/packaging_kind_test.go` proves the whole sequence
+a claim this chart did not create carries no stamp, and with
+`secrets.existingSecret` the chart never sees the password, so it compares the
+`postgresql.auth.existingSecretFingerprint` setup writes instead. A Secret you
+made by hand without one gives the chart no evidence, and it does not guess. `tests/e2e/packaging_kind_test.go` proves the whole sequence
 against a real cluster: install, uninstall, reinstall with a changed password
 (refused, with the claim named), then reinstall with the original one
 (accepted).
@@ -251,10 +404,13 @@ ctr -n k8s.io images import pleiades-images.tar
 # or, for a kind cluster:
 kind load image-archive pleiades-images.tar
 
-helm install pleiades ./the-pleiades-0.1.0.tgz \
-  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
-  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
-  --set postgresql.auth.password="$(openssl rand -hex 16)"
+# setup needs no network either: run it from the image, as above.
+docker run --rm -it --log-driver none --user "$(id -u):$(id -g)" \
+  -v "$PWD/pleiades-install:/out" pleiades/controller:dev \
+  /app/controller setup --target helm --dir /out --namespace pleiades
+kubectl create --namespace pleiades -f pleiades-install/pleiades-secret.yaml
+helm install pleiades ./the-pleiades-0.1.0.tgz --namespace pleiades \
+  -f pleiades-install/pleiades-values.yaml
 ```
 
 Three things make that work, and each of them is a decision that can be undone
@@ -838,16 +994,42 @@ it names, such as a `..`, is refused rather than cleaned.
 `MASTER_ENCRYPTION_KEY` can be replaced without downtime, and without losing
 anything, as long as the old key stays available while the change is in flight.
 
-Set the new key as the current one and the old key as the previous one. Every
-read tries the current key and falls back to the previous, so nothing breaks the
-moment the process restarts. Then run a rotation pass, which re-encrypts every
-row under the new key. There is one pass per entity that stores a secret:
-credentials, devices and saved launch configurations.
+Set the new key as the current one and the old key as the previous one:
 
-**Do not remove the old key until every pass reports that it has converted every
-row.** A row that has not been re-encrypted yet can only be opened with the old
-key, so taking it away early strands that row permanently. Each pass returns the
-number of rows it converted, which is how you tell it has finished.
+| Variable | Value |
+|---|---|
+| `MASTER_ENCRYPTION_KEY` | the new key |
+| `MASTER_ENCRYPTION_KEY_VERSION` | a new tag, for example `v2` |
+| `MASTER_ENCRYPTION_KEY_PREVIOUS` | the old key |
+| `MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION` | the old tag, `v1` unless you set one |
+| `ROTATE_ENCRYPTION_KEYS` | `true` |
+
+Every read tries the current key and falls back to the previous, so nothing
+breaks the moment the process restarts. With `ROTATE_ENCRYPTION_KEYS=true` the
+controller then re-encrypts every row under the new key, in the background, once
+per start. There is one pass per column that stores a secret: credentials,
+devices, saved launch configurations and mesh signing keys. Each pass logs one
+line, `key rotation pass finished`, with the table and three counts:
+
+- `rotated`: re-encrypted under the new key.
+- `skipped`: readable, but not rewritten this time, because something else wrote
+  the row at the same moment or the write failed. These rows are still on the old
+  key.
+- `unreadable`: the row opens under neither key. Removing the old key does not
+  change these rows, because the old key could not open them either. Find out
+  where they came from.
+
+**Do not remove the old key until the controller logs `key rotation complete: no
+row needs MASTER_ENCRYPTION_KEY_PREVIOUS any more`.** It logs that only when every
+table was read and no row was skipped. If it logs `key rotation is incomplete`
+instead, keep the old key and restart for another pass. A row that has not been
+re-encrypted yet can only be opened with the old key, so taking it away early
+makes that row permanently unreadable.
+
+Before this release the controller rotated devices alone while this section
+described three passes. If you removed an old key after following an earlier copy
+of it, your credentials and saved survey answers are still encrypted under that
+old key. Restore it as `MASTER_ENCRYPTION_KEY_PREVIOUS` and rotate again.
 
 The passes also do a second job. Devices and saved launch configurations used to
 be encrypted without binding the ciphertext to the row it belongs to, which meant
@@ -1406,9 +1588,175 @@ the module catalog once one does.
 
 ## Backup and restore, data retention and purge
 
-Not documented yet. The control plane's data layer (ent-backed) has real schema
-migrations (`internal/ent/migrate`), but no documented backup/restore procedure or
-retention/purge policy exists today.
+The compose stack has four commands for the second day, each a make target:
+
+| Command | What it does | What it keeps |
+|---|---|---|
+| `make backup` | Writes a backup of the database to `./backups` | Everything; the stack keeps running |
+| `make restore BACKUP=<file>` | Replaces the database with a backup, after checking it | A backup of the database it replaced |
+| `make down` | Stops the stack and removes its containers | The database, the broker's messages, `.env` |
+| `make decom` | Removes the deployment for good, after a typed confirmation | `./backups`, the images, the checkout |
+
+They run in the stack's one-shot `backup` service, whose image is the controller
+binary beside PostgreSQL's own `pg_dump` and `pg_restore` at the server's exact
+release. The controller's own image carries neither. For a Helm install, or any
+database this stack does not run, nothing here is wired up yet: back that database
+up with `pg_dump` the way you back up any other, and keep its key the way the next
+section says.
+
+### A backup and its key are kept apart
+
+A backup is useless without the master encryption key: every credential, stored
+device property, saved survey answer and mesh signing seed in it is sealed under
+that key. The key alone restores nothing either. Setup's own words are that the two
+together are everything this deployment stores.
+
+**A backup does not contain the key**, on purpose. A backup gets copied to more
+places than a key does, and a file holding both is a file anyone who finds it can
+read everything in. Instead, a backup's name carries the first eight characters of
+the key's fingerprint:
+
+```text
+backups/pleiades-20260918T141707Z-3f9ac21b.dump
+```
+
+`3f9ac21b` is the key it needs, the same fingerprint setup showed you and the
+activity trail records, as `3f9a-c21b`. Keep the key somewhere the backups are not.
+Losing the machine then loses neither, and finding a backup gives nobody the key.
+
+### Taking a backup
+
+```bash
+make backup
+```
+
+It works with the stack running: PostgreSQL gives `pg_dump` one consistent snapshot
+while the controller keeps working. A stopped stack's database is started for it.
+
+- The file is written under a hidden temporary name at mode 0600, read back through
+  `pg_restore --list`, and checked the way a restore checks one. Only then does it
+  take its real name. A backup that stopped partway, or that no restore would
+  accept, is deleted rather than left looking like a backup.
+- It says what the backup holds ("1 credential, the stored properties of 3
+  devices"), and whether every one of those values opens under the key in `.env`.
+  A value that does not is backed up exactly as it is, and the message says so.
+- It holds password hashes, session hashes, the activity trail and every job's
+  history as they are. Store it the way you would store the database.
+- It does not hold messages waiting on the broker, the controller's self-signed
+  certificate, or the runbook directory.
+- `BACKUP_DIR=<directory>` writes somewhere other than `./backups`.
+
+On the test database, a backup took 123 ms where `pg_dump` alone took 90 ms. The
+difference is the count of sealed values and the read-back, and it grows with the
+number of sealed values, not with the size of the database.
+
+### Restoring
+
+```bash
+make restore BACKUP=backups/pleiades-20260918T141707Z-3f9ac21b.dump
+```
+
+It stops the controller and the runner, since anything they wrote during the restore
+would be lost. Then it takes these steps in order. Until the last one, the live
+database is not touched, and any refusal leaves it exactly as it was:
+
+1. **The file.** It must be a regular file (not a link) in PostgreSQL's custom
+   format, and its table of contents may hold only the kinds of entry a backup of
+   this schema holds: tables, their data, sequences, indexes and constraints. A
+   function, a trigger, a view, or a table this version does not have is refused
+   before anything is loaded.
+2. **A scratch database.** The file is loaded into a new database by a new role
+   that owns that database and nothing else. It is not a superuser, cannot create
+   roles or databases, and cannot run programs or read files on the server. Every
+   statement in the file runs as that role. Then every setting the file could have
+   attached to the database or the role is cleared.
+3. **The key.** Every sealed value is tried against the key in `.env`, and the
+   previous key during a rotation. Each must open under one of them, *and* carry the
+   version tag `.env` gives that key, because the controller finds a value's key by
+   its tag. If not, it refuses, and names the keys the backup's own key registry
+   lists.
+4. **The schema.** The scratch database is brought up to this version's schema, as
+   its role, and then compared with a fresh database this version's migrations
+   build: every table, column, default, constraint, index and sequence, and the
+   absence of any function, trigger, rule, policy, extension or setting. Anything
+   different is refused, including a column default that calls a built-in function.
+   A backup from a newer version is refused here: restore it with that version.
+5. **What the backup could not know.** Jobs the backup caught running are marked
+   failed, with the reason: what they did after the backup is not recorded, so check
+   their devices before running them again. Otherwise they would be picked up and run
+   a second time. Every session is ended, since some may have been signed out or
+   removed since the backup; everyone signs in again. The activity trail records
+   `controller-restore restored database pleiades from <file>`.
+6. **The database being replaced is backed up first**, to
+   `backups/pleiades-<time>-<key>-before-restore.dump`. Restoring that file the same
+   way puts it back.
+7. **The swap.** The two databases trade names in one transaction, and the replaced
+   one is dropped.
+
+Then `make restore` clears the broker, whose queued messages belong to the database
+that was replaced, and brings the stack up with `make up`.
+
+After a restore, a schedule with occurrences between the backup and now runs once,
+for the most recent, and records the rest as skipped, as after any outage. A
+schedule that ran after the backup was taken can therefore run again.
+
+### Restoring onto a new machine
+
+On a machine with no `.env`, the restore asks for the key the backup was taken under,
+naming it by fingerprint, and reads it with echo off. It refuses a key whose
+fingerprint is not the one in the backup's name. Once every check passes, it writes
+the key to `.env`, with the version tag the backup's values carry. `make up` then
+adds a new JWT secret and asks the outage question, as setup always does.
+
+In a script, send the key on standard input:
+
+```bash
+echo "$KEY" | make restore BACKUP=backups/pleiades-20260918T141707Z-3f9ac21b.dump \
+  RESTORE_FLAGS=--key-stdin SETUP_FLAGS=--non-interactive
+```
+
+A backup taken during a key rotation needs both keys. Write them to `.env` as
+`MASTER_ENCRYPTION_KEY` and `MASTER_ENCRYPTION_KEY_PREVIOUS`, each with its version
+tag, before restoring.
+
+### When the key is lost
+
+There is no procedure, because there is nothing a procedure could recover. The
+sealed values in every backup taken under that key are unreadable by anyone, this
+project included: credential secrets, stored device properties, saved survey
+answers and mesh signing seeds.
+
+What is not sealed survives: users and their password hashes, organizations, teams,
+role bindings, inventories and devices (apart from their sealed properties),
+templates, schedules, job history and the activity trail. Nothing keeps that part
+for you yet. A restore refuses a backup whose sealed values the key cannot read,
+because a controller started on it would fail each time it reached one. Setup
+refuses to write a new key over a database holding values sealed under another key,
+for the reason given in [What setup tells you about later](#what-setup-tells-you-about-later).
+Keeping the unsealed part would mean deleting every sealed value first, which no
+command does today.
+
+### Stopping and removing
+
+`make down` stops the stack and removes its containers and network. It keeps the
+database, the broker's stored messages, the controller's certificate and `.env`, and
+`make up` brings the same deployment back.
+
+`make decom` removes the deployment for good: the containers, the network, every
+volume, and `.env` with the key in it. It keeps `./backups`, the images and this
+checkout. First it shows what it removes and what it keeps, including how many
+backups there are, when the newest was taken, and which key it needs. It goes on
+only when you type `decommission <fingerprint>`, so the moment you confirm deleting
+the key is the moment you see which key your backups need. Without a terminal it
+needs `make decom DECOM_FLAGS=--destroy-deployment`. The volumes are removed before
+`.env`, so if removing them fails, the key that reads them is still there.
+
+### Data retention and purge
+
+Not built yet. Jobs, their results and the activity trail are kept until someone
+deletes them, and nothing purges them on a schedule. The broker's retention is the
+one exception, derived from the outage budget (see
+[One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)).
 
 ## Observability and troubleshooting
 

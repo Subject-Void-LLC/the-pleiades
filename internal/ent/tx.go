@@ -26,6 +26,8 @@ type Tx struct {
 	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
+	// EncryptionKey is the client for interacting with the EncryptionKey builders.
+	EncryptionKey *EncryptionKeyClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
 	// Group is the client for interacting with the Group builders.
@@ -206,6 +208,7 @@ func (tx *Tx) init() {
 	tx.CredentialInputSource = NewCredentialInputSourceClient(tx.config)
 	tx.CredentialType = NewCredentialTypeClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
+	tx.EncryptionKey = NewEncryptionKeyClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
 	tx.Inventory = NewInventoryClient(tx.config)

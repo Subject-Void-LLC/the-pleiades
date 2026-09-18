@@ -93,6 +93,18 @@ func (f DeviceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, erro
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DeviceMutation", m)
 }
 
+// The EncryptionKeyFunc type is an adapter to allow the use of ordinary
+// function as EncryptionKey mutator.
+type EncryptionKeyFunc func(context.Context, *ent.EncryptionKeyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EncryptionKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EncryptionKeyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EncryptionKeyMutation", m)
+}
+
 // The FactFunc type is an adapter to allow the use of ordinary
 // function as Fact mutator.
 type FactFunc func(context.Context, *ent.FactMutation) (ent.Value, error)

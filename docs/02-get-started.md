@@ -197,13 +197,22 @@ for the first). Running the thing is what finds what prose alone does not.
 ```bash
 docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4-alpine -js -sd /data -m 8222
 
-export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export JWT_SECRET="a-real-secret-at-least-32-bytes-long"
+./controller setup --dir . --non-interactive
+set -a; . ./.env; set +a
 export NATS_URL="nats://127.0.0.1:4222"
 export DB_DSN="sqlite://./controller.db"
 
 ./controller
 ```
+
+`controller setup` makes the two secrets the controller refuses to start without, a master
+encryption key and a JWT secret, at the sizes it requires, and writes them to `.env`. The
+`set -a` line hands them to this shell for the bare binary. `.env` is then the only copy of
+the key that encrypts every credential this controller stores, so keep it.
+
+One consequence of exporting them: a shell that has loaded `.env` this way now carries the
+key as an environment variable, and `make up` refuses to run from it, because docker compose
+would use the shell's value over the one in `.env`. Use a fresh shell for the compose stack.
 
 That is deliberately the same broker `docker-compose.yml` runs, down to the flags, and a test
 (`internal/testsupport`'s `TestGettingStartedRunsThePinnedBroker`) fails if this line and that

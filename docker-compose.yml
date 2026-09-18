@@ -3,18 +3,35 @@
 # dispatcher) and one runner (the stateless worker that pulls jobs off the
 # durable consumer group).
 #
-# Bring it up with `docker compose up -d --wait`, which returns only once
-# every service reports healthy. All four carry a healthcheck now: the
-# runner gained one in Phase 20, so `--wait` waits for a runner that has
-# genuinely reached the broker rather than for one that merely started.
-# Create the first administrator with:
+# Bring it up with `make up`. The first time, that runs the controller's
+# setup command in the one-shot `setup` service at the bottom of this file:
+# it generates the master encryption key and the JWT secret, shows you the
+# key once and has you type it back, writes both to .env beside this file,
+# and creates the first administrator. Then it runs `docker compose up -d
+# --wait`, which returns only once every service reports healthy. Browse to
+# https://localhost:8080/ui and sign in.
+#
+# THIS FILE HOLDS NO KEY. It used to carry a working MASTER_ENCRYPTION_KEY
+# and JWT_SECRET under a comment calling them throwaway defaults, which made
+# the documented way in also a way to a deployment holding a published key.
+# The controller now reads both from .env, which docker compose loads from
+# this directory without being told to, and which .gitignore keeps out of
+# commits. Started without one, the controller refuses and names setup.
+#
+# Plain `docker compose up -d --wait` still works once .env exists. Make up
+# adds two things to it: it runs setup when .env is missing a key, and it
+# refuses when your shell exports one of setup's variables, since a shell
+# variable outranks .env and the controller would then run with a key setup
+# never counted.
+#
+# A later administrator, or one setup did not create, comes from:
 #
 #   docker compose run --rm controller bootstrap-admin --email you@example.com
 #
-# then browse to https://localhost:8080/ui. That command works because of
-# the entrypoint: key on the controller service; without it the same line
-# fails with "exec: bootstrap-admin: executable file not found in PATH",
-# and the entrypoint comment explains why.
+# That command works because of the entrypoint: key on the controller
+# service; without it the same line fails with "exec: bootstrap-admin:
+# executable file not found in PATH", and the entrypoint comment explains
+# why.
 #
 # https, and nothing has to come first. The controller refuses to serve
 # plain HTTP unless something in front of it terminates TLS, and with no
@@ -42,11 +59,14 @@
 #   echo "$PASSWORD" | docker compose run --rm -T controller \
 #     bootstrap-admin --email you@example.com --password-stdin
 #
-# Everything worth keeping lives in the two named volumes declared at the
-# bottom of this file, so `docker compose down` keeps the control plane and
+# Everything worth keeping lives in the named volumes declared at the bottom
+# of this file, so `docker compose down` keeps the control plane and
 # `docker compose down -v` is the command that destroys it. That split is
 # the whole point of naming them; the volumes block records what the
-# unnamed version cost.
+# unnamed version cost. The make targets say the same in words: `make down`
+# keeps everything, `make decom` removes the volumes and .env after a typed
+# confirmation, and `make backup` and `make restore` run in the backup
+# service at the bottom of this file.
 #
 # There is no `version:` key. Compose v2 ignores it and prints
 # "the attribute `version` is obsolete" on every single command, so the
@@ -98,8 +118,15 @@ services:
       # own from its own secret store, and the controller's DB_DSN below
       # has to match whatever that is.
       POSTGRES_PASSWORD: password
+    # Published on loopback only. On every interface, this port and the
+    # password above were full read and write access to the control plane's
+    # database for anything that could reach this machine: password hashes,
+    # sessions, role bindings, and every row the master key protects. The
+    # stack itself reaches postgres over its own network and needs no
+    # published port at all; this one is for a client on this machine, such
+    # as the bare controller in the getting-started guide.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # The named volume, not the anonymous one this image's own VOLUME
       # directive creates when the mount is left unstated. The volumes
@@ -273,8 +300,14 @@ services:
     # leases, so losing it loses in-flight work along with every job the
     # runners had not acknowledged yet. /data is the named volume below.
     command: ["-js", "-sd", "/data", "-m", "8222"]
+    # Published on loopback only. This broker runs with no authorization,
+    # and dispatch messages carry the credentials their jobs run with, so on
+    # every interface anything that could reach this machine could subscribe
+    # to pleiades.> and read them, or publish onto the stream. The runner
+    # here reaches it over the stack's own network; this port is for a
+    # process on this machine.
     ports:
-      - "4222:4222"
+      - "127.0.0.1:4222:4222"
     volumes:
       - nats-data:/data
     healthcheck:
@@ -376,7 +409,19 @@ services:
     # from, so writing a version would invent a promise. Whoever owns the
     # registry replaces both halves of this string.
     image: pleiades/controller:dev
-    build:
+    # Never pulled, only built. A build: key alone does not promise that:
+    # measured on Compose v5, a service with an image: and a build: and no
+    # local image PULLS the image: name first and builds only when the pull
+    # fails, so on a fresh clone pleiades/controller:dev means
+    # docker.io/pleiades/controller:dev. The "pleiades" namespace on Docker
+    # Hub belongs to somebody else, and an image they published under this
+    # name would run here holding the master key. `never` builds a missing
+    # image and uses a present one as it is. Every service below that
+    # builds says the same, and internal/testsupport's
+    # TestComposeNeverPullsWhatItBuilds fails if one does not.
+    pull_policy: never
+    # Anchored so the setup service builds from exactly this block.
+    build: &controller-build
       context: .
       dockerfile: Dockerfile.controller
       # Without these, the image's OCI provenance labels stamp "unknown",
@@ -425,21 +470,32 @@ services:
       # dead: the controller only ever opened a SQLite file, so this
       # compose stack ran on an ephemeral file inside the container while
       # the healthchecked postgres service above sat unused.
-      - DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
+      # Anchored so the setup service counts the database this controller
+      # opens, and not one it happens to be able to reach.
+      - &database-dsn DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
       - NATS_URL=nats://nats:4222
       # The one number that says how long this deployment promises to survive
       # a link outage. Set on BOTH services deliberately: every retention
       # window in the message bus derives from it, and two services agreeing
-      # should not hold by coincidence across two images.
-      - PLEIADES_MAX_OUTAGE=30m
-      # Both of these are required at startup and the controller exits if
-      # either is missing, so without them this service could never have
-      # come up at all. The values are throwaway local-development
-      # defaults, not secrets: MASTER_ENCRYPTION_KEY must be base64 of
-      # exactly 32 bytes, and JWT_SECRET must be at least 32 bytes. A real
-      # deployment supplies its own through its own secret store.
-      - MASTER_ENCRYPTION_KEY=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
-      - JWT_SECRET=local-development-only-not-a-real-secret
+      # should not hold by coincidence across two images. Setup writes it to
+      # .env from the answer to its one question; 30m when .env has none.
+      - PLEIADES_MAX_OUTAGE=${PLEIADES_MAX_OUTAGE:-30m}
+      # From .env, which setup writes. Deliberately ${VAR:-} rather than
+      # ${VAR:?message}: the :? form makes `docker compose config`, `ps` and
+      # `down` fail too, on a machine that has not been set up, which would
+      # break tearing the stack down. With :- an unset key reaches the
+      # controller as empty, and the controller refuses to start and names
+      # the setup command.
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      # Rotation, all empty unless .env sets them. The controller treats an
+      # empty value as unset, so these cost nothing until a rotation needs
+      # them: move the key to _PREVIOUS (with its version) in .env, put the
+      # new one in MASTER_ENCRYPTION_KEY, and set ROTATE_ENCRYPTION_KEYS=true.
+      - MASTER_ENCRYPTION_KEY_VERSION=${MASTER_ENCRYPTION_KEY_VERSION:-}
+      - MASTER_ENCRYPTION_KEY_PREVIOUS=${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
+      - MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION=${MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION:-}
+      - ROTATE_ENCRYPTION_KEYS=${ROTATE_ENCRYPTION_KEYS:-}
       - RUNBOOK_DIR=/app/runbooks
       # There is deliberately no TLS_CERT_FILE and no TLS_KEY_FILE here,
       # and that absence is the whole configuration. It is a real decision
@@ -665,8 +721,9 @@ services:
         condition: service_healthy
 
   runner:
-    # Same reasoning as the controller's image key above.
+    # Same reasoning as the controller's image and pull_policy keys above.
     image: pleiades/runner:dev
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile.runner
@@ -683,7 +740,7 @@ services:
       # a link outage. Set on BOTH services deliberately: every retention
       # window in the message bus derives from it, and two services agreeing
       # should not hold by coincidence across two images.
-      - PLEIADES_MAX_OUTAGE=30m
+      - PLEIADES_MAX_OUTAGE=${PLEIADES_MAX_OUTAGE:-30m}
       - RUNBOOK_DIR=/app/runbooks
     volumes:
       # The same host directory the controller mounts, at the same path.
@@ -842,6 +899,105 @@ services:
 # it, /data is part of the container's writable layer, which read_only: true
 # makes unwritable, so the controller could not provision a certificate at
 # all.
+  # THE SETUP COMMAND, as a one-shot container. `make up` and `make setup`
+  # run it; `docker compose up` never starts it, because of the profile.
+  #
+  # It runs here rather than on the host for one reason: to count what a
+  # key protects it has to read the database, and DB_DSN above names
+  # postgres:5432, which only resolves on this network. Running here it
+  # reads exactly the database the controller does, needs no Go toolchain on
+  # the host, and needs no database port published to it.
+  #
+  # It writes .env into the directory mounted at /setup (this one, unless
+  # PLEIADES_SETUP_DIR names another), as the user `make setup` passes with
+  # --user, so the file belongs to whoever ran it.
+  setup:
+    profiles:
+      - setup
+    image: pleiades/controller:dev
+    pull_policy: never
+    build: *controller-build
+    entrypoint: ["/app/controller", "setup", "--target", "compose", "--dir", "/setup"]
+    environment:
+      # The controller's own DB_DSN, by anchor, and nothing else of the
+      # controller's. In particular no key: setup reads the key .env holds
+      # from the file itself, and a copy in the environment could disagree
+      # with it.
+      - *database-dsn
+      # Only so messages name the file on the host rather than /setup/.env.
+      - PLEIADES_SETUP_HOST_DIR=${PLEIADES_SETUP_DIR:-${PWD:-.}}
+    volumes:
+      - ${PLEIADES_SETUP_DIR:-.}:/setup
+    # At a terminal, setup shows the new key on screen once. Docker keeps a
+    # container's output in its log driver whether or not anyone attached,
+    # and a journald or syslog driver keeps it outside the container's
+    # life, so this service keeps no log at all. Attaching still works: an
+    # attached terminal is a stream, not a log.
+    logging:
+      driver: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # BACKUP, RESTORE AND DECOMMISSION, as one-shot containers. `make backup`,
+  # `make restore` and `make decom` run it; `docker compose up` never starts
+  # it, because of the profile.
+  #
+  # Its own image, the backup stage of Dockerfile.controller: the same
+  # controller binary beside PostgreSQL's own pg_dump and pg_restore at the
+  # server's release, which the controller image deliberately does not carry.
+  # It runs here for the reason setup does: the database is reachable at
+  # postgres:5432 only on this network.
+  #
+  # It reads .env from the directory mounted at /setup, for the key a backup
+  # is counted under and a restore is checked against, and writes backups to
+  # the one mounted at /backups (./backups unless PLEIADES_BACKUP_DIR names
+  # another). A restore reads the backup it restores from /restore, read
+  # only. A backup never holds the key: see the production guide's backup
+  # section for why, and for where each should be kept.
+  backup:
+    profiles:
+      - backup
+    image: pleiades/backup:dev
+    pull_policy: never
+    build:
+      <<: *controller-build
+      target: backup
+    environment:
+      # The controller's own DB_DSN, by anchor. No key: the key comes from
+      # the .env mounted below, the file the controller reads it from.
+      - *database-dsn
+      # Only so messages name directories on the host rather than mount
+      # points.
+      - PLEIADES_SETUP_HOST_DIR=${PLEIADES_SETUP_DIR:-${PWD:-.}}
+      - PLEIADES_BACKUP_HOST_DIR=${PLEIADES_BACKUP_DIR:-./backups}
+      - PLEIADES_RESTORE_HOST_DIR=${PLEIADES_RESTORE_DIR:-./backups}
+    volumes:
+      - ${PLEIADES_SETUP_DIR:-.}:/setup
+      - ${PLEIADES_BACKUP_DIR:-./backups}:/backups
+      - ${PLEIADES_RESTORE_DIR:-./backups}:/restore:ro
+    # A restore onto a machine with no key asks for it at the terminal, and
+    # keeps no log for the reason the setup service gives.
+    logging:
+      driver: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   nats-data:

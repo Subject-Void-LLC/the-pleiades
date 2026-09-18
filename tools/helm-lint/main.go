@@ -108,7 +108,19 @@ func run() error {
 		findings = append(findings, checkDisruptionBudgets(p.name, objects)...)
 		findings = append(findings, requirePodDisruptionBudgets(p.name, objects, p.wantDisruptionBudgets)...)
 		findings = append(findings, checkRetainedDataStamp(p.name, objects)...)
+		if len(p.values) == 0 {
+			// The defaults profile renders the inline-password path, which is
+			// where the chart's own fingerprint formula runs.
+			findings = append(findings, checkFingerprintFormulaAgrees(p.name, objects, basePostgresPassword)...)
+		}
 	}
+
+	setupContainers, setupFindings, err := checkSetupOutput(chart)
+	if err != nil {
+		return err
+	}
+	containers += setupContainers
+	findings = append(findings, setupFindings...)
 
 	renders, err := checkNamesAtEveryLegalReleaseLength(chart, &findings)
 	if err != nil {
@@ -162,7 +174,7 @@ func run() error {
 	// instead would be a claim about the table rather than about the render,
 	// and the day somebody adds a waiver back the summary has to say so
 	// without anybody remembering to change this line.
-	fmt.Printf("helm-lint: %s renders in %d configuration(s); %d containers checked (non-root numeric uid, read-only root, no capabilities, RuntimeDefault seccomp, tagged image), %d of them carrying both probes and %d waived by a written reason this run re-checked against the source it depends on; %d configurations refused; %d renders at release-name lengths %v with every object name asserted distinct and legal for its own kind, including the pod names, revision-hash labels and DNS records Kubernetes derives from a StatefulSet's\n",
+	fmt.Printf("helm-lint: %s renders in %d configuration(s) plus the values file controller setup writes; %d containers checked (non-root numeric uid, read-only root, no capabilities, RuntimeDefault seccomp, tagged image), %d of them carrying both probes and %d waived by a written reason this run re-checked against the source it depends on; %d configurations refused; %d renders at release-name lengths %v with every object name asserted distinct and legal for its own kind, including the pod names, revision-hash labels and DNS records Kubernetes derives from a StatefulSet's\n",
 		chartDir, len(profiles), containers, containers-len(profiles)*len(probeWaivers), len(profiles)*len(probeWaivers), len(refusals), renders, nameProbeLengths)
 	return nil
 }

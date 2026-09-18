@@ -2,9 +2,18 @@
 
 // Phase 20's Release Gate, Docker Compose half.
 //
-// The claim: somebody who has just cloned this repository, and who runs no
-// preparatory command of any kind, types one line and gets a working
-// control plane they can sign into over TLS.
+// The claim: somebody who has just cloned this repository types one line
+// and gets a working control plane they can sign into over TLS.
+//
+// Since Phase 83 that line is `make up`, which runs the controller's setup
+// command before `docker compose up` because docker-compose.yml no longer
+// carries a key. This half measures and exercises the STACK, so it hands the
+// stack its secrets the way automation does, as process environment: the
+// shell outranks .env, so a developer's own .env in this checkout cannot
+// leak in, and nothing is written into the checkout at all. Every variable
+// setup owns is set, so none of them can come from anywhere else. The setup
+// half, which runs the wizard and starts the stack from the .env it writes,
+// is packaging_setup_test.go.
 //
 // Every word of that is asserted here against the real docker-compose.yml,
 // the real images built from the real Dockerfiles, and the real
@@ -16,13 +25,14 @@
 //
 // WHAT THIS TEST DOES TO THE MACHINE, stated plainly because it is
 // destructive and a reader deserves to know before running it. It removes
-// the compose stack and its named volumes (`docker compose down -v`), and
-// it deletes the two locally built images so the cold measurement is a
-// real build rather than a cache hit. Both are restored by the test
-// itself: the images are rebuilt on the way through, and the stack is
-// brought down at the end. Any data in the local development stack is
-// gone, which is what `down -v` means everywhere else in this repository
-// too.
+// its own compose project's stack and named volumes (`docker compose down
+// -v`, as the project pleiades-release-gate), and it deletes the two
+// locally built images so the cold measurement is a real build rather than
+// a cache hit. The images are rebuilt on the way through, and the stack is
+// brought down at the end. A stack `make up` started from this checkout is
+// the project pleiades, which this never touches: until the gates took
+// their own project name, running them deleted that stack's data. The gate
+// refuses to start while such a stack holds the ports it needs.
 package e2e
 
 import (
@@ -37,6 +47,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
 )
 
 // The account this half creates, distinct from anything the rest of the
@@ -79,21 +92,20 @@ func TestPackagingReleaseGate_ComposeStack(t *testing.T) {
 	requireDockerDaemon(t)
 	root := ensurePleiadesImages(t)
 
-	// The machine is left as this test found it conceptually (no stack, no
-	// volumes), whatever happens in between.
-	t.Cleanup(func() { composeDown(t, root) })
-
 	// A clean state, with no preparatory command, is the premise of the
-	// claim. `down -v` destroys the named volumes, so the controller has no
-	// certificate, the database has no schema and the broker has no
-	// streams: everything the stack needs, it has to create.
-	composeDown(t, root)
+	// claim. `down -v` destroys the gate project's named volumes, so the
+	// controller has no certificate, the database has no schema and the
+	// broker has no streams: everything the stack needs, it has to create.
+	// The same runs at cleanup, so the gate's project is left with no stack
+	// and no volumes whatever happens in between.
+	freshComposeStack(t, root)
 
-	coldElapsed := measureComposeCold(t, root)
+	secrets := composeGateSecrets(t)
+	coldElapsed := measureComposeCold(t, root, secrets)
 	t.Logf("COLD `docker compose up -d --wait` (no image, no container, no volume; "+
 		"BuildKit layer cache as found): %s", coldElapsed.Round(time.Millisecond))
 
-	warmElapsed := measureComposeWarm(t, root)
+	warmElapsed := measureComposeWarm(t, root, secrets)
 
 	// Judged on the fastest sample, for the reason composeWarmCeiling
 	// records. The slowest is checked separately below.
@@ -118,7 +130,7 @@ func TestPackagingReleaseGate_ComposeStack(t *testing.T) {
 	// the documented command. Nothing seeds a row directly, because a
 	// seeded row proves the schema works and says nothing about whether the
 	// command an operator types produces one.
-	out := mustRunPackagingTool(t, root, nil, composeGatePassword+"\n",
+	out := mustRunPackagingTool(t, root, secrets, composeGatePassword+"\n",
 		"docker", "compose", "run", "--rm", "-T", "controller",
 		"bootstrap-admin", "--email", composeGateEmail, "--password-stdin")
 	if !strings.Contains(out, "is ready") {
@@ -136,7 +148,37 @@ func TestPackagingReleaseGate_ComposeStack(t *testing.T) {
 	signInOverTLS(t, client)
 }
 
-// composeDown removes the stack and its named volumes.
+// composeGateSecrets is the process environment that supplies every
+// variable controller setup owns: a fresh key and JWT secret from the one
+// generator setup itself uses, the default outage budget, and the rotation
+// variables set empty. Set empty rather than left unset, because an unset
+// one would fall through to a developer's .env.
+func composeGateSecrets(t *testing.T) []string {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	jwt, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	values := map[string]string{
+		setup.VarMasterKey: crypto.EncodeKey(key),
+		setup.VarJWTSecret: crypto.EncodeKey(jwt),
+		setup.VarMaxOutage: "30m",
+	}
+	env := make([]string, 0, len(setup.ComposeVariables()))
+	for _, name := range setup.ComposeVariables() {
+		env = append(env, name+"="+values[name])
+	}
+	return env
+}
+
+// composeDown removes the stack and its named volumes, and any one-shot
+// setup or backup container a gate left running: `down` without the
+// profiles does not see a profile's containers, and a setup container
+// still attached to a closed terminal waits for input forever.
 //
 // Failures are logged rather than fatal. This runs in cleanup as well as
 // at the start, and a cleanup that fails the test for a stack that was
@@ -144,7 +186,7 @@ func TestPackagingReleaseGate_ComposeStack(t *testing.T) {
 func composeDown(t *testing.T, root string) {
 	t.Helper()
 	if out, err := runPackagingTool(t, root, nil, "",
-		"docker", "compose", "down", "-v", "--remove-orphans"); err != nil {
+		"docker", "compose", "--profile", "setup", "--profile", "backup", "down", "-v", "--remove-orphans"); err != nil {
 		t.Logf("docker compose down -v: %v\n%s", err, out)
 	}
 }
@@ -163,7 +205,7 @@ func composeDown(t *testing.T, root string) {
 // BuildKit layer cache. A build with `--no-cache` would be a different and
 // much larger number, and it would be measuring the Go toolchain and the
 // Debian mirror rather than this repository.
-func measureComposeCold(t *testing.T, root string) time.Duration {
+func measureComposeCold(t *testing.T, root string, secrets []string) time.Duration {
 	t.Helper()
 
 	// Errors ignored on purpose: an image that is already absent is the
@@ -174,7 +216,7 @@ func measureComposeCold(t *testing.T, root string) time.Duration {
 	}
 
 	started := time.Now()
-	mustRunPackagingTool(t, root, nil, "", "docker", "compose", "up", "-d", "--wait")
+	mustRunPackagingTool(t, root, secrets, "", "docker", "compose", "up", "-d", "--wait")
 	elapsed := time.Since(started)
 
 	assertFourHealthyServices(t, root)
@@ -188,7 +230,7 @@ func measureComposeCold(t *testing.T, root string) time.Duration {
 // skips initdb and the samples measure a different, faster stack than the
 // one a first-time operator starts, which would make the gate report a
 // number nobody ever experiences.
-func measureComposeWarm(t *testing.T, root string) []time.Duration {
+func measureComposeWarm(t *testing.T, root string, secrets []string) []time.Duration {
 	t.Helper()
 
 	samples := make([]time.Duration, 0, composeWarmSamples)
@@ -196,7 +238,7 @@ func measureComposeWarm(t *testing.T, root string) []time.Duration {
 		composeDown(t, root)
 
 		started := time.Now()
-		mustRunPackagingTool(t, root, nil, "", "docker", "compose", "up", "-d", "--wait")
+		mustRunPackagingTool(t, root, secrets, "", "docker", "compose", "up", "-d", "--wait")
 		samples = append(samples, time.Since(started))
 
 		assertFourHealthyServices(t, root)
