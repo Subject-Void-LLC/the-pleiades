@@ -780,6 +780,21 @@ down:
 # "backups" as the name of a Docker volume rather than a directory.
 BACKUP_DIR ?= backups
 
+# BACKUP_DIR_CREATE makes BACKUP_DIR at mode 0700 only when it is missing,
+# and leaves one that exists exactly as it is. `install -d -m 700` alone
+# also changes the mode of a directory that exists, so it stopped every
+# target that used it on a directory this user does not own (one an earlier
+# compose run had Docker create as root failed with "cannot change
+# permissions"), and quietly took group access away from one an operator
+# had shared on purpose.
+BACKUP_DIR_CREATE = test -d "$(BACKUP_DIR)" || install -d -m 700 "$(BACKUP_DIR)"
+
+# BACKUP_DIR_WRITABLE stops a target that writes to BACKUP_DIR before any
+# container starts, when this user cannot write there. The container runs
+# as this user (SETUP_USER), or as a root that rootless Docker maps back to
+# this user, so the answer here is the container's answer too.
+BACKUP_DIR_WRITABLE = test -w "$(BACKUP_DIR)" || { echo "make $@: this user cannot write to $(BACKUP_DIR), and $@ writes there. Give it back with: sudo chown $$(id -u):$$(id -g) $(BACKUP_DIR), or name another directory with BACKUP_DIR=<dir>." >&2; exit 1; }
+
 # backup writes a backup of the stack's database to BACKUP_DIR, in the
 # compose stack's one-shot backup service (see docker-compose.yml for why
 # it has its own image). It works whether the stack is running or not:
@@ -790,7 +805,8 @@ BACKUP_DIR ?= backups
 # key's short fingerprint, and restoring it needs both; see the production
 # guide's backup section for where to keep each.
 backup: setup-env-check
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
+	@$(BACKUP_DIR_WRITABLE)
 	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build -T --user "$$($(SETUP_USER))" backup \
 	  backup --dir /setup --backups /backups
 
@@ -816,7 +832,8 @@ RESTORE_FLAGS ?=
 restore: setup-env-check
 	@test -n "$(BACKUP)" || { echo "make restore: name the backup to restore: make restore BACKUP=$(BACKUP_DIR)/<file>.dump" >&2; exit 2; }
 	@test -f "$(BACKUP)" || { echo "make restore: there is no file $(BACKUP)" >&2; exit 2; }
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
+	@$(BACKUP_DIR_WRITABLE)
 	@docker compose stop controller runner >/dev/null 2>&1 || true
 	@status=0; \
 	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" PLEIADES_RESTORE_DIR="$(abspath $(dir $(BACKUP)))" \
@@ -847,7 +864,7 @@ restore: setup-env-check
 DECOM_FLAGS ?=
 
 decom:
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
 	@PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build --no-deps --user "$$($(SETUP_USER))" backup \
 	  decommission --dir /setup --backups /backups $(DECOM_FLAGS)
 	docker compose --profile setup --profile backup down --volumes --remove-orphans
