@@ -1,0 +1,1 @@
+Added `make backup`, `make restore`, `make down` and `make decom` for the compose stack. A backup never holds the master key and names it by fingerprint instead, and a restore replaces the database only after the key in `.env` reads every sealed value in the backup and its schema matches this version's, backing up the database it replaces first.

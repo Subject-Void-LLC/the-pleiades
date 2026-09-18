@@ -59,11 +59,14 @@
 #   echo "$PASSWORD" | docker compose run --rm -T controller \
 #     bootstrap-admin --email you@example.com --password-stdin
 #
-# Everything worth keeping lives in the two named volumes declared at the
-# bottom of this file, so `docker compose down` keeps the control plane and
+# Everything worth keeping lives in the named volumes declared at the bottom
+# of this file, so `docker compose down` keeps the control plane and
 # `docker compose down -v` is the command that destroys it. That split is
 # the whole point of naming them; the volumes block records what the
-# unnamed version cost.
+# unnamed version cost. The make targets say the same in words: `make down`
+# keeps everything, `make decom` removes the volumes and .env after a typed
+# confirmation, and `make backup` and `make restore` run in the backup
+# service at the bottom of this file.
 #
 # There is no `version:` key. Compose v2 ignores it and prints
 # "the attribute `version` is obsolete" on every single command, so the
@@ -930,6 +933,58 @@ services:
     # and a journald or syslog driver keeps it outside the container's
     # life, so this service keeps no log at all. Attaching still works: an
     # attached terminal is a stream, not a log.
+    logging:
+      driver: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # BACKUP, RESTORE AND DECOMMISSION, as one-shot containers. `make backup`,
+  # `make restore` and `make decom` run it; `docker compose up` never starts
+  # it, because of the profile.
+  #
+  # Its own image, the backup stage of Dockerfile.controller: the same
+  # controller binary beside PostgreSQL's own pg_dump and pg_restore at the
+  # server's release, which the controller image deliberately does not carry.
+  # It runs here for the reason setup does: the database is reachable at
+  # postgres:5432 only on this network.
+  #
+  # It reads .env from the directory mounted at /setup, for the key a backup
+  # is counted under and a restore is checked against, and writes backups to
+  # the one mounted at /backups (./backups unless PLEIADES_BACKUP_DIR names
+  # another). A restore reads the backup it restores from /restore, read
+  # only. A backup never holds the key: see the production guide's backup
+  # section for why, and for where each should be kept.
+  backup:
+    profiles:
+      - backup
+    image: pleiades/backup:dev
+    pull_policy: never
+    build:
+      <<: *controller-build
+      target: backup
+    environment:
+      # The controller's own DB_DSN, by anchor. No key: the key comes from
+      # the .env mounted below, the file the controller reads it from.
+      - *database-dsn
+      # Only so messages name directories on the host rather than mount
+      # points.
+      - PLEIADES_SETUP_HOST_DIR=${PLEIADES_SETUP_DIR:-${PWD:-.}}
+      - PLEIADES_BACKUP_HOST_DIR=${PLEIADES_BACKUP_DIR:-./backups}
+      - PLEIADES_RESTORE_HOST_DIR=${PLEIADES_RESTORE_DIR:-./backups}
+    volumes:
+      - ${PLEIADES_SETUP_DIR:-.}:/setup
+      - ${PLEIADES_BACKUP_DIR:-./backups}:/backups
+      - ${PLEIADES_RESTORE_DIR:-./backups}:/restore:ro
+    # A restore onto a machine with no key asks for it at the terminal, and
+    # keeps no log for the reason the setup service gives.
     logging:
       driver: none
     security_opt:

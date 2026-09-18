@@ -1,4 +1,4 @@
-.PHONY: up setup setup-env-check build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: up setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -761,6 +761,98 @@ setup-env-check:
 	    exit 1; \
 	  fi; \
 	done
+
+# down stops the compose stack and removes its containers and network. It
+# keeps everything that matters: the database, the broker's stored messages,
+# the controller's certificate and .env. `make up` brings the same deployment
+# back; `make decom` is the command that removes it.
+#
+# The setup and backup profiles are named so a one-shot container an
+# interrupted command left behind goes too.
+down:
+	docker compose --profile setup --profile backup down --remove-orphans
+	@echo "Stopped. The database, the broker's messages and .env are kept: make up starts this deployment again."
+
+# BACKUP_DIR is where `make backup` writes, and where a restore sets aside
+# the database it replaces. It is created at mode 0700 before Docker sees
+# it, because a directory Docker creates for a bind mount belongs to root,
+# and it reaches compose as an absolute path, because compose reads a bare
+# "backups" as the name of a Docker volume rather than a directory.
+BACKUP_DIR ?= backups
+
+# backup writes a backup of the stack's database to BACKUP_DIR, in the
+# compose stack's one-shot backup service (see docker-compose.yml for why
+# it has its own image). It works whether the stack is running or not:
+# PostgreSQL takes a consistent snapshot while the controller keeps
+# working, and a stopped stack's database is started for it.
+#
+# A backup does not hold the master encryption key. Its name carries the
+# key's short fingerprint, and restoring it needs both; see the production
+# guide's backup section for where to keep each.
+backup: setup-env-check
+	@install -d -m 700 "$(BACKUP_DIR)"
+	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build -T --user "$$($(SETUP_USER))" backup \
+	  backup --dir /setup --backups /backups
+
+# restore replaces the stack's database with the backup BACKUP names:
+#
+#   make restore BACKUP=backups/pleiades-20260918T141707Z-3f9ac21b.dump
+#
+# It stops the controller and the runner first, since anything they wrote
+# during the restore would be lost. The restore itself checks the file, loads
+# it into a scratch database, and replaces the live one only once the key in
+# .env reads every sealed value in it and its schema is this version's; the
+# database it replaces is backed up to BACKUP_DIR first. Then it clears the
+# broker, whose queued messages belong to the database that was replaced,
+# and brings the stack up with `make up`.
+#
+# On a machine with no .env, it asks for the backup's key at the terminal
+# and writes it to .env. In a script, send the key on standard input:
+#
+#   echo "$$KEY" | make restore BACKUP=... RESTORE_FLAGS=--key-stdin SETUP_FLAGS=--non-interactive
+BACKUP ?=
+RESTORE_FLAGS ?=
+
+restore: setup-env-check
+	@test -n "$(BACKUP)" || { echo "make restore: name the backup to restore: make restore BACKUP=$(BACKUP_DIR)/<file>.dump" >&2; exit 2; }
+	@test -f "$(BACKUP)" || { echo "make restore: there is no file $(BACKUP)" >&2; exit 2; }
+	@install -d -m 700 "$(BACKUP_DIR)"
+	@docker compose stop controller runner >/dev/null 2>&1 || true
+	@status=0; \
+	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" PLEIADES_RESTORE_DIR="$(abspath $(dir $(BACKUP)))" \
+	  docker compose run --rm --build --user "$$($(SETUP_USER))" backup \
+	  restore --dir /setup --backups /backups --from /restore --file "$(notdir $(BACKUP))" $(RESTORE_FLAGS) || status=$$?; \
+	if [ $$status -ne 0 ]; then \
+	  echo "make restore: nothing was restored, and the controller and runner are stopped. make up starts them again as they were." >&2; \
+	  exit $$status; \
+	fi
+	docker compose down --volumes nats
+	@$(MAKE) --no-print-directory up
+
+# decom removes this deployment for good: its containers, its network, its
+# volumes (the database, the broker's messages, the controller's data) and
+# .env, which holds the master encryption key. It keeps BACKUP_DIR, the
+# images and this checkout.
+#
+# It shows what it removes and what it keeps, including the newest backup
+# and the key that backup needs, and goes on only when you type
+# "decommission <the key's fingerprint>". The key is deleted with .env, so
+# that is the moment to be sure a copy of it is kept somewhere else. Without
+# a terminal it goes on only with:
+#
+#   make decom DECOM_FLAGS=--destroy-deployment
+#
+# The volumes go before .env does: if removing them fails, the key that
+# reads them is still there.
+DECOM_FLAGS ?=
+
+decom:
+	@install -d -m 700 "$(BACKUP_DIR)"
+	@PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build --no-deps --user "$$($(SETUP_USER))" backup \
+	  decommission --dir /setup --backups /backups $(DECOM_FLAGS)
+	docker compose --profile setup --profile backup down --volumes --remove-orphans
+	rm -f -- "$${PLEIADES_SETUP_DIR:-.}/.env"
+	@echo "Removed. $(BACKUP_DIR), the images and this checkout are kept."
 
 # dev-cert writes a throwaway serving certificate into .dev-certs/, which
 # is gitignored.

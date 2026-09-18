@@ -28,6 +28,7 @@ type composeService struct {
 	Logging     map[string]string `yaml:"logging"`
 	Entrypoint  []string          `yaml:"entrypoint"`
 	Ports       []string          `yaml:"ports"`
+	Volumes     []string          `yaml:"volumes"`
 }
 
 // envEntries is a service's environment in either spelling compose accepts:
@@ -152,6 +153,43 @@ func TestComposeSetupServiceIsConfinedToWhatItNeeds(t *testing.T) {
 	controllerDSN := envMap(services["controller"].Environment)["DB_DSN"]
 	if env["DB_DSN"] == "" || env["DB_DSN"] != controllerDSN {
 		t.Errorf("setup counts %q and the controller opens %q; setup must count the database the controller uses", env["DB_DSN"], controllerDSN)
+	}
+}
+
+// TestComposeBackupServiceIsConfinedToWhatItNeeds is the same check for the
+// service `make backup`, `make restore` and `make decom` run. It asks for a
+// key at a terminal on a clean machine, so it keeps no log either; it reads
+// the key from .env and nowhere else; and it can write backups but not the
+// backup it is restoring.
+func TestComposeBackupServiceIsConfinedToWhatItNeeds(t *testing.T) {
+	_, services := readComposeFile(t)
+	svc, ok := services["backup"]
+	if !ok {
+		t.Fatal("docker-compose.yml has no backup service")
+	}
+	if len(svc.Profiles) != 1 || svc.Profiles[0] != "backup" {
+		t.Errorf("profiles = %v; without the backup profile, `docker compose up` would start it", svc.Profiles)
+	}
+	if svc.Build["target"] != "backup" || svc.Build["dockerfile"] != "Dockerfile.controller" {
+		t.Errorf("build = %v; the backup service builds the backup stage of the controller's Dockerfile", svc.Build)
+	}
+	if svc.Logging["driver"] != "none" {
+		t.Errorf("the backup service's log driver is %q; a restore on a clean machine asks for the key, and a log driver keeps what a terminal shows", svc.Logging["driver"])
+	}
+	env := envMap(svc.Environment)
+	for _, name := range setup.ComposeVariables() {
+		if _, set := env[name]; set {
+			t.Errorf("the backup service's environment sets %s; it reads the key from .env, and a copy here could disagree with it", name)
+		}
+	}
+	if env["DB_DSN"] != envMap(services["controller"].Environment)["DB_DSN"] {
+		t.Errorf("the backup service opens %q, not the controller's database", env["DB_DSN"])
+	}
+	mounts := strings.Join(svc.Volumes, " ")
+	for _, want := range []string{":/setup ", ":/backups ", ":/restore:ro"} {
+		if !strings.Contains(mounts+" ", want) {
+			t.Errorf("volumes %v lack %q", svc.Volumes, want)
+		}
 	}
 }
 

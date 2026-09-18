@@ -464,8 +464,8 @@ func TestComposeNeverPullsWhatItBuilds(t *testing.T) {
 				service, svc.Image, svc.PullPolicy)
 		}
 	}
-	if built < 3 {
-		t.Fatalf("found %d services that build; the controller, runner and setup services all do, so the file was not read the way this test assumes", built)
+	if built < 4 {
+		t.Fatalf("found %d services that build; the controller, runner, setup and backup services all do, so the file was not read the way this test assumes", built)
 	}
 }
 
