@@ -68,6 +68,16 @@ func TestTakeCensus_FindsEveryColumnUnderTheKeyThatSealedIt(t *testing.T) {
 	if census.Sealed() != 4 || census.Opens("the key in .env") != 4 || census.Unknown() != 0 {
 		t.Fatalf("totals: sealed %d, opens %d, unknown %d; want 4, 4, 0", census.Sealed(), census.Opens("the key in .env"), census.Unknown())
 	}
+
+	// The tag is not what decided which key opens a row, and it is still
+	// reported, because a controller reads a row only under the key its tag
+	// names. Every row here was written as v7, in every column's shape.
+	if tags := census.TagsUnder("the key in .env"); len(tags) != 1 || tags["v7"] != 4 {
+		t.Fatalf("TagsUnder(the key in .env) = %v, want all four rows under v7", tags)
+	}
+	if tags := census.TagsUnder("a stranger's key"); len(tags) != 0 {
+		t.Fatalf("TagsUnder(a stranger's key) = %v, want nothing: it opens no row", tags)
+	}
 }
 
 // TestTakeCensus_CountsRowsUnderAKeyItWasNotGivenAsUnknown proves a row

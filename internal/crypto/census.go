@@ -86,6 +86,14 @@ type ColumnCensus struct {
 	// ciphertext that cannot be parsed. These are held by some key the
 	// census was not given.
 	Unknown int
+
+	// Tags counts, per candidate name, the version tags carried by the rows
+	// that candidate opens. Opening a row and reading it are different
+	// questions: KeyOpens ignores the tag, and an EnvelopeService looks a
+	// row's key up BY its tag, so a row this key opens is still unreadable
+	// to a controller that gives the key a different tag. Restoring a backup
+	// asks the second question, and this is what answers it.
+	Tags map[string]map[string]int
 }
 
 // Census is what every encrypted column in one database holds.
@@ -111,6 +119,18 @@ func (c Census) Opens(name string) int {
 		n += col.Opens[name]
 	}
 	return n
+}
+
+// TagsUnder is, across every column, how many rows the named candidate
+// opens under each version tag.
+func (c Census) TagsUnder(name string) map[string]int {
+	out := map[string]int{}
+	for _, col := range c.Columns {
+		for tag, n := range col.Tags[name] {
+			out[tag] += n
+		}
+	}
+	return out
 }
 
 // Unknown is how many sealed rows across every column no candidate opens.
@@ -152,7 +172,7 @@ func TakeCensus(ctx context.Context, r StoredValueReader, candidates []Candidate
 		if err != nil {
 			return Census{}, fmt.Errorf("counting %s: %w", col.noun, err)
 		}
-		cc := ColumnCensus{Noun: col.noun, Opens: map[string]int{}}
+		cc := ColumnCensus{Noun: col.noun, Opens: map[string]int{}, Tags: map[string]map[string]int{}}
 		for _, row := range rows {
 			envelope, sealed := sealedEnvelope(row.Value, col.bare)
 			if !sealed {
@@ -161,6 +181,12 @@ func TakeCensus(ctx context.Context, r StoredValueReader, candidates []Candidate
 			cc.Sealed++
 			if name, ok := whichCandidate(envelope, unique); ok {
 				cc.Opens[name]++
+				if cc.Tags[name] == nil {
+					cc.Tags[name] = map[string]int{}
+				}
+				// whichCandidate parsed the envelope, so it has a first field.
+				tag, _, _ := strings.Cut(envelope, "$")
+				cc.Tags[name][tag]++
 			} else {
 				cc.Unknown++
 			}
