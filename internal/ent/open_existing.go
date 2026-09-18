@@ -179,6 +179,36 @@ func (d *ExistingDatabase) StoredValues(ctx context.Context, table, column strin
 	return out, nil
 }
 
+// MigrationHistory returns every migration the database records as applied,
+// in no particular order. A database no controller has opened has no
+// history table, and returns none.
+//
+// It is separate from StoredValues because the history table is the
+// migration runner's own, with no id column.
+func (d *ExistingDatabase) MigrationHistory(ctx context.Context) ([]string, error) {
+	exists, err := d.hasTable(ctx, "schema_migrations")
+	if err != nil || !exists {
+		return nil, err
+	}
+	rows, err := d.db.QueryContext(ctx, "SELECT version FROM schema_migrations")
+	if err != nil {
+		return nil, fmt.Errorf("ent: reading the migration history from %s: %w", d.describe, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("ent: reading the migration history from %s: %w", d.describe, err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ent: reading the migration history from %s: %w", d.describe, err)
+	}
+	return out, nil
+}
+
 // hasTable reports whether table exists, asking each dialect's own catalog.
 func (d *ExistingDatabase) hasTable(ctx context.Context, table string) (bool, error) {
 	var query string

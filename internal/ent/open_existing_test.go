@@ -164,3 +164,55 @@ func TestOpenExisting_DoesNotChangeTheSchemaVersion(t *testing.T) {
 		t.Fatalf("schema_migrations went from %d to %d rows across a read", before, after)
 	}
 }
+
+// TestExistingDatabase_MigrationHistory proves the history reads back as the
+// migration runner wrote it, and as empty, not as an error, from a database
+// no controller has opened.
+func TestExistingDatabase_MigrationHistory(t *testing.T) {
+	ctx := context.Background()
+	empty := filepath.Join(t.TempDir(), "empty.db")
+	raw, err := stdsql.Open("sqlite3", empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, "CREATE TABLE unrelated (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	db, err := ent.OpenExisting(ctx, "sqlite://"+empty)
+	if err != nil {
+		t.Fatalf("OpenExisting() error = %v", err)
+	}
+	if history, err := db.MigrationHistory(ctx); err != nil || len(history) != 0 {
+		t.Fatalf("MigrationHistory() on a database no controller opened = %v, %v; want none and no error", history, err)
+	}
+	_ = db.Close()
+
+	migrated := filepath.Join(t.TempDir(), "migrated.db")
+	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: "sqlite://" + migrated})
+	if err != nil {
+		t.Fatalf("OpenDatabase() error = %v", err)
+	}
+	_ = client.Close()
+	db, err = ent.OpenExisting(ctx, "sqlite://"+migrated)
+	if err != nil {
+		t.Fatalf("OpenExisting() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	history, err := db.MigrationHistory(ctx)
+	if err != nil {
+		t.Fatalf("MigrationHistory() error = %v", err)
+	}
+	entries, err := os.ReadDir("migrate/migrations/sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != len(entries) {
+		t.Fatalf("MigrationHistory() read %d migrations; this version has %d", len(history), len(entries))
+	}
+	for _, h := range history {
+		if !strings.HasSuffix(h, ".sql") {
+			t.Fatalf("MigrationHistory() read %q, not a migration's file name", h)
+		}
+	}
+}
