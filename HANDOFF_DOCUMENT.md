@@ -4,11 +4,11 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-83-Setup-Command`, off `origin/main` at `c762297`. Two bodies of work sit in
-the tree, and NOTHING IS COMMITTED, by instruction:** Phase 83 (the setup command, whose full status
-is now the top entry of `HANDOFF_ARCHIVE.md`) and, on top of it, the backup half of Phase 84:
-`make backup`, `make restore`, `make down` and `make decom`. The branch has no upstream on purpose.
-The commit messages below cover both, in order.
+**Branch `feature/Phase-83-Setup-Command`, off `origin/main` at `c762297`: 26 commits, pushed to
+`origin/feature/Phase-83-Setup-Command` (upstream set) once `make push-gate` wrote its receipt on the
+head commit.** The branch holds Phase 83 (the setup command; its full status is the top entry of
+`HANDOFF_ARCHIVE.md`) and, on top of it, the backup half of Phase 84: `make backup`, `make restore`,
+`make down` and `make decom`. Confirm the push with `git ls-remote origin feature/Phase-83-Setup-Command`.
 
 ### What this session added
 
@@ -88,55 +88,36 @@ The commit messages below cover both, in order.
 - Keeping a deployment's unsealed data after its key is lost has no command.
 - Phase 83's startup refusal on a mismatched key is still open.
 
-### Commit messages, in order
+### Commits
 
-Phase 83's fourteen (1 to 14, and 5b) are in the archive entry below, unchanged, with two
-amendments: commit 11 also takes the `</dev/null` hunks of the Makefile's `up` target (its fix
-belongs with the target it fixes), and the files listed there now also hold this session's hunks,
-which belong to the commits below and have to be left out of Phase 83's with `git add -p`.
+Phase 83 is `dc70fd9` to `db75627` (15 commits, in the order its archive entry lists, 5b included);
+the tree at `db75627` is exactly Phase 83 with nothing from the backup work. This session's work is
+the next eleven:
 
-15. `fix(e2e): run the compose gates as their own project, so make ci cannot delete a make up stack`
-    tests/e2e/{packaging_support_test.go (gateComposeProject, freshComposeStack,
-    requireComposePortsFree, the packagingCommand env hunk), packaging_compose_test.go (header
-    paragraph, freshComposeStack, composeDown profiles), packaging_setup_test.go (freshComposeStack,
-    the project filter)}; changelog/release-gates-own-project.fixed.md
-16. `fix(compose): never pull an image the stack builds`
-    docker-compose.yml (pull_policy on controller, runner and setup, and the controller comment);
-    internal/testsupport/images_test.go (PullPolicy, the pinnedImages comment, the header bullet,
-    TestComposeNeverPullsWhatItBuilds); changelog/compose-never-pulls-built-images.security.md
-17. `refactor: name the default key version, and export setup's count phrasing`
-    internal/crypto/envelope.go; cmd/controller/{keyrecord.go, main.go (the DefaultKeyVersion hunk)};
-    internal/setup/{run.go, run_helm.go, keyrules.go}
-18. `feat(crypto): report the version tag of every value the census counts`
-    internal/crypto/{census.go, census_test.go (the TagsUnder hunk)}
-19. `feat(ent): read an existing database's migration history`
-    internal/ent/{open_existing.go, open_existing_test.go} (the MigrationHistory hunks)
-20. `feat(setup): write a restored key into an env file that holds none`
-    internal/setup/{import.go, import_test.go}
-21. `feat(activity): record a database restored from a backup`
-    internal/activity/activity.go (ActionRestored, KindDatabase); internal/ui/resources/activity/activity.go
-22. `feat(backup): back up and restore the compose stack's database, never with the key in the file`
-    internal/backup/ (all); Makefile (the internal/backup entry in DOCKER_DEPENDENT_PACKAGES)
-23. `feat(controller): add backup, restore and decommission, and the image they run in`
-    cmd/controller/{backup.go, backup_release_gate_test.go, healthcheck.go (routeBackup),
-    healthcheck_test.go (three cases), main.go (the routeBackup case), admin.go (usage),
-    setup_release_gate_test.go (startPTYWith)}; Dockerfile.controller;
-    internal/testsupport/images_test.go (TestBackupImageMatchesTheServer)
-24. `feat(compose): add make backup, restore, down and decom`
-    docker-compose.yml (the backup service and the header paragraph); Makefile (the four targets,
-    .PHONY, BACKUP_DIR, BACKUP, RESTORE_FLAGS, DECOM_FLAGS); .gitignore (/backups/);
-    internal/setup/compose_file_test.go (Volumes, TestComposeBackupServiceIsConfinedToWhatItNeeds);
-    tests/e2e/packaging_backup_test.go; changelog/backup-restore-commands.added.md
-25. `docs: document backup and restore, and record what this work found`
-    docs/10 (the install paragraph, "The database" paragraph, the backup section);
-    FAILURE_PATTERNS{,_ARCHIVE}.md (240 to 246); LESSONS_LEARNED{,_ARCHIVE}.md (196 to 198);
-    HANDOFF_DOCUMENT.md, HANDOFF_ARCHIVE.md
+| Commit | Subject |
+|---|---|
+| `1edf0ac` | fix(e2e): run the compose gates as their own project, so make ci cannot delete a make up stack |
+| `0ebba4c` | fix(compose): never pull an image the stack builds |
+| `df54aa0` | refactor: name the default key version, and export setup's count phrasing |
+| `48f5ea1` | feat(crypto): report the version tag of every value the census counts |
+| `0652a37` | feat(ent): read an existing database's migration history |
+| `c141144` | feat(setup): write a restored key into an env file that holds none |
+| `00342e2` | feat(activity): record a database restored from a backup |
+| `ed27c14` | feat(backup): back up and restore the compose stack's database, never with the key in the file |
+| `e900cc0` | feat(controller): add backup, restore and decommission, and the image they run in |
+| `621c16f` | feat(compose): add make backup, restore, down and decom |
+| `124ffdb` | docs: document backup and restore, and record what this work found |
 
-No message carries a model trailer. Push only after `make push-gate` writes its receipt on the
-committed tree (with any `make up` stack stopped first), and confirm with `git ls-remote`.
+Every commit's tree was built and vetted before it was committed (integration-tagged vet too where
+e2e or setup tests changed), and every one passed the commit gate. The last one's tree is the
+working tree the work was done in, byte for byte. Where the split differs from the plan: Phase 83's
+commit 11 carries the `</dev/null` fix to `make up`; commit `ed27c14` also corrects the Makefile's
+count of container packages to 24; and `0ebba4c`'s pull-policy test expects three services that
+build until `621c16f` adds the backup service and raises it to four. No message carries a model
+trailer.
 
 ### Next step
 
-Commit in the order above, stop any local stack with `make down`, run `make push-gate`, push, and
-open the PR. Then decide the Helm chart's default image repository (finding 2), and the rest of
-Phase 84.
+Open the PR for this branch. Then decide the Helm chart's default image repository (finding 2), and
+the rest of Phase 84. Stop any local stack with `make down` before `make ci` or `make push-gate`:
+the compose gates refuse to start while it holds 8080, 5432 and 4222.
