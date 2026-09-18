@@ -39,6 +39,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
@@ -131,10 +132,40 @@ func packagingCommand(t *testing.T, dir string, env []string, name string, args 
 	// docker build helper carries the same shape and the same reasoning.
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = append(scrubbedPackagingEnv(), env...)
 	return cmd
+}
+
+// scrubbedPackagingEnv is this process's environment without the variables
+// that would let the developer's machine decide what a gate tests.
+//
+// Every variable controller setup owns is removed, because docker compose
+// uses a shell variable over the same one in .env: a developer who exported
+// MASTER_ENCRYPTION_KEY would otherwise run every compose gate with their key
+// rather than the one the gate supplies or setup wrote. Every COMPOSE_
+// setting is removed for the same reason one level up, since
+// COMPOSE_PROJECT_NAME or COMPOSE_FILE would point a gate at a different
+// stack. PLEIADES_SETUP_DIR is removed so only a gate that names it moves
+// where setup writes.
+//
+// Removing them, rather than appending an override, is the point: an
+// appended empty value still outranks .env, which is right for a gate that
+// supplies every secret and wrong for one that means compose to read the
+// file setup wrote.
+func scrubbedPackagingEnv() []string {
+	drop := map[string]bool{"PLEIADES_SETUP_DIR": true}
+	for _, name := range setup.ComposeVariables() {
+		drop[name] = true
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if drop[name] || strings.HasPrefix(name, "COMPOSE_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
 }
 
 // runPackagingTool runs one command and returns its combined output plus
