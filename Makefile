@@ -269,7 +269,7 @@ test:
 # provisions real containers.
 #
 # `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
-# development host, and DOCKER_DEPENDENT_PACKAGES below names 22
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 23
 # packages. So the default asks one Docker daemon to build, start, port
 # map and health check the containers of twenty packages simultaneously,
 # on top of a Ryuk reaper per package. Two consecutive full `make ci`
@@ -341,6 +341,11 @@ test-race:
 # container-backed test added later and not added here FAILS LOUDLY on
 # the non-Docker legs (a real, visible CI failure demanding this list be
 # updated) rather than silently never running there at all.
+#
+# That loud failure used to arrive twenty minutes into a gate, as a
+# container that never became ready under test-repeat's load (it is how
+# internal/keyregistry was found missing). tools/internal/flakegate's
+# TestEveryContainerPackageIsListed now fails at unit-test speed instead.
 DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/controller \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades \
@@ -356,6 +361,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/event \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \
+	github.com/Subject-Void-LLC/the-pleiades/internal/keyregistry \
 	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
 	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
 	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
