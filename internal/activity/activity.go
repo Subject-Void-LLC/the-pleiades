@@ -54,6 +54,10 @@ const (
 	ActionUpdated  Action = "updated"
 	ActionDeleted  Action = "deleted"
 	ActionAttested Action = "attested"
+
+	// ActionRestored is a database replaced by a backup: every change after
+	// the backup was taken is gone, so it is the entry that explains a gap.
+	ActionRestored Action = "restored"
 )
 
 // validActions is the membership test a write applies.
@@ -62,6 +66,7 @@ var validActions = map[Action]bool{
 	ActionUpdated:  true,
 	ActionDeleted:  true,
 	ActionAttested: true,
+	ActionRestored: true,
 }
 
 // Valid reports whether a is one of the declared actions.
@@ -84,6 +89,11 @@ const (
 	// KindEncryptionKey is a master encryption key, named by its short
 	// fingerprint and never by its value (internal/keyregistry).
 	KindEncryptionKey = "encryption key"
+
+	// KindDatabase is the deployment's database as a whole. A deployment
+	// has one, so its entries carry the id 1 and name the database and the
+	// backup it was restored from.
+	KindDatabase = "database"
 )
 
 // Entry is one recorded change.

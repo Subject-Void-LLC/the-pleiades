@@ -81,6 +81,10 @@ func actionBadge(action string) string {
 		return "badge-failed"
 	case activity.ActionAttested:
 		return "badge-ok"
+	case activity.ActionRestored:
+		// A restore discards every change after its backup, which is the
+		// same weight as a deletion.
+		return "badge-failed"
 	default:
 		return "badge-neutral"
 	}
