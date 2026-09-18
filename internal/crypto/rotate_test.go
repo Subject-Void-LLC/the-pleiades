@@ -88,8 +88,8 @@ func TestRotateDeviceProperties(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateDeviceProperties() error = %v", err)
 	}
-	if rotated != len(names) {
-		t.Fatalf("RotateDeviceProperties() rotated = %d, want %d (the no-properties row must be skipped)", rotated, len(names))
+	if rotated.Rotated != len(names) {
+		t.Fatalf("RotateDeviceProperties() rotated = %d, want %d (the no-properties row must be skipped)", rotated.Rotated, len(names))
 	}
 
 	// Storage-layer proof: every rotated row's raw ciphertext now carries
@@ -194,8 +194,11 @@ func TestRotateDeviceProperties_SkipsUndecryptableRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateDeviceProperties() error = %v, want nil (an undecryptable row must be skipped, not fatal)", err)
 	}
-	if rotated != 1 {
-		t.Fatalf("RotateDeviceProperties() rotated = %d, want 1 (only the healthy row)", rotated)
+	if rotated.Rotated != 1 {
+		t.Fatalf("RotateDeviceProperties() rotated = %d, want 1 (only the healthy row)", rotated.Rotated)
+	}
+	if rotated.Unreadable != 1 || rotated.Skipped != 0 {
+		t.Fatalf("RotateDeviceProperties() = %+v, want the undecryptable row counted as unreadable and nothing skipped", rotated)
 	}
 
 	devs, err := client.Device.Query().All(ctx)

@@ -129,8 +129,8 @@ func TestRotateSavedLaunchConfigAnswersMigratesTheUnboundRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateSavedLaunchConfigAnswers() error = %v", err)
 	}
-	if rotated != 2 {
-		t.Fatalf("RotateSavedLaunchConfigAnswers() converted %d rows, want both", rotated)
+	if rotated.Rotated != 2 {
+		t.Fatalf("RotateSavedLaunchConfigAnswers() converted %d rows, want both", rotated.Rotated)
 	}
 
 	// Every row is bound now, and every answer survived.
@@ -246,8 +246,8 @@ func TestRotationLeavesAConfigWithNoAnswersAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateSavedLaunchConfigAnswers() error = %v", err)
 	}
-	if rotated != 0 {
-		t.Errorf("converted %d rows, want none for a configuration with no answers", rotated)
+	if rotated.Rotated != 0 {
+		t.Errorf("converted %d rows, want none for a configuration with no answers", rotated.Rotated)
 	}
 }
 
@@ -283,8 +283,11 @@ func TestLaunchRotationSkipsAnUnreadableRowRatherThanAborting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateSavedLaunchConfigAnswers() error = %v, want the pass to complete", err)
 	}
-	if rotated != 1 {
-		t.Fatalf("converted %d rows, want the one readable row", rotated)
+	if rotated.Rotated != 1 {
+		t.Fatalf("converted %d rows, want the one readable row", rotated.Rotated)
+	}
+	if rotated.Unreadable != 1 || rotated.Skipped != 0 {
+		t.Fatalf("RotateSavedLaunchConfigAnswers() = %+v, want the undecryptable row counted as unreadable and nothing skipped", rotated)
 	}
 
 	// The unreadable row was left exactly as it was, rather than being

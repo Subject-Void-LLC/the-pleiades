@@ -1,0 +1,1 @@
+`ROTATE_ENCRYPTION_KEYS=true` now re-encrypts credentials, saved launch configurations and mesh signing keys as well as devices, and the controller logs `key rotation complete` only once no row still needs the previous key. Before this, only devices were rotated, so removing the old key as the rotation guide described made every credential and saved survey answer unreadable.

@@ -1591,14 +1591,7 @@ func main() {
 	// rotated still decrypts correctly through envelopeSvc's previous-key
 	// slot), not a reason to tear down an already-serving process.
 	if rotateKeys {
-		go func() {
-			rotated, err := crypto.RotateDeviceProperties(ctx, client, envelopeSvc)
-			if err != nil {
-				slog.Error("key rotation failed", slog.String("error", err.Error()))
-				return
-			}
-			slog.Info("rotated device properties encryption", slog.Int("rotated", rotated))
-		}()
+		go runKeyRotation(ctx, client, envelopeSvc, slog.Default())
 	}
 
 	sig := make(chan os.Signal, 1)
@@ -1688,8 +1681,9 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// cryptographically tied to its own row, so a database writer cannot
 	// relocate one organization's secrets onto another organization's
 	// credential and have the platform inject them. Device and
-	// SavedLaunchConfig remain on the unbound form; internal/crypto/
-	// envelope_bound.go records why that is acceptable there and not here.
+	// SavedLaunchConfig write the bound form too since Phase 78c; a row of
+	// theirs written before that is still unbound until a write or a
+	// rotation pass converts it (runKeyRotation).
 	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
 

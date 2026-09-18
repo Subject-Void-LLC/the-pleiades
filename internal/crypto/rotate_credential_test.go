@@ -126,8 +126,8 @@ func TestRotateCredentialInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateCredentialInputs() error = %v", err)
 	}
-	if rotated != len(ids) {
-		t.Fatalf("RotateCredentialInputs() rotated %d rows, want %d", rotated, len(ids))
+	if rotated.Rotated != len(ids) {
+		t.Fatalf("RotateCredentialInputs() rotated %d rows, want %d", rotated.Rotated, len(ids))
 	}
 
 	// Storage layer: every row now carries the new version tag, and still
@@ -241,8 +241,11 @@ func TestRotationSkipsAnUnreadableRowRatherThanAborting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateCredentialInputs() error = %v, want the pass to complete", err)
 	}
-	if rotated != 1 {
-		t.Fatalf("RotateCredentialInputs() rotated %d rows, want the one readable row", rotated)
+	if rotated.Rotated != 1 {
+		t.Fatalf("RotateCredentialInputs() rotated %d rows, want the one readable row", rotated.Rotated)
+	}
+	if rotated.Unreadable != 1 || rotated.Skipped != 0 {
+		t.Fatalf("RotateCredentialInputs() = %+v, want the undecryptable row counted as unreadable and nothing skipped", rotated)
 	}
 
 	// The healthy row moved to the new key.
@@ -287,7 +290,7 @@ func TestRotationLeavesACredentialWithNoInputsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateCredentialInputs() error = %v", err)
 	}
-	if rotated != 0 {
-		t.Errorf("RotateCredentialInputs() rotated %d rows, want none for a credential storing nothing", rotated)
+	if rotated.Rotated != 0 {
+		t.Errorf("RotateCredentialInputs() rotated %d rows, want none for a credential storing nothing", rotated.Rotated)
 	}
 }

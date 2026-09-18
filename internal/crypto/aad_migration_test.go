@@ -204,8 +204,8 @@ func TestReleaseGate_TheAADMigrationClosesTheRelocationHole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateDeviceProperties() error = %v", err)
 	}
-	if rotated != 3 {
-		t.Fatalf("RotateDeviceProperties() converted %d rows, want all three", rotated)
+	if rotated.Rotated != 3 {
+		t.Fatalf("RotateDeviceProperties() converted %d rows, want all three", rotated.Rotated)
 	}
 
 	// Every row is now bound, and every row still decrypts.
@@ -247,8 +247,8 @@ func TestTheMigrationIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second pass error = %v", err)
 	}
-	if first != 3 || second != 3 {
-		t.Fatalf("passes converted %d then %d rows, want three each: every decryptable row is re-encrypted unconditionally", first, second)
+	if first.Rotated != 3 || second.Rotated != 3 {
+		t.Fatalf("passes converted %d then %d rows, want three each: every decryptable row is re-encrypted unconditionally", first.Rotated, second.Rotated)
 	}
 
 	for _, name := range []string{"legacy-a", "legacy-b", "modern"} {

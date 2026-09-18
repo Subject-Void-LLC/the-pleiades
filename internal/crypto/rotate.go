@@ -65,18 +65,18 @@ import (
 //
 // Operational note on multi-key rotation: svc supports exactly one
 // previous key/version at a time. Do not start a second rotation (moving
-// today's current key into the previous slot for a third key) until this
-// function's returned count equals the total device row count with
-// non-nil properties; starting one early can permanently strand any row
-// that had not yet been re-encrypted, since its key would no longer be
-// configured anywhere.
-func RotateDeviceProperties(ctx context.Context, client *ent.Client, svc *EnvelopeService) (int, error) {
+// today's current key into the previous slot for a third key) until a pass
+// reports RotationCount.Complete, meaning nothing it read was skipped;
+// starting one early can permanently strand any row that had not yet been
+// re-encrypted, since its key would no longer be configured anywhere.
+// RotateAll runs this pass alongside every other encrypted column's.
+func RotateDeviceProperties(ctx context.Context, client *ent.Client, svc *EnvelopeService) (RotationCount, error) {
 	rows, err := client.Device.Query().All(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to list devices for key rotation: %w", err)
+		return RotationCount{}, fmt.Errorf("failed to list devices for key rotation: %w", err)
 	}
 
-	rotated := 0
+	var count RotationCount
 	for _, row := range rows {
 		if row.Properties == nil {
 			continue
@@ -84,6 +84,7 @@ func RotateDeviceProperties(ctx context.Context, client *ent.Client, svc *Envelo
 		if isAlreadyEncryptedShape(row.Properties) {
 			slog.Warn("skipping device with undecryptable properties during key rotation",
 				slog.String("device", row.Name))
+			count.Unreadable++
 			continue
 		}
 
@@ -102,17 +103,19 @@ func RotateDeviceProperties(ctx context.Context, client *ent.Client, svc *Envelo
 			Save(ctx)
 		switch {
 		case err == nil:
-			rotated++
+			count.Rotated++
 		case ent.IsNotFound(err):
+			count.Skipped++
 			slog.Warn("device changed concurrently during key rotation, will retry on a later pass",
 				slog.String("device", row.Name))
 		default:
+			count.Skipped++
 			slog.Warn("failed to rotate device properties, will retry on a later pass",
 				slog.String("device", row.Name), slog.String("error", err.Error()))
 		}
 	}
 
-	return rotated, nil
+	return count, nil
 }
 
 // RotateCredentialInputs re-encrypts every Credential row's inputs under
@@ -155,13 +158,13 @@ func RotateDeviceProperties(ctx context.Context, client *ent.Client, svc *Envelo
 // corrupted row OR a ciphertext that does not belong to it, and nothing here
 // can tell them apart, which is why both are reported the same way and
 // neither is dismissed.
-func RotateCredentialInputs(ctx context.Context, client *ent.Client, svc *EnvelopeService) (int, error) {
+func RotateCredentialInputs(ctx context.Context, client *ent.Client, svc *EnvelopeService) (RotationCount, error) {
 	rows, err := client.Credential.Query().All(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to list credentials for key rotation: %w", err)
+		return RotationCount{}, fmt.Errorf("failed to list credentials for key rotation: %w", err)
 	}
 
-	rotated := 0
+	var count RotationCount
 	for _, row := range rows {
 		if len(row.Inputs) == 0 {
 			continue
@@ -169,6 +172,7 @@ func RotateCredentialInputs(ctx context.Context, client *ent.Client, svc *Envelo
 		if isUndecryptedInputs(row.Inputs) {
 			slog.Warn("skipping credential with undecryptable inputs during key rotation; this is either a corrupted row or a ciphertext that does not belong to it",
 				slog.Int("credential", row.ID))
+			count.Unreadable++
 			continue
 		}
 
@@ -178,8 +182,9 @@ func RotateCredentialInputs(ctx context.Context, client *ent.Client, svc *Envelo
 			Save(ctx)
 		switch {
 		case err == nil:
-			rotated++
+			count.Rotated++
 		case ent.IsNotFound(err):
+			count.Skipped++
 			// The compare-and-swap lost: this row changed between the read
 			// above and this write. Skipped rather than retried, matching
 			// RotateDeviceProperties, and safe for as long as the previous
@@ -187,12 +192,13 @@ func RotateCredentialInputs(ctx context.Context, client *ent.Client, svc *Envelo
 			slog.Warn("credential changed concurrently during key rotation, will retry on a later pass",
 				slog.Int("credential", row.ID))
 		default:
+			count.Skipped++
 			slog.Warn("failed to rotate credential inputs, will retry on a later pass",
 				slog.Int("credential", row.ID), slog.String("error", err.Error()))
 		}
 	}
 
-	return rotated, nil
+	return count, nil
 }
 
 // isUndecryptedInputs reports whether a credential's inputs came back from
@@ -235,13 +241,13 @@ func isUndecryptedInputs(inputs map[string]string) bool {
 //
 // Its compare-and-swap is on updated_at, for the reason
 // RotateCredentialInputs gives: this entity has no version column either.
-func RotateSavedLaunchConfigAnswers(ctx context.Context, client *ent.Client, svc *EnvelopeService) (int, error) {
+func RotateSavedLaunchConfigAnswers(ctx context.Context, client *ent.Client, svc *EnvelopeService) (RotationCount, error) {
 	rows, err := client.SavedLaunchConfig.Query().All(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to list saved launch configurations for key rotation: %w", err)
+		return RotationCount{}, fmt.Errorf("failed to list saved launch configurations for key rotation: %w", err)
 	}
 
-	rotated := 0
+	var count RotationCount
 	for _, row := range rows {
 		if len(row.Answers) == 0 {
 			continue
@@ -249,6 +255,7 @@ func RotateSavedLaunchConfigAnswers(ctx context.Context, client *ent.Client, svc
 		if isAlreadyEncryptedShape(row.Answers) {
 			slog.Warn("skipping saved launch configuration with undecryptable answers during key rotation",
 				slog.Int("saved_launch_config", row.ID))
+			count.Unreadable++
 			continue
 		}
 
@@ -258,15 +265,17 @@ func RotateSavedLaunchConfigAnswers(ctx context.Context, client *ent.Client, svc
 			Save(ctx)
 		switch {
 		case err == nil:
-			rotated++
+			count.Rotated++
 		case ent.IsNotFound(err):
+			count.Skipped++
 			slog.Warn("saved launch configuration changed concurrently during key rotation, will retry on a later pass",
 				slog.Int("saved_launch_config", row.ID))
 		default:
+			count.Skipped++
 			slog.Warn("failed to rotate saved launch configuration answers, will retry on a later pass",
 				slog.Int("saved_launch_config", row.ID), slog.String("error", err.Error()))
 		}
 	}
 
-	return rotated, nil
+	return count, nil
 }

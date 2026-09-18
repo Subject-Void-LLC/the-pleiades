@@ -838,16 +838,42 @@ it names, such as a `..`, is refused rather than cleaned.
 `MASTER_ENCRYPTION_KEY` can be replaced without downtime, and without losing
 anything, as long as the old key stays available while the change is in flight.
 
-Set the new key as the current one and the old key as the previous one. Every
-read tries the current key and falls back to the previous, so nothing breaks the
-moment the process restarts. Then run a rotation pass, which re-encrypts every
-row under the new key. There is one pass per entity that stores a secret:
-credentials, devices and saved launch configurations.
+Set the new key as the current one and the old key as the previous one:
 
-**Do not remove the old key until every pass reports that it has converted every
-row.** A row that has not been re-encrypted yet can only be opened with the old
-key, so taking it away early strands that row permanently. Each pass returns the
-number of rows it converted, which is how you tell it has finished.
+| Variable | Value |
+|---|---|
+| `MASTER_ENCRYPTION_KEY` | the new key |
+| `MASTER_ENCRYPTION_KEY_VERSION` | a new tag, for example `v2` |
+| `MASTER_ENCRYPTION_KEY_PREVIOUS` | the old key |
+| `MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION` | the old tag, `v1` unless you set one |
+| `ROTATE_ENCRYPTION_KEYS` | `true` |
+
+Every read tries the current key and falls back to the previous, so nothing
+breaks the moment the process restarts. With `ROTATE_ENCRYPTION_KEYS=true` the
+controller then re-encrypts every row under the new key, in the background, once
+per start. There is one pass per column that stores a secret: credentials,
+devices, saved launch configurations and mesh signing keys. Each pass logs one
+line, `key rotation pass finished`, with the table and three counts:
+
+- `rotated`: re-encrypted under the new key.
+- `skipped`: readable, but not rewritten this time, because something else wrote
+  the row at the same moment or the write failed. These rows are still on the old
+  key.
+- `unreadable`: the row opens under neither key. Removing the old key does not
+  change these rows, because the old key could not open them either. Find out
+  where they came from.
+
+**Do not remove the old key until the controller logs `key rotation complete: no
+row needs MASTER_ENCRYPTION_KEY_PREVIOUS any more`.** It logs that only when every
+table was read and no row was skipped. If it logs `key rotation is incomplete`
+instead, keep the old key and restart for another pass. A row that has not been
+re-encrypted yet can only be opened with the old key, so taking it away early
+makes that row permanently unreadable.
+
+Before this release the controller rotated devices alone while this section
+described three passes. If you removed an old key after following an earlier copy
+of it, your credentials and saved survey answers are still encrypted under that
+old key. Restore it as `MASTER_ENCRYPTION_KEY_PREVIOUS` and rotate again.
 
 The passes also do a second job. Devices and saved launch configurations used to
 be encrypted without binding the ciphertext to the row it belongs to, which meant
