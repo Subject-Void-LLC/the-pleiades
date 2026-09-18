@@ -74,8 +74,7 @@ func readSetupEnvFile(t *testing.T, path string) ([]byte, string) {
 func TestSetupReleaseGate_ComposeFromNothingToASignIn(t *testing.T) {
 	requireDockerDaemon(t)
 	root := ensurePleiadesImages(t)
-	t.Cleanup(func() { composeDown(t, root) })
-	composeDown(t, root)
+	freshComposeStack(t, root)
 
 	checkoutEnv := filepath.Join(root, ".env")
 	checkoutBefore, checkoutErrBefore := os.ReadFile(checkoutEnv)
@@ -259,8 +258,7 @@ func createCredentialThroughAPI(t *testing.T, client *http.Client, jwt string) {
 func TestSetupReleaseGate_ComposeSetupAtATerminal(t *testing.T) {
 	requireDockerDaemon(t)
 	root := ensurePleiadesImages(t)
-	t.Cleanup(func() { composeDown(t, root) })
-	composeDown(t, root)
+	freshComposeStack(t, root)
 
 	dir := t.TempDir()
 	cmd := packagingCommand(t, root, []string{"PLEIADES_SETUP_DIR=" + dir},
@@ -344,7 +342,7 @@ func TestSetupReleaseGate_ComposeSetupAtATerminal(t *testing.T) {
 func assertSetupContainerKeepsNoLog(t *testing.T, root string) {
 	t.Helper()
 	ids := strings.Fields(mustRunPackagingTool(t, root, nil, "",
-		"docker", "ps", "-q", "--filter", "label=com.docker.compose.project=pleiades",
+		"docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+gateComposeProject,
 		"--filter", "label=com.docker.compose.service=setup"))
 	if len(ids) != 1 {
 		t.Fatalf("found %d running setup containers, want 1", len(ids))

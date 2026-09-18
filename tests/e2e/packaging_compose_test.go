@@ -25,13 +25,14 @@
 //
 // WHAT THIS TEST DOES TO THE MACHINE, stated plainly because it is
 // destructive and a reader deserves to know before running it. It removes
-// the compose stack and its named volumes (`docker compose down -v`), and
-// it deletes the two locally built images so the cold measurement is a
-// real build rather than a cache hit. Both are restored by the test
-// itself: the images are rebuilt on the way through, and the stack is
-// brought down at the end. Any data in the local development stack is
-// gone, which is what `down -v` means everywhere else in this repository
-// too.
+// its own compose project's stack and named volumes (`docker compose down
+// -v`, as the project pleiades-release-gate), and it deletes the two
+// locally built images so the cold measurement is a real build rather than
+// a cache hit. The images are rebuilt on the way through, and the stack is
+// brought down at the end. A stack `make up` started from this checkout is
+// the project pleiades, which this never touches: until the gates took
+// their own project name, running them deleted that stack's data. The gate
+// refuses to start while such a stack holds the ports it needs.
 package e2e
 
 import (
@@ -91,15 +92,13 @@ func TestPackagingReleaseGate_ComposeStack(t *testing.T) {
 	requireDockerDaemon(t)
 	root := ensurePleiadesImages(t)
 
-	// The machine is left as this test found it conceptually (no stack, no
-	// volumes), whatever happens in between.
-	t.Cleanup(func() { composeDown(t, root) })
-
 	// A clean state, with no preparatory command, is the premise of the
-	// claim. `down -v` destroys the named volumes, so the controller has no
-	// certificate, the database has no schema and the broker has no
-	// streams: everything the stack needs, it has to create.
-	composeDown(t, root)
+	// claim. `down -v` destroys the gate project's named volumes, so the
+	// controller has no certificate, the database has no schema and the
+	// broker has no streams: everything the stack needs, it has to create.
+	// The same runs at cleanup, so the gate's project is left with no stack
+	// and no volumes whatever happens in between.
+	freshComposeStack(t, root)
 
 	secrets := composeGateSecrets(t)
 	coldElapsed := measureComposeCold(t, root, secrets)
@@ -176,7 +175,10 @@ func composeGateSecrets(t *testing.T) []string {
 	return env
 }
 
-// composeDown removes the stack and its named volumes.
+// composeDown removes the stack and its named volumes, and any one-shot
+// setup or backup container a gate left running: `down` without the
+// profiles does not see a profile's containers, and a setup container
+// still attached to a closed terminal waits for input forever.
 //
 // Failures are logged rather than fatal. This runs in cleanup as well as
 // at the start, and a cleanup that fails the test for a stack that was
@@ -184,7 +186,7 @@ func composeGateSecrets(t *testing.T) []string {
 func composeDown(t *testing.T, root string) {
 	t.Helper()
 	if out, err := runPackagingTool(t, root, nil, "",
-		"docker", "compose", "down", "-v", "--remove-orphans"); err != nil {
+		"docker", "compose", "--profile", "setup", "--profile", "backup", "down", "-v", "--remove-orphans"); err != nil {
 		t.Logf("docker compose down -v: %v\n%s", err, out)
 	}
 }
