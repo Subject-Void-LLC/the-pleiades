@@ -497,6 +497,23 @@ func TestRouteFor(t *testing.T) {
 			want: routeSetup,
 		},
 		{
+			// The admin guard matches these too, and would open the
+			// database under a key before a restore could supply one.
+			name: "backup, restore and decommission win over the admin guard",
+			args: []string{restoreCommand, "--file", "x.dump"},
+			want: routeBackup,
+		},
+		{
+			name: "backup routes to the backup command",
+			args: []string{backupCommand},
+			want: routeBackup,
+		},
+		{
+			name: "decommission routes to the backup command",
+			args: []string{decommissionCommand, "--destroy-deployment"},
+			want: routeBackup,
+		},
+		{
 			name: "no arguments runs the server",
 			args: nil,
 			want: routeServer,

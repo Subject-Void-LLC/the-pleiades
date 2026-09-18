@@ -109,6 +109,11 @@ const (
 	// command because every admin command opens the database under a key
 	// the environment already holds, and setup is what makes that key.
 	routeSetup
+
+	// routeBackup is backup, restore and decommission (backup.go). None of
+	// them opens the database under a key the environment holds: they read
+	// the key from .env, and a restore onto a clean machine has none yet.
+	routeBackup
 )
 
 // routeFor resolves an argument vector to exactly one route.
@@ -137,6 +142,10 @@ func routeFor(args []string) commandRoute {
 	// first install is a key that does not exist yet.
 	if isSetupCommand(args) {
 		return routeSetup
+	}
+	// Before the admin guard for the same reason setup is.
+	if isBackupCommand(args) {
+		return routeBackup
 	}
 	if isAdminCommand(args) {
 		return routeAdmin

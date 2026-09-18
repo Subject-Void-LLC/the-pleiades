@@ -148,6 +148,16 @@ One command that makes the secrets the others need:
                                       deployment reads them, and create the
                                       first administrator (controller setup -h)
 
+Three commands the compose stack's backup service runs, each through its
+make target, since they need PostgreSQL's own pg_dump and pg_restore:
+
+  backup                              back up the database (make backup)
+  restore --file <name>               replace the database with a backup,
+                                      once the key in .env is shown to read
+                                      it (make restore BACKUP=<file>)
+  decommission                        confirm removing the deployment
+                                      (make decom); removes nothing itself
+
 One operational command, which touches no database at all:
 
   healthcheck                         ask this controller's own /readyz on

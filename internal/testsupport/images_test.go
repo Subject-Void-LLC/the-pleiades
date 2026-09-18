@@ -13,8 +13,10 @@
 //   - TestComposeCommandMatchesPin: the broker is started with the same
 //     flags. The image agreeing while the flags differ is a real state
 //     this repository was in, and it is invisible to an image check.
-//   - TestComposeNeverPullsWhatItBuilds: a locally built image is never
-//     fetched from a registry under its local name.
+//   - TestComposeNeverPullsWhatItBuilds and
+//     TestBackupImageMatchesTheServer: a locally built image is never
+//     fetched from a registry under its local name, and the backup image's
+//     PostgreSQL release is the server's.
 //   - TestPinsNameAnExactVersion and TestExactVersionRule: every pin
 //     names a version that cannot move on its own. The second of those
 //     tests the rule itself against tags known to be good and bad, so
@@ -464,5 +466,24 @@ func TestComposeNeverPullsWhatItBuilds(t *testing.T) {
 	}
 	if built < 3 {
 		t.Fatalf("found %d services that build; the controller, runner and setup services all do, so the file was not read the way this test assumes", built)
+	}
+}
+
+// TestBackupImageMatchesTheServer holds the backup image's PostgreSQL
+// release to the server's. pg_dump refuses a server newer than itself, and a
+// backup written by the release that will read it back is the one nobody has
+// to reason about.
+func TestBackupImageMatchesTheServer(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean("../../Dockerfile.controller"))
+	if err != nil {
+		t.Fatalf("reading Dockerfile.controller: %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^FROM postgres:([0-9.]+)-bookworm@sha256:[0-9a-f]{64} AS backup$`).FindSubmatch(raw)
+	if m == nil {
+		t.Fatal("Dockerfile.controller has no `FROM postgres:<version>-bookworm@sha256:<digest> AS backup` stage")
+	}
+	server := strings.TrimSuffix(strings.TrimPrefix(testsupport.PostgresImage, "postgres:"), "-alpine")
+	if string(m[1]) != server {
+		t.Fatalf("the backup image is PostgreSQL %s and the server is %s; change both together", m[1], server)
 	}
 }

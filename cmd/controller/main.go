@@ -523,6 +523,8 @@ func main() {
 		os.Exit(runHealthcheck(args))
 	case routeSetup:
 		os.Exit(runSetup(args))
+	case routeBackup:
+		os.Exit(runBackupCommand(args))
 	case routeAdmin:
 		os.Exit(runAdmin(args))
 	case routeServer:

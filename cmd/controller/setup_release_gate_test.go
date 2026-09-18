@@ -167,8 +167,14 @@ type ptySession struct {
 // startPTY starts the binary with args on a new pseudo terminal.
 func startPTY(t *testing.T, dbPath string, args ...string) *ptySession {
 	t.Helper()
+	return startPTYWith(t, setupEnv(dbPath), args...)
+}
+
+// startPTYWith is startPTY with the child's environment given whole.
+func startPTYWith(t *testing.T, env []string, args ...string) *ptySession {
+	t.Helper()
 	cmd := exec.Command(binPath, args...)
-	cmd.Env = setupEnv(dbPath)
+	cmd.Env = env
 	f, err := pty.Start(cmd)
 	if err != nil {
 		t.Skipf("no pseudo terminal available here: %v", err)
