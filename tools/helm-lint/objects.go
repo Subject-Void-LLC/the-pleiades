@@ -118,7 +118,8 @@ type ingressPath struct {
 
 // podTemplate is a workload's pod template.
 type podTemplate struct {
-	Spec podSpec `yaml:"spec"`
+	Metadata objectMeta `yaml:"metadata"`
+	Spec     podSpec    `yaml:"spec"`
 }
 
 // podSpec holds the pod-level settings a container can inherit, plus the
@@ -138,6 +139,27 @@ type container struct {
 	LivenessProbe   *probe           `yaml:"livenessProbe"`
 	ReadinessProbe  *probe           `yaml:"readinessProbe"`
 	VolumeMounts    []volumeMount    `yaml:"volumeMounts"`
+	Env             []envVar         `yaml:"env"`
+}
+
+// envVar is one environment variable a container is given, either as a
+// literal or from a Secret key. Decoded so the setup profile can check that
+// every Secret key the chart reads is one the Secret setup emits carries.
+type envVar struct {
+	Name      string        `yaml:"name"`
+	Value     string        `yaml:"value"`
+	ValueFrom *envVarSource `yaml:"valueFrom"`
+}
+
+// envVarSource is where a variable's value comes from.
+type envVarSource struct {
+	SecretKeyRef *secretKeyRef `yaml:"secretKeyRef"`
+}
+
+// secretKeyRef names one key of one Secret.
+type secretKeyRef struct {
+	Name string `yaml:"name"`
+	Key  string `yaml:"key"`
 }
 
 // volumeMount is one container's use of a pod volume, decoded far enough to

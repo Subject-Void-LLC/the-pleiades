@@ -6,14 +6,20 @@
 // change to the code that runs them.
 package main
 
+// basePostgresPassword is the database password every positive profile
+// renders with. It is named because checkFingerprintFormulaAgrees computes
+// the chart's credential fingerprint from it on the Go side.
+const basePostgresPassword = "helm-lint-render-only" // #nosec G101 -- a literal `helm template` renders with; nothing is installed and no database ever holds it
+
 // The values every positive profile supplies, because the chart deliberately
 // refuses to invent them (see templates/_validations.tpl). They are throwaway
-// literals used only for rendering: nothing is installed, and the same three
-// strings appear in docker-compose.yml for the same reason.
+// literals used only for rendering: nothing is installed. The key is the one
+// docker-compose.yml used to publish, which is as good as any other for a
+// render and protects nothing anywhere.
 var baseValues = []string{
 	"--set", "secrets.masterEncryptionKey=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
 	"--set", "secrets.jwtSecret=helm-lint-render-only-not-a-real-secret",
-	"--set", "postgresql.auth.password=helm-lint-render-only",
+	"--set", "postgresql.auth.password=" + basePostgresPassword,
 }
 
 // profile is one configuration the chart must render, plus what the render has
@@ -248,6 +254,33 @@ var refusals = []refusal{
 		name:        "no encryption key",
 		omitBase:    true,
 		wantMessage: "secrets.masterEncryptionKey is not set",
+	},
+	{
+		name:     "no JWT secret",
+		omitBase: true,
+		values: []string{
+			"--set", "secrets.masterEncryptionKey=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+			"--set", "postgresql.auth.password=" + basePostgresPassword,
+		},
+		wantMessage: "secrets.jwtSecret is not set",
+	},
+	{
+		// The budget the setup command raises the liveness window for. By
+		// hand, without that, Kubernetes would restart the runner partway
+		// through the outage the budget promises to survive.
+		name:        "an outage budget longer than the runner's liveness window",
+		values:      []string{"--set", "mesh.maxOutageSeconds=7200"},
+		wantMessage: "mesh.maxOutageSeconds is 7200",
+	},
+	{
+		// The checksum rolls the pods when an operator's Secret changes. A
+		// value that is not one would roll them on every edit or never.
+		name: "an existing Secret checksum that is not a checksum",
+		values: []string{
+			"--set", "secrets.existingSecret=operator-managed-secrets",
+			"--set", "secrets.existingSecretChecksum=not-a-checksum",
+		},
+		wantMessage: "existingSecretChecksum",
 	},
 	{
 		name:        "the in-chart database turned off with nothing to point at",

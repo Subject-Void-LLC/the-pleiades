@@ -14,9 +14,28 @@ explicitly marked otherwise; nothing below is aspirational.
 ## Installing
 
 There are two supported ways to run the control plane: `docker-compose.yml` on a
-single Docker host, and the Helm chart in `helm/the-pleiades` on Kubernetes. This
-section is about the second one. Everything below has been rendered and checked;
-where something has not been run against a real cluster, it says so.
+single Docker host, and the Helm chart in `helm/the-pleiades` on Kubernetes.
+
+On a Docker host it is one command, run from a checkout of this repository:
+
+```bash
+make up
+```
+
+The first time, that runs the controller's `setup` command in a one-shot
+container on the stack's own network. Setup asks how long a link outage the
+deployment must survive, generates the master encryption key and the JWT
+secret, shows you the key once and has you type it back, writes both to `.env`
+(which docker compose reads without being told to), and creates the first
+administrator. After that, `make up` starts the stack. `.env` is then the only
+copy of the key, so back it up; [Recovering from a lost key](#what-setup-tells-you-about-later)
+below says what depends on it. Without a terminal (in a script),
+`make up SETUP_FLAGS="--admin-email you@example.com --password-stdin"` reads the
+administrator's password from standard input and asks nothing else.
+
+The rest of this section is about the Helm chart. Everything below has been
+rendered and checked; where something has not been run against a real cluster,
+it says so.
 
 ### Nothing is published, so you build the images first
 
@@ -44,26 +63,66 @@ appears as `ImagePullBackOff` in `kubectl get pods` and, in more detail, in
 
 ### Installing the chart
 
-Three values have no default and the chart refuses to render without them:
+The chart needs a master encryption key, a JWT secret and a database password,
+and will not invent any of them. The controller's `setup` command makes all
+three in one step, as a Kubernetes Secret and a values file that points at it:
 
 ```bash
-helm install pleiades ./helm/the-pleiades \
-  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
-  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
-  --set postgresql.auth.password="$(openssl rand -hex 16)"
+mkdir pleiades-install
+go run ./cmd/controller setup --target helm --dir pleiades-install --namespace pleiades
+kubectl create namespace pleiades
+kubectl create --namespace pleiades -f pleiades-install/pleiades-secret.yaml
+helm install pleiades ./helm/the-pleiades --namespace pleiades \
+  -f pleiades-install/pleiades-values.yaml
 ```
 
-The chart will not generate them for you, and that is deliberate. Helm can
+With no Go toolchain, run the same command from the image you built above. The
+log driver is off because at a terminal setup shows the key on screen, and a
+container's output is otherwise kept by the Docker daemon:
+
+```bash
+docker run --rm -it --log-driver none --user "$(id -u):$(id -g)" \
+  -v "$PWD/pleiades-install:/out" pleiades/controller:dev \
+  /app/controller setup --target helm --dir /out --namespace pleiades
+```
+
+What the two files are:
+
+- `pleiades-secret.yaml` holds the key, the JWT secret and the database
+  password, at mode 0600, and is the only copy of the key. Keep it somewhere
+  safe that is not this machine. Create it with `kubectl create`, not `apply`:
+  `create` refuses to replace a Secret that already exists, and replacing the key
+  of a release that stores data makes that data permanently unreadable.
+- `pleiades-values.yaml` holds no secret. It names the Secret, sets the outage
+  budget, and carries two values that keep guards the chart would otherwise lose
+  with a Secret it did not create: a checksum of the Secret, so a new Secret
+  restarts the pods, and a fingerprint of the database credentials, so a
+  reinstall onto a volume created with a different password is refused (see
+  [Reinstalling over a database that is still there](#reinstalling-over-a-database-that-is-still-there)).
+
+Neither file puts a secret on a command line or into Helm's own release records,
+which is where `--set` values go. Setup writes only new files: run it again over
+the same directory and it refuses, naming the file it would have destroyed. It
+counts nothing before an install, because no database exists yet; to change the
+key of a release that stores data, rotate it (see
+[Rotating the master key](#rotating-the-master-key)).
+
+The chart will not generate these values itself, and that is deliberate. Helm can
 produce a random value, but it would produce a *different* one on the next
 `helm upgrade`, because `helm template` has no cluster to read the previous value
-back from. A rotated `JWT_SECRET` signs everybody out, which is annoying and
-recoverable. A `MASTER_ENCRYPTION_KEY` replaced without
-keeping the old one makes every stored credential and every encrypted device
-property permanently undecryptable, with no error at upgrade time. Rotating it
-properly, by keeping the old key in the previous slot and running a rotation
-pass, is described under [Rotating the master key](#rotating-the-master-key)
-below. Keep all three somewhere you can find again, or hand the chart a
-Secret you manage yourself with `secrets.existingSecret`.
+back from. A rotated `JWT_SECRET` rejects every API token signed with the old one,
+which is annoying and recoverable; browser sign-ins do not use it. A
+`MASTER_ENCRYPTION_KEY` replaced without keeping the old one makes every stored
+credential and every encrypted device property permanently undecryptable, with no
+error at upgrade time.
+
+Supplying the values by hand still works: `secrets.masterEncryptionKey` (base64
+of exactly 32 random bytes), `secrets.jwtSecret` (at least 32 bytes) and
+`postgresql.auth.password` (characters that need no URL escaping), or a Secret you
+manage yourself named in `secrets.existingSecret`. A Secret you manage yourself
+restarts nothing when it changes and disables the reinstall check, unless you
+also set `secrets.existingSecretChecksum` and
+`postgresql.auth.existingSecretFingerprint` the way setup does.
 
 Then create the first administrator, which is the real next step and the one the
 install notes print:
@@ -226,9 +285,10 @@ refusal names the claim and both real choices:
 Two boundaries worth stating. The check needs a cluster to read, so it is silent
 under `helm template` and `--dry-run=client` and fires on a real `helm install`,
 `helm upgrade` or `--dry-run=server`. And it refuses only a **proven** mismatch:
-a claim this chart did not create carries no stamp, and `secrets.existingSecret`
-means the chart never sees the password, so in both cases it has no evidence and
-does not guess. `tests/e2e/packaging_kind_test.go` proves the whole sequence
+a claim this chart did not create carries no stamp, and with
+`secrets.existingSecret` the chart never sees the password, so it compares the
+`postgresql.auth.existingSecretFingerprint` setup writes instead. A Secret you
+made by hand without one gives the chart no evidence, and it does not guess. `tests/e2e/packaging_kind_test.go` proves the whole sequence
 against a real cluster: install, uninstall, reinstall with a changed password
 (refused, with the claim named), then reinstall with the original one
 (accepted).
@@ -251,10 +311,13 @@ ctr -n k8s.io images import pleiades-images.tar
 # or, for a kind cluster:
 kind load image-archive pleiades-images.tar
 
-helm install pleiades ./the-pleiades-0.1.0.tgz \
-  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
-  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
-  --set postgresql.auth.password="$(openssl rand -hex 16)"
+# setup needs no network either: run it from the image, as above.
+docker run --rm -it --log-driver none --user "$(id -u):$(id -g)" \
+  -v "$PWD/pleiades-install:/out" pleiades/controller:dev \
+  /app/controller setup --target helm --dir /out --namespace pleiades
+kubectl create --namespace pleiades -f pleiades-install/pleiades-secret.yaml
+helm install pleiades ./the-pleiades-0.1.0.tgz --namespace pleiades \
+  -f pleiades-install/pleiades-values.yaml
 ```
 
 Three things make that work, and each of them is a decision that can be undone

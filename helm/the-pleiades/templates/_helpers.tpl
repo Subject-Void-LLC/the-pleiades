@@ -407,13 +407,20 @@ namespace. That is the same shape as the `checksum/secret` annotation charts
 everywhere put on a pod template, and it is worth stating rather than assuming:
 the annotation identifies a credential set, it does not carry one.
 
-Empty when secrets.existingSecret is set, because then the chart never sees the
-password at all: it is in a Secret an operator manages, and a fingerprint of
-values this chart does not have would be a fingerprint of the empty string.
+When secrets.existingSecret is set the chart never sees the password: it is in
+a Secret an operator manages. The fingerprint then comes from
+postgresql.auth.existingSecretFingerprint, which `controller setup --target
+helm` computes with this same formula and writes beside the Secret it emits.
+Without it the value is empty and the retained-data check is off, which is
+what a hand-made Secret gets: a fingerprint of values this chart does not
+have would be a fingerprint of the empty string, and would refuse the right
+password as readily as the wrong one.
 */}}
 {{- define "the-pleiades.postgres.credentialFingerprint" -}}
 {{- if not .Values.secrets.existingSecret -}}
 {{- printf "%s:%s:%s" .Values.postgresql.auth.username .Values.postgresql.auth.database .Values.postgresql.auth.password | sha256sum | trunc 16 -}}
+{{- else -}}
+{{- .Values.postgresql.auth.existingSecretFingerprint | default "" -}}
 {{- end -}}
 {{- end }}
 

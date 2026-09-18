@@ -233,6 +233,10 @@
         "existingSecret": {
           "type": "string"
         },
+        "existingSecretChecksum": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{64})?$"
+        },
         "masterEncryptionKey": {
           "type": "string"
         },
@@ -550,6 +554,10 @@
             },
             "password": {
               "type": "string"
+            },
+            "existingSecretFingerprint": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{16})?$"
             }
           }
         },
