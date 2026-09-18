@@ -2,7 +2,9 @@ package crypto
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,13 +43,13 @@ const keySize = 32
 // envVar/fileName so the two never collide on the same key material.
 func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
 	if envVal, ok := os.LookupEnv(envVar); ok {
-		return decodeKey(envVal, "environment variable "+envVar)
+		return DecodeKey(envVal, "environment variable "+envVar)
 	}
 
 	keyPath := filepath.Join(dir, fileName)
 	data, err := os.ReadFile(keyPath) // #nosec G304 -- keyPath is derived from the caller's own configured directory, not untrusted input
 	if err == nil {
-		return decodeKey(string(data), keyPath)
+		return DecodeKey(string(data), keyPath)
 	}
 	if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read key file %s: %w", keyPath, err)
@@ -56,12 +58,18 @@ func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
 	return generateAndSaveKey(keyPath)
 }
 
-// decodeKey base64-decodes raw (standard encoding, trimming surrounding
+// DecodeKey base64-decodes raw (standard encoding, trimming surrounding
 // whitespace since a hand-edited or shell-exported value commonly carries a
 // trailing newline) and requires the result to be exactly keySize bytes.
 // source names where raw came from, purely to make the returned error
-// message actionable.
-func decodeKey(raw, source string) ([]byte, error) {
+// message actionable. The error never contains raw itself: a base64 error
+// names a byte offset, and the length error names two numbers.
+//
+// It is exported so that every place that reads a master key back from text
+// applies this one rule, rather than a copy of it: the controller's own
+// environment loader and the setup command's env-file reader both call it,
+// so a value one accepts the other cannot refuse.
+func DecodeKey(raw, source string) ([]byte, error) {
 	trimmed := strings.TrimSpace(raw)
 	key, err := base64.StdEncoding.DecodeString(trimmed)
 	if err != nil {
@@ -73,10 +81,16 @@ func decodeKey(raw, source string) ([]byte, error) {
 	return key, nil
 }
 
-// generateAndSaveKey creates a fresh random key, persists it at keyPath,
-// and returns the raw key bytes. It is only reached when no env var is set
-// and no key file exists yet.
-func generateAndSaveKey(keyPath string) ([]byte, error) {
+// GenerateKey returns a fresh keySize-byte key from crypto/rand.
+//
+// It is the one place in this module that produces master key material.
+// ResolveKey reaches it when neither the environment nor a file supplies a
+// key, and the controller's setup command calls it for MASTER_ENCRYPTION_KEY
+// and JWT_SECRET, so both paths share one generator rather than two that
+// could drift apart in size or source. internal/archtest's
+// TestSetupConsumesTheResolversGenerator is what holds the setup command to
+// that.
+func GenerateKey() ([]byte, error) {
 	key := make([]byte, keySize)
 	// crypto/rand, not math/rand: this is real key material. math/rand's
 	// output is predictable from its seed, which would make every value
@@ -84,6 +98,41 @@ func generateAndSaveKey(keyPath string) ([]byte, error) {
 	// or observe that seed.
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("failed to generate key: %w", err)
+	}
+	return key, nil
+}
+
+// EncodeKey renders key in the text form DecodeKey reads back: standard
+// base64, the form MASTER_ENCRYPTION_KEY and a key file both carry.
+func EncodeKey(key []byte) string {
+	return base64.StdEncoding.EncodeToString(key)
+}
+
+// fingerprintDomain separates a key fingerprint from any other SHA-256 of
+// the same bytes, so the fingerprint cannot be confused with, or replayed
+// as, a hash some other part of the system computes over a key.
+const fingerprintDomain = "pleiades master encryption key fingerprint v1\x00"
+
+// Fingerprint returns a stable, non-secret name for key: the hex SHA-256 of
+// a domain-separation prefix followed by the key's bytes.
+//
+// It lets a person or a record say which key without holding the key. It
+// reveals nothing an attacker could use: recovering a 256-bit random key
+// from its hash is infeasible, and anyone able to test a guessed key
+// against this value could test it just as well against any ciphertext the
+// key protects, which lives in the same database.
+func Fingerprint(key []byte) string {
+	sum := sha256.Sum256(append([]byte(fingerprintDomain), key...))
+	return hex.EncodeToString(sum[:])
+}
+
+// generateAndSaveKey creates a fresh random key, persists it at keyPath,
+// and returns the raw key bytes. It is only reached when no env var is set
+// and no key file exists yet.
+func generateAndSaveKey(keyPath string) ([]byte, error) {
+	key, err := GenerateKey()
+	if err != nil {
+		return nil, err
 	}
 
 	keyDir := filepath.Dir(keyPath)
@@ -101,7 +150,7 @@ func generateAndSaveKey(keyPath string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to set permissions on %s: %w", keyDir, err)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(key)
+	encoded := EncodeKey(key)
 
 	// Write to a temp file in keyDir first, then commit it into place with
 	// os.Link, not a plain os.WriteFile or a bare O_EXCL open: an
@@ -153,7 +202,7 @@ func generateAndSaveKey(keyPath string) ([]byte, error) {
 			if readErr != nil {
 				return nil, fmt.Errorf("lost the race to create key file %s and failed to read the winning key: %w", keyPath, readErr)
 			}
-			return decodeKey(string(data), keyPath)
+			return DecodeKey(string(data), keyPath)
 		}
 		return nil, fmt.Errorf("failed to save key file %s: %w", keyPath, err)
 	}

@@ -78,7 +78,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -273,11 +272,14 @@ func fatal(msg string, err error) {
 // fallback here: see this file's own doc comment for why a server
 // composition root must fail closed on a missing key rather than
 // silently generate and persist one.
+//
+// The rule itself is crypto.DecodeKey's, the same one the setup command
+// applies when it reads a key back out of an env file, so a key setup
+// accepts is a key this binary starts with.
 func decodeEnvelopeKey(envVar string) ([]byte, error) {
-	raw := os.Getenv(envVar)
-	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
-	if err != nil || len(key) != 32 {
-		return nil, fmt.Errorf("%s must be base64-encoded and decode to exactly 32 bytes", envVar)
+	key, err := crypto.DecodeKey(os.Getenv(envVar), "environment variable "+envVar)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be base64-encoded and decode to exactly 32 bytes: %w", envVar, err)
 	}
 	return key, nil
 }
