@@ -406,10 +406,18 @@ services:
     # from, so writing a version would invent a promise. Whoever owns the
     # registry replaces both halves of this string.
     image: pleiades/controller:dev
-    # Anchored so the setup service builds from exactly this block. A
-    # service with an image: and no build: would make `docker compose run`
-    # PULL pleiades/controller:dev from Docker Hub when no local build
-    # exists, and that name is not one this project owns.
+    # Never pulled, only built. A build: key alone does not promise that:
+    # measured on Compose v5, a service with an image: and a build: and no
+    # local image PULLS the image: name first and builds only when the pull
+    # fails, so on a fresh clone pleiades/controller:dev means
+    # docker.io/pleiades/controller:dev. The "pleiades" namespace on Docker
+    # Hub belongs to somebody else, and an image they published under this
+    # name would run here holding the master key. `never` builds a missing
+    # image and uses a present one as it is. Every service below that
+    # builds says the same, and internal/testsupport's
+    # TestComposeNeverPullsWhatItBuilds fails if one does not.
+    pull_policy: never
+    # Anchored so the setup service builds from exactly this block.
     build: &controller-build
       context: .
       dockerfile: Dockerfile.controller
@@ -710,8 +718,9 @@ services:
         condition: service_healthy
 
   runner:
-    # Same reasoning as the controller's image key above.
+    # Same reasoning as the controller's image and pull_policy keys above.
     image: pleiades/runner:dev
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile.runner
@@ -903,6 +912,7 @@ services:
     profiles:
       - setup
     image: pleiades/controller:dev
+    pull_policy: never
     build: *controller-build
     entrypoint: ["/app/controller", "setup", "--target", "compose", "--dir", "/setup"]
     environment:

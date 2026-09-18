@@ -1,0 +1,1 @@
+The compose stack never pulls the controller, runner, setup or backup image from a registry. With no local image, compose pulled `pleiades/controller:dev` from Docker Hub before building it, and that namespace belongs to someone else, so an image they published under the name would have run with the master key and the database.

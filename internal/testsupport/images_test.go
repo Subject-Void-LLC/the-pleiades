@@ -13,6 +13,8 @@
 //   - TestComposeCommandMatchesPin: the broker is started with the same
 //     flags. The image agreeing while the flags differ is a real state
 //     this repository was in, and it is invisible to an image check.
+//   - TestComposeNeverPullsWhatItBuilds: a locally built image is never
+//     fetched from a registry under its local name.
 //   - TestPinsNameAnExactVersion and TestExactVersionRule: every pin
 //     names a version that cannot move on its own. The second of those
 //     tests the rule itself against tags known to be good and bad, so
@@ -53,9 +55,10 @@ type compose struct {
 // only what it needs and say something useful when the shape is not the
 // one it can check.
 type composeService struct {
-	Image   string    `yaml:"image"`
-	Build   yaml.Node `yaml:"build"`
-	Command yaml.Node `yaml:"command"`
+	Image      string    `yaml:"image"`
+	Build      yaml.Node `yaml:"build"`
+	Command    yaml.Node `yaml:"command"`
+	PullPolicy string    `yaml:"pull_policy"`
 }
 
 // hasBuild reports whether the service builds from a local Dockerfile
@@ -69,12 +72,13 @@ func (s composeService) hasBuild() bool { return s.Build.Kind != 0 }
 // PULL a published image; anything else in the file has to build from a
 // Dockerfile or be added here deliberately.
 //
-// The controller and runner services are deliberately absent even though
-// they name an image. Theirs is a local build tag (pleiades/controller:dev),
-// which compose applies to the image it builds from the Dockerfile beside
-// it rather than pulling. Those are pinned by their Dockerfile's own FROM
-// line, at a digest, which is a stronger pin than anything expressible
-// here.
+// The services that build are deliberately absent even though they name an
+// image. Theirs is a local build tag (pleiades/controller:dev), which
+// compose applies to the image it builds from the Dockerfile, and those are
+// pinned by their Dockerfile's own FROM line, at a digest, which is a
+// stronger pin than anything expressible here. That compose builds rather
+// than pulls them is not something a build: key promises, though: see
+// TestComposeNeverPullsWhatItBuilds.
 func pinnedImages() map[string]string {
 	return map[string]string{
 		"nats":     testsupport.NATSImage,
@@ -430,4 +434,35 @@ func lastColonAfterSlash(ref string) int {
 		}
 	}
 	return -1
+}
+
+// TestComposeNeverPullsWhatItBuilds requires `pull_policy: never` on every
+// service that builds its image.
+//
+// A build: key does not stop compose pulling. Measured on Compose v5.5.1:
+// for a service with both image: and build:, `docker compose up` or `run`
+// with no local image first PULLS the image: name from its registry, and
+// builds only when the pull fails. pleiades/controller:dev therefore means
+// docker.io/pleiades/controller:dev on a fresh clone, and the "pleiades"
+// namespace on Docker Hub belongs to somebody else. An image published there
+// under that name would be run as the controller, with the master key and
+// the database. `never` makes compose build a missing image instead, and
+// use a present one without rebuilding.
+func TestComposeNeverPullsWhatItBuilds(t *testing.T) {
+	c := readCompose(t)
+	built := 0
+	for service, svc := range c.Services {
+		if !svc.hasBuild() {
+			continue
+		}
+		built++
+		if svc.PullPolicy != "never" {
+			t.Errorf("docker-compose.yml service %q builds %s but sets pull_policy %q.\n"+
+				"Without `pull_policy: never`, compose pulls that name from a registry before building it, and this project does not own the Docker Hub namespace it is in.",
+				service, svc.Image, svc.PullPolicy)
+		}
+	}
+	if built < 3 {
+		t.Fatalf("found %d services that build; the controller, runner and setup services all do, so the file was not read the way this test assumes", built)
+	}
 }
