@@ -14,7 +14,7 @@ import (
 
 // TestCheckCopy_PredictsWhatARealRunLeaves runs the registered check on a
 // recording SSH harness from each start a copy meets, with the real run
-// from the same start as its control: only reads are sent and the file is
+// from the same file as its control: only reads are sent and the file is
 // untouched; the change prediction matches the run (converged content and
 // attributes predict none); the predicted diff, checksum and size
 // included, matches what the run leaves on every key it states; no undo is
@@ -46,9 +46,7 @@ func TestCheckCopy_PredictsWhatARealRunLeaves(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server, srv := recordingServer(t)
 			device := newDirDevice(server)
-			setup := func() (string, map[string]any) {
-				path := filepath.Join(t.TempDir(), "f")
-				tc.start(path)
+			paramsFor := func(path string) map[string]any {
 				p := dirParams(path)
 				delete(p, "path")
 				p["dest"] = path
@@ -56,10 +54,12 @@ func TestCheckCopy_PredictsWhatARealRunLeaves(t *testing.T) {
 				if tc.mode != "" {
 					p["mode"] = tc.mode
 				}
-				return path, p
+				return p
 			}
 
-			path, params := setup()
+			path := filepath.Join(t.TempDir(), "f")
+			tc.start(path)
+			params := paramsFor(path)
 			before, _ := os.ReadFile(path)
 			checkRC := newDirContext(server)
 			checked, err := d.Check(context.Background(), checkRC, device, params)
@@ -78,9 +78,14 @@ func TestCheckCopy_PredictsWhatARealRunLeaves(t *testing.T) {
 			}
 			_, predicted := diffOf(t, checkRC)
 
-			_, runParams := setup()
+			// The real run starts from the very file the check read, which
+			// the check left as it was (it sent only stats, asserted above).
+			// A second fixture built moments later is not the same start: its
+			// mtime lands a second later whenever a second boundary falls
+			// between the two writes, and an unchanged file's mtime is a key
+			// both halves claim.
 			runRC := newDirContext(server)
-			ran, err := file.Copy(context.Background(), runRC, device, runParams)
+			ran, err := file.Copy(context.Background(), runRC, device, paramsFor(path))
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}

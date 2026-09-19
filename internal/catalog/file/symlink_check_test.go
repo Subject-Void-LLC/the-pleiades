@@ -14,7 +14,7 @@ import (
 
 // TestCheckSymlink_PredictsWhatARealRunLeaves runs the registered check on
 // a recording SSH harness from each start a link meets, with the real run
-// from the same start as its control: only stats are sent and nothing on
+// from the same link as its control: only stats are sent and nothing on
 // disk moves; a link already pointing at src predicts no change and one
 // that is missing or points elsewhere predicts one; the prediction matches
 // what the real run leaves on every key it states; no undo is recorded;
@@ -36,16 +36,15 @@ func TestCheckSymlink_PredictsWhatARealRunLeaves(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server, srv := recordingServer(t)
 			device := newDirDevice(server)
-			setup := func() (string, map[string]any) {
-				dir := t.TempDir()
-				link := filepath.Join(dir, "link")
-				tc.start(dir, link)
+			dir := t.TempDir()
+			link := filepath.Join(dir, "link")
+			tc.start(dir, link)
+			paramsFor := func() map[string]any {
 				p := dirParams(link)
 				p["src"] = filepath.Join(dir, "target")
-				return link, p
+				return p
 			}
-
-			link, params := setup()
+			params := paramsFor()
 			targetBefore, _ := os.Readlink(link)
 			checkRC := newDirContext(server)
 			checked, err := d.Check(context.Background(), checkRC, device, params)
@@ -64,9 +63,12 @@ func TestCheckSymlink_PredictsWhatARealRunLeaves(t *testing.T) {
 			}
 			_, predicted := diffOf(t, checkRC)
 
-			_, runParams := setup()
+			// The real run starts from the very link the check read, which
+			// the check left as it was (it sent only stats, asserted above).
+			// A second fixture made moments later can carry an mtime a second
+			// later, and an unchanged link's mtime is a key both halves claim.
 			runRC := newDirContext(server)
-			ran, err := file.Symlink(context.Background(), runRC, device, runParams)
+			ran, err := file.Symlink(context.Background(), runRC, device, paramsFor())
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}
