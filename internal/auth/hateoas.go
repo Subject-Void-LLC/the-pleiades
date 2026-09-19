@@ -137,6 +137,19 @@ const (
 	// every future run of that template receives, which is a larger thing
 	// than renaming it.
 	RelSetSurvey LinkRel = "set-survey"
+
+	// RelCheck is the affordance that runs the resource as a check: every
+	// task asked what it would change, and nothing changed.
+	//
+	// Its own relation rather than RelExecute with a mode in the body, for
+	// two reasons. A template already uses RelExecute for its launch, and a
+	// relation is unique per resource. And a Controller that predates check
+	// mode answers a request to this relation's route with 404, where the
+	// same request to the launch route with a mode it had never heard of
+	// would have run for real. It carries runbook:check, which
+	// runbook:execute implies, so a caller may be granted checks without
+	// being granted changes.
+	RelCheck LinkRel = "check"
 )
 
 // Affordance is one candidate action, described purely in authorization

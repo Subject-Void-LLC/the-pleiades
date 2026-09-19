@@ -364,7 +364,7 @@ func TestJobHandler_CancelReportsWhenEachDeviceFinished(t *testing.T) {
 	if err := store.SettleRunning(ctx, job.JobID, fence, 1, 0, 0); err != nil {
 		t.Fatalf("SettleRunning: %v", err)
 	}
-	if _, err := store.RecordResult(ctx, job.JobID, "dev-1", dispatch.ResultSucceeded, ""); err != nil {
+	if _, err := store.RecordResult(ctx, job.JobID, "dev-1", dispatch.ResultSucceeded, "", 0); err != nil {
 		t.Fatalf("RecordResult: %v", err)
 	}
 

@@ -1289,6 +1289,7 @@ func main() {
 		apispec.DeleteTemplate.Name:          templates.Delete,
 		apispec.CopyTemplate.Name:            templates.Copy,
 		apispec.LaunchTemplate.Name:          dispatcher.LaunchFromTemplate,
+		apispec.CheckTemplate.Name:           dispatcher.CheckFromTemplate,
 		apispec.ListTemplateConfigs.Name:     templates.ListConfigs,
 		apispec.CreateTemplateConfig.Name:    templates.CreateConfig,
 

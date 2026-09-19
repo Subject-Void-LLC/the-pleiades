@@ -182,6 +182,12 @@ type Job struct {
 	// This is what the fan-out resolves and injects, and it is the audit
 	// answer to what a run authenticated as.
 	CredentialIDs []int
+
+	// ExternalChecks is whether whoever launched this job may run it for
+	// real, which is what lets a check of it run an external program's
+	// Check (wire.DispatchPayload.ExternalChecks). False unless the launch
+	// set it.
+	ExternalChecks bool
 }
 
 // JobTask is the domain view of one device's outcome within a Job's
@@ -217,6 +223,11 @@ type JobTask struct {
 	Result       Result
 	ResultReason string
 	FinishedAt   time.Time
+
+	// Unchecked is how many tasks a check could not check on this device,
+	// as its Runner reported with the result: zero for a real run, for a
+	// check that answered for every task, and until a result arrives.
+	Unchecked int
 }
 
 // Result is the fixed set of execution outcomes a Runner reports back for
@@ -510,7 +521,10 @@ type JobStore interface {
 	// unknown job, returns ErrJobNotFound: both mean the same thing to the
 	// consumer, which is that there is nothing here to record and
 	// retrying will not change that.
-	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string) (complete bool, err error)
+	//
+	// unchecked is how many tasks a check could not check on the device
+	// (zero for a real run), stored with the result.
+	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string, unchecked int) (complete bool, err error)
 
 	// CompleteRunning moves jobID from "running" to "completed" once every
 	// dispatched device has reported. It is the only writer of that

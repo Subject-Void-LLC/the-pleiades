@@ -117,6 +117,10 @@ type jobTaskDTO struct {
 	Result       string `json:"result,omitempty"`
 	ResultReason string `json:"result_reason,omitempty"`
 	FinishedAt   string `json:"finished_at,omitempty"`
+
+	// Unchecked is how many tasks a check could not check on this device,
+	// absent when there were none.
+	Unchecked int `json:"unchecked,omitempty"`
 }
 
 // jobResponse is the wire projection of a dispatch.Job together with
@@ -145,6 +149,23 @@ type jobResponse struct {
 	// Kind is which registered launch kind ran, and therefore which
 	// execution adapter handled it.
 	Kind string `json:"kind,omitempty"`
+
+	// Mode is "execute" for a real run and "check" for one that asked
+	// every task what it would change and changed nothing, always present
+	// so a reader never has to infer a real run from an absent field. A
+	// check's "completed" and "changed" describe what WOULD have happened.
+	// A record whose mode is not either reads "unreadable", never as one
+	// of the two (dispatch.Job.ModeLabel).
+	Mode string `json:"mode"`
+
+	// CheckComplete, on a check job that has finished, says whether the
+	// check covered everything it targeted (dispatch.Job.CheckCoverage):
+	// every device checked, successfully, with no task left unchecked.
+	// Absent on a real run and while a check is still running, so a
+	// reader never takes "not yet known" for either answer. Unchecked is
+	// how many tasks the check could not check across every device.
+	CheckComplete *bool `json:"check_complete,omitempty"`
+	Unchecked     int   `json:"unchecked,omitempty"`
 
 	// FailureReason explains a failed state, and is empty for every other
 	// one. It carries only facts a job-resource reader may see, never a
@@ -182,6 +203,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 			Reason:       t.Reason,
 			Result:       t.Result.String(),
 			ResultReason: t.ResultReason,
+			Unchecked:    t.Unchecked,
 		}
 		if !t.FinishedAt.IsZero() {
 			dto.FinishedAt = t.FinishedAt.UTC().Format(time.RFC3339)
@@ -189,7 +211,15 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 		dtos = append(dtos, dto)
 	}
 
+	var checkComplete *bool
+	complete, decided, unchecked := job.CheckCoverage(tasks)
+	if decided {
+		checkComplete = &complete
+	}
+
 	return jobResponse{
+		CheckComplete: checkComplete,
+		Unchecked:     unchecked,
 		JobID:         job.JobID,
 		RunbookID:     job.RunbookID,
 		State:         job.State,
@@ -198,6 +228,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 		Inventory:     job.InventoryID,
 		Organization:  job.OrganizationID,
 		Kind:          job.Kind,
+		Mode:          job.ModeLabel(),
 		FailureReason: job.FailureReason,
 		Dispatched:    job.DispatchedCount,
 		Skipped:       job.SkippedCount,
@@ -352,6 +383,7 @@ type jobSummaryDTO struct {
 	State        string `json:"state"`
 	TemplateName string `json:"template_name,omitempty"`
 	Kind         string `json:"kind,omitempty"`
+	Mode         string `json:"mode"`
 	Actor        string `json:"actor"`
 	Dispatched   int    `json:"dispatched"`
 	Skipped      int    `json:"skipped"`
@@ -413,6 +445,7 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 			State:        j.State,
 			TemplateName: j.TemplateName,
 			Kind:         j.Kind,
+			Mode:         j.ModeLabel(),
 			Actor:        j.Actor,
 			Dispatched:   j.DispatchedCount,
 			Skipped:      j.SkippedCount,

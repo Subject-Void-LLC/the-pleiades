@@ -129,7 +129,7 @@ var journalColumns = []string{
 	"outcome", "failure_stage", "skip_kind", "skip_ordinal", "skip_total",
 	"started_at", "finished_at", "duration_ms",
 	"stat_keys", "undeclared_stats", "param_keys", "undeclared_params",
-	"inverse_action", "diff_recorded",
+	"inverse_action", "diff_recorded", "provider_program", "provider_digest",
 }
 
 // writeJournalCSV encodes entries as the file an operator opens.
@@ -178,6 +178,8 @@ func writeJournalCSV(w io.Writer, entries []engine.JournalEntry, truncated bool)
 			strconv.Itoa(e.UndeclaredParamCount),
 			e.InverseFQCN,
 			strconv.FormatBool(e.DiffRecorded),
+			inertCell(e.ProviderProgram),
+			e.ProviderDigest,
 		}); err != nil {
 			return err
 		}

@@ -57,6 +57,13 @@ func defaultsFields(store launch.Store) func(context.Context, view.Resolve) ([]v
 
 		out := make([]view.Field, 0, len(d.Fields)*2)
 		for _, spec := range d.Fields {
+			// The mode takes no prompt checkbox: a launch may always ask
+			// for a check, and may never turn one back into a real run, so
+			// there is no permission for the template to grant.
+			if spec.Name == launch.ModeField {
+				out = append(out, defaultField(spec))
+				continue
+			}
 			out = append(out, defaultField(spec), promptField(spec))
 		}
 		return out, nil
@@ -90,6 +97,9 @@ func defaultField(spec launch.FieldSpec) view.Field {
 	case launch.TypeMap:
 		f.Kind = view.KindLongText
 		f.Help += " One key=value per line."
+	case launch.TypeChoice:
+		f.Kind = view.KindSelect
+		f.Options = choiceOptions(spec.Choices)
 	default:
 		f.Kind = view.KindText
 	}

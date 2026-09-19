@@ -76,6 +76,20 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 		return Resolved{}, nil, err
 	}
 
+	// The mode is settled first and apart from everything else
+	// (resolveMode), and the generic fold below never sees it.
+	mode, err := resolveMode(d, []modeLayer{
+		{name: LayerTemplate, fields: t.Defaults},
+		{name: LayerSaved, fields: cfg.Saved},
+		{name: LayerLaunch, fields: cfg.Overrides},
+	})
+	if err != nil {
+		return Resolved{}, nil, err
+	}
+	t.Defaults = withoutMode(t.Defaults)
+	cfg.Saved = withoutMode(cfg.Saved)
+	cfg.Overrides = withoutMode(cfg.Overrides)
+
 	var ignored []IgnoredField
 
 	// combine folds one layer over what is accumulated so far. It is a
@@ -160,7 +174,15 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 
 	sortIgnored(ignored)
 
+	// Recorded on every run of a kind that has a mode, a real one
+	// included, so the job says which it was rather than leaving a reader
+	// to infer it from an absence.
+	if _, accepted := d.Field(ModeField); accepted {
+		result[ModeField] = string(mode)
+	}
+
 	return Resolved{
+		Mode:              mode,
 		Kind:              t.KindName,
 		Adapter:           d.Adapter,
 		Definition:        t.Definition,

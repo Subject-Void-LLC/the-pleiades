@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"sort"
 	"strings"
 	"time"
@@ -256,6 +257,10 @@ func (t Template) Validate() error {
 // Resolved is one concrete run: everything the dispatcher needs and nothing
 // a caller still has to decide.
 type Resolved struct {
+	// Mode is whether this run changes anything (resolveMode): a check
+	// when any layer asked for one, and a real run otherwise.
+	Mode collection.Mode
+
 	// Kind and Adapter are what runs it, and what runs it with. Adapter is
 	// carried rather than looked up again downstream so the runner routes
 	// on a value that travelled with the dispatch.

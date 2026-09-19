@@ -1,0 +1,1 @@
+Added the `runbook:check` scope: it permits checking a template through `POST /api/v1/templates/{id}/check` and nothing more, and `runbook:execute` implies it, so drift checks can be granted without granting changes. A check launched without `runbook:execute` reports every external Collection program's task as unchecked instead of running that program's check.

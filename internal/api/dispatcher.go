@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
@@ -319,6 +320,15 @@ func toIgnoredDTOs(ignored []launch.IgnoredField) []ignoredFieldDTO {
 // person's error, and would leave an operator unable to run a template at
 // all because their client sent a field they were never allowed to set.
 func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) {
+	d.serveLaunch(w, r, false)
+}
+
+// serveLaunch is LaunchFromTemplate's and CheckFromTemplate's one body.
+// When check is set, the launch's own overrides are made to ask for a
+// check (forceCheck) before anything resolves, so the resolution, the
+// recorded configuration and the job all say check by the one rule a
+// check asked for any other way goes through.
+func (d *Dispatcher) serveLaunch(w http.ResponseWriter, r *http.Request, check bool) {
 	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
@@ -333,6 +343,15 @@ func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) 
 	var body launchRequestDTO
 	if r.ContentLength > 0 && !decodeJSON(w, r, &body) {
 		return
+	}
+
+	if check {
+		overrides, err := forceCheck(body.Overrides)
+		if err != nil {
+			d.respondLaunchError(w, r, templateID, err)
+			return
+		}
+		body.Overrides = overrides
 	}
 
 	cfg := launch.Config{Overrides: launch.Fields(body.Overrides), Answers: body.Answers}
@@ -352,7 +371,8 @@ func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) 
 	// Prompted credential inputs stay out of cfg deliberately: cfg is what
 	// gets recorded, and these must never be. See LaunchTemplate's own doc
 	// comment for why that is a signature rather than a rule.
-	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg, credtype.PromptedInputs(body.Credentials))
+	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg, credtype.PromptedInputs(body.Credentials),
+		MayRunForReal(identity.HasScope(auth.ScopeRunbookExecute)))
 	if err != nil {
 		d.respondLaunchError(w, r, templateID, err)
 		return
@@ -455,7 +475,7 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case errors.Is(err, launch.ErrNotFound):
 		RespondError(w, r, http.StatusNotFound, "template not found")
-	case errors.Is(err, launch.ErrSurveyAnswer):
+	case errors.Is(err, launch.ErrSurveyAnswer), errors.Is(err, launch.ErrMode):
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
@@ -492,7 +512,11 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 // launch cannot report a credential failure: an unresolvable credential
 // fails the job during fan-out, visible on the job record, not as a
 // non-202 from this call.
-func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config, prompted credtype.PromptedInputs) (string, []launch.IgnoredField, error) {
+func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config, prompted credtype.PromptedInputs, opts ...LaunchOption) (string, []launch.IgnoredField, error) {
+	var o launchOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	if d.templates == nil {
 		return "", nil, fmt.Errorf("launching by template is not wired on this controller")
 	}
@@ -563,6 +587,9 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 		// row; see internal/ent/schema/job.go's own credential_ids field for
 		// what is deliberately not recorded beside them.
 		CredentialIDs: resolved.CredentialIDs,
+		// Whether a check of this job may run an external program's Check:
+		// only when its launcher may run it for real (MayRunForReal).
+		ExternalChecks: o.mayRunForReal,
 	}
 	if err := d.jobs.Create(ctx, job); err != nil {
 		return "", ignored, fmt.Errorf("create job %s: %w", jobID, err)
@@ -672,7 +699,9 @@ func (d *Dispatcher) Relaunch(ctx context.Context, actor, jobID string) (string,
 	// values were never stored. Any credential needing one was already
 	// refused above, so this nil is the whole of the prompted set rather
 	// than a value that was dropped.
-	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg, nil)
+	// The relaunch route requires runbook:execute, so its caller may run
+	// the template for real.
+	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg, nil, MayRunForReal(true))
 }
 
 // refuseUnrepeatableCredentials refuses a relaunch of a template bound to a
@@ -874,6 +903,8 @@ func (d *Dispatcher) LaunchScheduled(ctx context.Context, actor string, template
 
 	// No prompted credential inputs, and there cannot be any: every
 	// credential that would need one was refused above.
-	jobID, _, err := d.LaunchTemplate(ctx, actor, templateID, cfg, nil)
+	// A schedule runs its template for real on every firing of a real
+	// run, so a scheduled check may do what that would.
+	jobID, _, err := d.LaunchTemplate(ctx, actor, templateID, cfg, nil, MayRunForReal(true))
 	return jobID, err
 }

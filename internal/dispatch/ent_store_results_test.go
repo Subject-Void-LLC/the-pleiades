@@ -107,7 +107,7 @@ func TestEntJobStore_RecordResult_EndsTheJobOnTheLastDevice(t *testing.T) {
 	store, _ := newTestStore(t)
 	jobID, _ := runningJob(t, store, "dev-1", "dev-2")
 
-	complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "")
+	complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "", 0)
 	if err != nil {
 		t.Fatalf("RecordResult(dev-1): %v", err)
 	}
@@ -123,7 +123,7 @@ func TestEntJobStore_RecordResult_EndsTheJobOnTheLastDevice(t *testing.T) {
 		t.Errorf("State with one device outstanding = %q, want %q", got.State, "running")
 	}
 
-	complete, err = store.RecordResult(ctx, jobID, "dev-2", dispatch.ResultFailed, "the play did not converge")
+	complete, err = store.RecordResult(ctx, jobID, "dev-2", dispatch.ResultFailed, "the play did not converge", 0)
 	if err != nil {
 		t.Fatalf("RecordResult(dev-2): %v", err)
 	}
@@ -181,7 +181,7 @@ func TestEntJobStore_RecordResult_IsIdempotent(t *testing.T) {
 	jobID, _ := runningJob(t, store, "dev-1", "dev-2")
 
 	for i := range 3 {
-		complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "")
+		complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "", 0)
 		if err != nil {
 			t.Fatalf("RecordResult(dev-1) delivery %d: %v", i+1, err)
 		}
@@ -206,7 +206,7 @@ func TestEntJobStore_CompleteRunning_OnlyEndsAJobOnce(t *testing.T) {
 	store, _ := newTestStore(t)
 	jobID, _ := runningJob(t, store, "dev-1")
 
-	if _, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, ""); err != nil {
+	if _, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "", 0); err != nil {
 		t.Fatalf("RecordResult: %v", err)
 	}
 	if err := store.CompleteRunning(ctx, jobID); err != nil {
@@ -246,7 +246,7 @@ func TestEntJobStore_CompleteRunning_WillNotReviveACanceledJob(t *testing.T) {
 
 	// The device was already executing when the cancel landed, so its
 	// result arrives anyway. Recording it is right: it is what happened.
-	complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "")
+	complete, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "", 0)
 	if err != nil {
 		t.Fatalf("RecordResult after the cancel: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestEntJobStore_RecordResult_RefusesADeviceTheJobNeverDispatchedTo(t *testi
 
 	for _, deviceID := range []string{"dev-skipped", "dev-never-seen"} {
 		t.Run(deviceID, func(t *testing.T) {
-			_, err := store.RecordResult(ctx, job.JobID, deviceID, dispatch.ResultSucceeded, "")
+			_, err := store.RecordResult(ctx, job.JobID, deviceID, dispatch.ResultSucceeded, "", 0)
 			if !errors.Is(err, dispatch.ErrJobNotFound) {
 				t.Fatalf("RecordResult for %q = %v, want a wrapped ErrJobNotFound", deviceID, err)
 			}
@@ -375,7 +375,7 @@ func TestEntJobStore_SettleRunning_CompletesAJobEveryDeviceAlreadyReported(t *te
 
 	// The result beats the end of the fan-out. The job is still
 	// "fanning_out" here, which is the whole point.
-	complete, err := store.RecordResult(ctx, job.JobID, "dev-1", dispatch.ResultSucceeded, "")
+	complete, err := store.RecordResult(ctx, job.JobID, "dev-1", dispatch.ResultSucceeded, "", 0)
 	if err != nil {
 		t.Fatalf("RecordResult: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestEntJobStore_SettleRunning_LeavesAJobStillWaitingInRunning(t *testing.T)
 
 	// Two devices, one reported. The job is still waiting on the other.
 	jobID, _ := runningJob(t, store, "dev-1", "dev-2")
-	if _, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, ""); err != nil {
+	if _, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, "", 0); err != nil {
 		t.Fatalf("RecordResult: %v", err)
 	}
 

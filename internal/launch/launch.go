@@ -94,6 +94,13 @@ const (
 	// are. It merges rather than replaces when it is layered, because two
 	// callers setting two different variables both mean it.
 	TypeMap FieldType = "map"
+
+	// TypeChoice is exactly one of the field's own Choices. Anything else
+	// is refused wherever it arrives, a launch included, where a bad value
+	// for another field is merely reported as ignored: for a choice like
+	// the run mode, ignoring a misspelled "check" would fall back to a
+	// real run.
+	TypeChoice FieldType = "choice"
 )
 
 // FieldSpec declares one field a kind accepts.
@@ -124,6 +131,10 @@ type FieldSpec struct {
 	// depends on the deployment rather than on this code.
 	Min int
 	Max int
+
+	// Choices is every value a TypeChoice field accepts, in the order a
+	// form offers them.
+	Choices []string
 }
 
 // Bounded reports whether this field constrains its range.
@@ -242,6 +253,17 @@ func validateFieldSpecs(d Descriptor) error {
 		}
 		switch f.Type {
 		case TypeString, TypeInt, TypeStringList, TypeMap:
+		case TypeChoice:
+			if len(f.Choices) == 0 {
+				return fmt.Errorf("launch: kind %q declares choice field %q with no choices, which no value satisfies", d.Kind, name)
+			}
+			offered := map[string]bool{}
+			for _, c := range f.Choices {
+				if strings.TrimSpace(c) == "" || offered[c] {
+					return fmt.Errorf("launch: kind %q declares choice field %q with an empty or repeated choice %q", d.Kind, name, c)
+				}
+				offered[c] = true
+			}
 		default:
 			return fmt.Errorf("launch: kind %q declares field %q with unknown type %q", d.Kind, name, f.Type)
 		}

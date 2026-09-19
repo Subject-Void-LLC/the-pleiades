@@ -97,6 +97,7 @@ func newTemplateFixture(t *testing.T) *templateFixture {
 			apispec.DeleteTemplate.Route(handler.Delete),
 			apispec.CopyTemplate.Route(handler.Copy),
 			apispec.LaunchTemplate.Route(dispatcher.LaunchFromTemplate),
+			apispec.CheckTemplate.Route(dispatcher.CheckFromTemplate),
 			apispec.ListTemplateConfigs.Route(handler.ListConfigs),
 			apispec.CreateTemplateConfig.Route(handler.CreateConfig),
 			apispec.RelaunchJob.Route(dispatcher.RelaunchJob),

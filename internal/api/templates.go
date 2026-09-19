@@ -624,6 +624,13 @@ func (h *TemplateHandler) CreateConfig(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusUnprocessableEntity, "a survey answer is not valid for its question")
 		return
 	}
+	// The run mode is refused here too, not left for the launch: a schedule
+	// saved with a mode it can never run would otherwise fail every time
+	// it fires.
+	if err := tmpl.CheckSavedMode(launch.Fields(body.Fields)); err != nil {
+		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
 	created, err := h.templates.SaveConfig(r.Context(), launch.SavedConfig{
 		TemplateID: id,

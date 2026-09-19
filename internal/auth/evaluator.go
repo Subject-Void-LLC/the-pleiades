@@ -18,11 +18,26 @@ type Identity struct {
 	Scopes  []Scope
 }
 
-// HasScope checks if the identity possesses a required scope.
+// impliedBy lists, for a scope, the wider scopes that carry it. It is the
+// one place implication is decided, read by HasScope, which every scope
+// check reaches.
+var impliedBy = map[Scope][]Scope{
+	// A check can only change less than a real run, so whoever may run a
+	// template for real may check it.
+	ScopeRunbookCheck: {ScopeRunbookExecute},
+}
+
+// HasScope checks if the identity possesses a required scope, directly or
+// through a wider scope that implies it (impliedBy).
 func (id *Identity) HasScope(required Scope) bool {
 	for _, s := range id.Scopes {
 		if s == required || s == scopeWildcard {
 			return true
+		}
+		for _, wider := range impliedBy[required] {
+			if s == wider {
+				return true
+			}
 		}
 	}
 	// Admin role bypasses scope checks

@@ -141,9 +141,18 @@ var jobTaskSchema = map[string]any{
 		"reason":      map[string]any{"type": "string", "description": "Present only for a skipped or failed outcome."},
 		"result": map[string]any{"type": "string", "enum": []string{"succeeded", "failed"},
 			"description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on."},
-		"result_reason": map[string]any{"type": "string", "description": "Present only for a failed result."},
+		"result_reason": map[string]any{"type": "string", "description": "Present for a failed result, and for a check that could not check every task, where it says how many."},
+		"unchecked":     map[string]any{"type": "integer", "description": "How many tasks a check could not check on this device. Absent when there were none."},
 		"finished_at":   map[string]any{"type": "string", "format": "date-time", "description": "When this device reported back. Absent until it does."},
 	},
+}
+
+// jobModeSchema is a job's mode, on the job and in a list of jobs alike.
+var jobModeSchema = map[string]any{
+	"type": "string", "enum": []string{"execute", "check", "unreadable"},
+	"description": "execute for a real run; check for a run that asked every task what it would change and changed nothing, " +
+		"so its outcomes describe what a real run would have done; unreadable for a record whose mode is not either, which " +
+		"fan-out refuses to dispatch. Always present: a job recorded before check mode existed reads execute.",
 }
 
 var jobResponseSchema = map[string]any{
@@ -157,6 +166,9 @@ var jobResponseSchema = map[string]any{
 		"inventory":      map[string]any{"type": "integer", "description": "The device set it targeted."},
 		"organization":   map[string]any{"type": "integer", "description": "The tenant it belongs to, inherited from that inventory."},
 		"kind":           stringSchema("Which registered launch kind ran, and therefore which execution adapter handled it."),
+		"mode":           jobModeSchema,
+		"check_complete": map[string]any{"type": "boolean", "description": "On a check that has finished: whether it covered everything it targeted, every device checked successfully with no task left unchecked. Absent on a real run and while a check is still running."},
+		"unchecked":      map[string]any{"type": "integer", "description": "How many tasks a check could not check, across every device. Absent when there were none."},
 		"failure_reason": stringSchema("Why a failed job could not run. Empty for every other state."),
 		"dispatched":     map[string]any{"type": "integer", "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress."},
 		"skipped":        map[string]any{"type": "integer"},
@@ -333,6 +345,7 @@ var jobListResponseSchema = map[string]any{
 				"state":         stringSchema("One of \"pending\", \"fanning_out\", \"completed\", or \"failed\"."),
 				"template_name": stringSchema("The saved definition this job was launched from."),
 				"kind":          stringSchema("Which registered launch kind ran."),
+				"mode":          jobModeSchema,
 				"actor":         stringSchema("The identity subject that requested the job."),
 				"dispatched":    map[string]any{"type": "integer"},
 				"skipped":       map[string]any{"type": "integer"},
@@ -779,6 +792,7 @@ var Endpoints = []Endpoint{
 	DeleteTemplate,
 	CopyTemplate,
 	LaunchTemplate,
+	CheckTemplate,
 	ListTemplateConfigs,
 	CreateTemplateConfig,
 	ListTemplateCredentials,

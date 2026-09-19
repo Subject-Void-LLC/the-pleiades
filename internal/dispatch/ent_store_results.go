@@ -101,7 +101,10 @@ func (s *entJobStore) outstandingDevices(ctx context.Context, jobID string) (int
 
 // RecordResult records one device's execution outcome and reports whether
 // the job is now waiting on nothing. See JobStore.RecordResult.
-func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string) (bool, error) {
+func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string, unchecked int) (bool, error) {
+	if unchecked < 0 {
+		return false, fmt.Errorf("device %s on job %s reported %d unchecked tasks, which is not a count", deviceID, jobID, unchecked)
+	}
 	row, err := s.client.Job.Query().Where(job.JobIDEQ(jobID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -122,6 +125,7 @@ func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, 
 		).
 		SetResult(jobtask.Result(result)).
 		SetResultReason(reason).
+		SetUnchecked(unchecked).
 		SetFinishedAt(time.Now()).
 		Save(ctx)
 	if err != nil {
