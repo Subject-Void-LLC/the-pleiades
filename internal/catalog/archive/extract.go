@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -43,8 +44,12 @@ func init() {
 					"an installed build a repository may no longer offer.",
 			},
 			Doc: extractDoc(),
+			// A check reads what a real run reads and extracts nothing
+			// (checkExtract).
+			SupportsCheck: true,
 		},
 		Invoke: Extract,
+		Check:  CheckExtract,
 	})
 }
 
@@ -58,7 +63,9 @@ func extractDoc() collection.Doc {
 			"so there is no format parameter here the way archive.create has one. Idempotency is opt-in: naming " +
 			"creates skips extraction when that path is already there, and naming none means every run " +
 			"extracts again, the same honesty exec.command already has for a command with no built-in " +
-			"idempotency of its own.",
+			"idempotency of its own. A check reads what a real run reads and extracts nothing. A src missing when " +
+			"a check runs, or a dest that is there but is not a directory, makes the call unchecked rather than " +
+			"failed, since an earlier task in the same run may be what fixes it.",
 		Params: []collection.Param{
 			{Name: extractParamSrc, Type: "string", Required: true, Description: "The archive on the target to extract. Never a path on the machine running this task."},
 			{Name: extractParamDest, Type: "string", Required: true, Description: "The directory to extract into, created if it does not exist."},
@@ -91,6 +98,17 @@ func extractDoc() collection.Doc {
 // which is not a bug to fix later: without opening the archive there is
 // nothing honest to compare against, and this method does not open it.
 func Extract(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return extract(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckExtract is "archive.extract"'s check: it reads what Extract reads
+// and says whether it would extract, extracting nothing (checkExtract).
+func CheckExtract(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return extract(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// extract is Extract's and CheckExtract's one body; mode says which.
+func extract(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "archive.extract"
 
 	src, err := sdk.RequiredStringParam(params, extractParamSrc)
@@ -135,6 +153,10 @@ func Extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	if mode == collection.ModeCheck {
+		return checkExtract(ctx, rc, conn, src, dest, before)
+	}
+
 	if err := remotefile.MakeDirectory(ctx, conn, dest, true); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -156,6 +178,33 @@ func Extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	return collection.Result{Changed: true}, nil
+}
+
+// checkExtract is a check's answer for an extraction a creates guard did
+// not settle: a real run always extracts then, so the check predicts a
+// change. It reads what tar and mkdir -p need first, src and a dest that
+// is absent or a directory, and anything else makes the call unchecked
+// (needExisting). The prediction says only that dest would be a
+// directory: what tar writes into it, and the mode and owner a new one
+// gets, are for running it to decide.
+func checkExtract(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Conn, src, dest string, before remotefile.Info) (collection.Result, error) {
+	const fqcn = "archive.extract"
+	if before.Exists() {
+		if err := needExisting(ctx, conn, dest, "dest", remotefile.KindDirectory); err != nil {
+			return collection.Result{}, err
+		}
+	}
+	if err := needExisting(ctx, conn, src, "src", ""); err != nil {
+		return collection.Result{}, err
+	}
+	if err := rc.SetStat(extractStatDest, dest); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	after := remotefile.PredictCreate(remotefile.KindDirectory, remotefile.Attributes{}).Map()
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	return collection.Result{Changed: true}, nil
 }
 

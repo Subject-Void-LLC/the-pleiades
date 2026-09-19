@@ -74,6 +74,8 @@ func init() {
 					"guessed inverse is worse than none because a rollback would run it believing it was true. A " +
 					"task whose effect must be reversible should use a method that models the change it is making.",
 			},
+			NoCheckReason: "a PowerShell or cmd script can change anything the account can reach, and what it changes " +
+				"is known only once it has run; this method has no creates or removes guard for a check to read",
 			Doc: shellDoc(),
 		},
 		Invoke: Shell,

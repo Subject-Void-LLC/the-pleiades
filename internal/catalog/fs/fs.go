@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -262,21 +263,9 @@ func syncFstab(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint
 		return false, err
 	}
 
-	idx := fstabFind(lines, mountpoint)
-
-	var newLines []string
-	switch {
-	case entry == nil && idx < 0:
+	newLines, changes := fstabDecide(lines, mountpoint, entry)
+	if !changes {
 		return false, nil
-	case entry == nil:
-		newLines = append(append([]string{}, lines[:idx]...), lines[idx+1:]...)
-	case idx < 0:
-		newLines = append(append([]string{}, lines...), entry.line())
-	case lines[idx] == entry.line():
-		return false, nil
-	default:
-		newLines = append([]string{}, lines...)
-		newLines[idx] = entry.line()
 	}
 
 	newContent := strings.Join(newLines, "\n")
@@ -297,6 +286,58 @@ func syncFstab(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint
 		return false, fmt.Errorf("%w: the new fstab text is in place but the file now carries the permissions of the temporary it was written through, so fix the cause and re-run rather than leaving it that way", err)
 	}
 	return true, nil
+}
+
+// fstabDecide is syncFstab's whole decision: the lines lines would become
+// with exactly entry (or, when entry is nil, no entry) for mountpoint, and
+// whether that differs from lines at all. A check asks it through
+// fstabWouldChange, so the two cannot disagree about when fstab is
+// rewritten.
+func fstabDecide(lines []string, mountpoint string, entry *fstabEntry) ([]string, bool) {
+	idx := fstabFind(lines, mountpoint)
+	switch {
+	case entry == nil && idx < 0:
+		return lines, false
+	case entry == nil:
+		return append(append([]string{}, lines[:idx]...), lines[idx+1:]...), true
+	case idx < 0:
+		return append(append([]string{}, lines...), entry.line()), true
+	case lines[idx] == entry.line():
+		return lines, false
+	default:
+		newLines := append([]string{}, lines...)
+		newLines[idx] = entry.line()
+		return newLines, true
+	}
+}
+
+// fstabWouldChange reads fstabPath and reports whether syncFstab would
+// rewrite it for mountpoint and entry, writing nothing.
+func fstabWouldChange(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint string, entry *fstabEntry) (bool, error) {
+	lines, _, err := fstabReadLines(ctx, conn, fstabPath)
+	if err != nil {
+		return false, err
+	}
+	_, changes := fstabDecide(lines, mountpoint, entry)
+	return changes, nil
+}
+
+// predictState is a check's report for a mountpoint found as before: the
+// same path stat and diff a real run records, with predicted as the
+// after half when a real run would change something, and nothing undone,
+// since nothing was done.
+func predictState(rc sdk.RunbookContext, fqcn, path string, before fsState, changed bool, predicted map[string]any) (collection.Result, error) {
+	after := before.Map()
+	if changed {
+		after = predicted
+	}
+	if err := rc.SetStat(statPath, path); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: changed}, nil
 }
 
 // fstabParam reads the fstab path parameter, defaulting to /etc/fstab.

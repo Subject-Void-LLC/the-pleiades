@@ -21,6 +21,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reads findmnt and fstab and changes neither.
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that mounted an absent path emits an fs.unmount naming it, which also strips the " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: mountDoc(),
 		},
 		Invoke: Mount,
+		Check:  CheckMount,
 	})
 }
 
@@ -45,7 +48,9 @@ func mountDoc() collection.Doc {
 			"fstype reports no change; a path already mounted from a different src or fstype is refused rather " +
 			"than silently remounted, since that is not something this method can do without first unmounting " +
 			"it. opts is compared only when the task actually names it: a path already mounted with different " +
-			"options than an unspecified opts is left alone rather than treated as drift.",
+			"options than an unspecified opts is left alone rather than treated as drift. " +
+			"A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options " +
+			"out of its prediction, since the kernel rewrites them.",
 		Params: []collection.Param{
 			{Name: paramPath, Type: "string", Required: true, Description: "The mountpoint to mount onto."},
 			{Name: paramSrc, Type: "string", Required: true, Description: "The device, share or filesystem source to mount."},
@@ -81,6 +86,17 @@ func mountDoc() collection.Doc {
 // sent. Each is recorded and inverted on its own terms in the section
 // below.
 func Mount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return mount(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckMount is "fs.mount"'s check: it reads the mountpoint and fstab and
+// says whether Mount would mount the path or change its fstab entry, sending no mount and writing no fstab.
+func CheckMount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return mount(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// mount is Mount's and CheckMount's one body; mode says which.
+func mount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fs.mount"
 
 	path, err := sdk.RequiredStringParam(params, paramPath)
@@ -123,6 +139,8 @@ func Mount(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 			return collection.Result{}, fmt.Errorf("%s: %s is already mounted with options %q, not %q; unmount it first or point this task at the existing options",
 				fqcn, path, before.options, opts)
 		}
+	} else if mode == collection.ModeCheck {
+		mountChanged = true
 	} else {
 		mountOpts := opts
 		if mountOpts == "" {
@@ -145,15 +163,32 @@ func Mount(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 				}
 			}
 		}
-		fstabChanged, err = syncFstab(ctx, conn, fstabPath, path, &fstabEntry{
-			source: src, mountpoint: path, fstype: fstype, options: entryOpts,
-		})
+		entry := &fstabEntry{source: src, mountpoint: path, fstype: fstype, options: entryOpts}
+		if mode == collection.ModeCheck {
+			fstabChanged, err = fstabWouldChange(ctx, conn, fstabPath, path, entry)
+		} else {
+			fstabChanged, err = syncFstab(ctx, conn, fstabPath, path, entry)
+		}
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
 
 	changed := mountChanged || fstabChanged
+
+	if mode == collection.ModeCheck {
+		// A new mount's options are left out: the kernel rewrites them
+		// (defaults reads back as rw,relatime), and only mounting says how.
+		predicted := before.Map()
+		if mountChanged {
+			predicted["mounted"], predicted["source"], predicted["fstype"] = true, src, fstype
+			delete(predicted, "options")
+		}
+		if persist {
+			predicted["persisted"] = true
+		}
+		return predictState(rc, fqcn, path, before, changed, predicted)
+	}
 
 	after := before
 	if changed {

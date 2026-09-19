@@ -3,10 +3,12 @@ package archive
 import (
 	"context"
 	"fmt"
+	pathpkg "path"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -43,8 +45,11 @@ func init() {
 					"exactly what the inverse would just have deleted.",
 			},
 			Doc: createDoc(),
+			// A check reads what a real run reads and runs no tar (checkCreate).
+			SupportsCheck: true,
 		},
 		Invoke: Create,
+		Check:  CheckCreate,
 	})
 }
 
@@ -56,7 +61,10 @@ func createDoc() collection.Doc {
 			"finding path already there reports no change and reads none of src, the same way file.copy's " +
 			"checksum comparison decides on bytes rather than a name but simpler still, since this does not " +
 			"even open the archive to compare. remove, when true, deletes src once the archive has been " +
-			"written; the archive itself is not touched a second time to verify it.",
+			"written; the archive itself is not touched a second time to verify it. A check reads what a real run " +
+			"reads and runs no tar. A src, or the directory the archive would go in, that is missing when a check " +
+			"runs makes the call unchecked rather than failed, since an earlier task in the same run may be what " +
+			"creates it.",
 		Params: []collection.Param{
 			{Name: createParamPath, Type: "string", Required: true, Description: "The archive file to create."},
 			{Name: createParamSrc, Type: "list", Required: true, Description: "The paths on the target to include, at least one."},
@@ -88,6 +96,17 @@ func createDoc() collection.Doc {
 // change, without reading src at all: this is existence-only
 // idempotency, not a content comparison.
 func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCreate is "archive.create"'s check: it reads the archive's path
+// and says whether Create would write it, running nothing (checkCreate).
+func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// create is Create's and CheckCreate's one body; mode says which.
+func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "archive.create"
 
 	path, err := sdk.RequiredStringParam(params, createParamPath)
@@ -119,6 +138,10 @@ func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := remotefile.Stat(ctx, conn, path)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		return checkCreate(ctx, rc, conn, path, src, before)
 	}
 
 	changed := false
@@ -156,5 +179,40 @@ func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}
 	}
 
+	return collection.Result{Changed: changed}, nil
+}
+
+// checkCreate is a check's answer for an archive path found as before.
+// An archive already there is left alone, as a real run leaves it. An
+// absent one would be written, and the prediction says only that a file
+// would exist: its size, mode and owner are tar's and the device's to
+// decide.
+//
+// Before predicting a write it reads what tar needs: every src path and
+// the directory that would hold the archive. One that is missing now
+// makes the call unchecked (collection.CannotCheck) rather than failed or
+// predicted, since an earlier task in the same run may be what creates
+// it, and a check cannot tell.
+func checkCreate(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Conn, path string, src []string, before remotefile.Info) (collection.Result, error) {
+	const fqcn = "archive.create"
+	changed := !before.Exists()
+	after := before.Map()
+	if changed {
+		if err := needExisting(ctx, conn, pathpkg.Dir(path), "the directory that would hold the archive,", remotefile.KindDirectory); err != nil {
+			return collection.Result{}, err
+		}
+		for _, p := range src {
+			if err := needExisting(ctx, conn, p, "src", ""); err != nil {
+				return collection.Result{}, err
+			}
+		}
+		after = remotefile.PredictCreate(remotefile.KindFile, remotefile.Attributes{}).Map()
+	}
+	if err := rc.SetStat(createStatPath, path); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	return collection.Result{Changed: changed}, nil
 }

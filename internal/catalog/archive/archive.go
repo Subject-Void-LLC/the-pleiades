@@ -58,7 +58,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 )
 
 // Archive formats archive.create can produce. Ansible's own archive
@@ -135,4 +137,29 @@ func failureDetail(result remoteexec.Result) string {
 // English sentences over the same one mechanism.
 func removePaths(ctx context.Context, conn *remoteexec.Conn, paths ...string) error {
 	return runArchiveCmd(ctx, conn, append([]string{"rm", "-rf"}, paths...))
+}
+
+// needExisting is a check's reading of a path a real run's command needs:
+// nil when path exists (and, when kind is set, is that kind), and
+// otherwise the answer that this call cannot be checked, naming what is
+// missing and why a check cannot settle it. what names the path's role,
+// such as "src".
+//
+// Missing is not failure here. The real run's tar or mkdir would fail on
+// it only if nothing earlier in the same run created it, and a check,
+// which creates nothing, cannot tell whether something would have.
+func needExisting(ctx context.Context, conn *remoteexec.Conn, path, what string, kind remotefile.Kind) error {
+	info, err := remotefile.Stat(ctx, conn, path)
+	if err != nil {
+		return err
+	}
+	switch {
+	case !info.Exists():
+		return collection.CannotCheck(fmt.Sprintf("%s %s does not exist yet; a real run fails on it unless an earlier "+
+			"task creates it, which a check cannot tell", what, path))
+	case kind != "" && info.Kind != kind:
+		return collection.CannotCheck(fmt.Sprintf("%s %s is a %s, not a %s; a real run fails on it unless an earlier "+
+			"task replaces it, which a check cannot tell", what, path, info.Kind, kind))
+	}
+	return nil
 }
