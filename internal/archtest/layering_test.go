@@ -108,6 +108,12 @@ type listedPackage struct {
 	Imports    []string
 	Deps       []string
 
+	// TestImports and XTestImports are what the package's own tests
+	// import, in package and as package_test. Only rules that cover test
+	// code read them.
+	TestImports  []string
+	XTestImports []string
+
 	// Error is go list -e's per-package load failure, populated instead
 	// of aborting the whole listing. goList drops any package carrying
 	// one; see its own comment for why that is safe here.

@@ -109,6 +109,20 @@ func hostKeyCallbackFor(opts Options, insecureSkipHostKeyVerify bool) (ssh.HostK
 // loud, per-task opt-in.
 const KnownHostsEnv = "PLEIADES_KNOWN_HOSTS"
 
+// KnownHostsFile returns the known_hosts file a connection verifies
+// against when its caller names none: the file KnownHostsEnv names, or
+// "$HOME/.ssh/known_hosts". It is exactly the answer every connection in
+// this process with an empty Options.KnownHostsPath gets.
+//
+// It exists for code that must know the path without dialing anything,
+// such as internal/loader, which lets an external Collection program read
+// this one file inside a home directory it otherwise cannot see. Deriving
+// the path there separately would be a second statement of this rule
+// that could drift from the first.
+func KnownHostsFile() (string, error) {
+	return knownHostsPath(Options{})
+}
+
 // knownHostsPath returns the known_hosts file to verify against, from the
 // first of three sources that names one:
 //
