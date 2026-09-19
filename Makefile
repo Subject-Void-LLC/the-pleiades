@@ -130,9 +130,12 @@ lsp:
 #   pre-commit   tools/commitgate over the staged content (well under a
 #                second: no build, no tests, index only)
 #   commit-msg   tools/commitgate over the commit message
-#   pre-push     push-gate, everything `make ci` runs with
-#                test-race/test-integration swapped for tools/testgate's
-#                more tolerant equivalents (see push-gate's own comment)
+#   pre-push     tools/gatereceipt verify, which reads back the receipt
+#                `make push-gate` or `make ci` left behind. It does NOT
+#                run the gate: git opens its connection to the remote
+#                before calling the hook, so a twenty minute suite in here
+#                kills the push with SIGPIPE and no output at all (see
+#                .githooks/pre-push's own comment, and gatereceipt's)
 #
 # so a rule AGENTS.md states lands at the moment it is broken rather than
 # three commits later, and a failing gate lands here instead of on a
@@ -143,7 +146,7 @@ lsp:
 # what it does and how to skip it.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' runs .githooks/pre-push (make push-gate); skip a single one with --no-verify"
+	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' now checks the receipt that 'make push-gate' or 'make ci' wrote (it does NOT run the gate); skip a single one with --no-verify"
 
 # commitgate runs the commit-time gate by hand, against whatever is
 # staged right now. The pre-commit hook runs exactly this, so it is the
@@ -602,9 +605,32 @@ helm-lint:
 # (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
 # can run something more forgiving of known local flakiness without this
 # target becoming any less strict.
+# GATE_START_COMMIT and GATE_START_CLEAN are where the gate began, read
+# HERE, while make is still parsing this file, and handed to
+# tools/gatereceipt twenty minutes later when it writes the receipt.
+#
+# They exist because the receipt used to name HEAD as it was when that LAST
+# recipe line ran. A commit made while the gate was running therefore
+# collected a receipt for a tree nothing had examined, and no check at the
+# end could catch it: committing leaves the tree clean, so the dirty-tree
+# refusal saw a tidy repository and wrote the receipt. That was
+# demonstrated on this repository deliberately, and it is easy to hit by
+# accident, since a twenty minute gate is exactly when a developer goes and
+# tidies a doc. gatereceipt refuses to write a receipt if either value has
+# changed by the time the gate ends.
+#
+# Computed only when a gate is one of the goals, so an ordinary `make
+# build` does not pay for two git calls; gatereceipt refuses an empty value
+# rather than assuming anything, so a gate reached some other way says so
+# instead of certifying a commit nobody looked at.
+ifneq ($(filter ci push-gate,$(MAKECMDGOALS)),)
+GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
+GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
+endif
+
 ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
-	@go run ./tools/gatereceipt write --target ci
+	@go run ./tools/gatereceipt write --target ci --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # ci-remote is the subset .github/workflows/ci.yml runs: every check that
 # is cheap, deterministic and needs no infrastructure. It is `ci` minus
@@ -678,7 +704,7 @@ push-gate-coverage:
 # through, and re-run, before a push reaches that real gate.
 push-gate: build devtools vet fmt tidy-check push-gate-race test-repeat push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
-	@go run ./tools/gatereceipt write --target push-gate
+	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # templ-gen regenerates the view layer's templates. templ emits a
 # _templ.go beside every .templ, and both are committed.

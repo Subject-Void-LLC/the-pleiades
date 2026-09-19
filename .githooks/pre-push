@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# pre-push: check that this exact commit has already passed the local gate.
+# pre-push: check that what this push sends has already passed the local gate.
 #
 # It does NOT run the gate. That is the whole point, and the reason is
 # mechanical rather than a preference. Git opens its connection to the
@@ -18,41 +18,30 @@
 #
 # `make push-gate` and `make ci` each write a receipt naming the commit
 # they verified. This hook reads it back. A receipt is only issued from a
-# clean tree, which makes this arrangement STRICTER than running the suite
-# here used to be: that proved something about the working tree and then
-# pushed commits, and with uncommitted edits those are different code.
+# clean tree, and only when HEAD did not move while the gate ran, which
+# makes this arrangement STRICTER than running the suite here used to be:
+# that proved something about the working tree and then pushed commits,
+# and with uncommitted edits those are different code.
+#
+# Everything this hook decides lives in tools/gatereceipt, which reads
+# git's own pre-push lines from the stdin passed straight through below:
+# one line per ref, `<local ref> <local sha> <remote ref> <remote sha>`.
+# The parsing is there rather than here because every decision made from
+# those four fields is unit tested against real repositories, and shell
+# that splits its own input is not. A ref name a loop here mangled would
+# fail closed, which reads to a developer as the gate refusing a commit
+# that passed.
+#
+# What it answers, per ref, and what each answer means is in that command's
+# own doc comment: the gated commit passes, an annotated tag cut at it
+# passes (git names the tag OBJECT here, not the commit), a ref created or
+# fast-forwarded to a commit already inside the gated history passes
+# because those commits travel with it anyway, a push that only deletes
+# refs passes because it sends no code, and everything else is refused
+# with the reason and the command that fixes it.
 #
 # Skip a single push with `git push --no-verify`.
 
 set -eu
 
-# Git feeds pre-push one line per ref being pushed, on stdin:
-#
-#     <local ref> <local sha> <remote ref> <remote sha>
-#
-# An all-zero local sha means that ref is being deleted. A push that only
-# deletes refs adds no code for CI to check, so running the full suite for
-# it would be pure delay; anything else gets the real run.
-only_deletes=yes
-shas=""
-while read -r _local_ref local_sha _remote_ref _remote_sha; do
-	case "$local_sha" in
-	*[!0]*)
-		only_deletes=no
-		shas="$shas $local_sha"
-		;;
-	esac
-done
-
-if [ "$only_deletes" = yes ]; then
-	exit 0
-fi
-
-# Ask about each commit actually being sent, rather than about HEAD: a
-# push can send a ref that is not checked out, and the receipt has to
-# describe the thing travelling.
-for sha in $shas; do
-	if ! go run ./tools/gatereceipt verify --commit "$sha"; then
-		exit 1
-	fi
-done
+exec go run ./tools/gatereceipt verify --push-stdin
