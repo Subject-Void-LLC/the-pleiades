@@ -349,6 +349,27 @@ func (c *Client) DeleteBucket(ctx context.Context, bucket string) error {
 	return nil
 }
 
+// BucketHoldsAnything reports whether bucket holds any object, object
+// version or delete marker: what S3's DeleteBucket refuses to delete a
+// bucket over (BucketNotEmpty). It reads at most one entry, since the
+// question is only whether there is one. An unversioned bucket's objects
+// come back as versions too, so one call answers for both kinds.
+func (c *Client) BucketHoldsAnything(ctx context.Context, bucket string) (bool, error) {
+	out, err := c.s3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int32(1)})
+	if err != nil {
+		return false, fmt.Errorf("awscloud: listing bucket %q: %w", bucket, err)
+	}
+	return len(out.Versions) > 0 || len(out.DeleteMarkers) > 0, nil
+}
+
+// AccessDenied reports whether err is AWS refusing this account the call,
+// as opposed to the call failing: a policy can allow deleting a bucket
+// without allowing listing its versions, and a caller that only wanted
+// to look may treat the two differently.
+func AccessDenied(err error) bool {
+	return errorCode(err) == "AccessDenied"
+}
+
 // errorCode extracts the AWS API error code (e.g. "NoSuchBucket",
 // "InvalidInstanceID.NotFound") from err, or "" if err is not an AWS API
 // error at all (a connection failure, a context cancellation, and so

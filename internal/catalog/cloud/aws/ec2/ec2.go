@@ -24,7 +24,10 @@
 package ec2
 
 import (
+	"fmt"
+
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -63,4 +66,45 @@ func recordState(rc sdk.RunbookContext, instanceID string, before, after *awsclo
 		return err
 	}
 	return sdk.RecordDiff(rc, sdk.Diff{Before: instanceMap(before), After: instanceMap(after)})
+}
+
+// predictCreate is a check's report for a name found as before. A match
+// is left alone, as a real run leaves it. No match means a real run would
+// launch one, and the prediction says only that an instance would exist:
+// AWS assigns its ID and reports its state, and the instance_id stat is
+// left out for the same reason. RunInstances is never sent, not even
+// with DryRun: an EC2-compatible endpoint that ignored DryRun would
+// launch a real instance from a check.
+func predictCreate(rc sdk.RunbookContext, fqcn string, before *awscloud.Instance) (collection.Result, error) {
+	if before != nil {
+		if err := recordState(rc, before.ID, before, before); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{}, nil
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: instanceMap(nil), After: map[string]any{"exists": true}}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: true}, nil
+}
+
+// predictTerminate is a check's report for instanceID found as before.
+// An instance that is not terminated would be, and its predicted state is
+// left out: TerminateInstances answers shutting-down or terminated
+// depending on the instance, and only sending it says which. The
+// instance still exists afterwards, as AWS keeps a terminated instance
+// visible for a while.
+func predictTerminate(rc sdk.RunbookContext, fqcn, instanceID string, before *awscloud.Instance) (collection.Result, error) {
+	changed := before != nil && before.State != "terminated"
+	after := instanceMap(before)
+	if changed {
+		after = map[string]any{"exists": true, "instance_id": before.ID}
+	}
+	if err := rc.SetStat(statInstanceID, instanceID); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: instanceMap(before), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: changed}, nil
 }

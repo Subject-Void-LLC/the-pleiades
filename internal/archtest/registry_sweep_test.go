@@ -608,6 +608,29 @@ func TestCatalogDataDocsMatchTheRegistry(t *testing.T) {
 	}
 }
 
+// TestEveryUncheckableMethodSaysWhy holds the built-in catalog to
+// Manifest.NoCheckReason: every implemented method without check support
+// says why it cannot be checked, since that reason is what a check run's
+// "could not check" line, validation's refusal of check_mode and the
+// reference page print, and the bare "does not declare check support"
+// tells an operator nothing to act on.
+func TestEveryUncheckableMethodSaysWhy(t *testing.T) {
+	var uncheckable int
+	for _, cfg := range catalogdata.Collections {
+		desc, ok := collection.Lookup(cfg.Name)
+		if !ok || desc.Manifest.Status != collection.StatusImplemented || desc.Manifest.SupportsCheck {
+			continue
+		}
+		uncheckable++
+		if desc.Manifest.NoCheckReason == "" {
+			t.Errorf("%s supports no check and does not say why (Manifest.NoCheckReason)", cfg.Name)
+		}
+	}
+	if uncheckable == 0 {
+		t.Log("every implemented method supports check, so no reason was needed")
+	}
+}
+
 // describeDocDiff returns a human-readable description of the first way
 // two Docs differ, or the empty string when they match.
 //

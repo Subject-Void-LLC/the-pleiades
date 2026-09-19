@@ -19,10 +19,12 @@ import (
 )
 
 // These run against a real in-process SSH server executing a real
-// /bin/sh, with docker on PATH as a fake shell script (there is no safe
-// way to run a real Docker daemon in a test process). The fake dispatches
-// on its own first argument (inspect/run/stop/rm) the way a real docker
-// CLI would.
+// /bin/sh, with docker on PATH as a fake shell script, so a test can set
+// any state and fail any command. The fake dispatches on its own first
+// argument (inspect/run/stop/rm) the way a real docker CLI would. The
+// checks' control (docker_check_test.go) runs the real docker CLI against
+// this machine's own daemon instead, on a disposable container, since only
+// a real daemon shows what a real run leaves.
 
 // ---------- harness ----------
 

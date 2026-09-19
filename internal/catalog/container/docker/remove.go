@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reads the container with docker inspect and changes nothing.
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "docker inspect exposes a removed container's image and some of its configuration " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: removeDoc(),
 		},
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -40,7 +43,10 @@ func removeDoc() collection.Doc {
 		Summary: "Removes a Docker container from the target.",
 		Description: "Makes sure a container named name does not exist, removing it if present. Container " +
 			"state is read from docker inspect before anything is sent, so a container already absent reports " +
-			"no change and no command reaches the device.",
+			"no change and no command reaches the device. " +
+			"A check reads the same state and removes nothing; a container that is not stopped, with force unset, " +
+			"makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in " +
+			"the same run stops it.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to remove."},
 			{Name: paramForce, Type: "bool", Default: "false", Description: "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."},
@@ -66,6 +72,17 @@ func removeDoc() collection.Doc {
 
 // Remove implements "container.docker.remove".
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRemove is "container.docker.remove"'s check: it reads the container and says whether
+// Remove would remove it, running no docker command that changes anything.
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// remove is Remove's and CheckRemove's one body; mode says which.
+func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "container.docker.remove"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -89,6 +106,13 @@ func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 
 	changed := before.exists
+	if mode == collection.ModeCheck {
+		if changed && !force && before.status != "exited" && before.status != "created" && before.status != "dead" {
+			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("container %s is %s, and docker rm without force "+
+				"refuses one that is not stopped unless an earlier task stops it, which a check cannot tell", name, before.status))
+		}
+		return predictState(rc, fqcn, name, before, changed, containerState{}.Map())
+	}
 	after := before
 	if changed {
 		args := []string{"docker", "rm"}

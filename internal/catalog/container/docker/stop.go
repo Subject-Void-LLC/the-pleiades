@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reads the container with docker inspect and changes nothing.
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "This catalog declares no container.docker.start, and recording container.docker.run " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: stopDoc(),
 		},
 		Invoke: Stop,
+		Check:  CheckStop,
 	})
 }
 
@@ -61,6 +64,17 @@ func stopDoc() collection.Doc {
 
 // Stop implements "container.docker.stop".
 func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return stop(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckStop is "container.docker.stop"'s check: it reads the container and says whether
+// Stop would stop it, running no docker command that changes anything.
+func CheckStop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return stop(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// stop is Stop's and CheckStop's one body; mode says which.
+func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "container.docker.stop"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -80,6 +94,9 @@ func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 
 	changed := before.exists && before.status == "running"
+	if mode == collection.ModeCheck {
+		return predictState(rc, fqcn, name, before, changed, containerState{exists: true, status: "exited"}.Map())
+	}
 	after := before
 	if changed {
 		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", name}); err != nil {

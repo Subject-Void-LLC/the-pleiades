@@ -21,6 +21,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check makes only the read a real run makes first (CheckTerminate).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A terminated instance's storage (unless an EBS volume was explicitly detached beforehand, which this method does not do) and identity are gone; there is nothing a cloud.aws.ec2.create could restore.",
@@ -28,6 +30,7 @@ func init() {
 			Doc: terminateDoc(),
 		},
 		Invoke: Terminate,
+		Check:  CheckTerminate,
 	})
 }
 
@@ -57,6 +60,17 @@ func terminateDoc() collection.Doc {
 
 // Terminate implements "cloud.aws.ec2.terminate".
 func Terminate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return terminate(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckTerminate is "cloud.aws.ec2.terminate"'s check: it reads the instance with DescribeInstances and says whether Terminate would
+// terminate the instance, sending no call that changes anything.
+func CheckTerminate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return terminate(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// terminate is Terminate's and CheckTerminate's one body; mode says which.
+func terminate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "cloud.aws.ec2.terminate"
 
 	instanceID, err := sdk.RequiredStringParam(params, paramInstanceID)
@@ -72,6 +86,10 @@ func Terminate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	before, err := client.DescribeInstance(ctx, instanceID)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		return predictTerminate(rc, fqcn, instanceID, before)
 	}
 
 	changed := false
