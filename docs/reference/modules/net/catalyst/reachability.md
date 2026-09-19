@@ -15,6 +15,7 @@ Answers a different question than device_facts: device_facts describes what the 
 | Capabilities | `CatalystAPICapable` |
 | Transports | `https` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -15,6 +15,7 @@ Makes sure a user account is absent from the target, removing it if present. Thi
 | Capabilities | `PosixAccountCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

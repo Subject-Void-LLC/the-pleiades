@@ -15,6 +15,7 @@ Makes sure a port or service is allowed through firewalld in the given zone. Thi
 | Capabilities | `FirewalldCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

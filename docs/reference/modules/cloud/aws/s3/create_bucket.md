@@ -15,6 +15,7 @@ Makes sure bucket exists in the account/region, creating it if it does not. Idem
 | Capabilities | `AWSAPICapable` |
 | Transports | - |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -15,6 +15,7 @@ Makes sure a Windows service's start type is Automatic. This is ansible.windows.
 | Capabilities | `WindowsServiceCapable` |
 | Transports | `winrm` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

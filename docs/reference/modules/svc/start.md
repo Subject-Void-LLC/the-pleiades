@@ -15,6 +15,7 @@ Makes sure a service is running right now, without caring which init system the 
 | Capabilities | `ServiceManagerCapable` |
 | Transports | - |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -15,6 +15,7 @@ Makes sure one named package is at the newest version APT knows about, upgrading
 | Capabilities | `AptCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

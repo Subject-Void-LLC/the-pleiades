@@ -15,6 +15,7 @@ Makes sure a Windows service is not running right now. This is ansible.windows.w
 | Capabilities | `WindowsServiceCapable` |
 | Transports | `winrm` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

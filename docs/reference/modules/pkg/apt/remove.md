@@ -15,6 +15,7 @@ Makes sure a package is absent from a Debian-family host, removing it if it is p
 | Capabilities | `AptCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

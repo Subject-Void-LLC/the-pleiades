@@ -114,6 +114,44 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   two-second fencing-token-less lease cannot promise it; and a template bound to a prompted
   credential, or a saved configuration answering a survey password, is refused outright, because
   neither value is stored and replaying one unattended forever is worse than doing it once.
+- **Check mode is real for 69 of the 78 implemented methods (Phase 46).** `pleiades run --mode
+  check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
+  manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
+  task as unchecked, ending non-zero. The engine refuses a check result carrying an
+  `inverse` stat, never journals a check, and admits simulate-locked devices only in check
+  mode (`engine.LifecycleAdmitsIn`, shared with `validate.LifecycleRule`). Most methods
+  predict through one body shared with `Invoke` that branches on the mode after the same
+  reads and refusals; read-only ones set `Check` to their own `Invoke`. A method that
+  checks only some calls answers the rest with `collection.CannotCheck`, and when the
+  params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
+  sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
+  call. The nine methods with no check (`exec.winrm.shell`, `container.docker.exec`,
+  `net.cli.*`, `net.ios.config`, `net.netconf.config`, the three waits) each carry
+  `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
+  check support. The generated module catalog's `supportsCheck` is the authority. The
+  Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a
+  `TypeChoice`) is resolved by its own narrowing rule (`launch.resolveMode`: a check at any
+  layer wins without the template opening the field, execute beneath a check is refused),
+  `POST /templates/{id}/check` forces it, and a check is published on its own subject
+  (`topology.CheckSubject`, durable `runner-check`) that only a check-aware Runner reads,
+  through `routing.CheckOnly`, so an old Runner never runs one for real. The job shows its
+  mode (`dispatch.Job.Mode`) and, once finished, whether the check was complete
+  (`dispatch.Job.CheckCoverage`, from each device's unchecked count, which the Runner
+  reports through `wire.Outcome`, the second return of every execution adapter). The check
+  route needs `runbook:check` (`auth.ScopeRunbookCheck`, implied by `runbook:execute` in
+  `Identity.HasScope`); a check launched without `runbook:execute` never runs an external
+  program's Check (`dispatch.Job.ExternalChecks` to `wire.DispatchPayload.ExternalChecks`
+  to `engine.WithExternalChecks`, off by default). Not built: Phase 35's classifier. A runbook, block or task
+  can ask for a check with Ansible's `check_mode: true` (`engine.CheckModeFlag`, copied
+  down by the builder, resolved per task by the one shared `engine.TaskMode`); `false`
+  is refused at parse, and validation refuses it on an uncheckable action or when a real
+  task's condition reads a checked task's result. An unknown top-level runbook key is
+  refused (`engine.RunbookKeys`, FAILURE_PATTERNS 252). A check from an external program is
+  never run against a simulate-locked device (`collection.Descriptor.Provider`, set only by
+  the loader; FAILURE_PATTERNS 253): it is reported unchecked there. The engine stamps
+  `predicted: true` (`sdk.StatPredicted`, and `sdk.DiffPredicted` in the diff) on every
+  check result and refuses it on a real one; an incomplete check exits 3 and
+  `--allow-unchecked <method>` accepts named gaps.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.
@@ -396,9 +434,41 @@ blank import into the relevant `builtins.go` (`internal/catalog/builtins.go`,
 intentional: a generated-but-unwired file compiles and its tests pass, but stays invisible
 to `pleiades doc --list`, `validate`, and the dispatcher until wired in.
 
-There is no out-of-tree extension mechanism today: every extension point lives under
-`internal/`, reachable only from inside this module or a fork of it (see
-`docs/11-extending-pleiades.md`).
+Collection methods have one out-of-tree mechanism, **external Collections** (Phases 42
+and 45, built 2026-09-18): a separate program built with the public `pkg/external` SDK,
+loaded by `internal/loader` from the directory `PLEIADES_COLLECTIONS_DIR` names, in
+`cmd/pleiades` (run, validate, doc) and `cmd/runner` only (`internal/archtest` enforces
+both that and that `internal/engine` never reaches the loader). The program runs as a
+child process BESIDE Pleiades, never copied onto a device (the user's decision), speaking
+the same `pkg/wire` ChildRequest/ChildResponse the Runner's own per-task child speaks,
+through the one shared `external.ServeChild`. Its methods register through the ordinary
+`collection.Register`, so validate, doc and dispatch treat them as built-in, and it gets
+credentials exactly as a built-in method does (`InjectSecrets`: the template's bound
+machine credential resolved at fan-out, or the device's own); the loader adds no
+credential path, by the user's explicit rule. The trust
+model is the directory's ownership and permissions, an approval list of exact builds
+(`.pleiades-approvals.json`, written by `pleiades collection approve|revoke|list`, re-read
+before every call), and a SHA-256 re-checked before every run, with the run executing the
+very file that was checked (`/proc/self/fd`, never the path); there is NO signature
+verification and NO registry (Phases 43 and 44 are unbuilt). Every namespace a built-in
+method uses, plus `pleiades` and `ansible`, is reserved (`collection.BuiltinNamespaces`),
+and each external method's `NodeResult` carries its `Provider` (program and digest). The
+Runner loads external Collections before telemetry or any broker connection, so a bad
+directory stops it at once, and it routes a method in process exactly when its descriptor
+has a `Provider`. A method's engine version constraint is enforced only by a release
+build: every binary reports one version from `internal/buildinfo` (stamped through
+`-ldflags -X`, honored only when it reads as a release, else `0.0.0-dev+<commit>`; `pleiades
+version` and `runner version` print it), the Runner and the CLI both hand it to the loader,
+and a development build loads a constrained method with one warning per program. Text from a program (descriptions, error messages, stat values) is
+third-party input: `internal/termsafe` refuses or escapes whatever a terminal acts on,
+and an archtest keeps Go source free of invisible control characters (FAILURE_PATTERNS
+256, 257).
+Every run is confined with Linux Landlock (`internal/loader/confine*.go`) to its own
+directory, system files, known_hosts, a private TMPDIR and `PLEIADES_COLLECTIONS_READ_PATHS`
+grants (never one reaching `.pleiades/` or containing the home directory), and the parent
+marks itself non-dumpable first (FAILURE_PATTERNS 251, 254); loading is refused wherever
+Landlock is absent, which is every platform but Linux. `forge new-external` scaffolds one. Device types and
+sync plugins remain `internal/`-only (see `docs/11-extending-pleiades.md`).
 
 ### Control plane API (`cmd/controller`, `internal/api`)
 

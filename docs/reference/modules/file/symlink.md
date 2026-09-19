@@ -15,6 +15,7 @@ Makes path be a symbolic link pointing at src, which is ansible.builtin.file wit
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

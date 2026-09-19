@@ -15,6 +15,7 @@ Answers a different question from net.ssh.ping, and the difference is the point:
 | Capabilities | `CiscoIOSCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -6,7 +6,7 @@ status: beta
 
 Runs a command through the target's shell, so pipes and redirects work.
 
-Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like.
+Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the line would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Runs a command line on the target through a real shell, which is what makes a pi
 | Capabilities | `ShellExecCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

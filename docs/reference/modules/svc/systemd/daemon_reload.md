@@ -15,6 +15,7 @@ Runs systemctl daemon-reload, which makes systemd pick up unit files that were w
 | Capabilities | `SystemdCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

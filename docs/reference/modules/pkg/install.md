@@ -15,6 +15,7 @@ Makes sure a package is installed, without caring which package manager the devi
 | Capabilities | `PackageManagerCapable` |
 | Transports | - |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

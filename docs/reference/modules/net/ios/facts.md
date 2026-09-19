@@ -15,6 +15,7 @@ Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco dev
 | Capabilities | `CiscoIOSCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -55,6 +55,13 @@ docker build -f Dockerfile.controller --build-arg VCS_REF="$VCS_REF" -t pleiades
 docker build -f Dockerfile.runner     --build-arg VCS_REF="$VCS_REF" -t pleiades/runner:dev .
 ```
 
+`VCS_REF` is the commit, and it reaches both the image's labels and the binaries,
+which report themselves as `0.0.0-dev+<commit>` (`docker run --rm pleiades/runner:dev
+/app/runner version`). A release is built the same way with `--build-arg VERSION=<release>` as
+well; the binaries then report that release, and the Runner refuses an external
+Collection program that states it needs a newer one. A `VERSION` that is not a release
+number is ignored, so a build argument left at its default cannot pass for one.
+
 `pleiades/controller:dev` and `pleiades/runner:dev` are the names the chart asks
 for by default, and they are exactly what `docker compose build` produces, so a
 locally built or side-loaded image is found with no extra flags. Push them to
@@ -536,6 +543,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 |---|---|
 | `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
 | `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
+| `provider_program`, `provider_digest` | For a method an external Collection program provides, that program's path and the SHA-256 digest it ran as. Both are empty for a method built into Pleiades. |
 | `dag_id` | The runbook's own `id:`, as written. |
 | `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
 | `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
@@ -798,6 +806,12 @@ by name, before anything runs; the Crawl-tier executor and the Walk-tier dispatc
 both re-check the same rule at their own layer as well, so a device is never
 executed against by a path that happened to skip validation.
 
+The one exception is a check. A `simulate-locked` device, the state a sync plugin gives
+every device it discovers, accepts a check and nothing else, on both tiers and by the
+same rule, so a newly discovered device can be asked what a run would change before
+anyone promotes it. A check from an external Collection program is still refused there,
+because nothing has proven that the program only reads.
+
 ### Locking
 
 **The Crawl-tier CLI's locking is in-process only. Two `pleiades run` invocations do
@@ -838,16 +852,68 @@ other.
 
 ### Safety versus dry-run
 
-`pleiades validate` is the closest thing to a dry-run today: it loads the inventory
-and runbook, runs every registered validation rule (lifecycle
-gating, collection reachability, conditional compilation, and more), and reports every finding without
-executing anything. Capability matching is the one rule that barely runs: it covers
-only the two legacy action names `ssh_exec` and `ios_backup`, never a catalog FQCN,
-so `validate` passes a task pointed at a device that cannot run it. See
-[Start here](01-start-here.md#implementation-status). There is no separate `--dry-run` or `--check` flag on `run`
-itself, and no mechanism yet that reports *what would change* without actually
-changing it (Ansible's `--check` mode has no Pleiades equivalent). `pleiades run`
-always validates first and refuses to execute if validation reports any error.
+`pleiades validate` checks a runbook without touching a device: it loads the inventory
+and runbook, runs every registered validation rule (lifecycle gating, collection
+reachability, conditional compilation, and more), and reports every finding. Capability
+matching is the one rule that barely runs: it covers only the two legacy action names
+`ssh_exec` and `ios_backup`, never a catalog FQCN, so `validate` passes a task pointed at
+a device that cannot run it. See [Start here](01-start-here.md#implementation-status).
+`pleiades run` always validates first and refuses to execute if validation reports any
+error.
+
+A check goes further: it connects, reads each device, and reports what each task would
+change, changing nothing. On the command line that is `pleiades run --mode check` (see
+[Get started](02-get-started.md)). On the Controller it is a template's check route,
+`POST /api/v1/templates/{id}/check`, which takes the launch route's body, or a launch
+whose `mode` field says `check`. A check asked for at any level wins without the
+template having to open its mode field, since it can only make a run change less; a
+request that would turn a check back into a real run is refused, and so is a check of an
+Ansible playbook template, which cannot be run as one. A job records its mode, and the
+API's job responses and the Jobs page show it, so a check that completed is never read as
+a change that was made. Relaunching a check makes another check.
+
+What a check promises, on either tier: nothing on a device is changed, no run journal is
+written and no undo instruction is recorded, and every result it reports carries
+`predicted: true`, so a stored or forwarded result cannot pass for one that happened. A
+condition is answered wherever the tasks a check could not answer do not decide it, and a
+task whose condition they do decide is named as unchecked too. A device still being
+onboarded (`simulate-locked`) accepts a check and nothing else, and only from a method
+built into Pleiades. On the command line a check ends with status 0 when every task was
+checked, 3 when some were not and nothing failed, and 1 when anything failed, so a
+pipeline can gate on it; `--allow-unchecked <method>` accepts named gaps on purpose.
+
+A script should use the check route rather than the launch route's `mode` field. A
+Controller older than check mode answers the check route with 404, but it has no mode
+field, so it would run a launch asking for a check for real, listing `mode` among the
+response's `ignored_fields`.
+
+Only methods that declare check support can be checked; every other task is named as
+unchecked rather than run. A finished check job says whether it covered everything:
+the job's `check_complete` is true only when every device it targeted was checked,
+successfully, with no task left unchecked, and its `unchecked` count, and each device's,
+say how many tasks were not. A device skipped as not active, or whose check failed,
+leaves the check incomplete, since it was not looked at. Each device's result reason
+also says "check incomplete: N task(s) could not be checked", which a Controller older
+than the count still shows.
+
+The check route needs `runbook:check`, which `runbook:execute` implies, so a token can be
+minted for drift checks alone: it may check any template it could otherwise launch and
+may not launch one for real. No built-in role holds `runbook:check` without
+`runbook:execute`, so a check-only principal is a token issued with exactly that scope.
+A check still connects to devices with their real credentials and reads them. What a
+check-only caller's check never does is run an external Collection program's check,
+which nothing has proven only reads: those tasks are reported unchecked, and the check
+is incomplete. Relaunching a job still needs `runbook:execute`; a check-only caller runs
+the check again through the check route.
+
+**Upgrading Runners.** A check travels to Runners on its own subject,
+`pleiades.jobs.check.<device>`, through its own durable consumer, `runner-check`, which a
+Runner creates when it starts. A Runner built before check mode existed never reads that
+subject, so during a rolling upgrade a check waits for an upgraded Runner rather than
+being run for real by an older one. It waits as long as the stream keeps messages (see
+[One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)),
+exactly as a real run waits when no Runner is up at all. Nothing needs configuring; if
+checks sit waiting, look for Runners that have not been upgraded.
 
 ## Security and credentials
 

@@ -15,6 +15,7 @@ Makes sure a user account is present on the target, creating it if absent. This 
 | Capabilities | `PosixAccountCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

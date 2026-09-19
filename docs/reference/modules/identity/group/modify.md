@@ -15,6 +15,7 @@ Converges an existing group's gid, refusing outright if the group does not exist
 | Capabilities | `PosixAccountCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

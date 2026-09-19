@@ -231,6 +231,56 @@ what that run actually found. Nothing performs a rollback yet; see the
 [module catalog](reference/modules/index.md) for that per method. See the
 [module catalog](reference/modules/index.md) for every method, by namespace.
 
+**Check mode is real, for the methods that declare it.** `pleiades run --mode check`
+reports what each task would change and changes nothing. Sixty-nine of the seventy-eight
+implemented methods can answer it. Fifty-seven predict a change by reading the device and
+comparing through the same code path their real run takes: every `svc.*` method (systemd,
+Windows and the generic five), every `file.*`, `pkg.*`, `identity.*`, `fw.firewalld.*`,
+`fs.*` and `archive.*` method, `win.feature.*`, `container.docker.run`, `stop` and `remove`,
+and the AWS `ec2` and `s3` methods. A prediction leaves out what only the device decides (a
+new directory's mode, a version the package manager picks, a new instance's ID) rather than
+guessing it. Eight only ever read, so a check runs them for real: `facts.gather`,
+`net.ssh.ping`, `net.ios.facts`, `net.ios.ping` and the four `net.catalyst.*` methods.
+`net.ios.save` predicts the change a save always reports, without saving. Three check only
+some calls: `exec.command` and `exec.shell` when a `creates` or `removes` guard says what
+their having run looks like, and `http.request` for a GET, HEAD, OPTIONS or TRACE, which it
+sends. A call a method cannot check is named as "could not check" with the method's
+reason, and so is a call whose inputs are missing when the check runs (an archive's
+source, a bucket that is not yet empty), since an earlier task in the same run may be
+what provides them. The nine methods that cannot be checked at all say why on their
+reference pages: an arbitrary command or script (`exec.winrm.shell`,
+`container.docker.exec`, `net.cli.command`), a configuration change only the device's own
+parser decides (`net.cli.config`, `net.ios.config`, `net.netconf.config`), and the three
+waits, since what they wait for is usually an earlier task's change, which a check never
+makes. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes
+no run journal, never records an undo instruction, and is the one kind of run a
+simulate-locked device (the state sync plugins give every newly discovered device)
+accepts, and only from a built-in method: a check from an external Collection program is
+reported unchecked there, since nothing has proven it only reads. A runbook can also ask for it with Ansible's own `check_mode: true`, on the
+whole runbook, a block or a task; `check_mode: false` is refused. The Controller runs
+checks too: a template's check route (`POST /api/v1/templates/{id}/check`), or its launch
+form's mode, makes a job whose every device is checked by a Runner that changes nothing,
+and the job records and shows that it was a check, and whether it was complete: every
+device checked with no task left unchecked. A check needs `runbook:check`, which
+`runbook:execute` implies, so drift checks can be granted without granting changes. See
+[Running in production](10-running-in-production.md#safety-versus-dry-run).
+
+**External Collections load and run.** A Collection method can now be built as a
+separate program with the public `pkg/external` SDK, outside this repository, and
+loaded from the directory `PLEIADES_COLLECTIONS_DIR` names, by `pleiades` and by the
+Runner. Its methods are validated, documented and dispatched like built-in ones, and it
+runs as a child process beside Pleiades, never on a managed device. It receives, on
+stdin, exactly the credential a built-in method would: the one the credential manager
+resolved for the task (the template's bound machine credential, or the device's own). This is proven against a real SSH server with a real
+program built from [`examples/external_collection`](../examples/external_collection/).
+The honest limits: nothing verifies who built a program (the directory's ownership and
+permissions, an approval of each exact build with `pleiades collection approve`, and a
+SHA-256 checked before every run are the whole trust decision), there
+is no registry to publish or install one from, and loading needs Linux with Landlock,
+which confines every program to its own directory and the system files it needs, so
+it cannot read the credential store or your SSH keys. See
+[External Collections](11-extending-pleiades.md#external-collections).
+
 **Plan-time capability checking covers two legacy action names, not the catalog.**
 `pleiades validate` compares a task's required capability against its target device
 for exactly `ssh_exec` and `ios_backup`. Those are the only two entries in a
@@ -265,6 +315,9 @@ Things a real Ansible user will look for and not currently find:
 - No `handlers` / `notify`, no `tags`, no `become`, no `serial`, no `roles`, no
   `ignore_errors`, no `changed_when` / `failed_when`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
+- `check_mode:` narrows only. `true` works on a runbook, a block or a task, and `false`
+  is refused, since it would run a task for real inside a check. Nine methods cannot
+  answer a check, and each says why.
 - No notifications, no webhooks, no approval workflows, no execution
   environments. Surveys ARE built: a template can ask a launching operator for
   typed values that merge into extra variables, authored from the template's own
@@ -282,8 +335,12 @@ None of these are secret. They are the honest gap between "what AWX does today" 
 
 **Is this ready to replace AWX in production?** Not yet. The Crawl-tier CLI is real
 and useful for scripted, single-operator automation today. The distributed,
-multi-user control plane is built and tested but cannot yet dispatch a real job to a
-real device end to end; see [Implementation status](#implementation-status) above.
+multi-user control plane does dispatch real jobs to real devices, both native runbooks
+and unconverted Ansible playbooks; see [Implementation status](#implementation-status)
+above. What still stands between it and AWX is mostly the list under
+[Limitations](#limitations): a runbook has no loops, handlers, privilege escalation,
+roles or templated parameters yet, and an unconverted playbook runs against one device
+per dispatch rather than across a whole play.
 
 **Why does a module I need say "declared but not implemented"?** It is registered in
 the catalog with the right capability and manifest metadata, so `pleiades validate`
@@ -291,10 +348,12 @@ and editor tooling already know about it, but nobody has written its real
 implementation yet. That is deliberate: a stub that silently reported success would
 be worse than one that refuses loudly.
 
-**Can I write my own module?** Not from outside this repository yet. Every collection
-method lives under `internal/`, which Go's own visibility rules make reachable only
-from inside this module or a fork of it. A real third-party extension mechanism is
-planned but not built.
+**Can I write my own module?** Yes. Build it as an
+[external Collection](11-extending-pleiades.md#external-collections): a separate program
+using the public `pkg/external` SDK, dropped into the directory `PLEIADES_COLLECTIONS_DIR`
+names. `pleiades forge new-external <namespace.method>` scaffolds a working one. Device
+types and sync plugins still live under `internal/`, so adding one of those still means
+contributing to this repository or a fork of it.
 
 **Why "runbook" and not "playbook"?** "Playbook" is reserved for a real Ansible
 artifact. A Pleiades runbook mirrors a lot of a playbook's shape on purpose, but it is

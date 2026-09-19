@@ -6,7 +6,7 @@ status: beta
 
 Creates an archive (tar or tar.gz) from files on the target.
 
-Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it.
+Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it. A check reads what a real run reads and runs no tar. A src, or the directory the archive would go in, that is missing when a check runs makes the call unchecked rather than failed, since an earlier task in the same run may be what creates it.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Creates path as a tar archive of src, entirely from files already on the target 
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

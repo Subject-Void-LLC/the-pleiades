@@ -15,6 +15,18 @@
           },
           "type": "array"
         },
+        "check_mode": {
+          "description": "Run this task (and, on a block, its block, rescue and always tasks) in check mode, even in a real run. Only true; false is refused.",
+          "oneOf": [
+            {
+              "const": true
+            },
+            {
+              "pattern": "^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|[Yy]|[Tt])$",
+              "type": "string"
+            }
+          ]
+        },
         "fqcn": {
           "description": "The action this task performs: an engine keyword or a namespaced Collection method.",
           "type": "string"
@@ -122,8 +134,21 @@
   },
   "$id": "https://pleiades.dev/schemas/runbook.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "The native Pleiades automation format. Not an Ansible playbook: a top-level YAML list is rejected.",
   "properties": {
+    "check_mode": {
+      "description": "Make the whole run a check. Only true; false is refused.",
+      "oneOf": [
+        {
+          "const": true
+        },
+        {
+          "pattern": "^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|[Yy]|[Tt])$",
+          "type": "string"
+        }
+      ]
+    },
     "hosts": {
       "description": "Default target for a task that does not set its own.",
       "type": "string"
@@ -140,6 +165,10 @@
         }
       },
       "type": "object"
+    },
+    "name": {
+      "description": "The runbook's human title.",
+      "type": "string"
     },
     "posttasks": {
       "items": {

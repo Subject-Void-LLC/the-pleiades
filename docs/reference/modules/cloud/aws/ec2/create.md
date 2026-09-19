@@ -6,7 +6,7 @@ status: beta
 
 Launches an EC2 instance via the AWS API.
 
-Makes sure an instance tagged Name=name exists among the account/region's non-terminated instances, launching one from image_id if none does. This is a narrow slice of amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of a matching instance's configuration against what was requested. An instance already present under that name is left exactly as it is, regardless of whether its image or instance type match; this method never recreates. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport.
+Makes sure an instance tagged Name=name exists among the account/region's non-terminated instances, launching one from image_id if none does. This is a narrow slice of amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of a matching instance's configuration against what was requested. An instance already present under that name is left exactly as it is, regardless of whether its image or instance type match; this method never recreates. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport. A check looks the name up and, when nothing matches, predicts a launch without sending RunInstances, not even as a dry run; it leaves the instance ID and state out, since AWS assigns both.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Makes sure an instance tagged Name=name exists among the account/region's non-te
 | Capabilities | `AWSAPICapable` |
 | Transports | - |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

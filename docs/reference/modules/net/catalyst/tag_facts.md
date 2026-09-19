@@ -15,6 +15,7 @@ Reads every tag the targeted Catalyst Center knows about, and separates the cont
 | Capabilities | `CatalystAPICapable` |
 | Transports | `https` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

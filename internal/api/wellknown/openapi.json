@@ -5855,6 +5855,15 @@
                             "description": "Which registered launch kind ran.",
                             "type": "string"
                           },
+                          "mode": {
+                            "description": "execute for a real run; check for a run that asked every task what it would change and changed nothing, so its outcomes describe what a real run would have done; unreadable for a record whose mode is not either, which fan-out refuses to dispatch. Always present: a job recorded before check mode existed reads execute.",
+                            "enum": [
+                              "execute",
+                              "check",
+                              "unreadable"
+                            ],
+                            "type": "string"
+                          },
                           "runbook_id": {
                             "type": "string"
                           },
@@ -5968,6 +5977,10 @@
                       },
                       "type": "array"
                     },
+                    "check_complete": {
+                      "description": "On a check that has finished: whether it covered everything it targeted, every device checked successfully with no task left unchecked. Absent on a real run and while a check is still running.",
+                      "type": "boolean"
+                    },
                     "dispatched": {
                       "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
                       "type": "integer"
@@ -5989,6 +6002,15 @@
                     },
                     "kind": {
                       "description": "Which registered launch kind ran, and therefore which execution adapter handled it.",
+                      "type": "string"
+                    },
+                    "mode": {
+                      "description": "execute for a real run; check for a run that asked every task what it would change and changed nothing, so its outcomes describe what a real run would have done; unreadable for a record whose mode is not either, which fan-out refuses to dispatch. Always present: a job recorded before check mode existed reads execute.",
+                      "enum": [
+                        "execute",
+                        "check",
+                        "unreadable"
+                      ],
                       "type": "string"
                     },
                     "organization": {
@@ -6034,8 +6056,12 @@
                             "type": "string"
                           },
                           "result_reason": {
-                            "description": "Present only for a failed result.",
+                            "description": "Present for a failed result, and for a check that could not check every task, where it says how many.",
                             "type": "string"
+                          },
+                          "unchecked": {
+                            "description": "How many tasks a check could not check on this device. Absent when there were none.",
+                            "type": "integer"
                           }
                         },
                         "type": "object"
@@ -6049,6 +6075,10 @@
                     "template_name": {
                       "description": "That template's name as it was at launch. Captured rather than resolved live: a job's history has to outlive the template.",
                       "type": "string"
+                    },
+                    "unchecked": {
+                      "description": "How many tasks a check could not check, across every device. Absent when there were none.",
+                      "type": "integer"
                     }
                   },
                   "type": "object"
@@ -6140,6 +6170,10 @@
                       },
                       "type": "array"
                     },
+                    "check_complete": {
+                      "description": "On a check that has finished: whether it covered everything it targeted, every device checked successfully with no task left unchecked. Absent on a real run and while a check is still running.",
+                      "type": "boolean"
+                    },
                     "dispatched": {
                       "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
                       "type": "integer"
@@ -6161,6 +6195,15 @@
                     },
                     "kind": {
                       "description": "Which registered launch kind ran, and therefore which execution adapter handled it.",
+                      "type": "string"
+                    },
+                    "mode": {
+                      "description": "execute for a real run; check for a run that asked every task what it would change and changed nothing, so its outcomes describe what a real run would have done; unreadable for a record whose mode is not either, which fan-out refuses to dispatch. Always present: a job recorded before check mode existed reads execute.",
+                      "enum": [
+                        "execute",
+                        "check",
+                        "unreadable"
+                      ],
                       "type": "string"
                     },
                     "organization": {
@@ -6206,8 +6249,12 @@
                             "type": "string"
                           },
                           "result_reason": {
-                            "description": "Present only for a failed result.",
+                            "description": "Present for a failed result, and for a check that could not check every task, where it says how many.",
                             "type": "string"
+                          },
+                          "unchecked": {
+                            "description": "How many tasks a check could not check on this device. Absent when there were none.",
+                            "type": "integer"
                           }
                         },
                         "type": "object"
@@ -6221,6 +6268,10 @@
                     "template_name": {
                       "description": "That template's name as it was at launch. Captured rather than resolved live: a job's history has to outlive the template.",
                       "type": "string"
+                    },
+                    "unchecked": {
+                      "description": "How many tasks a check could not check, across every device. Absent when there were none.",
+                      "type": "integer"
                     }
                   },
                   "type": "object"
@@ -11425,6 +11476,208 @@
         ],
         "summary": "Update a template",
         "x-link-relation": "update"
+      }
+    },
+    "/templates/{id}/check": {
+      "post": {
+        "description": "Launches a template exactly as launch_template does, except that the run is a check: each task reports what it would change and changes nothing, and a task whose method cannot be checked is named as unchecked rather than run. The request body is launch_template's. A check can be asked for without the template opening its mode field, because a check can only make a run change less; a body whose overrides ask for any other mode is refused rather than overruled. The job records mode check, so a relaunch of it is a check too. A check travels to Runners on its own subject, which a Runner that predates check mode never reads: such a Runner leaves the check waiting rather than running it for real. It needs runbook:check, which runbook:execute implies. A check asked for by a caller without runbook:execute never runs an external Collection program's check, which nothing has proven only reads: those tasks are reported unchecked.",
+        "operationId": "check_template",
+        "parameters": [
+          {
+            "description": "The template's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Every field is optional: launching a template that opens nothing is a POST with no body.",
+                "properties": {
+                  "answers": {
+                    "description": "This launch's survey answers, keyed by variable.",
+                    "type": "object"
+                  },
+                  "config": {
+                    "description": "A stored launch configuration to launch from, applied beneath overrides. Must belong to this template.",
+                    "type": "integer"
+                  },
+                  "credentials": {
+                    "additionalProperties": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "description": "Credential inputs this launch was asked for at run time, keyed by credential id and then by input id. Only inputs whose credential type declares ask_at_runtime are read; anything else is ignored. These values are never persisted: they are not recorded on the launch configuration, they are not written to the job, and a job launched with them cannot be relaunched. Supply them again instead.",
+                    "type": "object"
+                  },
+                  "overrides": {
+                    "description": "This launch's own values, keyed by launch field name.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "ignored_fields": {
+                      "description": "Every value the caller supplied that was not applied. Always present, empty when everything was applied: a key that vanished when the list was empty would make \"nothing was refused\" indistinguishable from \"this server does not report refusals\".",
+                      "items": {
+                        "properties": {
+                          "layer": {
+                            "description": "Where it was supplied: the saved configuration, or this launch.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "The field the caller supplied.",
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Why it was not applied, in words a caller can act on.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "job_id": {
+                      "description": "The server-generated job id. Poll GET /jobs/{job_id} with it.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "Always \"accepted\".",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The check was persisted and will fan out asynchronously."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or id is not a positive integer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No identity on the request context."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id, or no such saved configuration on it."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, or this controller does not register the template's kind."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job could not be persisted or published."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:check"
+            ]
+          }
+        ],
+        "summary": "Check a template",
+        "x-link-relation": "check"
       }
     },
     "/templates/{id}/configs": {

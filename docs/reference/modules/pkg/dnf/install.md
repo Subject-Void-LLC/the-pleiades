@@ -15,6 +15,7 @@ Makes sure a package is present on a Red Hat-family host, installing it if it is
 | Capabilities | `DnfCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

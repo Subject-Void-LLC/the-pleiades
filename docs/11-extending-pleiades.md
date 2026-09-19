@@ -4,46 +4,68 @@ status: beta
 
 # Extending Pleiades
 
-This book covers how the catalog, device types, and sync plugins actually grow
-today. Read the framing carefully: this is a contributor workflow, not a
-third-party plugin system.
+This book covers how the catalog, device types, and sync plugins grow. There are
+two ways to add a Collection method, and only one way to add anything else:
 
-## The extension surface today: one repository, no stability tiers
+- **Contribute it** (every kind of extension): write it in this repository, or a
+  fork, and build your own binary.
+- **Ship it as an external Collection** (Collection methods only): build a separate
+  program with the public `pkg/` SDK and point Pleiades at the directory it lives in.
+  No fork and no rebuild of Pleiades. See [External Collections](#external-collections).
 
-Every Collection method, device type, and sync plugin lives under `internal/`. Go's
-own visibility rule makes an `internal/` package reachable only from code inside
-this module or a fork of it, so there is no way to add one from outside this
-repository's own source tree today. That means:
+## The extension surface today
 
-- There are no stability tiers (`experimental`/`beta`/`stable` for an extension
-  API) yet, because there is no external extension API yet to tier.
-- "Extending Pleiades" means contributing to this repository (or a fork), building,
-  and shipping your own binary. It does not mean installing a third-party package
-  into a stock release, the way an Ansible collection or an AWX execution
-  environment does.
-- A real out-of-tree extension mechanism (loading a Collection method, device type,
-  or plugin without a fork and a rebuild) is designed but not built. When it lands,
-  this section is where its stability tiers will be documented; until then, treat
-  every extension point below as "internal, contributor-only."
+Built-in Collection methods, device types, and sync plugins live under `internal/`.
+Go's own visibility rule makes an `internal/` package reachable only from code inside
+this module or a fork of it, so device types and sync plugins can still only be added
+by contributing to this repository. That means:
+
+- "Extending Pleiades" with a device type or a sync plugin means contributing to this
+  repository (or a fork), building, and shipping your own binary.
+- A Collection method is the exception. An external Collection imports only `pkg/`
+  (`pkg/external`, `pkg/collection`, `pkg/sdk` and the other shared primitives there),
+  so it builds outside this repository against a stock release. The contract it
+  builds against is versioned and has a stability tier of its own; see
+  [Releases and stability](13-releases-and-stability.md).
+- What is not built yet: publishing and installing an external Collection through a
+  container registry, and signature verification of one. Today you place the program
+  in a directory yourself, and the directory's own permissions are the trust
+  boundary. See [the trust model](#the-trust-model-and-its-limits).
 
 ## Forge commands
 
-`pleiades forge` scaffolds the three kinds of extension: a new Collection method
-(`new-collection`), a new device type (`new-device`), and a new sync plugin
-(`new-plugin`). See [the generated CLI reference](reference/cli.md#pleiades-forge)
-for every flag each one accepts; this section covers what each one actually
-produces and what you do with it afterward.
+`pleiades forge` scaffolds the kinds of extension: a new Collection method
+(`new-collection`), a new device type (`new-device`), a new sync plugin
+(`new-plugin`), and a whole external Collection program (`new-external`). See
+[the generated CLI reference](reference/cli.md#pleiades-forge) for every flag each one
+accepts; this section covers what each one actually produces and what you do with it
+afterward.
+
+`forge new-external acme.motd.read` writes a directory, `acme-motd-read/` unless
+`--dir` names another, holding a program that builds with `go mod tidy` and `go build`:
+`main.go`, the method with a working read-only body (it runs `uname -a` on the target and
+records the output), a test that runs the program's own `describe`, a README with the
+build and install steps, and a `go.mod` holding only a `module` line and a `go` line. It
+names no version of Pleiades, because the right one is a version the `go` command works
+out itself: `go mod tidy` resolves it through the module proxy and records its checksum.
+The README also gives the offline route, a `replace` pointing at a local checkout, as a
+step you take on purpose, since a `replace` is not checked against anything. The
+`go.mod` makes the program a module of its own, so one scaffolded inside another
+checkout stays out of that checkout's `./...`; `--no-go-mod` leaves it out, for a program
+meant to join a module of yours. Nothing in this repository needs wiring afterward.
 
 ## Generated repository file reference
 
-Each `forge` command writes exactly two files, gofmt-clean, via Go's own
-`go/format` package (no `gofmt` subprocess involved):
+Each in-repository `forge` command writes exactly two files, and `new-external` writes
+a program's five, with the Go files gofmt-clean via Go's own `go/format` package (no
+`gofmt` subprocess involved):
 
 | Command | Files written |
 |---|---|
 | `forge new-collection` | `internal/catalog/<namespace>/<method>.go`, plus a matching `_test.go` |
 | `forge new-device` | `internal/inventory/devices/<vendor>/<type>.go`, plus a matching `_test.go` |
 | `forge new-plugin` | `internal/inventory/plugins/<name>/<name>.go`, plus a matching `_test.go` |
+| `forge new-external` | `<dir>/main.go`, `<dir>/<method>.go`, `<dir>/<method>_test.go`, `<dir>/README.md`, `<dir>/go.mod` (not with `--no-go-mod`) |
 
 None of the three wires its own output into the binary automatically. A generated
 Collection method registers itself into `pkg/collection` via its own package
@@ -68,6 +90,16 @@ an `Invoke` function matching:
 ```go
 func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error)
 ```
+
+A method may also carry a `Check` function with the same signature, declared by
+setting `Manifest.SupportsCheck`. It is what `pleiades run --mode check` calls in
+place of `Invoke`: it reads the device, works out whether a real run would change
+anything, reports that as `Result.Changed`, and changes nothing. See
+[Check mode support](#check-mode-support) in the worked example.
+
+A generated stub states `SupportsCheck: false` with a comment saying how to add check
+support once the method is implemented; `collection.Register` refuses check support on a
+method that is still a stub.
 
 `forge new-collection` generates a stub whose `Manifest.Status` is
 `StatusDeclared` and whose `Invoke` refuses with an explicit "not implemented"
@@ -287,6 +319,80 @@ them destroys the information permanently.
 the dispatcher short-circuits with "declared but not implemented" and your body
 is never reached.
 
+#### Check mode support
+
+If the method reads state before it acts, it can also answer
+`pleiades run --mode check`, and it should. Add a `Check` function beside `Invoke` and
+set `SupportsCheck: true`; `collection.Register` refuses one without the other. The
+reliable way to write it is to give `Invoke` and `Check` one shared code path that
+differs only in whether the write happens, so the check reaches its answer through
+exactly the read and comparison a real run makes:
+
+```go
+func Directory(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+    return directory(ctx, rc, device, params, collection.ModeExecute)
+}
+
+func CheckDirectory(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+    return directory(ctx, rc, device, params, collection.ModeCheck)
+}
+```
+
+That is `file.directory`'s real code. The shared body parses the params, connects,
+reads the path and refuses a file standing where the directory should be, in both
+modes; only after that does the check branch off to predict instead of write. For an
+attribute change, `pkg/remotefile` offers `Differs`, `PredictApply` and `PredictCreate`,
+which are the same comparison `remotefile.Apply` acts on, so a prediction cannot
+disagree with the real run.
+
+Three rules for a check, and the engine enforces the third one:
+
+- It changes nothing on the device, on every path.
+- It reports `Changed: true` when a real run would change something. If it records a
+  diff, `Before` is what it read and `After` is what a real run would leave.
+- It never calls `sdk.RecordInverse`. Nothing was done, so there is nothing to undo.
+  A check result that carries an undo instruction fails the task.
+
+The engine marks every check result, and its diff, with `predicted: true`
+(`sdk.StatPredicted`); a method never sets it, and a real run's result that carries it
+is refused.
+
+A method whose effect cannot be known without running it (a script, an arbitrary
+command) leaves `SupportsCheck` false and says why in `Manifest.NoCheckReason`, in words
+an operator planning a dry run can act on. A check run then names its task as "could not
+check" with that reason and ends with status 3, rather than guessing or counting it as a
+success; `pleiades validate` gives the same reason when it refuses `check_mode` on the
+task, and the method's reference page prints it. `collection.Register` refuses a reason on
+a method that does support check. Every built-in method without check support carries
+one; for an external Collection's method it is optional, and without it the answer is the
+bare "does not declare check support".
+
+A method that can check some calls and not others supports check mode, and its `Check`
+answers the calls it cannot with `collection.CannotCheck(reason)`:
+
+```go
+if params["creates"] == nil {
+    return collection.Result{}, collection.CannotCheck("without creates, whether the command runs cannot be known without running it")
+}
+```
+
+That task is then reported as "could not check" with your reason, exactly like a method
+with no check support, while the calls your `Check` can answer are checked. Return it
+only from `Check`: from `Invoke` it is an ordinary failure. It works the same from an
+external Collection, where it crosses to Pleiades as the response's `cannot_check` flag,
+and a Pleiades build that predates the flag reports such a task as failed rather than
+unchecked.
+
+When the parameters alone decide it, as they do for `exec.command`, a built-in method
+also sets `Descriptor.CheckCall` to that same function (`func(params map[string]any)
+error`). Validation calls it, so `check_mode: true` on a call that could only ever be
+reported unchecked is refused when the runbook is written rather than discovered when
+it runs. Keep the two in step by having `Check` call the very function you set there.
+`CheckCall` reads nothing but the parameters and never contacts a device; an answer that
+depends on the device's state (a missing input a real run's command needs, say) belongs
+in `Check` alone. It is a function, so an external Collection's description cannot carry
+one, and its call-level answer arrives from its `Check` at run time instead.
+
 ### 7. Wire it in
 
 A generated package's `init()` only runs if something imports it. For a
@@ -360,6 +466,180 @@ new primitive (`pkg/remotefile` exists), no new capability
 (`POSIXFileSystemCapable` exists and `linux.Server` declares it), and no new
 namespace directory. It is steps 4 through 8 only, and the whole change is a
 catalogdata entry, one `go generate`, one hand-completed body, and its tests.
+
+## External Collections
+
+An external Collection is a Collection method (or several) built as a separate program,
+outside this repository, and run by Pleiades as a child process once per task. It
+imports only `pkg/`, so it builds against a stock release, and a runbook calls its
+methods exactly as it calls a built-in one. [`examples/external_collection`](../examples/external_collection/)
+is a complete, working one.
+
+### The program
+
+The whole `main` function is one call to `external.Main`, and each method is an
+ordinary `collection.Descriptor`, written exactly as a built-in method's is:
+
+```go
+package main
+
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+
+func main() {
+    external.Main(noteWriteDescriptor())
+}
+```
+
+`external.Main` validates every method through the same `collection.Register` a
+built-in method goes through: a namespaced name, known capabilities, a reversibility
+answer, check support that agrees with itself, and `StatusImplemented` (a program
+exists to run code, so a declared stub is refused).
+
+### Installing it
+
+Build it and put the binary in a directory, then name that directory in
+`PLEIADES_COLLECTIONS_DIR` wherever `pleiades` or `pleiades-runner` runs:
+
+```sh
+go build -o ~/pleiades-collections/note ./examples/external_collection
+chmod 700 ~/pleiades-collections
+export PLEIADES_COLLECTIONS_DIR=~/pleiades-collections
+pleiades collection approve note
+pleiades doc --list example
+```
+
+Nothing in the directory runs until you approve its exact build. `pleiades collection
+approve note` runs the program's `describe`, confined, shows its SHA-256 digest and
+every method it says it provides (what each needs, and whether it supports check mode),
+and asks. The approval is recorded, with your account name and the time, in
+`.pleiades-approvals.json` inside the directory. A rebuilt program is a new build and
+must be approved again. For an image build, or to approve the next build on every
+Runner before it arrives, `pleiades collection approve note --digest sha256:<hex>`
+records a build without running anything; a program may have several approved builds
+at once. `pleiades collection revoke note` withdraws them, and takes effect from the
+next call, even in a Runner that is already running. `pleiades collection list` shows
+what is approved.
+
+Every program in the directory is loaded when `pleiades run`, `pleiades validate` or
+`pleiades doc` starts, and when the Runner starts. From then on its methods are
+checked by `pleiades validate`, listed by `pleiades doc`, and dispatched by the engine
+like any other. The Controller never runs a Collection method, so it needs no copy.
+
+### The contract
+
+Pleiades runs the program with one argument:
+
+- `describe`: the program prints every method and its full manifest as JSON on
+  stdout. This happens once, when the directory is loaded.
+- `invoke`: the program reads one request from stdin (the method, the mode, the
+  task's params, the target device's name, address and capabilities, and the
+  credential Pleiades resolved for the task), runs the method, and writes one response
+  to file descriptor 3: whether anything changed, the stats it recorded, or an error.
+
+The credential is not a new mechanism. It is exactly what a built-in method receives
+through `InjectSecrets()`: on the Walk tier, the machine credential bound to the
+template, resolved when the job fans out, or the device's own stored credential when the
+template binds none; on the Crawl tier, the device's stored credential. Bind credentials
+to templates as you already do, and an external method uses them.
+
+The request and response are the same JSON messages the Runner already exchanges with
+its own per-task child process, served by the same code (`external.ServeChild`), so a
+method's result is the same to the engine whichever kind of process produced it.
+
+The program never runs on a managed device. It runs beside Pleiades and reaches the
+device the way a built-in method does, through `sdk.Connect` and the credential in the
+request.
+
+### The trust model and its limits
+
+An external Collection runs with the same privileges as the `pleiades` process that
+starts it and receives device credentials, so what may be loaded is decided by the
+directory, and checked every time:
+
+- **The directory and every program in it** must be owned by you or by root and must
+  not be writable by your group or by anyone else. Anything else in the directory
+  (a non-executable file, a symlink) is refused rather than skipped. Names starting
+  with `.` are ignored.
+- **Each program's exact build must be approved** in the directory's approval list
+  (`pleiades collection approve`). An unapproved program is refused before it runs at
+  all, naming the command; a build changed since it was approved is refused naming
+  both digests. The list is held to the same ownership rules as the programs and is
+  refused whole if any entry in it is malformed. It records a deliberate step and who
+  took it; it is not a new trust root, since whoever can replace a program can also
+  edit the list.
+- **Each program's SHA-256** is recorded when it is loaded and checked again, with its
+  approval, immediately before every run. A program changed after loading is refused,
+  naming both digests. The run then executes the very file that was checked, through
+  its open descriptor rather than its name, so a program swapped in under the same
+  name in between is not what runs.
+- **Pleiades's namespaces are reserved.** An external method may not use a namespace
+  that any built-in method uses (`file`, `svc`, `net` and the rest, read from the
+  running build, so a namespace the catalog adds later is reserved too), nor
+  `pleiades` or `ansible`. A name in one of them can only mean code that ships with
+  Pleiades, so name your methods under your organization's name. `pleiades run
+  --verbose` also prints, beside every result from an external program, the program
+  and digest that produced it.
+- **Nothing is replaced.** A method name that is already registered, whether by a
+  built-in method or by another program, is refused at load, and a program that fails
+  to load stops the command. A refused program never falls through to some other
+  implementation of the same name.
+- **What crosses the boundary** is only what is listed above. The credential travels on
+  stdin, never in the command line or the environment. The program starts with its
+  environment reduced to `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `TZ` and
+  `PLEIADES_KNOWN_HOSTS`, so nothing else is handed to it. That limits what it is
+  given; confinement, below, is what limits what it can reach. Its own stdout and
+  stderr are captured, capped, masked for the credential, and logged, never parsed.
+- **A program's text cannot take over your terminal.** A description holding a
+  character a terminal acts on instead of showing (an escape sequence, a carriage
+  return, a bidirectional override) is refused at load. A method's own error message,
+  its results, and everything `pleiades collection approve` shows are printed with
+  such characters escaped, so a program cannot draw fake output, such as a fake
+  "approved" line, over the real output.
+- **Every run is confined.** A program runs as the user running Pleiades (on a Runner,
+  the Runner's user), so on its own it could read whatever that user can: the project's
+  credential store and its key under `.pleiades/`, your SSH keys, and the Pleiades
+  process's own starting environment under `/proc`. Instead, every run is confined with
+  Linux's Landlock to its own directory, the system's libraries, certificates, resolver
+  files and time zone database, your `known_hosts` file, `/dev/null`, and a private
+  temporary directory (its `TMPDIR`, removed when it exits). On a kernel with Landlock
+  ABI 6 or later it also cannot signal Pleiades. Pleiades marks itself non-dumpable
+  before starting a program, so the program can't read Pleiades's memory or
+  environment. Network access is not confined, since a method must reach devices on
+  their own ports.
+- **Checks stay off locked devices.** A method's `Check` from an external program is
+  never run against a simulate-locked device (a newly discovered device nobody has
+  approved for changes yet). The task is reported as not checked there, because
+  nothing has proven a third party's check only reads. Built-in checks, each tested
+  against its real run, still reach such a device.
+- **Granting more to read.** A method that needs a local file, for example one it
+  uploads, can be given read access with `PLEIADES_COLLECTIONS_READ_PATHS`: absolute
+  paths separated like `PATH`, each of which must exist. A path that is, contains or
+  sits inside the project's `.pleiades` directory is refused, and so is one that is or
+  contains your home directory. The collections directory itself is held to the same
+  rule.
+- **Every run is bounded**: a wall-clock limit, a cap on output and on the response,
+  and a defined error for a program that hangs, floods its output, exits without
+  answering, or answers with something that is not a valid response.
+
+What this does not give you yet, stated plainly:
+
+- **No signature verification.** Nothing checks who built a program. The directory's
+  permissions are the whole trust decision, so treat adding a program to it the way you
+  would treat installing any other binary that will hold your device credentials.
+- **No registry.** Publishing and installing through a container registry is designed
+  and not built. The approval list is the lockfile it is meant to extend.
+- **No engine version check on development builds.** A method's `EngineVersion`
+  (`">=1.2.0"`) is enforced by a release build, which refuses a program stating a newer
+  release than itself; a release candidate counts as the release it is for. Every build
+  says which it is: `pleiades version` and `runner version` print the same string, the
+  release on a release build and `0.0.0-dev+<commit>` otherwise. A development build,
+  which is every build until the first release, cannot compare and loads the method,
+  warning once per program, and `pleiades doc` marks the constraint "not checked".
+  `forge new-external` writes the generating release as the program's constraint on a
+  release build, and none on a development build.
+- **Linux only.** Loading needs Landlock (Linux 5.13 or later, enabled in the
+  kernel), so it is refused on an older kernel, on macOS, BSD and Windows, rather than
+  running anything unconfined. WSL 2 is Linux and works.
 
 ## The sync plugin contract and its conformance suite
 
