@@ -32,12 +32,18 @@ type fakeSession struct {
 	// on the RESULT should not have to predict the exact line to key on.
 	defaultOutput string
 	commandErr    error
-	configErr     error
-	closed        bool
+	// commandErrs fails one line by name, for a method that sends several
+	// and has to report which of them the device could not answer.
+	commandErrs map[string]error
+	configErr   error
+	closed      bool
 }
 
 func (f *fakeSession) Command(ctx context.Context, line string) (string, error) {
 	f.commandCalls = append(f.commandCalls, line)
+	if err, ok := f.commandErrs[line]; ok {
+		return "", err
+	}
 	if f.commandErr != nil {
 		return "", f.commandErr
 	}
@@ -74,7 +80,17 @@ type stubContext struct {
 	// map could not tell the two apart, so it could not prove the
 	// distinction the method's own doc comment claims.
 	facts map[string]any
+
+	// failStat and failFact name the one key whose recording fails, so a
+	// test can reach the branch where the device answered and recording
+	// its answer did not. Naming one key rather than failing everything is
+	// what lets a test reach the second of two recording call sites.
+	failStat string
+	failFact string
 }
+
+// errRecording is what a stub context's refusal to record carries.
+var errRecording = errors.New("recording the result failed")
 
 func newStubContext() *stubContext {
 	return &stubContext{stats: map[string]any{}, facts: map[string]any{}}
@@ -83,11 +99,17 @@ func newStubContext() *stubContext {
 func (c *stubContext) InjectSecrets() map[string]string { return nil }
 
 func (c *stubContext) SetStat(key string, value any) error {
+	if c.failStat != "" && c.failStat == key {
+		return errRecording
+	}
 	c.stats[key] = value
 	return nil
 }
 
 func (c *stubContext) EmitFact(key string, value any) error {
+	if c.failFact != "" && c.failFact == key {
+		return errRecording
+	}
 	c.facts[key] = value
 	return nil
 }

@@ -95,7 +95,15 @@ func useSession(t *testing.T, f *fakeSession) *netconf.Datastore {
 type stubContext struct {
 	stats map[string]any
 	facts map[string]any
+
+	// failStat names the one stat whose recording fails, so a test can
+	// reach the branch where the device answered and recording its answer
+	// did not.
+	failStat string
 }
+
+// errRecording is what a stub context's refusal to record carries.
+var errRecording = errors.New("recording the result failed")
 
 func newStubContext() *stubContext {
 	return &stubContext{stats: map[string]any{}, facts: map[string]any{}}
@@ -104,6 +112,9 @@ func newStubContext() *stubContext {
 func (c *stubContext) InjectSecrets() map[string]string { return nil }
 
 func (c *stubContext) SetStat(key string, value any) error {
+	if c.failStat != "" && c.failStat == key {
+		return errRecording
+	}
 	c.stats[key] = value
 	return nil
 }
