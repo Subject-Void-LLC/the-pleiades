@@ -239,32 +239,66 @@ the cause was found, and nothing about it is discoverable from the symptom.
 
 `make push-gate` and `make ci` each end by writing `.git/pleiades-gate.json` through
 `tools/gatereceipt`, naming the commit they verified, which gate ran, and when. The hook
-reads it back for the exact commits being pushed. It refuses for three distinct reasons and
-says which: no receipt, a receipt for a different commit, or one past `MaxReceiptAge` (a
-day, which exists for `govulncheck` alone, since that is the one check whose answer moves
-without the tree moving). `git push --no-verify` still skips it.
+pipes git's own pre-push lines straight into `gatereceipt verify --push-stdin`, which
+decides **each ref's tip**, and every decision lives in that command so it is unit tested
+against real repositories rather than in shell that splits its own input.
+
+What it lets through, and what each allowance is worth knowing for:
+
+- the receipt's own commit, which is the ordinary push;
+- an object that **peels** to it, because git hands a hook an annotated tag's *tag object*,
+  not its commit, so a tag cut at the commit that just passed used to be refused at the one
+  moment a developer is most certain they did everything right;
+- a ref **created or fast-forwarded** onto a commit already inside the gated commit's
+  history, since those commits travel under the gated tip anyway. Moving an existing ref
+  *backwards* is refused, because the remote would then serve a tree no gate examined;
+- a push that only deletes refs, which sends no code.
+
+Everything else is refused, each with its own message and the command that fixes it: no
+receipt at all, an unreadable one, one that does not say which gate ran or names a gate
+this repository does not have, one dated ahead of the clock (an age is a subtraction, so a
+future date used to mean a receipt that never expired), one past `MaxReceiptAge` (a day,
+which exists for `govulncheck` alone, since that is the one check whose answer moves
+without the tree moving), a ref outside the gated history, a rewind, and an object that is
+not a commit at all. `git push --no-verify` still skips the lot.
+
+Two things this does **not** prove, both worth saying plainly. Only the tip is gated: a
+push sends every commit its tip can reach, and an intermediate commit that does not compile
+travels under a green receipt, exactly as it did under the hook that ran the suite inline.
+And hooks are opt-in per clone (`make hooks`), so a fresh clone pushes with nothing checking
+anything; the gate now warns at the end of a run when this clone is in that state.
 
 This is **stricter** than running the suite in the hook, which is worth stating because it
 looks like a loosening. That arrangement proved something about the *working tree* and then
 pushed *commits*; with uncommitted edits those are different code, and nothing noticed. A
 receipt is only issued from a clean tree, so the thing verified and the thing pushed are the
-same object by construction.
+same object by construction. It is also issued only when HEAD did not move while the gate
+ran, and the Makefile reads HEAD *while it parses itself* to make that checkable: the
+receipt used to name HEAD as it was when the gate's last line ran, twenty minutes after its
+first, so a commit made in that window collected a receipt for a tree nothing had examined
+and nothing could notice, since committing leaves the tree clean.
 
 `push-gate` itself is every check `ci` runs, with `test-race`/`test-integration` swapped for `tools/testgate`'s own
 invocations and `coverage` swapped for `go run ./tools/coverage-check -tolerant` (that
 tool runs its own separate full `go test ./... -cover` internally, so it needed the
 identical tolerance applied a second time, not just once at the test-race/
-test-integration layer). Both print a warning instead of failing the push when a test
-failure is confined to a package listed in `flaky-packages.json` (each entry with a
-written reason, mirroring `gosec-waivers.json`'s per-finding convention), classified by
-the shared `tools/internal/flakegate` package both tools use so they cannot disagree.
+test-integration layer). Both re-run every failure **alone** and decide on that: a test
+that passes by itself lost a race and is printed as a warning, a test that fails again
+fails the push, and more failures than `flakegate.MaxIsolationRetries` distinct tests fails
+without re-running anything, because that many at once is a change that broke something
+rather than a busy machine. `flaky-packages.json` (each entry with a written reason,
+mirroring `gosec-waivers.json`'s per-finding convention) no longer decides anything: a
+listed package gets **no protection from a real defect**, and an unlisted one is tolerated
+anyway when the re-run says contention. Its entries supply the reason printed beside a
+tolerated failure. Both tools share `tools/internal/flakegate` so they cannot disagree.
 This exists because packages that provision real ephemeral Docker containers or real
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
 flake under this kind of sandboxed environment's full parallel `-race` load —
 `FAILURE_PATTERNS.md` #61 — and pass individually every time. `make ci` itself is
-completely unaffected by any of this and stays exactly as strict. A build failure, or a
-test failure in any package not listed, still fails `push-gate` exactly like `ci`.
+completely unaffected by any of this and stays exactly as strict. A build failure still
+fails `push-gate` exactly like `ci`, and so does any test that fails a second time on its
+own.
 
 Read that tolerance more carefully now than you would have before: there is no stricter
 run waiting downstream of a push any more. `push-gate` used to be a preview of a gate

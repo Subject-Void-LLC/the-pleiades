@@ -10,9 +10,12 @@
 // This tool is deliberately not part of `make ci`, and GOSEC_VERSION-style
 // pinning does not apply to it: `make ci` still uses the bare
 // test-race/test-integration targets and hard-fails on anything at all.
-// Only the Makefile's push-gate target (used by .githooks/pre-push) calls
-// this tool, so this file changes how much local noise a developer fights
-// through before pushing, never what the strict gate accepts.
+// Only the Makefile's push-gate target calls this tool, so this file
+// changes how much local noise a developer fights through before pushing,
+// never what the strict gate accepts. (.githooks/pre-push runs no gate at
+// all; it reads back the receipt a gate run left behind, and a receipt
+// records WHICH gate ran precisely so a pass tolerated here cannot be read
+// as one `make ci` gave.)
 //
 // That distinction now carries more weight than it did when this was
 // written. .github/workflows/ci.yml no longer runs `make ci`; it runs
@@ -46,10 +49,9 @@ import (
 const goTestTimeout = "20m"
 
 // flakyPackagesPath is the repo-relative path to the waiver file, a
-// constant rather than a flag: this tool has exactly one caller
-// (.githooks/pre-push, via the Makefile's push-gate target), invoked from
-// the repo root, the same assumption gosec-check's loadWaivers makes about
-// gosec-waivers.json.
+// constant rather than a flag: this tool has exactly one caller (the
+// Makefile's push-gate target), invoked from the repo root, the same
+// assumption gosec-check's loadWaivers makes about gosec-waivers.json.
 const flakyPackagesPath = "flaky-packages.json"
 
 func main() {

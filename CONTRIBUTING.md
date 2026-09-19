@@ -45,15 +45,35 @@ miss findings CI does. Bumping a pinned version is a deliberate commit against t
 `Makefile`.
 
 `make hooks` points `core.hooksPath` at the tracked [`.githooks/`](.githooks/)
-directory, whose `pre-push` hook runs `make ci` and aborts the push if it fails. It is
-opt-in per clone because Git will not run a hook that arrived with a fetch until you
-ask it to. A full run takes minutes and needs Docker up, since several packages dial
-real ephemeral containers; skip a single push with `git push --no-verify`.
+directory. It is opt-in per clone because Git will not run a hook that arrived with a
+fetch until you ask it to, which also means a fresh clone pushes with nothing checking
+anything until you run it.
 
-Neither the hook nor a local run replaces CI. `govulncheck` queries a live
-vulnerability database, so a newly published advisory can turn CI red on a commit that
-passed locally an hour earlier. The pin closes the gap that is under this project's
-control; it does not pretend to eliminate it.
+The `pre-push` hook does **not** run the gate. Git opens its connection to the remote
+before calling the hook, so a suite that takes minutes in there kills the push with
+SIGPIPE and no output at all while printing "all checks passed". So the gate is a
+separate step you run on your own schedule, and it leaves a receipt naming the commit it
+verified:
+
+```bash
+make push-gate     # or make ci, which is stricter; minutes, and needs Docker up
+git push           # the hook reads the receipt back, in about a second
+```
+
+A receipt is only written from a clean tree, and only if HEAD did not move while the gate
+ran, so what was verified and what you are pushing are the same commit. The hook checks
+each ref's tip: the gated commit, an annotated tag pointing at it, a ref created or
+fast-forwarded onto a commit already inside its history, or a push that only deletes refs.
+Anything else is refused, naming the reason and the command that fixes it, and a receipt
+expires after a day because `govulncheck` reads a live advisory database. Skip a single
+push with `git push --no-verify`.
+
+Do not read a local pass as a CI pass, in either direction. `govulncheck` queries a live
+vulnerability database, so a newly published advisory can turn a commit red hours after it
+passed here; the version pin closes the gap under this project's control and does not
+pretend to eliminate it. In the other direction, the hosted job runs `make ci-remote`,
+which runs no tests at all, so every test result this project has comes from a run like
+the one above.
 
 ### Coverage
 
