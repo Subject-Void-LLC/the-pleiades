@@ -19,6 +19,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -66,6 +67,11 @@ type Plugin struct {
 	// means Connect has not run, which is what makes ErrNotConnected
 	// detectable rather than a nil-pointer panic later.
 	path string
+
+	// unplaced holds, by host name, why the last Discover could not
+	// resolve an entry's classify path, so Classify can quarantine that
+	// entry with the reason rather than a generic one.
+	unplaced map[string]string
 }
 
 // compile-time proof this plugin satisfies the port. Without it, a drift
@@ -108,15 +114,22 @@ func (p *Plugin) Discover(_ context.Context) (syncplugin.RecordIterator, error) 
 		return nil, err
 	}
 
+	// An entry whose classify path does not resolve becomes a record with
+	// no type, which Classify quarantines with the reason kept here. It
+	// used to end Discover with an error, so one typo in one entry stopped
+	// every other entry from syncing, where the plugin contract makes a
+	// record that cannot be placed a quarantine, never an error.
+	p.unplaced = map[string]string{}
 	records := make([]record.Record, 0, len(hosts))
 	for _, h := range hosts {
 		deviceType, err := inv.ResolveHostType(h, p.ruleSet)
-		if err != nil {
-			return nil, err
+		var caps []capability.Name
+		if err == nil {
+			caps, err = inv.ResolveHostCapabilities(h, p.ruleSet)
 		}
-		caps, err := inv.ResolveHostCapabilities(h, p.ruleSet)
 		if err != nil {
-			return nil, err
+			deviceType, caps = "", nil
+			p.unplaced[h.Name] = err.Error()
 		}
 
 		id := h.ID
@@ -149,6 +162,9 @@ func (p *Plugin) Discover(_ context.Context) (syncplugin.RecordIterator, error) 
 // the one case where the file failed to answer the question.
 func (p *Plugin) Classify(_ context.Context, rec record.Record) (syncplugin.Classification, error) {
 	if rec.Type == "" {
+		if reason, ok := p.unplaced[rec.Name]; ok {
+			return syncplugin.Quarantine("inventory file entry's classify path does not resolve: " + reason), nil
+		}
 		return syncplugin.Quarantine("inventory file entry has neither a type nor a resolvable classify path"), nil
 	}
 	return syncplugin.Classification{

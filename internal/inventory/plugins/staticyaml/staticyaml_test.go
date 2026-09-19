@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -257,6 +258,36 @@ func TestClassify_QuarantinesUntypedHost(t *testing.T) {
 	}
 	if report.Results[0].Reason == "" {
 		t.Error("expected a quarantined device to carry a reason explaining why")
+	}
+}
+
+// TestSync_AnUnresolvableClassifyPathIsQuarantinedNotFatal is the
+// regression test for one entry failing a whole sync. An entry whose
+// classify path resolved to nothing made Discover return an error, so a
+// single typo in one host stopped every other host from syncing, where the
+// plugin contract requires a record it cannot place to be quarantined with
+// a reason. The typed host beside it is the control that the sync ran.
+func TestSync_AnUnresolvableClassifyPathIsQuarantinedNotFatal(t *testing.T) {
+	// One path malformed, one well formed that matches no rule.
+	malformed := inv.HostSpec{ID: "33333333-3333-3333-3333-333333333333", Name: "typo1", Classify: []string{"no-such-branch"}}
+	unmatched := inv.HostSpec{ID: "44444444-4444-4444-4444-444444444444", Name: "typo2", Classify: []string{"no_such_branch"}}
+	path, repo := newProject(t, []inv.HostSpec{sampleHost, malformed, unmatched})
+
+	report, err := connected(t, path).Sync(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("Sync failed over one unresolvable entry: %v", err)
+	}
+	if got := report.Count(syncplugin.OutcomeAdded); got != 1 {
+		t.Errorf("expected the typed host to be added, got %d added (report: %+v)", got, report.Results)
+	}
+	if got := report.Count(syncplugin.OutcomeQuarantined); got != 2 {
+		t.Fatalf("expected both unresolvable hosts to be quarantined, got %d (report: %+v)", got, report.Results)
+	}
+	want := map[string]string{"typo1": "no-such-branch", "typo2": "no_such_branch"}
+	for _, res := range report.Results {
+		if res.Outcome == syncplugin.OutcomeQuarantined && !strings.Contains(res.Reason, want[res.Name]) {
+			t.Errorf("quarantined %q with reason %q, want a reason naming its classify path", res.Name, res.Reason)
+		}
 	}
 }
 
