@@ -565,7 +565,7 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	// organization edge; before Phase 21 a dispatch named a free-text
 	// group, which has no tenant to inherit, so Job.organization_id had
 	// existed since Phase 14 with nothing ever writing it.
-	jobID := uuid.New().String()
+	jobID := newJobID()
 	job := &dispatch.Job{
 		JobID:          jobID,
 		RunbookID:      resolved.Definition,
@@ -907,4 +907,21 @@ func (d *Dispatcher) LaunchScheduled(ctx context.Context, actor string, template
 	// run, so a scheduled check may do what that would.
 	jobID, _, err := d.LaunchTemplate(ctx, actor, templateID, cfg, nil, MayRunForReal(true))
 	return jobID, err
+}
+
+// newJobID mints a job id: a UUIDv7, so ids sort by creation time.
+//
+// GET /jobs lists newest first by ordering on the job id and uses the id as
+// its keyset cursor, which holds only for time-ordered ids. The schema's own
+// default is a v7 for exactly that reason, but a launch mints its id itself,
+// before saving, because the same id is the job.requested event's
+// idempotency key; it minted a random v4, so a template launch landed
+// anywhere in the list. NewV7 fails only when the system's entropy source
+// does, and then a v4 is still a valid, unique id, merely an unordered one,
+// the same fallback the schema and device ids take.
+func newJobID() string {
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
+	}
+	return uuid.New().String()
 }

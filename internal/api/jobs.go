@@ -172,12 +172,11 @@ type jobResponse struct {
 	// raw internal error.
 	FailureReason string `json:"failure_reason,omitempty"`
 
-	// Dispatched, Skipped, and Failed are the terminal per-device
-	// tallies (dispatch.Job's own DispatchedCount/SkippedCount/
-	// FailedCount field comments): they read 0 before State reaches
-	// "completed", regardless of how much fan-out work has actually
-	// happened. Tasks below is where a caller reads live progress
-	// instead.
+	// Dispatched, Skipped, and Failed are the per-device fan-out tallies
+	// (dispatch.Job's own DispatchedCount/SkippedCount/FailedCount field
+	// comments): they read 0 while the fan-out is still going and are
+	// final once it settles. Tasks below is where a caller reads live
+	// progress instead.
 	Dispatched int `json:"dispatched"`
 	Skipped    int `json:"skipped"`
 	Failed     int `json:"failed"`
@@ -242,7 +241,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 // The {id} URL parameter is validated as a UUID before it is used for
 // anything, the identical idiom and reasoning internal/api/logs.go's own
 // StreamLogs already uses for its own {id} param: every job id this
-// platform mints is a UUID (api.Dispatcher's own uuid.New()), so requiring
+// platform mints is a UUID (api.Dispatcher's own newJobID, a UUIDv7), so requiring
 // one closes the same class of hole a caller-controlled id reaching a
 // backing lookup could otherwise open, with no loss of function, and a
 // second, independently invented validation idiom for the identical

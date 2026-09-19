@@ -1,0 +1,1 @@
+Fixed `GET /api/v1/jobs` listing template launches out of order. A launch minted a random job id, so a new job could appear anywhere in the newest-first list and paging through it was unordered; job ids are now time-ordered, as the list assumes.
