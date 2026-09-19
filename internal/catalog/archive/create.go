@@ -199,11 +199,11 @@ func checkCreate(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Co
 	after := before.Map()
 	if changed {
 		if err := needExisting(ctx, conn, pathpkg.Dir(path), "the directory that would hold the archive,", remotefile.KindDirectory); err != nil {
-			return collection.Result{}, err
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		for _, p := range src {
 			if err := needExisting(ctx, conn, p, "src", ""); err != nil {
-				return collection.Result{}, err
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 		}
 		after = remotefile.PredictCreate(remotefile.KindFile, remotefile.Attributes{}).Map()

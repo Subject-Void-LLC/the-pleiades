@@ -247,3 +247,55 @@ func TestChecks_WhatTarNeedsIsMissing(t *testing.T) {
 		})
 	}
 }
+
+// TestChecks_FailWhenTheyCannotReadOrRecord covers a check that cannot
+// finish its reads or record its answer. A read that fails is a failure,
+// named as one, and never the "cannot check" answer a missing path gets:
+// that answer means the device was read and the path was not there, which
+// is not what happened. A stat or diff that cannot be recorded fails the
+// check, as it fails the real run, rather than reporting a decision with
+// nothing behind it.
+func TestChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "in.tar.gz")
+	buildTarGz(t, src, "hello.txt", "extracted")
+	create := map[string]any{"path": filepath.Join(dir, "out.tar"), "src": []any{src}}
+	extract := map[string]any{"src": src, "dest": filepath.Join(dir, "out")}
+
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		params  map[string]any
+		budget  int
+		failKey string
+		want    string
+	}{
+		// One session reads the archive's path; the directory that would
+		// hold it is the second read, and the server refuses it.
+		{"create, the holding directory cannot be read", "archive.create", create, 1, "", "archive.create"},
+		{"create, the path cannot be recorded", "archive.create", existingArchive(src), -1, "path", `injected failure recording "path"`},
+		{"create, the diff cannot be recorded", "archive.create", existingArchive(src), -1, sdk.StatDiff, "injected failure recording"},
+		{"extract, the dest cannot be recorded", "archive.extract", extract, -1, "dest", `injected failure recording "dest"`},
+		{"extract, the diff cannot be recorded", "archive.extract", extract, -1, sdk.StatDiff, "injected failure recording"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarnessBudgeted(t, tc.budget)
+			h.rc.failOnKey = tc.failKey
+			_, err := lookup(t, tc.fqcn).Check(context.Background(), h.rc, h.device, h.params(tc.params))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("check = %v, want an error containing %q", err, tc.want)
+			}
+			var cannot *collection.CannotCheckError
+			if errors.As(err, &cannot) {
+				t.Errorf("a failed read or record was answered as a check that cannot happen: %v", err)
+			}
+		})
+	}
+}
+
+// existingArchive is archive.create's params for an archive that already
+// exists (the tarball src itself), so the check predicts no change and goes
+// straight to recording its answer.
+func existingArchive(existing string) map[string]any {
+	return map[string]any{"path": existing, "src": []any{existing}}
+}

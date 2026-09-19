@@ -192,11 +192,11 @@ func checkExtract(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.C
 	const fqcn = "archive.extract"
 	if before.Exists() {
 		if err := needExisting(ctx, conn, dest, "dest", remotefile.KindDirectory); err != nil {
-			return collection.Result{}, err
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
 	if err := needExisting(ctx, conn, src, "src", ""); err != nil {
-		return collection.Result{}, err
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if err := rc.SetStat(extractStatDest, dest); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
