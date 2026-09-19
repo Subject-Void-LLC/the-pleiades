@@ -184,6 +184,16 @@ type JournalEntry struct {
 	// and the operator still has the runbook.
 	FQCNUnresolved bool `json:"fqcn_unresolved"`
 
+	// ProviderProgram (kind 1) and ProviderDigest (kind 4) name the
+	// external Collection program that provides FQCN's method, and the
+	// digest it was loaded with, resolved at write time through the
+	// registry exactly as FQCN is (collection.Descriptor.Provider, which
+	// only the loader sets). Both are empty for a method compiled into this
+	// binary. They say whose code did the work to a reader far from the
+	// run; neither is text from the program, the runbook or a device.
+	ProviderProgram string `json:"provider_program"`
+	ProviderDigest  string `json:"provider_digest"`
+
 	// TaskName is the task's author-written name: (kind 5), unconstrained
 	// free text.
 	TaskName string `json:"task_name"`

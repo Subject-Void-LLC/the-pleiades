@@ -1,0 +1,1 @@
+Added `collection.CannotCheck(reason)`, a check's answer for a call it cannot check: a method that can check some calls and not others reports those tasks as "could not check" with its reason instead of failing the check, including from an external Collection, where the answer travels as the response's optional `cannot_check` flag.

@@ -237,17 +237,17 @@ func newSelfPacedAdapter() *selfPacedAdapter {
 	return &selfPacedAdapter{done: make(chan struct{}), started: make(chan struct{})}
 }
 
-func (a *selfPacedAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *selfPacedAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	if a.started != nil {
 		close(a.started)
 	}
 	select {
 	case <-a.done:
-		return nil
+		return wire.Outcome{}, nil
 	case <-ctx.Done():
 		a.sawCancel.Store(true)
 		<-a.done
-		return nil
+		return wire.Outcome{}, nil
 	}
 }
 
@@ -255,7 +255,7 @@ func (a *selfPacedAdapter) Execute(ctx context.Context, payload wire.DispatchPay
 // TestAgent_ExecuteWithLease_RecoversAdapterPanic.
 type panicAdapter struct{}
 
-func (panicAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (panicAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	panic("simulated adapter panic")
 }
 

@@ -1,0 +1,1 @@
+A runbook whose top level carries a key the format does not have is now refused, naming the key and suggesting the nearest known one, instead of the key being silently ignored. Remove or correct the key; the accepted keys are listed in the runbook and task key reference.

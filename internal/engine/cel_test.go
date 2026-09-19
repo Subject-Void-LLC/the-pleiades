@@ -89,7 +89,15 @@ func TestCELEngine_RejectsExpensiveComprehension(t *testing.T) {
 		t.Fatalf("expected this expression to compile (it is well within cel-go's own size limit), got: %v", err)
 	}
 
+	// The same limit holds on the partial evaluation a check uses (Phase
+	// 46's hardening audit): a check's conditions are the same runbook
+	// author's text, evaluated by a second program.
 	start := time.Now()
+	if _, _, err := prg.EvalPartial(map[string]interface{}{}, []engine.UnknownRegister{{Name: "a", Whole: true}}); err == nil {
+		t.Fatalf("expected the cost limit to reject this expression in a check, got success in %v", time.Since(start))
+	}
+
+	start = time.Now()
 	_, err = prg.Eval(map[string]interface{}{})
 	elapsed := time.Since(start)
 

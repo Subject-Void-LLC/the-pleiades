@@ -253,7 +253,7 @@ func TestAdapterExecutePublishesTheRunJournal(t *testing.T) {
 		JobID: "job-1", RunbookID: "pb-1",
 		DeviceID: "device-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
 	}
-	if err := adapter.Execute(ctx, payload); err != nil {
+	if _, err := adapter.Execute(ctx, payload); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 

@@ -53,8 +53,14 @@ type ResultEntry struct {
 	Outcome string `json:"outcome"`
 
 	// Reason carries the execution error's own message when Outcome is
-	// "failed". Empty when Outcome is "completed".
+	// "failed". When Outcome is "completed" it is empty, except for a
+	// check that could not check every task, where it says how many.
 	Reason string `json:"reason,omitempty"`
+
+	// Unchecked is how many tasks a check could not check
+	// (wire.Outcome.Unchecked), and zero otherwise. Optional on the wire,
+	// so a Controller that predates it ignores it and still has Reason.
+	Unchecked int `json:"unchecked,omitempty"`
 
 	// RecordedAt is when Append persisted this entry, in UTC. Defaulted
 	// by Append if left zero.

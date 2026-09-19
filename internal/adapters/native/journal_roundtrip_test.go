@@ -54,7 +54,7 @@ func TestJournalRoundTripFromRunnerToDatabase(t *testing.T) {
 		JobID: "11111111-2222-3333-4444-555555555555", RunbookID: "pb-1",
 		DeviceID: "device-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
 	}
-	if err := adapter.Execute(ctx, payload); err != nil {
+	if _, err := adapter.Execute(ctx, payload); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode(t *testing.T) 
 			JobID: jobID, RunbookID: "pb-2",
 			DeviceID: device, DeviceName: device, DeviceHost: "10.0.0.1",
 		}
-		if err := adapter.Execute(ctx, payload); err != nil {
+		if _, err := adapter.Execute(ctx, payload); err != nil {
 			t.Fatalf("Execute for %s: %v", device, err)
 		}
 	}

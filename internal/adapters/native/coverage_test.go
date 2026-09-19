@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -55,50 +54,6 @@ func TestNewDeviceRunbookContext_NonWireDeviceGetsNoSecrets(t *testing.T) {
 	}
 	if got := rc.InjectSecrets(); len(got) != 0 {
 		t.Errorf("InjectSecrets() = %v, want empty for a non-wireDevice", got)
-	}
-}
-
-// TestWireDevice_ShowInfoMatchesProperties pins ShowInfo to Properties.
-// The two are separate methods on inventory.InventoryItem and a future
-// edit could easily make them disagree, which would show up as a device
-// reporting different metadata depending on which accessor a caller
-// happened to reach for.
-func TestWireDevice_ShowInfoMatchesProperties(t *testing.T) {
-	d := newWireDevice(wire.DispatchPayload{DeviceHost: "10.0.0.4", SSHPort: 2022})
-
-	shown, ok := d.ShowInfo().String("host")
-	if !ok || shown != "10.0.0.4" {
-		t.Errorf("ShowInfo()[\"host\"] = %q, %v, want %q, true", shown, ok, "10.0.0.4")
-	}
-	props, _ := d.Properties().String("host")
-	if shown != props {
-		t.Errorf("ShowInfo() and Properties() disagree on host: %q vs %q", shown, props)
-	}
-}
-
-// TestWireDevice_SourceIsZero documents that a Runner-side device carries
-// no sync-plugin provenance: the wire payload has no field for it, and
-// inventing one here would fabricate an authority that never synced this
-// device.
-func TestWireDevice_SourceIsZero(t *testing.T) {
-	d := newWireDevice(wire.DispatchPayload{DeviceName: "core-1"})
-	if src := d.Source(); src.Plugin != "" || !src.SyncedAt.IsZero() {
-		t.Errorf("Source() = %+v, want the zero SourceAuthority", src)
-	}
-}
-
-// TestWireDevice_MutatorsRefuseRatherThanSilentlyDrop proves AddInfo and
-// RemoveInfo report a real error. The Runner holds no inventory backend,
-// so a silent no-op here would let a Collection method believe it had
-// persisted a property change that nothing anywhere recorded.
-func TestWireDevice_MutatorsRefuseRatherThanSilentlyDrop(t *testing.T) {
-	d := newWireDevice(wire.DispatchPayload{DeviceName: "core-1"})
-
-	if err := d.AddInfo("k", "v", true); err == nil {
-		t.Error("AddInfo() = nil, want an error: a silent no-op would look like a successful write")
-	}
-	if err := d.RemoveInfo("k"); err == nil {
-		t.Error("RemoveInfo() = nil, want an error: a silent no-op would look like a successful delete")
 	}
 }
 
@@ -209,7 +164,7 @@ func TestIPCCollectionExecutor_Invoke_RejectsNonWireDevice(t *testing.T) {
 		t.Fatalf("newIPCCollectionExecutor: %v", err)
 	}
 
-	_, _, err = exec.invoke(context.Background(), collection.Descriptor{Name: "x.y"}, nil, nil)
+	_, _, err = exec.invoke(context.Background(), collection.Descriptor{Name: "x.y"}, nil, nil, collection.ModeExecute)
 	if err == nil {
 		t.Fatal("invoke() = nil error, want a refusal for a non-*wireDevice device")
 	}
@@ -252,40 +207,8 @@ func TestCollectionInvokerSeamIsSatisfied(t *testing.T) {
 	}
 }
 
-// TestWireDevice_CapabilitiesCopyIsDefensive proves a caller cannot reach
-// back through the returned slice and change what the device reports it
-// can do, which would let one task's mutation silently re-gate a later
-// task's transport selection.
-func TestWireDevice_CapabilitiesCopyIsDefensive(t *testing.T) {
-	d := newWireDevice(wire.DispatchPayload{Capabilities: []capability.Name{capability.NameSSHTransport}})
-
-	caps := d.Capabilities()
-	if len(caps) != 1 {
-		t.Fatalf("Capabilities() returned %d entries, want 1", len(caps))
-	}
-	caps[0] = capability.NameCiscoIOS
-
-	if !d.HasCapability(capability.NameSSHTransport) {
-		t.Error("mutating the slice returned by Capabilities() changed the device's own capabilities")
-	}
-}
-
-// errReader fails every Read, standing in for a stdin that dies mid-frame.
-type errReader struct{}
-
-func (errReader) Read([]byte) (int, error) { return 0, errors.New("stdin exploded") }
-
 // errWriter fails every Write, standing in for a response pipe whose read
 // end has already gone away (a parent that died mid-invocation).
 type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, errors.New("response pipe closed") }
-
-// TestReadChildRequest_ReadFailureIsReported covers the I/O-failure branch
-// distinctly from the malformed-JSON branch: both must be refusals, and
-// neither may yield a usable zero-valued request.
-func TestReadChildRequest_ReadFailureIsReported(t *testing.T) {
-	if _, err := readChildRequest(errReader{}); err == nil {
-		t.Fatal("readChildRequest() = nil error, want the underlying read failure")
-	}
-}

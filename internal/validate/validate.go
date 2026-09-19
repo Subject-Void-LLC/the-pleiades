@@ -6,6 +6,7 @@ package validate
 
 import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -15,6 +16,13 @@ import (
 type WorldView struct {
 	Items []inventory.InventoryItem
 	DAG   *engine.DAG
+
+	// Mode is the mode the runbook is about to run in. The zero value, and
+	// anything but collection.ModeCheck, validates for a real run, which is
+	// the strict reading: a caller that never set it gets exactly the rules
+	// it always had. LifecycleRule is the one rule that reads it, since a
+	// check may target a simulate-locked device and a real run may not.
+	Mode collection.Mode
 
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is

@@ -171,6 +171,6 @@ func TestStaleHeartbeatErrorNamesWhatAnOperatorActsOn(t *testing.T) {
 // runs it.
 type noopAdapter struct{}
 
-func (noopAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
-	return errors.New("noopAdapter is not meant to run")
+func (noopAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	return wire.Outcome{}, errors.New("noopAdapter is not meant to run")
 }

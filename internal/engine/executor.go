@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -87,7 +89,37 @@ type NodeResult struct {
 	// actual state, so neither case is a silent, unexplained omission.
 	SkipReason string
 
-	// Changed reports whether the action reported altering real state.
+	// Unchecked reports that this node was reached in check mode and its
+	// action could not be checked (an UncheckedError), or its condition
+	// was left undecided there (check_conditions.go): it depends on a
+	// result an unchecked task never registered, or failed on a field a
+	// prediction may not carry. Skipped is always true alongside it, since
+	// nothing ran, and SkipReason names the action and why.
+	//
+	// It is a field of its own rather than one more kind of skip because a
+	// caller has to count these separately: a condition that evaluated
+	// false is a finished answer, and an unchecked task is a gap in the
+	// answer that the caller must not report as clean.
+	Unchecked bool
+
+	// Provider names the external Collection program behind this node's
+	// method, with the digest it was loaded with, and is nil for a method
+	// compiled into this binary. It travels with the result so a reader
+	// far from the run can tell third-party work from Pleiades's own. It
+	// comes from collection.Descriptor.Provider, which only the loader
+	// sets.
+	Provider *collection.Provider
+
+	// Checked reports that this node ran in check mode, because the run
+	// was a check or because its task carries check_mode: its Changed is
+	// a prediction, not something that happened. In a real run with some
+	// check_mode tasks it is the one field that tells the two kinds of
+	// result apart.
+	Checked bool
+
+	// Changed reports whether the action reported altering real state. In
+	// check mode it reports whether a real run WOULD alter it, since a
+	// check alters nothing; Checked says which of the two a result means.
 	Changed bool
 
 	// Err is non-nil if resolving the target, acquiring a lock, running
@@ -249,6 +281,12 @@ func finish(n NodeResult) NodeResult {
 type RunResult struct {
 	Nodes []NodeResult
 
+	// Mode is the mode this run executed in (WithMode). It travels with
+	// the result so a caller printing NodeResult.Changed can say "changed"
+	// for an execute run and "would change" for a check, rather than
+	// having to remember which one it asked for.
+	Mode collection.Mode
+
 	// Secrets is every value a register_mask or secret_mask task
 	// annotation discovered during this run (see Task.RegisterMask,
 	// Task.SecretMask), in no particular order. A caller that prints or
@@ -318,6 +356,14 @@ type Executor struct {
 	extraVars      map[string]interface{}
 	taskTimeout    time.Duration
 	journal        Journal
+
+	// mode is collection.ModeExecute unless WithMode set it. See check.go
+	// for what check mode does and refuses to do.
+	mode collection.Mode
+
+	// externalChecks is whether a check may run an external program's
+	// Check (WithExternalChecks). Off by default.
+	externalChecks bool
 }
 
 // ExecutorOption configures optional, non-default Executor behavior,
@@ -401,6 +447,7 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 		workflow:       workflow,
 		maxConcurrency: maxConcurrency,
 		journal:        noopJournal{},
+		mode:           collection.ModeExecute,
 	}
 	for _, opt := range opts {
 		opt(x)
@@ -465,6 +512,10 @@ type run struct {
 	secrets           *stringSet
 	metadataRegisters *stringSet
 
+	// unknown is every registered result this run's check could not
+	// produce (check_conditions.go), read by later tasks' conditions.
+	unknown unknownRegisters
+
 	// sequence numbers the journal entries this run has produced so far
 	// (JournalEntry.Sequence), and journalFailures counts the Record calls
 	// that failed.
@@ -476,6 +527,19 @@ type run struct {
 	// device execution ever reaches them.
 	sequence        int
 	journalFailures int
+
+	// mode is the run's own mode: the Executor's (WithMode), narrowed to
+	// collection.ModeCheck when the runbook itself carries check_mode.
+	// modeFor narrows it again per task.
+	mode collection.Mode
+}
+
+// modeFor is the mode task runs in (TaskMode): a check whenever the run
+// is one or the task carries check_mode, and the run's own mode
+// otherwise. It can only narrow, so no task ever runs for real inside a
+// check.
+func (r *run) modeFor(task *Task) collection.Mode {
+	return TaskMode(r.x.mode, r.dag, task)
 }
 
 // Run walks dag one topological level at a time (LevelIterator) and runs
@@ -495,7 +559,10 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		sem:               make(chan struct{}, x.maxConcurrency),
 		secrets:           newStringSet(),
 		metadataRegisters: newStringSet(),
+		// The runbook's own check_mode narrows a real run to a check.
+		mode: TaskMode(x.mode, dag, nil),
 	}
+	result.Mode = r.mode
 
 	defer func() {
 		result.Secrets = r.secrets.Snapshot()
@@ -643,7 +710,25 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 			extraVars = map[string]interface{}{}
 		}
 		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars}
-		res, err := cp.Eval(condVars)
+		var res ConditionResult
+		if r.modeFor(task) == collection.ModeCheck {
+			// A condition the unchecked tasks before it leave undecided is
+			// a gap in the check, not a failed run: it is named, nothing
+			// is registered for it, and the walk carries on. One they do
+			// not decide is answered, and one that is wrong fails as the
+			// real run would (check_conditions.go).
+			var undecided string
+			res, undecided, err = r.checkCondition(task, cp, condVars, tree)
+			if err == nil && undecided != "" {
+				r.markUnchecked(task, "", true)
+				r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
+				return []NodeResult{finish(NodeResult{
+					NodeID: nodeID, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
+				})}
+			}
+		} else {
+			res, err = cp.Eval(condVars)
+		}
 		if err != nil {
 			return []NodeResult{failedNode(nodeID, started, FailureStageConditionEval,
 				fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err))}
@@ -701,8 +786,10 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		for _, d := range devices {
 			// LifecycleAdmits (admission.go) is this exact check, relocated
 			// so a future non-Executor caller can reuse it verbatim instead
-			// of re-deriving the identical reason wording.
-			if ok, reason := LifecycleAdmits(d); !ok {
+			// of re-deriving the identical reason wording. LifecycleAdmitsIn
+			// wraps it with check mode's one exception, a simulate-locked
+			// device (check.go).
+			if ok, reason := LifecycleAdmitsIn(r.modeFor(task), d); !ok {
 				r.publish(nodeID, task, d.Name(), "skipped", reason)
 				// The node's own start, not a per-device one: this device
 				// never became a nodeExecution and never reached runOne,
@@ -805,7 +892,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	// below, and deliberately not in a deferred closure over a named
 	// return. A deferred stamp would run after the lock Release deferred
 	// a few lines down, charging that cleanup to the task's own duration.
-	result := NodeResult{NodeID: cmd.NodeID, StartedAt: time.Now().UTC()}
+	result := NodeResult{NodeID: cmd.NodeID, StartedAt: time.Now().UTC(), Provider: externalProvider(cmd.Task.FQCN)}
 	host := ""
 	if cmd.Device != nil {
 		host = cmd.Device.Name()
@@ -846,7 +933,35 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		defer cancel()
 	}
 
-	actionResult, err := r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
+	var actionResult ActionResult
+	var err error
+	mode := r.modeFor(cmd.Task)
+	result.Checked = mode == collection.ModeCheck
+	switch mode {
+	case collection.ModeExecute:
+		actionResult, err = r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
+		if err == nil {
+			err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
+		}
+	case collection.ModeCheck:
+		actionResult, err = r.checkAction(execCtx, cmd)
+		// An action that cannot be checked is reported by name and the
+		// walk carries on (check.go's second rule). It is not a failure,
+		// so it gets no failure stage, and nothing is registered for it:
+		// a later condition reading its result is handled in runNode.
+		var unchecked *UncheckedError
+		if errors.As(err, &unchecked) {
+			r.markUnchecked(cmd.Task, result.Device, false)
+			result.Skipped = true
+			result.Unchecked = true
+			result.SkipReason = unchecked.Error()
+			r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: "+unchecked.Reason)
+			return finish(result)
+		}
+	default:
+		// Never treated as execute: see WithMode.
+		err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
+	}
 	if err != nil {
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())

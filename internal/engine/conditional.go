@@ -188,21 +188,27 @@ func (cp *ConditionProgram) evalAnd(vars map[string]interface{}) (ConditionResul
 			return ConditionResult{}, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
 		}
 		if !ok {
-			reason := fmt.Sprintf("%s `%s` evaluated false", cp.keyword, item.expr)
-			if len(cp.items) > 1 {
-				reason = fmt.Sprintf("%s condition %d of %d evaluated false: `%s`", cp.keyword, i+1, len(cp.items), item.expr)
-			}
-			// i+1 and len(cp.items) are the very two numbers the
-			// multi-item sentence above formats, carried across rather
-			// than recomputed, so the numbers and the sentence cannot
-			// drift apart. They are set on the single-item branch too,
-			// where the sentence omits them: a lone when_cel is condition
-			// 1 of 1, and a caller reading the numbers should not have to
-			// special-case the degenerate list.
-			return ConditionResult{OK: false, Reason: reason, Ordinal: i + 1, Total: len(cp.items)}, nil
+			return cp.andSkip(i), nil
 		}
 	}
 	return ConditionResult{OK: true}, nil
+}
+
+// andSkip is the result of an AND list whose item i evaluated false.
+//
+// i+1 and len(cp.items) are the very two numbers the multi-item sentence
+// formats, carried across rather than recomputed, so the numbers and the
+// sentence cannot drift apart. They are set on the single-item branch
+// too, where the sentence omits them: a lone when_cel is condition 1 of
+// 1, and a caller reading the numbers should not have to special-case the
+// degenerate list.
+func (cp *ConditionProgram) andSkip(i int) ConditionResult {
+	item := cp.items[i]
+	reason := fmt.Sprintf("%s `%s` evaluated false", cp.keyword, item.expr)
+	if len(cp.items) > 1 {
+		reason = fmt.Sprintf("%s condition %d of %d evaluated false: `%s`", cp.keyword, i+1, len(cp.items), item.expr)
+	}
+	return ConditionResult{OK: false, Reason: reason, Ordinal: i + 1, Total: len(cp.items)}
 }
 
 // evalOr implements when_or semantics: any item true is enough. It
@@ -221,14 +227,21 @@ func (cp *ConditionProgram) evalOr(vars map[string]interface{}) (ConditionResult
 		}
 		falseExprs = append(falseExprs, fmt.Sprintf("`%s`", item.expr))
 	}
+	return cp.orSkip(falseExprs), nil
+}
+
+// orSkip is the result of an OR list every item of which, quoted in
+// falseExprs, evaluated false.
+//
+// len(cp.items) is the same count the multi-item sentence formats.
+// Ordinal stays zero here: every item contributed to this skip, so no
+// single one owns it. See ConditionResult.Ordinal.
+func (cp *ConditionProgram) orSkip(falseExprs []string) ConditionResult {
 	reason := fmt.Sprintf("%s %s evaluated false", cp.keyword, falseExprs[0])
 	if len(cp.items) > 1 {
 		reason = fmt.Sprintf("%s: all %d conditions evaluated false: %s", cp.keyword, len(cp.items), strings.Join(falseExprs, ", "))
 	}
-	// len(cp.items) is the same count the multi-item sentence above
-	// formats. Ordinal stays zero here: every item contributed to this
-	// skip, so no single one owns it. See ConditionResult.Ordinal.
-	return ConditionResult{OK: false, Reason: reason, Total: len(cp.items)}, nil
+	return ConditionResult{OK: false, Reason: reason, Total: len(cp.items)}
 }
 
 // Compile turns this Conditional into a compiled *ConditionProgram using

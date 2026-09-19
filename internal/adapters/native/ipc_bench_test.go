@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -43,7 +44,7 @@ func BenchmarkIPCCollectionExecutor_SpawnLatency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, _, err := exec.invoke(ctx, desc, device, params); err != nil {
+		if _, _, err := exec.invoke(ctx, desc, device, params, collection.ModeExecute); err != nil {
 			b.Fatalf("invoke: %v", err)
 		}
 	}
@@ -70,8 +71,8 @@ func BenchmarkInvokeChild_InProcess(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if resp := invokeChild(ctx, req); resp.Error != "" {
-			b.Fatalf("invokeChild: %s", resp.Error)
+		if resp := external.InvokeRequest(ctx, collection.Lookup, req); resp.Error != "" {
+			b.Fatalf("InvokeRequest: %s", resp.Error)
 		}
 	}
 }

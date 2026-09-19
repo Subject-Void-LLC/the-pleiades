@@ -126,6 +126,21 @@ func NewBuiltinActionExecutor() ActionExecutor {
 	return builtinActionExecutor{}
 }
 
+// Check implements CheckExecutor by running the task exactly as Execute
+// does. That is correct rather than lazy, and only for these two
+// keywords: noop echoes its own params and set_metadata records a
+// run-level report, and neither one reaches a device at all, so the check
+// of either is the thing itself. noop authored with changed: true reports
+// that a real run would change something, which is what it says it does.
+//
+// Any other fqcn gets the same "no in-process implementation" error
+// Execute gives it, since a check of something that cannot run is not
+// merely unchecked: a real run of it would fail too.
+func (b builtinActionExecutor) Check(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
+	return b.Execute(ctx, task, device)
+}
+
+// Execute implements ActionExecutor.
 func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.InventoryItem) (ActionResult, error) {
 	switch task.FQCN {
 	case "noop":

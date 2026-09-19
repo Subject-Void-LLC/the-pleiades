@@ -164,6 +164,11 @@ type WorkflowDef struct {
 	// equivalent and is entirely optional.
 	Metadata Metadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 
+	// CheckMode, Ansible's check_mode, makes the whole run a check,
+	// whatever mode it was started in. It can only narrow: see
+	// CheckModeFlag for what is accepted and why false is refused.
+	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
+
 	// PreTasks runs before Tasks, in order. It is the runbook's setup
 	// phase, mirroring an Ansible play's pre_tasks:.
 	PreTasks []Task `json:"pretasks,omitempty" yaml:"pretasks,omitempty"`
@@ -213,6 +218,14 @@ type Task struct {
 	// Register names a variable this task's result is stored under, for
 	// later tasks to reference, mirroring Ansible's register:.
 	Register string `json:"register,omitempty" yaml:"register,omitempty"`
+
+	// CheckMode, Ansible's check_mode, runs this task (and, on a block,
+	// its block, rescue and always tasks) in check mode even in a real
+	// run: its method's Check runs instead of its Invoke, and nothing it
+	// covers is journaled. The builder copies a runbook's or a block's
+	// key down onto every task it covers (propagateCheckMode), so the
+	// executor reads only this field. See CheckModeFlag.
+	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
 
 	// RegisterMask names fields of this task's own ActionResult.Stats (once
 	// computed), dotted paths into nested values allowed, whose values must
@@ -298,6 +311,11 @@ type Task struct {
 type DAG struct {
 	ID       string
 	Metadata Metadata
+
+	// CheckMode is the runbook's own check_mode key: the whole run is a
+	// check, whatever mode the Executor was given (WithMode). The builder
+	// has also copied it onto every task.
+	CheckMode bool
 
 	// Name is def.Name, carried through unchanged so a compiled runbook
 	// keeps the title its file gave it. The catalog reads it from here
@@ -472,6 +490,17 @@ func (b *Builder) Build(payload []byte) (*DAG, error) {
 		return nil, err
 	}
 
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(normalized, &top); err == nil {
+		keys := make([]string, 0, len(top))
+		for k := range top {
+			keys = append(keys, k)
+		}
+		if err := checkRunbookKeys(keys); err != nil {
+			return nil, err
+		}
+	}
+
 	var def WorkflowDef
 	if err := json.Unmarshal(normalized, &def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
@@ -492,6 +521,9 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	if err := resolveImportTasks(&def, baseDir); err != nil {
 		return nil, err
 	}
+	// After imports, so an imported file's tasks inherit the check_mode of
+	// the import_tasks task that pulled them in.
+	propagateCheckMode(&def)
 
 	switch def.Type {
 	case "", "native":
@@ -525,6 +557,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Version:    version,
 		Metadata:   def.Metadata,
 		Hosts:      def.Hosts,
+		CheckMode:  bool(def.CheckMode),
 		PreTasks:   def.PreTasks,
 		Tasks:      def.Tasks,
 		PostTasks:  def.PostTasks,

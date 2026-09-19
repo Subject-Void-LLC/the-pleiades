@@ -29,3 +29,43 @@ func FuzzCELCompile(f *testing.F) {
 		}
 	})
 }
+
+// FuzzCELEvalPartial covers the partial evaluation a check uses for its
+// conditions: any expression that compiles, against a register tree with
+// an arbitrary register marked unknown, never panics, and with nothing
+// marked unknown always gives the answer Eval gives. The second half is
+// what keeps a check's conditions from drifting from a real run's where
+// no task went unchecked.
+func FuzzCELEvalPartial(f *testing.F) {
+	eval, _ := engine.NewCELEvaluator()
+	for _, seed := range []struct{ expr, unknown string }{
+		{`stat.a[""].changed`, "a"},
+		{`stat.a[""].changed || vars.force`, "a"},
+		{`has(stat.a) && stat.b[""].seen == 'x'`, "a"},
+		{`nodes.a.exists(d, nodes.a[d].changed)`, "a"},
+		{`stat.reslt[""].x == 1 || stat.a[""].changed`, "a"},
+		{`size(stat) > 1`, "b"},
+		{`stat.b[""].seen == 'x'`, ""},
+	} {
+		f.Add(seed.expr, seed.unknown, "")
+	}
+	f.Fuzz(func(t *testing.T, expr, unknown, device string) {
+		prg, err := eval.Compile(expr)
+		if err != nil {
+			return
+		}
+		vars := func() map[string]interface{} {
+			tree := map[string]interface{}{
+				"b": map[string]interface{}{"": map[string]interface{}{"seen": "x", "changed": true}},
+			}
+			return map[string]interface{}{"stat": tree, "nodes": tree, "vars": map[string]interface{}{"force": true}}
+		}
+		_, _, _ = prg.EvalPartial(vars(), []engine.UnknownRegister{{Name: unknown, Device: device}, {Name: unknown, Whole: true}})
+
+		want, wantErr := prg.Eval(vars())
+		got, known, gotErr := prg.EvalPartial(vars(), nil)
+		if (wantErr == nil) != (gotErr == nil) || (wantErr == nil && (!known || got != want)) {
+			t.Fatalf("%q: EvalPartial with nothing unknown = (%v, known %v, %v), Eval = (%v, %v)", expr, got, known, gotErr, want, wantErr)
+		}
+	})
+}

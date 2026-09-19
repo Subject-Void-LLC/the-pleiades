@@ -7,6 +7,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -86,14 +87,23 @@ func WithResultWAL(wal ResultWAL, bus event.Bus) AgentOption {
 // A nil a.bus makes this a complete no-op: there is nowhere to report to.
 // A nil a.wal reports without durability, which is the ordinary
 // arrangement; see below.
-func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, execErr error) {
+func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, ran wire.Outcome, execErr error) {
 	if a.bus == nil {
 		return
 	}
 
-	outcome, reason := "completed", ""
-	if execErr != nil {
+	outcome, reason, unchecked := "completed", "", 0
+	switch {
+	case execErr != nil:
 		outcome, reason = "failed", execErr.Error()
+	case ran.Unchecked > 0:
+		// A check that could not answer for every task finished, and says
+		// so in the reason as well as the count: a Controller that
+		// predates the count still records and shows the reason, so the
+		// gap is visible on every Controller and never read as a clean
+		// check.
+		unchecked = ran.Unchecked
+		reason = fmt.Sprintf("check incomplete: %d task(s) could not be checked, so this check does not cover them", unchecked)
 	}
 
 	appendCtx, cancel := context.WithTimeout(context.Background(), walDurabilityTimeout)
@@ -127,6 +137,7 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 		RunbookID: payload.RunbookID,
 		Outcome:   outcome,
 		Reason:    reason,
+		Unchecked: unchecked,
 	}
 
 	// Without a WAL the outcome is published directly, best effort: if

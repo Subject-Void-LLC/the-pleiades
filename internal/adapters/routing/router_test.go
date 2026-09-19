@@ -20,9 +20,9 @@ type recordingAdapter struct {
 	got  []wire.DispatchPayload
 }
 
-func (a *recordingAdapter) Execute(_ context.Context, payload wire.DispatchPayload) error {
+func (a *recordingAdapter) Execute(_ context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	a.got = append(a.got, payload)
-	return nil
+	return wire.Outcome{}, nil
 }
 
 func newRouter() (*routing.Router, *recordingAdapter, *recordingAdapter) {
@@ -38,10 +38,10 @@ func TestRouter_SendsEachKindToTheAdapterItsDescriptorDeclares(t *testing.T) {
 	router, native, legacy := newRouter()
 	ctx := context.Background()
 
-	if err := router.Execute(ctx, wire.DispatchPayload{JobID: "j1", Kind: "runbook"}); err != nil {
+	if _, err := router.Execute(ctx, wire.DispatchPayload{JobID: "j1", Kind: "runbook"}); err != nil {
 		t.Fatalf("Execute(runbook): %v", err)
 	}
-	if err := router.Execute(ctx, wire.DispatchPayload{JobID: "j2", Kind: "playbook"}); err != nil {
+	if _, err := router.Execute(ctx, wire.DispatchPayload{JobID: "j2", Kind: "playbook"}); err != nil {
 		t.Fatalf("Execute(playbook): %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestRouter_AnAbsentKindReachesTheAdapterItAlwaysDid(t *testing.T) {
 	// The rolling-upgrade case: a dispatch published before the kind field
 	// existed. It must route natively, which is where it was always going
 	// to go, rather than being refused as unroutable.
-	if err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "old"}); err != nil {
+	if _, err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "old"}); err != nil {
 		t.Fatalf("Execute with no kind: %v", err)
 	}
 	if len(native.got) != 1 {
@@ -74,7 +74,7 @@ func TestRouter_AnAbsentKindReachesTheAdapterItAlwaysDid(t *testing.T) {
 
 	// Whitespace is not a kind either. A payload carrying " " must not be
 	// treated as a distinct, unroutable kind.
-	if err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "blank", Kind: "   "}); err != nil {
+	if _, err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "blank", Kind: "   "}); err != nil {
 		t.Errorf("Execute with a blank kind: %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func TestRouter_AnAbsentKindReachesTheAdapterItAlwaysDid(t *testing.T) {
 func TestRouter_RefusesAKindItCannotRunAndSaysWhatItCan(t *testing.T) {
 	router, native, legacy := newRouter()
 
-	err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "j", Kind: "terraform"})
+	_, err := router.Execute(context.Background(), wire.DispatchPayload{JobID: "j", Kind: "terraform"})
 	if !errors.Is(err, routing.ErrNoAdapter) {
 		t.Fatalf("Execute of an unroutable kind returned %v, want ErrNoAdapter", err)
 	}
@@ -121,7 +121,7 @@ func TestRouter_AKindWhoseAdapterWasNotComposedIsUnroutableRatherThanFatal(t *te
 		t.Errorf("the Router reports %v routable, want runbook alone", kinds)
 	}
 
-	if err := router.Execute(context.Background(), wire.DispatchPayload{Kind: "playbook"}); !errors.Is(err, routing.ErrNoAdapter) {
+	if _, err := router.Execute(context.Background(), wire.DispatchPayload{Kind: "playbook"}); !errors.Is(err, routing.ErrNoAdapter) {
 		t.Errorf("a playbook dispatch to a Runner with no legacy adapter returned %v, want ErrNoAdapter", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestRouter_ANilAdapterIsTreatedAsAbsent(t *testing.T) {
 	if kinds := router.Kinds(); len(kinds) != 0 {
 		t.Errorf("a Router built from nil adapters reports %v routable", kinds)
 	}
-	if err := router.Execute(context.Background(), wire.DispatchPayload{Kind: "runbook"}); !errors.Is(err, routing.ErrNoAdapter) {
+	if _, err := router.Execute(context.Background(), wire.DispatchPayload{Kind: "runbook"}); !errors.Is(err, routing.ErrNoAdapter) {
 		t.Errorf("a nil adapter returned %v, want ErrNoAdapter rather than a panic", err)
 	}
 }

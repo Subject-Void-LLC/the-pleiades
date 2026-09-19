@@ -117,7 +117,7 @@ func TestAdapter_Execute_NoopReportsChanged(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestAdapter_Execute_NoopWithNoChangedParamReportsOK(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestAdapter_Execute_ExtraVarsReachWhenCEL(t *testing.T) {
 			t.Fatalf("NewAdapter: %v", err)
 		}
 		payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1", ExtraVars: extraVars}
-		if err := adapter.Execute(context.Background(), payload); err != nil {
+		if _, err := adapter.Execute(context.Background(), payload); err != nil {
 			t.Fatalf("Execute() returned unexpected error: %v", err)
 		}
 		return bus.lastJobEvent(t)
@@ -211,7 +211,7 @@ func TestAdapter_Execute_UnregisteredFQCNFails(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(context.Background(), payload)
+	_, err = adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("Execute() = nil error, want an error (pkg.apt.install is StatusDeclared, not implemented)")
 	}
@@ -231,7 +231,7 @@ func TestAdapter_Execute_UnknownRunbookReturnsError(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "does-not-exist", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(context.Background(), payload)
+	_, err = adapter.Execute(context.Background(), payload)
 	if !errors.Is(err, runbook.ErrNotFound) {
 		t.Fatalf("Execute() error = %v, want errors.Is(err, runbook.ErrNotFound)", err)
 	}
@@ -252,7 +252,7 @@ func TestAdapter_Execute_PropagatesPublishFailure(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err == nil {
+	if _, err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("Execute() = nil error, want a propagated publish error (\"stop discarding publish errors\")")
 	}
 }
@@ -269,7 +269,7 @@ func TestAdapter_Execute_AlreadyCanceledContextReturnsPromptly(t *testing.T) {
 	cancel()
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(ctx, payload)
+	_, err = adapter.Execute(ctx, payload)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute() error = %v, want errors.Is(err, context.Canceled)", err)
 	}

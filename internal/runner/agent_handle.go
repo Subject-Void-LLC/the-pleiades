@@ -142,7 +142,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// anything.
 	ctx = journal.WithAttempt(ctx, numDeliveredFor(msg))
 
-	execErr := a.executeWithLease(ctx, payload)
+	outcome, execErr := a.executeWithLease(ctx, payload)
 	if execErr != nil && errorsIsContention(execErr) {
 		// Not an execution failure, so it is deliberately not reported to
 		// the WAL below: another execution genuinely holds this device
@@ -181,7 +181,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 			slog.String("device_id", payload.DeviceID),
 			slog.String("kind", payload.Kind),
 			slog.String("error", execErr.Error()))
-		a.reportResult(ctx, payload, execErr)
+		a.reportResult(ctx, payload, wire.Outcome{}, execErr)
 		a.termMalformed(msg, "dropping a dispatch this runner cannot route", execErr,
 			slog.String("kind", payload.Kind))
 		return
@@ -193,7 +193,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// happen before Ack, not after: an Ack that the WAL append never
 	// happened for would leave a Runner crash between the two silently
 	// losing the outcome.
-	a.reportResult(ctx, payload, execErr)
+	a.reportResult(ctx, payload, outcome, execErr)
 
 	if execErr != nil {
 		span.RecordError(execErr)

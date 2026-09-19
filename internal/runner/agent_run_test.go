@@ -30,7 +30,7 @@ func newBlockingAdapter() *blockingAdapter {
 	return &blockingAdapter{release: make(chan struct{})}
 }
 
-func (a *blockingAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *blockingAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	n := a.inFlight.Add(1)
 	defer a.inFlight.Add(-1)
 	for {
@@ -44,9 +44,9 @@ func (a *blockingAdapter) Execute(ctx context.Context, payload wire.DispatchPayl
 	}
 	select {
 	case <-a.release:
-		return nil
+		return wire.Outcome{}, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return wire.Outcome{}, ctx.Err()
 	}
 }
 
@@ -126,12 +126,12 @@ func newSlowCancelAdapter() *slowCancelAdapter {
 	}
 }
 
-func (a *slowCancelAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *slowCancelAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	close(a.started)
 	<-ctx.Done()
 	close(a.cancelObserved)
 	<-a.proceedAfterCancel
-	return ctx.Err()
+	return wire.Outcome{}, ctx.Err()
 }
 
 // TestAgent_Run_GracefulShutdownDrainsInFlightWork proves Run does not

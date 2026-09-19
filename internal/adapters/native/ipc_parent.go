@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -59,29 +60,45 @@ func newIPCCollectionExecutor(logger *slog.Logger) (*ipcCollectionExecutor, erro
 // its stdin, and reading one wire.ChildResponse back off a dedicated pipe
 // (never stdout, which the Collection method's own arbitrary output uses
 // instead, captured and masked separately below).
-func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}) (collection.Result, map[string]interface{}, error) {
+func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}, mode collection.Mode) (collection.Result, map[string]interface{}, error) {
 	wd, ok := device.(*wireDevice)
 	if !ok {
 		return collection.Result{}, nil, fmt.Errorf("ipc collection executor requires a *wireDevice, got %T", device)
 	}
+	payload := wd.Payload()
+
+	// An external Collection already runs in a process of its own: its
+	// registered method is the loader's proxy, which starts the external
+	// program for every call. Re-executing this binary around it would add
+	// a second process that could not even run it, since a fresh child
+	// never loaded the external program's methods. So it runs here, with
+	// the payload's secrets (the credential the Controller resolved at
+	// fan-out) in a context zeroed the moment it returns, and the external
+	// program is the boundary. Provider is set only by the loader when it
+	// registers such a method, so this is the one statement of which
+	// methods are external.
+	if desc.Provider != nil {
+		return e.invokeInProcess(ctx, desc, device, params, mode, payload.Secrets)
+	}
 
 	req := wire.ChildRequest{
 		FQCN:         desc.Name,
+		Mode:         string(mode),
 		Params:       params,
-		JobID:        wd.payload.JobID,
-		DeviceID:     wd.payload.DeviceID,
-		DeviceName:   wd.payload.DeviceName,
-		DeviceHost:   wd.payload.DeviceHost,
-		SSHPort:      wd.payload.SSHPort,
-		Capabilities: wd.payload.Capabilities,
-		Secrets:      wd.payload.Secrets,
+		JobID:        payload.JobID,
+		DeviceID:     payload.DeviceID,
+		DeviceName:   payload.DeviceName,
+		DeviceHost:   payload.DeviceHost,
+		SSHPort:      payload.SSHPort,
+		Capabilities: payload.Capabilities,
+		Secrets:      payload.Secrets,
 	}
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
 	}
 
-	secrets := secretValues(wd.payload.Secrets)
+	secrets := secretValues(payload.Secrets)
 
 	// A pipe, not a second exec.Cmd-managed stream: ExtraFiles hands the
 	// child a raw, unmanaged file descriptor (fd 3), so this package is
@@ -160,11 +177,45 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	if read.err != nil {
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to decode subprocess response: %w (stderr: %s)", desc.Name, read.err, capturedErr)
 	}
+	if read.resp.CannotCheck {
+		// The method says it cannot check this call (a
+		// collection.CannotCheckError in the child). Honored only when a
+		// check was asked for, and never read as a success: see
+		// wire.ChildResponse.CannotCheck.
+		if mode != collection.ModeCheck {
+			return collection.Result{}, nil, fmt.Errorf("collection method %q answered that it cannot check a call that was not a check", desc.Name)
+		}
+		reason := redact.Text(secrets, read.resp.Error)
+		if reason == "" {
+			reason = "the method gave no reason"
+		}
+		return collection.Result{}, nil, collection.CannotCheck(reason)
+	}
 	if read.resp.Error != "" {
 		return collection.Result{}, nil, errors.New(redact.Text(secrets, read.resp.Error))
 	}
 
 	return collection.Result{Changed: read.resp.Changed}, read.resp.Facts, nil
+}
+
+// invokeInProcess runs desc in mode in this process, for a method whose
+// registered function already crosses a process boundary of its own (an
+// external Collection's loader proxy). The secrets reach it through the
+// same zeroing context a real child uses, and its facts come back the same
+// way, so the engine sees an identical result either way.
+func (e *ipcCollectionExecutor) invokeInProcess(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}, mode collection.Mode, secrets map[string]string) (collection.Result, map[string]interface{}, error) {
+	method, err := desc.MethodFor(mode)
+	if err != nil {
+		return collection.Result{}, nil, err
+	}
+	rc := external.NewRunbookContext(secrets)
+	defer rc.Zero()
+
+	result, err := method(ctx, rc, device, params)
+	if err != nil {
+		return collection.Result{}, nil, err
+	}
+	return result, rc.Facts(), nil
 }
 
 // secretValues extracts every value from secrets, the shape

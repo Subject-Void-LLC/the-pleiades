@@ -22,6 +22,12 @@ import (
 // Unlike CapabilityRule, this rule applies to every task regardless of
 // fqcn: a non-Active device must never accept any real work, not only
 // work that happens to declare a capability requirement.
+//
+// It admits exactly what the executor admits, by asking the same function
+// (engine.LifecycleAdmitsIn) with the mode the run will use: a check may
+// target a simulate-locked device, and nothing else changes. A rule that
+// refused what the executor accepts would make check mode unable to reach
+// the one kind of device it exists to reach.
 func LifecycleRule(world WorldView) []Finding {
 	var findings []Finding
 
@@ -37,7 +43,7 @@ func LifecycleRule(world WorldView) []Finding {
 		}
 
 		for _, dev := range world.Resolve(target) {
-			if !dev.State().CanExecute() {
+			if ok, _ := engine.LifecycleAdmitsIn(engine.TaskMode(world.Mode, world.DAG, task), dev); !ok {
 				findings = append(findings, Finding{
 					RuleName: "lifecycle",
 					Node:     id,
