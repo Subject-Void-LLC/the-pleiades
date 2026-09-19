@@ -254,7 +254,7 @@ parser decides (`net.cli.config`, `net.ios.config`, `net.netconf.config`), and t
 waits, since what they wait for is usually an earlier task's change, which a check never
 makes. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes
 no run journal, never records an undo instruction, and is the one kind of run a
-simulate-locked device (the state sync plugins give every newly discovered device)
+simulate-locked device (the state a read-only sync source gives every device it adds)
 accepts, and only from a built-in method: a check from an external Collection program is
 reported unchecked there, since nothing has proven it only reads. A runbook can also ask for it with Ansible's own `check_mode: true`, on the
 whole runbook, a block or a task; `check_mode: false` is refused. The Controller runs

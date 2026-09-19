@@ -237,6 +237,7 @@ story, per `.AGENTS/AGENTS.md`.
 203. **Run the commit gate's rules on a branch before calling it ready: on 2026-09-18 seventy new Go files lacked the file doc comment `tools/commitgate` requires of every added file, which no build, vet, test or scan checks, so every planned commit would have been refused.**
 204. **When a yes-or-no about a method starts to depend on its arguments, put the per-call answer beside the flag, as the same function the run-time code calls, and have every plan-time check ask it: a method-level `SupportsCheck` let validation accept `check_mode` on a call that could only be unchecked (2026-09-19).**
 205. **Check whether a secret-bearing environment variable is set with an expansion that cannot yield its value (`${VAR:+set}` alone, or `[ -n "${VAR:-}" ]`): pairing `:+` with `:-` printed part of a real token on 2026-09-19. Say so and recommend rotation if one leaks.**
+206. **Close a documentation gate by writing from the code and proving each surprising claim: on 2026-09-19 two "easy" doc gates and a stale citation found five defects (a symlink escape, a device update that stored nothing, a re-sync reverting a promotion, a hidden review list, unordered job ids).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

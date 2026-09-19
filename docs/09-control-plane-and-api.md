@@ -123,6 +123,86 @@ numeric id for everything keyed on one. The page size is
 the server's to cap, so `?limit=100000` is not a supported way to ask it to hold an
 entire fleet in memory.
 
+## Dispatch: from a launch to a result
+
+Every way of starting work ends in one path: `POST /templates/{id}/launch`,
+`POST /templates/{id}/check` (the same launch, forced to a check), `POST /jobs/{id}/relaunch`,
+a schedule firing, and the web UI's launch form. This section follows a job along it.
+
+### The launch answers before anything runs
+
+A launch resolves the template, stores a `pending` job, and publishes a `job.requested`
+event. It answers `202 Accepted` with a `Location` header naming the job and a body of
+`status`, `job_id`, `ignored_fields` (every value supplied but not applied, always present,
+empty when nothing was refused) and `_links`. Nothing has reached a device yet, so a launch
+cannot report a problem found later, such as a credential that cannot be resolved: that
+shows up as a failed job. Each launch creates a new job; there is no idempotency key, so
+retrying a launch whose answer was lost starts a second job.
+
+### Fan-out: one row per device, whether it runs or not
+
+A Controller replica claims the job (`pending` to `fanning_out`), resolves its bound
+credentials once for the whole job, and walks the job's inventory. Only the credentials'
+ids are stored on the job; their values are resolved here and ride on each device's
+dispatch. Every device the fan-out considers gets a task row with an `outcome`:
+
+- `dispatched`: handed to a Runner.
+- `skipped`, with a `reason`: the device is not `active` (a check also admits
+  `simulate-locked`; see [Running in production](10-running-in-production.md#how-a-device-gets-its-state)),
+  lacks a capability the definition needs, or has no `host` property.
+- `failed`: its dispatch could not be built or published.
+
+If the fan-out cannot run at all (the definition or the inventory is missing, or a bound
+credential cannot be resolved), the job ends `failed` with a `failure_reason` and no task
+rows. Otherwise it moves to `running`, or straight to `completed` if no device was
+dispatched. A job stuck in `fanning_out` for ten minutes, because the replica doing it died,
+is picked up again by the leader.
+
+### What a Runner does with a dispatch
+
+Each device's dispatch is published on its own subject, `pleiades.jobs.dispatch.<device>`,
+or `pleiades.jobs.check.<device>` for a check, where only a Runner that understands checks
+reads it. A Runner takes a per-device lease first, so two runs never touch one device at
+once, and a dispatch for a busy device waits and is delivered again. It runs a `runbook` kind
+through the native adapter and a `playbook` kind through the Ansible adapter, then publishes
+the device's result, which the Controller records on the task as `result` (`succeeded` or
+`failed`), `result_reason`, `unchecked` and `finished_at`. A Runner with `RUNNER_WAL_DIR`
+set writes each result to disk before acknowledging the dispatch, so a result survives the
+Runner dying before it could publish; without one, that result is lost.
+
+**A run that fails is run again.** Any failed task fails the device's run, and a failed run
+is delivered again, with backoff, until it has been delivered five times, and is then
+dead-lettered. Each delivery runs the whole definition from the start, including tasks that
+already changed something, so a definition that is not safe to repeat can make its change
+more than once. (A single command sent over SSH is still never resent; see
+[Running in production](10-running-in-production.md#a-command-is-never-retried-once-sent).)
+This is planned to become a stated policy that is off by default.
+
+### How a job ends
+
+When every dispatched device has reported, the job moves from `running` to `completed`.
+**`completed` means every device was handled, not that every device succeeded**: there is
+no partial-failure state, and a job whose devices all failed is still `completed`. Read each
+task's `outcome` and `result` for what happened on each device. `failed` means the fan-out
+itself could not run, and `canceled` means somebody stopped the job.
+
+`POST /jobs/{id}/cancel` (`runbook:execute`) records the cancellation first, then signals
+the Runners. The fan-out stops at the next device, and at most one more device may already
+have received its dispatch. A result that arrives afterwards does not bring the job back.
+Cancelling a finished job answers 409.
+
+Nothing times out a `running` job. With no Runner running, dispatches wait on the stream
+for up to its retention (seven days with the default outage budget) and the job stays
+`running` until one appears. A check job, once finished, also reports `check_complete`: true
+only if every device was dispatched, succeeded, and left no task unchecked.
+
+### Watching a job
+
+`GET /jobs/{id}` (`job:read`) returns the job's `state`, `mode` (`execute` or `check`), the
+`dispatched`, `skipped` and `failed` counts, `failure_reason`, and one entry per device
+with its `outcome`, `reason`, `result`, `result_reason`, `unchecked` and `finished_at`.
+`GET /jobs` pages through jobs without their devices. The live log stream is below.
+
 ## Schedules
 
 A schedule is an RFC 5545 recurrence attached to a template: when automation runs
@@ -264,30 +344,29 @@ Precisely:
   each other's events.
 - Each SSE frame is `data: <json>\n\n`, where the JSON is a full event envelope
   (`id`, `type`, `timestamp`) with the per-task status event nested under `data`:
-  timestamp, status, host, task label, and a message. Nothing on this stream is
-  masked. The `register_mask`/`secret_mask` machinery runs inside the engine and
-  on the CLI's own printed output, and neither of this subject's two publishers
-  goes through it. See
-  [Running in production](10-running-in-production.md)'s data handling section for
-  what masking does cover, and assume anything a publisher puts on this stream
-  reaches the viewer unscrubbed.
+  timestamp, status, host, task label, and a message. Both Runner adapters mask what
+  they publish: every secret the Controller attached to the device's dispatch, every
+  value a bound credential injected, and whatever the run's `register_mask` and
+  `secret_mask` marked are replaced before a frame is published. A value none of those
+  name is not: a secret survey answer, for one, reaches the stream unmasked if a task
+  echoes it. See [Running in production](10-running-in-production.md)'s data handling
+  section for what masking covers.
 - The stream never terminates on its own; the client closes it.
 
-**This stream carries no real task results today, on any path.** The Crawl-tier
-CLI is not even one of its publishers: `pleiades run` builds its engine on an
+**The Crawl-tier CLI never publishes here.** `pleiades run` builds its engine on an
 in-process bus (`event.NewInProcessBus`, in `cmd/pleiades/run.go`), never opens a
 NATS connection, and publishes its per-task status events under
 `pleiades.events.workflow.<dag-id>.node.<node-id>`, while this handler only ever
 reads `pleiades.jobs.logs.<job-id>`. The two subject spaces do not overlap, and
 the two buses never meet.
 
-Two things publish to `pleiades.jobs.logs.<job-id>`, and they differ in what they
-mean. A `runner` that picks up a dispatched job runs it through
-`internal/adapters/native`, which executes the runbook against the real device the
-dispatch names and reports what actually happened, so those frames are genuine task
-results. `cmd/demo` generates fake Ansible events to scaffold the web UI, and those
-are not. Read the stream as real evidence only when a `runner` produced it; the demo
-binary exists precisely so the UI can be developed without one.
+Three things publish to `pleiades.jobs.logs.<job-id>`, and they differ in what they
+mean. A `runner` runs a dispatched job through its native adapter (a runbook) or its
+Ansible adapter (a playbook), each against the real device the dispatch names, and
+reports what actually happened, so those frames are genuine task results. `cmd/demo`
+generates fake Ansible events to scaffold the web UI, and those are not. Read the stream
+as real evidence only when a `runner` produced it; the demo binary exists precisely so
+the UI can be developed without one.
 
 ## MCP tool provider
 

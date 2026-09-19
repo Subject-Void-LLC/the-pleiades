@@ -480,6 +480,14 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
 
+That is true of one command. It is not yet true of a whole run on the Controller: a
+dispatched run that fails, for any reason including one failed task, is delivered to a
+Runner again, up to five deliveries in all, and each delivery runs the definition from
+the start. See [the dispatch section of Control plane and
+API](09-control-plane-and-api.md#what-a-runner-does-with-a-dispatch) before relying on a
+definition that is not safe to repeat. This is planned to become a stated policy that is
+off by default.
+
 ### Every task execution is recorded in a run journal
 
 Every node a run executes leaves a durable record: what ran, against which device,
@@ -806,11 +814,45 @@ by name, before anything runs; the Crawl-tier executor and the Walk-tier dispatc
 both re-check the same rule at their own layer as well, so a device is never
 executed against by a path that happened to skip validation.
 
-The one exception is a check. A `simulate-locked` device, the state a sync plugin gives
-every device it discovers, accepts a check and nothing else, on both tiers and by the
-same rule, so a newly discovered device can be asked what a run would change before
-anyone promotes it. A check from an external Collection program is still refused there,
-because nothing has proven that the program only reads.
+The one exception is a check. A `simulate-locked` device, the state a read-only sync
+source gives every device it adds, accepts a check and nothing else, on both tiers and by
+the same rule, so a device nobody has approved for changes can be asked what a run would
+change before anyone promotes it. A check from an external Collection program is still
+refused there, because nothing has proven that the program only reads. A `quarantined`
+device accepts nothing, not even a check.
+
+### How a device gets its state
+
+A device's lifecycle state is set once when the device is added, and after that only by
+an operator.
+
+- **Added by a sync.** `pleiades inventory sync` reads an upstream source through a sync
+  plugin, which classifies each record onto a device type and a set of capabilities.
+  Where a new device lands depends on the source. A read-only source, which today is
+  `catalyst_center` and `aws`, lands every device it adds as `simulate-locked`, so it can
+  be checked but not changed until someone promotes it. `static_yaml` lands its entries as
+  `active`. The **Read-only** column of the [sync plugin reference](reference/plugins.md)
+  says which a source is.
+- **Quarantined, and not added.** A record a plugin cannot place is quarantined with a
+  reason, and it is **not** added to the inventory, since a device needs a type to exist.
+  For example, `catalyst_center` quarantines a device whose software type is neither IOS
+  nor IOS-XE, and `aws` quarantines an instance whose platform has no classification
+  rule. The sync's own report is the only place this shows: it lists each such record
+  under "devices needing review", with its reason, including on a `--read-only` preview.
+  Fix the source or wait for a plugin that can place the record; there is nothing in the
+  inventory to promote.
+- **Added through the API or the web UI.** A device created there is `active`.
+- **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
+  such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`,
+  which operators and admins hold. Each change is recorded as a revision in the device's
+  history, and setting the state a device already has records nothing. An operator can
+  also quarantine a device this way, which stops it taking any work. No command-line
+  command or web UI control changes a state yet.
+- **A later sync keeps it.** A sync updates a device's properties from its source, never
+  its state, so a device promoted to `active` stays `active` however often its source is
+  synced.
+- **Retirement.** `DELETE /api/v1/inventory/devices/{name}` moves a device to `archived`,
+  recording that too, rather than deleting it or its history.
 
 ### Locking
 
@@ -877,8 +919,8 @@ written and no undo instruction is recorded, and every result it reports carries
 `predicted: true`, so a stored or forwarded result cannot pass for one that happened. A
 condition is answered wherever the tasks a check could not answer do not decide it, and a
 task whose condition they do decide is named as unchecked too. A device still being
-onboarded (`simulate-locked`) accepts a check and nothing else, and only from a method
-built into Pleiades. On the command line a check ends with status 0 when every task was
+approved for changes (`simulate-locked`) accepts a check and nothing else, and only from a
+method built into Pleiades. On the command line a check ends with status 0 when every task was
 checked, 3 when some were not and nothing failed, and 1 when anything failed, so a
 pipeline can gate on it; `--allow-unchecked <method>` accepts named gaps on purpose.
 

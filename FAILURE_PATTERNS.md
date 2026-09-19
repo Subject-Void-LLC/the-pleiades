@@ -262,6 +262,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 257. An external program's own text reached the terminal raw, including at the approval prompt
 258. A new NATS subject and consumer shipped without their mesh identity grants
 259. A package-level struct literal froze a test seam at init, and a test dialed a real WinRM endpoint
+260. A synced project's playbook escaped its tree through a symlinked directory
+261. A device's state or tags update answered 200 and stored nothing
+262. A re-sync reverted an operator's promotion, with no revision saying so
+263. A read-only sync hid the one list an operator previewing it needed
+264. Template launches minted unordered job ids under a list that orders by id
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -607,8 +607,8 @@ directory, and checked every time:
   environment. Network access is not confined, since a method must reach devices on
   their own ports.
 - **Checks stay off locked devices.** A method's `Check` from an external program is
-  never run against a simulate-locked device (a newly discovered device nobody has
-  approved for changes yet). The task is reported as not checked there, because
+  never run against a simulate-locked device (a device nobody has approved for changes
+  yet, which is where a read-only sync source puts every device it adds). The task is reported as not checked there, because
   nothing has proven a third party's check only reads. Built-in checks, each tested
   against its real run, still reach such a device.
 - **Granting more to read.** A method that needs a local file, for example one it
@@ -653,13 +653,14 @@ add/update/conflict decision). `Close` releases whatever `Connect` acquired.
 
 This contract is verified by a real conformance suite
 (`internal/inventory/plugins/conformance_test.go`), not by convention alone: one
-shared set of assertions drives every real `Plugin` implementation through
-identical call sequences. The two plugins that exist today (`static_yaml`, a local
-file with no auth or paging, and `catalyst_center`, an authenticated, paged REST
-API) are deliberately unalike, so the suite is shaped by both rather than by
-whichever was written first. A new plugin joins the suite by adding one entry to
-its backend table, never by editing a test function; if your new plugin fails an
-assertion the other two pass, that is the suite doing its job.
+shared set of assertions drives every real `Plugin` implementation through identical
+call sequences. The three plugins that exist today (`static_yaml`, a local file with
+no auth or paging; `catalyst_center`, an authenticated, paged REST API; and `aws`,
+which reads EC2 instances through the AWS SDK) are deliberately unalike, so the
+suite is shaped by all of them rather than by whichever was written first. A new
+plugin joins the suite by adding one entry to its backend table, never by editing a
+test function; if your new plugin fails an assertion the others pass, that is the
+suite doing its job.
 
 ## Doc requirements for contributed content
 

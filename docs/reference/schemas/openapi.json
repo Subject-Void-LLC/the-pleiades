@@ -5424,7 +5424,7 @@
     },
     "/inventory/devices/{name}": {
       "delete": {
-        "description": "Moves the device to the decommissioning lifecycle state (\"retires\" it); this is not a hard delete of its history.",
+        "description": "Moves the device to the archived lifecycle state (\"retires\" it) and records that as a state revision; this is not a hard delete of its history.",
         "operationId": "delete_device",
         "parameters": [
           {
@@ -5601,7 +5601,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Applies tag and lifecycle-state changes to an existing device. The write is guarded by the stored version token, so two callers editing the same device concurrently cannot lose one another's change: the later write is refused with 409 and must reload and reapply.",
+        "description": "Applies tag and lifecycle-state changes to an existing device, and is how a device is promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the device's history, and setting what the device already has records nothing. A sync that later updates the device keeps the state set here. The write is guarded by the stored version token, so two callers editing the same device concurrently cannot lose one another's change: the later write is refused with 409 and must reload and reapply.",
         "operationId": "update_device",
         "parameters": [
           {
@@ -5785,7 +5785,7 @@
     },
     "/jobs": {
       "get": {
-        "description": "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for those. Tallies read 0 until a job's state reaches \"completed\".",
+        "description": "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for those. Tallies read 0 while a job's fan-out is still going.",
         "operationId": "list_jobs",
         "parameters": [
           {
@@ -5871,7 +5871,7 @@
                             "type": "integer"
                           },
                           "state": {
-                            "description": "One of \"pending\", \"fanning_out\", \"completed\", or \"failed\".",
+                            "description": "One of \"pending\", \"fanning_out\", \"running\", \"completed\", \"failed\", or \"canceled\".",
                             "type": "string"
                           },
                           "template_name": {
@@ -5940,7 +5940,7 @@
     },
     "/jobs/{id}": {
       "get": {
-        "description": "Reads a dispatch.Job together with every JobTask recorded against it so far. Dispatched/skipped/failed tallies read 0 until state reaches \"completed\"; the tasks array is where a caller reads live per-device progress before then.",
+        "description": "Reads a dispatch.Job together with every JobTask recorded against it so far. Dispatched/skipped/failed tallies read 0 while the fan-out is still going and are final once it settles (running, completed or canceled); the tasks array is where a caller reads live per-device progress. \"completed\" means every device was handled, not that every device succeeded: read each task's outcome and result.",
         "operationId": "get_job",
         "parameters": [
           {
@@ -5982,7 +5982,7 @@
                       "type": "boolean"
                     },
                     "dispatched": {
-                      "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
+                      "description": "Reads 0 while the fan-out is still going, and is final once it settles (running, completed or canceled).",
                       "type": "integer"
                     },
                     "failed": {
@@ -6175,7 +6175,7 @@
                       "type": "boolean"
                     },
                     "dispatched": {
-                      "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
+                      "description": "Reads 0 while the fan-out is still going, and is final once it settles (running, completed or canceled).",
                       "type": "integer"
                     },
                     "failed": {

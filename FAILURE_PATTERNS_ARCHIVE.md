@@ -8371,3 +8371,53 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 **Fix.** Each operation is a function returning the literal (`func startOp() serviceOp`), called where it is used, so the seam is read at call time, after a test has swapped it. The tests passed again in under a second.
 
 **Lesson.** A test seam held in a package variable must be read when it is used, never captured by another package-level value. Hoisting a literal that names a seam out of a function body changes when the seam is read; check every function variable a hoisted literal names before hoisting it, and treat a test that suddenly hangs on a real dial as a seam read too early.
+
+## 260. A synced project's playbook escaped its tree through a symlinked directory
+
+**Symptom.** Found 2026-09-19 while correcting a stale test citation in the plan. `internal/project`'s playbook source joined a template's `<project id>/<path>` onto the checkout, compared the cleaned path against the checkout root, and refused a final component that was not an ordinary file. A checkout keeps a repository's symlinks, so a committed `lib -> /` passed the lexical check for `lib/etc/...`, the final `Lstat` followed the symlinked directory and found an ordinary file, and the Controller read a file outside the project and dispatched it as a playbook. `TestPlaybookSource_RefusesAPathThroughASymlinkedDirectory` reproduced it with a real symlink.
+
+**Root cause.** A containment check made on the path's text, then a read that resolves the path through the filesystem. The two answer different questions whenever a component is a symlink, and a repository's committers are not necessarily the Controller's administrators, so the symlink is attacker-reachable content.
+
+**Fix.** The file is opened through an `os.Root` over the checkout, which resolves every component inside the root, refuses any that leaves it (an absolute symlink included), and opens the file in the same `openat` walk, so nothing can be swapped between a check and the read. A relative symlink that stays inside the tree still works, as a repository's own layout expects.
+
+**Lesson.** Never check a path lexically and then hand the same string to the filesystem. Where the tree can hold content somebody else wrote, open through `os.Root` (or `openat2` with `RESOLVE_BENEATH`), so the check and the resolution are one operation.
+
+## 261. A device's state or tags update answered 200 and stored nothing
+
+**Symptom.** Found 2026-09-19 while documenting how a device leaves quarantine, and reproduced through the real handler, the real ent repository and the real factory: `PATCH /inventory/devices/{name}` with `{"state": "active"}` answered 200, returned the old state, and changed nothing in the database. Tags were dropped the same way. It was the only way to promote a device, so no device could be promoted through the API.
+
+**Root cause.** The handler rebuilt the item with the new state already set, at the version it was loaded at. Both repositories' `Save` treat an item whose version never moved as having nothing to write, a sound optimization that property changes satisfy by bumping the version through `AddInfo`. Nothing bumped it for state or tags, and the handler's own tests used a stub repository that recorded any `Save` call, so the no-op was invisible.
+
+**Fix.** `record.Base` gained `ChangeState` and `ChangeTags`, which bump the version and record a revision (field `state` or `tags`, with the old and new values), as `AddInfo` does for a property; setting what a device already has records nothing. The handler rebuilds the item as loaded and applies the change through them. `TestDeviceUpdate_AStateOrTagsOnlyChangeIsStored` runs the real handler against a real ent repository and reads the device back.
+
+**Lesson.** A write path that ends in an optimization like "unchanged version means nothing to save" must be tested against the real repository, not a stub that records the call. The stub proved `Save` was called; only the database could say whether anything was stored.
+
+## 262. A re-sync reverted an operator's promotion, with no revision saying so
+
+**Symptom.** Found 2026-09-19 alongside 261. A read-only source lands a device `simulate-locked`; once an operator promoted it to `active`, the next sync that brought any upstream property change put it back to `simulate-locked`, and the audit trail showed only the property change.
+
+**Root cause.** `syncplugin.updateDevice` rebuilt an existing device with the classification's `State`, which is the state a source gives a device it adds, not a statement about a device that already exists. The rebuilt state rode along with the property revisions, so no revision recorded it.
+
+**Fix.** An update keeps the stored state; only a newly added device takes the classification's. `TestReconcile_KeepsAnOperatorsPromotion` lands, promotes, changes a property upstream and re-syncs.
+
+**Lesson.** A field that means "where this starts" must not be re-applied on update. When one write path carries both an automated source's view and an operator's decision, name which fields belong to which, and let the automated path touch only its own.
+
+## 263. A read-only sync hid the one list an operator previewing it needed
+
+**Symptom.** Found 2026-09-19 while documenting quarantine. `pleiades inventory sync --read-only` printed its summary and returned whenever anything would be added or updated, so the "devices needing review" list, with each quarantined record's reason, printed only when nothing would change. A quarantined record is never stored, so that list is the only place its reason appears.
+
+**Root cause.** An early `return` after the read-only summary line, written when the two summaries were the only difference between the modes.
+
+**Fix.** Both modes print their summary and then the same review list. `TestRunInventorySync_ReadOnlyStillListsWhatNeedsReview` syncs a quarantinable NX-OS device beside an addable IOS-XE one.
+
+**Lesson.** A preview must show at least what the real run would; an early return in a report function is worth reading twice for what it skips.
+
+## 264. Template launches minted unordered job ids under a list that orders by id
+
+**Symptom.** Found 2026-09-19 while documenting dispatch. `GET /jobs` lists newest first by ordering on the job id and pages with it as a keyset cursor, and its description promises UUIDv7 ids for exactly that, but `LaunchTemplate` minted `uuid.New()`, a random v4, so a template launch landed anywhere in the list and paging order was arbitrary.
+
+**Root cause.** The job schema defaults to a v7, but a launch mints its id itself, before saving, because the id is also the `job.requested` event's idempotency key, and that mint predated the ordering requirement.
+
+**Fix.** `api.newJobID` mints a v7 (falling back to a v4 only on an entropy failure, as the schema and device ids do), and `TestLaunchTemplate_JobIDsAreTimeOrdered` checks each launch's id is version 7 and sorts after the one before.
+
+**Lesson.** When a column's default carries a property something else depends on, every code path that sets the column explicitly must keep it. Grep for the explicit setters, not just the default.

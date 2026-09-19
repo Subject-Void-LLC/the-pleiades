@@ -20,7 +20,8 @@
 // ANSIBLE_RUNNER_IMAGE, fail-open to native-only: a deployment that has
 // never run Ansible simply has no playbook kind to route, and a playbook
 // dispatch arriving anyway is refused per message (routing.ErrNoAdapter,
-// which the Agent dead-letters rather than retrying forever) instead of
+// which the Agent reports as a failed result and terminates, neither
+// retrying it nor dead-lettering something that never ran) instead of
 // crashing a Runner over a capability it was never given.
 //
 // Composing legacy is also what makes FAILURE_PATTERNS.md #109's recorded
@@ -409,8 +410,8 @@ func main() {
 	// changes the registry and this map, never the Agent. It is composed
 	// unconditionally, native-only included, so both configurations run
 	// the same code path and a kind with no adapter is refused per
-	// dispatch (routing.ErrNoAdapter, dead-lettered) rather than
-	// misexecuted.
+	// dispatch (routing.ErrNoAdapter, reported failed and terminated)
+	// rather than misexecuted.
 	router := routing.New(adapters)
 	logger.Info("execution adapters composed",
 		slog.String("kinds", strings.Join(router.Kinds(), ", ")))

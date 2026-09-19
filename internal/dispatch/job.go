@@ -111,14 +111,17 @@ type Job struct {
 	// as its own state rather than being folded into "completed", and
 	// why "canceled" is its own state rather than a kind of "failed").
 	//
-	// The schema also declares "running", which nothing writes yet: see
-	// that field's own comment for why the value exists ahead of a writer.
+	// "running" is written when a fan-out that dispatched at least one
+	// device settles (SettleRunning), and the job moves on to "completed"
+	// once every dispatched device has reported (CompleteRunning). The
+	// schema field's own comment predates that writer and still says
+	// nothing writes it.
 	State string
-	// DispatchedCount, SkippedCount, and FailedCount are the terminal
-	// per-device tallies, final once State is "completed". They read 0
-	// before that, regardless of how much fan-out work has actually
-	// happened; a caller wanting live progress reads the JobTask list
-	// Get also returns.
+	// DispatchedCount, SkippedCount, and FailedCount are the per-device
+	// fan-out tallies. They read 0 while the fan-out is still going and are
+	// written, final, when it settles: into "running", "completed" or
+	// "canceled". A caller wanting live progress during the fan-out reads
+	// the JobTask list Get also returns.
 	DispatchedCount int
 	SkippedCount    int
 	FailedCount     int
@@ -537,8 +540,8 @@ type JobStore interface {
 	// actually end the job.
 	CompleteRunning(ctx context.Context, jobID string) error
 
-	// Cancel stops jobID, moving it from "pending" or "fanning_out" to
-	// "canceled" and stamping canceledBy and the current time. It is a
+	// Cancel stops jobID, moving it from "pending", "fanning_out" or
+	// "running" to "canceled" and stamping canceledBy and the current time. It is a
 	// compare-and-swap on the state alone, deliberately taking no fence:
 	// a person pressing cancel is not a participant in the fan-out lease
 	// and holds no claim to present, and requiring one would mean the only

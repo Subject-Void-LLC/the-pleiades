@@ -13,6 +13,35 @@ answers the JetPorch comparison's two "ideas worth borrowing": check mode (Phase
 external Collections (Phase 42's payload decision, Phase 45's loader, Phase 33's forge). The user also
 changed `.gitignore` (a `.venv` line) and asked for it kept; it is unrelated and gets its own commit.
 
+### Then the easy wins (2026-09-19, committed at the user's request as the five commits after `4196fd1`)
+
+The user asked to close the easy gates early phases had left open. Using `.SPECIFICATION/implementation.py`
+(its `parse_implementation`, imported rather than served), eight phases closed: 5, 6, 10 and 14 (their
+remaining gate or item) and 19, 20, 23 and 73 (commit messages, now naming their commits; 21's too).
+Every plan item citing a test that no longer exists was corrected in place with a dated note (16 citations,
+`missing_tests` now reports none). Writing the two documentation gates from the code found and fixed
+five defects, each with a regression test that failed first:
+
+1. **Security:** a synced project's playbook could be read from outside its checkout through a symlinked
+   directory (`lib -> /`). Now opened through `os.Root` (FAILURE_PATTERNS 260; a stale gosec waiver
+   removed with the `os.ReadFile` it waived).
+2. **Correctness:** `PATCH /inventory/devices/{name}` with a state or tags answered 200 and stored nothing,
+   so no device could be promoted. `record.Base.ChangeState`/`ChangeTags` now record revisions (261).
+3. **Correctness:** a re-sync put a promoted device back to its landing state, unrecorded (262).
+4. **Correctness:** `inventory sync --read-only` hid the review list naming quarantined records (263).
+5. **Correctness:** template launches minted v4 job ids under a list that orders by id; now v7 (264).
+
+Also: docs/09 gained "Dispatch: from a launch to a result"; docs/10 "How a device gets its state";
+stale claims corrected in docs/01, 09, 10 and 11 and in the API descriptions (regenerated OpenAPI); two
+test fixtures `tools/gencatalog` leaked into the tree and that were committed on 2026-08-24 were removed,
+and `.gitignore` now keeps them out; three changelog fragments; LESSONS 206. Left, and why: the job
+schema's comment still says nothing writes `running`, since the commit gate refuses a comment-only schema
+edit (no generated change to stage beside it); dead letters still carry secrets and a failed run still
+re-runs up to five times, both already build items of Phases 103a and 103c. Verified: the full suites of
+every touched package, `-race` on the fixed ones, vet, gosec (20, all waived), docs-lint, gendocs
+idempotent. Committed as: the security fix; the device-state fixes; the job id fix; removing the leaked
+fixtures; docs and records, each built and vetted on its own first.
+
 ### What was built
 
 - **Check mode.** `collection.Mode` and `ParseMode`; `Descriptor.Check` with `Manifest.SupportsCheck`

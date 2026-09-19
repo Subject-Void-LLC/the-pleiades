@@ -170,7 +170,7 @@ var jobResponseSchema = map[string]any{
 		"check_complete": map[string]any{"type": "boolean", "description": "On a check that has finished: whether it covered everything it targeted, every device checked successfully with no task left unchecked. Absent on a real run and while a check is still running."},
 		"unchecked":      map[string]any{"type": "integer", "description": "How many tasks a check could not check, across every device. Absent when there were none."},
 		"failure_reason": stringSchema("Why a failed job could not run. Empty for every other state."),
-		"dispatched":     map[string]any{"type": "integer", "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress."},
+		"dispatched":     map[string]any{"type": "integer", "description": "Reads 0 while the fan-out is still going, and is final once it settles (running, completed or canceled)."},
 		"skipped":        map[string]any{"type": "integer"},
 		"failed":         map[string]any{"type": "integer"},
 		"tasks":          map[string]any{"type": "array", "items": jobTaskSchema},
@@ -202,8 +202,10 @@ var GetJob = Endpoint{
 	Rel:     auth.RelSelf,
 	Summary: "Get a job's current state",
 	Description: "Reads a dispatch.Job together with every JobTask recorded against it so far. " +
-		"Dispatched/skipped/failed tallies read 0 until state reaches \"completed\"; the tasks array is " +
-		"where a caller reads live per-device progress before then.",
+		"Dispatched/skipped/failed tallies read 0 while the fan-out is still going and are final once it " +
+		"settles (running, completed or canceled); the tasks array is where a caller reads live " +
+		"per-device progress. \"completed\" means every device was handled, not that every device " +
+		"succeeded: read each task's outcome and result.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "string", Description: "The job ID, a UUID."},
 	},
@@ -342,7 +344,7 @@ var jobListResponseSchema = map[string]any{
 			"properties": map[string]any{
 				"job_id":        map[string]any{"type": "string"},
 				"runbook_id":    map[string]any{"type": "string"},
-				"state":         stringSchema("One of \"pending\", \"fanning_out\", \"completed\", or \"failed\"."),
+				"state":         stringSchema("One of \"pending\", \"fanning_out\", \"running\", \"completed\", \"failed\", or \"canceled\"."),
 				"template_name": stringSchema("The saved definition this job was launched from."),
 				"kind":          stringSchema("Which registered launch kind ran."),
 				"mode":          jobModeSchema,
@@ -370,7 +372,7 @@ var ListJobs = Endpoint{
 	Description: "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are " +
 		"UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second " +
 		"index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for " +
-		"those. Tallies read 0 until a job's state reaches \"completed\".",
+		"those. Tallies read 0 while a job's fan-out is still going.",
 	Params: []Param{
 		{Name: "after", In: "query", Required: false, Type: "string", Description: "Keyset cursor from a previous page's next_cursor. A job id, so a UUID."},
 		{Name: "limit", In: "query", Required: false, Type: "integer", Description: "Maximum jobs to return. Defaults to 50, capped at 200."},
@@ -470,9 +472,12 @@ var UpdateDevice = Endpoint{
 	Scope:   auth.ScopeInventoryWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update an inventory device",
-	Description: "Applies tag and lifecycle-state changes to an existing device. The write is guarded " +
-		"by the stored version token, so two callers editing the same device concurrently cannot lose " +
-		"one another's change: the later write is refused with 409 and must reload and reapply.",
+	Description: "Applies tag and lifecycle-state changes to an existing device, and is how a device is " +
+		"promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the " +
+		"device's history, and setting what the device already has records nothing. A sync that later " +
+		"updates the device keeps the state set here. The write is guarded by the stored version token, " +
+		"so two callers editing the same device concurrently cannot lose one another's change: the later " +
+		"write is refused with 409 and must reload and reapply.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
 	},
@@ -515,8 +520,8 @@ var DeleteDevice = Endpoint{
 	Scope:   auth.ScopeInventoryWrite,
 	Rel:     auth.RelDelete,
 	Summary: "Retire an inventory device",
-	Description: "Moves the device to the decommissioning lifecycle state (\"retires\" it); this is not " +
-		"a hard delete of its history.",
+	Description: "Moves the device to the archived lifecycle state (\"retires\" it) and records that " +
+		"as a state revision; this is not a hard delete of its history.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
 	},
