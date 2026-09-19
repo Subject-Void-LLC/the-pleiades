@@ -15,7 +15,7 @@ import (
 // Status implemented, the same registry tools/gendocs reads for the
 // generated module pages.
 func TestCatalogEntries(t *testing.T) {
-	entries, err := catalogEntries()
+	entries, err := catalogEntries(nil)
 	if err != nil {
 		t.Fatalf("catalogEntries() error: %v", err)
 	}

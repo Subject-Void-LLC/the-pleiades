@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -24,6 +25,12 @@ func runValidate(args []string) error {
 		runbook = fs.Arg(0)
 	} else if fs.NArg() > 1 {
 		return fmt.Errorf("usage: pleiades validate [runbook.yaml]")
+	}
+
+	// External Collections register first, so a runbook calling one of
+	// their methods validates exactly as one calling a built-in does.
+	if _, err := loadExternalCollections(context.Background(), *dir); err != nil {
+		return err
 	}
 
 	items, dag, err := loadWorld(*dir, runbook)

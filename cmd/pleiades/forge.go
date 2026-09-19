@@ -21,6 +21,7 @@ var forgeCommands = map[string]commandFunc{
 	"new-plugin":     runForgeNewPlugin,
 	"new-view":       runForgeNewView,
 	"new-filter":     runForgeNewFilter,
+	"new-external":   runForgeNewExternal,
 }
 
 // runForge is cmd/pleiades's forge subcommand dispatcher. It mirrors

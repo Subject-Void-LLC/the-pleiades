@@ -13,13 +13,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -28,6 +31,13 @@ import (
 type catalogEntry struct {
 	FQCN     string
 	Manifest collection.Manifest
+
+	// Origin names the external Collection program that provides this
+	// method and the digest it was pinned to, or is empty for a built-in
+	// method. It is printed because an operator reading a method's
+	// reference needs to know whether it ships with Pleiades or came from
+	// a program somebody installed.
+	Origin string
 }
 
 // catalogEntries walks catalogdata.Collections and resolves each FQCN's
@@ -35,7 +45,12 @@ type catalogEntry struct {
 // tools/gendocs/schemas.go's moduleCatalogEntries performs for the
 // generated module-catalog.json: catalogdata supplies the ordered list of
 // names, pkg/collection supplies what each one actually is right now.
-func catalogEntries() ([]catalogEntry, error) {
+//
+// External Collections come after the built-in catalog, one entry per
+// method each loaded program provides, resolved through collection.Lookup
+// the same way, so `pleiades doc` reads an external method's contract
+// from exactly where the engine will.
+func catalogEntries(external *loader.Set) ([]catalogEntry, error) {
 	entries := make([]catalogEntry, 0, len(catalogdata.Collections))
 	for _, cfg := range catalogdata.Collections {
 		desc, ok := collection.Lookup(cfg.Name)
@@ -43,6 +58,19 @@ func catalogEntries() ([]catalogEntry, error) {
 			return nil, fmt.Errorf("pleiades doc: %q is in the catalog but never registered into pkg/collection", cfg.Name)
 		}
 		entries = append(entries, catalogEntry{FQCN: cfg.Name, Manifest: desc.Manifest})
+	}
+	for _, p := range external.Programs() {
+		for _, name := range p.Methods {
+			desc, ok := collection.Lookup(name)
+			if !ok {
+				return nil, fmt.Errorf("pleiades doc: %q was loaded from %s but is not registered", name, p.Path)
+			}
+			entries = append(entries, catalogEntry{
+				FQCN:     name,
+				Manifest: desc.Manifest,
+				Origin:   fmt.Sprintf("external Collection %s (%s)", p.Path, p.Digest),
+			})
+		}
 	}
 	return entries, nil
 }
@@ -71,7 +99,11 @@ func runDoc(args []string) error {
 		fqcn = fs.Arg(0)
 	}
 
-	entries, err := catalogEntries()
+	external, err := loadExternalCollections(context.Background(), ".")
+	if err != nil {
+		return err
+	}
+	entries, err := catalogEntries(external)
 	if err != nil {
 		return err
 	}
@@ -91,6 +123,15 @@ func runDoc(args []string) error {
 	default:
 		return fmt.Errorf("%s", docUsage)
 	}
+}
+
+// checkModeWord is how `pleiades doc` states a method's answer to
+// `pleiades run --mode check`.
+func checkModeWord(supported bool) string {
+	if supported {
+		return "supported (reports what it would change, changes nothing)"
+	}
+	return "not supported (a check names this task as unchecked)"
 }
 
 // lookupEntry finds fqcn in entries, or returns a "not found" error
@@ -168,6 +209,10 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 	}
 	fmt.Println()
 
+	if e.Origin != "" {
+		fmt.Printf("provided by: %s\n\n", e.Origin)
+	}
+
 	if m.Status != collection.StatusImplemented {
 		fmt.Println("status: declared, not implemented. Calling it refuses with an explicit \"not implemented\" error.")
 		fmt.Println()
@@ -181,8 +226,9 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 	fmt.Printf("  capabilities        %s\n", joinOrDash(capNames))
 	fmt.Printf("  transports          %s\n", joinOrDash(m.SupportedTransports))
 	fmt.Printf("  requires elevation  %t\n", m.ExecutionContext.RequiresElevation)
+	fmt.Printf("  check mode          %s\n", checkModeWord(m.SupportsCheck))
 	if m.EngineVersion != "" {
-		fmt.Printf("  engine version      %s\n", m.EngineVersion)
+		fmt.Printf("  engine version      %s%s\n", m.EngineVersion, engineVersionNote(e.Origin != ""))
 	}
 
 	if m.Status == collection.StatusImplemented {
@@ -323,4 +369,16 @@ func indent(s, prefix string) string {
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// engineVersionNote is what doc adds to a method's engine version
+// constraint. Only an external program's constraint is ever checked (a
+// built-in method is part of the build that runs it), and on a
+// development build not even that, so doc says so rather than let the
+// line read as a requirement this build was measured against.
+func engineVersionNote(external bool) string {
+	if _, release := buildinfo.Release(version); external && !release {
+		return " (not checked: " + version + " is a development build)"
+	}
+	return ""
 }
