@@ -23,6 +23,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the service before it acts, so a check can predict
+			// through the same code (CheckEnable).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming " +
@@ -35,6 +38,7 @@ func init() {
 			Doc: enableDoc(),
 		},
 		Invoke: Enable,
+		Check:  CheckEnable,
 	})
 }
 
@@ -54,8 +58,12 @@ func enableDoc() collection.Doc {
 }
 
 // Enable implements "svc.windows.enable".
-func Enable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runServiceOp(ctx, rc, device, params, serviceOp{
+// enableOp is svc.windows.enable's operation, shared by Enable and CheckEnable so the
+// method and its check cannot disagree about it. A function rather than a
+// variable, so it reads the service functions (startFunc and the rest) when
+// it is called, which is what lets a test replace them.
+func enableOp() serviceOp {
+	return serviceOp{
 		fqcn:      "svc.windows.enable",
 		converged: func(s winrmsvc.State) bool { return s.StartType == "Automatic" },
 		apply:     enableFunc,
@@ -76,5 +84,19 @@ func Enable(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 					"service running if it is running now, since enabling it never started it.", name),
 			}, true
 		},
-	})
+		predict: func(s winrmsvc.State) winrmsvc.State {
+			s.StartType = "Automatic"
+			return s
+		},
+	}
+}
+
+func Enable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, enableOp(), collection.ModeExecute)
+}
+
+// CheckEnable is svc.windows.enable's check: the same Get-Service read, refusals
+// and decision as Enable, then a prediction (StartType Automatic) instead of the change.
+func CheckEnable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, enableOp(), collection.ModeCheck)
 }

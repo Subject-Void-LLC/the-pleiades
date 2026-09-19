@@ -22,6 +22,7 @@ func init() {
 			restartDoc(),
 		),
 		Invoke: Restart,
+		Check:  CheckRestart,
 	})
 }
 
@@ -42,5 +43,12 @@ func restartDoc() collection.Doc {
 // Restart implements "svc.restart" by resolving the device's service
 // manager and handing the call to that manager's concrete method.
 func Restart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "restart")
+	return dispatch(ctx, rc, device, params, "restart", collection.ModeExecute)
+}
+
+// CheckRestart is svc.restart's check: the device's service manager's own check
+// (dispatch), or "cannot check this call" for a manager whose method has
+// none.
+func CheckRestart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "restart", collection.ModeCheck)
 }

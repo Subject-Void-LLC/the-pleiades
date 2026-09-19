@@ -23,6 +23,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the service before it acts, so a check can predict
+			// through the same code (CheckDisable).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that disabled a service whose start type was Automatic emits an svc.windows.enable " +
@@ -35,6 +38,7 @@ func init() {
 			Doc: disableDoc(),
 		},
 		Invoke: Disable,
+		Check:  CheckDisable,
 	})
 }
 
@@ -58,8 +62,12 @@ func disableDoc() collection.Doc {
 }
 
 // Disable implements "svc.windows.disable".
-func Disable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runServiceOp(ctx, rc, device, params, serviceOp{
+// disableOp is svc.windows.disable's operation, shared by Disable and CheckDisable so the
+// method and its check cannot disagree about it. A function rather than a
+// variable, so it reads the service functions (startFunc and the rest) when
+// it is called, which is what lets a test replace them.
+func disableOp() serviceOp {
+	return serviceOp{
 		fqcn:      "svc.windows.disable",
 		converged: winrmsvc.State.Disabled,
 		apply:     disableFunc,
@@ -78,5 +86,19 @@ func Disable(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 					"start the service now, since disabling it never stopped a running one.", name),
 			}, true
 		},
-	})
+		predict: func(s winrmsvc.State) winrmsvc.State {
+			s.StartType = "Disabled"
+			return s
+		},
+	}
+}
+
+func Disable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, disableOp(), collection.ModeExecute)
+}
+
+// CheckDisable is svc.windows.disable's check: the same Get-Service read, refusals
+// and decision as Disable, then a prediction (StartType Disabled) instead of the change.
+func CheckDisable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, disableOp(), collection.ModeCheck)
 }

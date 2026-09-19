@@ -86,7 +86,11 @@ func knownManagers() string {
 // between the generic method and every concrete one, so the concrete name
 // is the namespace plus the verb rather than a second lookup table that
 // could disagree with the first.
-func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, verb string) (collection.Result, error) {
+//
+// mode picks the concrete method's function (collection.Descriptor.MethodFor),
+// so a check reaches the concrete method's check; a concrete method with
+// no check support answers that it cannot check this call.
+func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, verb string, mode collection.Mode) (collection.Result, error) {
 	fqcn := "svc." + verb
 
 	if device == nil {
@@ -136,7 +140,14 @@ func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		}
 	}
 
-	return desc.Invoke(ctx, rc, device, params)
+	method, err := desc.MethodFor(mode)
+	if err != nil {
+		if mode == collection.ModeCheck {
+			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("device %q runs %s, and %s does not declare check support", device.Name(), name, target))
+		}
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return method(ctx, rc, device, params)
 }
 
 // genericDoc builds the reference documentation shared by all five
@@ -171,7 +182,10 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		PlatformTargets:      nil,
 		EngineVersion:        ">=1.0.0",
 		Status:               collection.StatusImplemented,
-		Reversibility:        reversibility,
-		Doc:                  doc,
+		// A check reaches the concrete method's check (dispatch), and
+		// every concrete method this namespace dispatches to has one.
+		SupportsCheck: true,
+		Reversibility: reversibility,
+		Doc:           doc,
 	}
 }

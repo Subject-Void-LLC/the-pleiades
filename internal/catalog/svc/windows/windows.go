@@ -106,6 +106,10 @@ type serviceOp struct {
 	// that can say what to go back to, and it is gone the moment apply
 	// succeeds.
 	inverse func(name string, before winrmsvc.State) (sdk.Inverse, bool)
+
+	// predict is what apply would leave a service found as before, for a
+	// check: the one field apply changes set to what it sets.
+	predict func(before winrmsvc.State) winrmsvc.State
 }
 
 // runServiceOp is the body of every svc.windows method that names a
@@ -124,7 +128,11 @@ type serviceOp struct {
 //
 // The same reasoning pkg/remotesvc and svc.systemd apply: a typo in a
 // service name should not read as "already stopped."
-func runServiceOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op serviceOp) (collection.Result, error) {
+//
+// mode is collection.ModeCheck for a check: the same read, the same
+// refusals and the same convergence decision, then op.predict in place of
+// op.apply and the read-back.
+func runServiceOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op serviceOp, mode collection.Mode) (collection.Result, error) {
 	name, err := sdk.RequiredStringParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
@@ -141,6 +149,21 @@ func runServiceOp(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	}
 	if err := checkServiceUsable(op, device, name, before); err != nil {
 		return collection.Result{}, err
+	}
+
+	if mode == collection.ModeCheck {
+		changed := op.converged == nil || !op.converged(before)
+		after := before
+		if changed {
+			after = op.predict(before)
+		}
+		if err := rc.SetStat(statName, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+		}
+		if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after.Map()}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+		}
+		return collection.Result{Changed: changed}, nil
 	}
 
 	changed := false

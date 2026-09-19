@@ -28,9 +28,13 @@ func init() {
 					"believing the old contents. Undoing whatever wrote those files is that task's inverse, not " +
 					"this one's.",
 			},
-			Doc: daemonReloadDoc(),
+			// A check connects and reports the reload a real run would
+			// send, without sending it. See CheckDaemonReload.
+			SupportsCheck: true,
+			Doc:           daemonReloadDoc(),
 		},
 		Invoke: DaemonReload,
+		Check:  CheckDaemonReload,
 	})
 }
 
@@ -64,6 +68,26 @@ func daemonReloadDoc() collection.Doc {
 // "always changed" or a guess, and a guess here would be the kind that
 // makes a handler silently stop firing.
 func DaemonReload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return daemonReload(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckDaemonReload is "svc.systemd.daemon_reload" in check mode.
+//
+// It predicts exactly what DaemonReload reports, a change, for the same
+// reason DaemonReload reports one: systemd offers no way to ask whether a
+// reload would make a difference, so the only answer that is not a guess
+// is "a real run would reload". It still connects, so a dry run against
+// a device that cannot be reached, or with a credential that is refused,
+// fails the way the real run would rather than predicting a reload that
+// could never be sent. It records nothing, as DaemonReload records
+// nothing: there is no unit and no state to describe.
+func CheckDaemonReload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return daemonReload(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// daemonReload is the one body DaemonReload and CheckDaemonReload share.
+// The two differ only in whether the reload is sent.
+func daemonReload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "svc.systemd.daemon_reload"
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
@@ -72,8 +96,10 @@ func DaemonReload(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := remotesvc.DaemonReload(ctx, conn); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	if mode != collection.ModeCheck {
+		if err := remotesvc.DaemonReload(ctx, conn); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	return collection.Result{Changed: true}, nil

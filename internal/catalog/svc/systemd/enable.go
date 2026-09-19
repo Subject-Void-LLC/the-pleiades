@@ -27,9 +27,13 @@ func init() {
 					"already enabled emits nothing. The undo restores the boot-time setting only; it never stops a " +
 					"unit that is running, because enabling never started one.",
 			},
-			Doc: enableDoc(),
+			// A check reads the unit's state and says whether an enable
+			// would be sent, without sending it. See CheckEnable.
+			SupportsCheck: true,
+			Doc:           enableDoc(),
 		},
 		Invoke: Enable,
+		Check:  CheckEnable,
 	})
 }
 
@@ -53,19 +57,35 @@ func enableDoc() collection.Doc {
 // "enabled-runtime" counts as enabled, so a unit enabled only until the
 // next reboot is left alone rather than being re-enabled on every run.
 func Enable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runUnitOp(ctx, rc, device, params, unitOp{
-		fqcn:                "svc.systemd.enable",
-		converged:           remotesvc.State.Enabled,
-		apply:               remotesvc.Enable,
-		needsInstallSection: true,
-		refusesMasked:       true,
-		inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
-			return sdk.Inverse{
-				FQCN:   "svc.systemd.disable",
-				Params: map[string]any{paramName: unit},
-				Description: fmt.Sprintf("Stop %s starting at boot, which is what this task changed. It leaves the "+
-					"unit running if it is running now, since enabling it never started it.", unit),
-			}, true
-		},
-	})
+	return runUnitOp(ctx, rc, device, params, enableOp, collection.ModeExecute)
+}
+
+// enableOp is what makes svc.systemd.enable different from its siblings,
+// shared by Enable and CheckEnable.
+var enableOp = unitOp{
+	fqcn:                "svc.systemd.enable",
+	converged:           remotesvc.State.Enabled,
+	apply:               remotesvc.Enable,
+	predict:             predictUnitFileState(unitFileEnabled),
+	needsInstallSection: true,
+	refusesMasked:       true,
+	inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
+		return sdk.Inverse{
+			FQCN:   "svc.systemd.disable",
+			Params: map[string]any{paramName: unit},
+			Description: fmt.Sprintf("Stop %s starting at boot, which is what this task changed. It leaves the "+
+				"unit running if it is running now, since enabling it never started it.", unit),
+		}, true
+	},
+}
+
+// CheckEnable is "svc.systemd.enable" in check mode: it reads the unit and
+// reports whether Enable would send an enable, sending nothing.
+//
+// A disabled unit is predicted to end up with UnitFileState "enabled" and
+// its running state untouched. A static or masked unit is refused the
+// same way Enable refuses it, so a dry run never promises a boot-time
+// change systemctl would reject.
+func CheckEnable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runUnitOp(ctx, rc, device, params, enableOp, collection.ModeCheck)
 }

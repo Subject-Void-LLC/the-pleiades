@@ -2,12 +2,15 @@ package svc
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // dispatchTestOnlyFQCN is a throwaway descriptor registered purely so
@@ -53,7 +56,7 @@ func TestDispatch_DeclaredButNotImplementedTargetIsNamed(t *testing.T) {
 	}}
 	rc := &dispatchTestRC{stats: map[string]any{}}
 
-	_, err := dispatch(context.Background(), rc, dev, map[string]any{"name": "x"}, "dispatchtestonly")
+	_, err := dispatch(context.Background(), rc, dev, map[string]any{"name": "x"}, "dispatchtestonly", collection.ModeExecute)
 	if err == nil {
 		t.Fatal("expected a refusal: the target is declared, not implemented")
 	}
@@ -61,5 +64,47 @@ func TestDispatch_DeclaredButNotImplementedTargetIsNamed(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to mention %q", err, want)
 		}
+	}
+}
+
+// TestDispatch_ACheckReachesTheConcreteCheck covers the generic methods'
+// checks: in check mode dispatch runs the concrete method's Check and
+// never its Invoke, and a concrete method with no check support answers
+// "cannot check this call".
+func TestDispatch_ACheckReachesTheConcreteCheck(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	var invoked, checked int
+	invoke := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		invoked++
+		return collection.Result{Changed: true}, nil
+	}
+	check := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		checked++
+		return collection.Result{Changed: true}, nil
+	}
+	for verb, supports := range map[string]bool{"faketest_checkable": true, "faketest_uncheckable": false} {
+		d := collection.Descriptor{
+			Name:     "svc.systemd." + verb,
+			Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture"}, SupportsCheck: supports},
+			Invoke:   invoke,
+		}
+		if supports {
+			d.Check = check
+		}
+		if err := collection.Register(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dev := &dispatchTestDevice{Stub: &inventorytest.Stub{StubName: "web1"}}
+	if _, err := dispatch(context.Background(), nil, dev, nil, "faketest_checkable", collection.ModeCheck); err != nil {
+		t.Fatalf("a check of a checkable concrete method: %v", err)
+	}
+	_, err := dispatch(context.Background(), nil, dev, nil, "faketest_uncheckable", collection.ModeCheck)
+	var cannot *collection.CannotCheckError
+	if !errors.As(err, &cannot) || !strings.Contains(cannot.Reason, "svc.systemd.faketest_uncheckable does not declare check support") {
+		t.Errorf("a check of an uncheckable concrete method = %v, want a CannotCheckError naming it", err)
+	}
+	if invoked != 0 || checked != 1 {
+		t.Errorf("Invoke ran %d time(s) and Check %d; want 0 and 1", invoked, checked)
 	}
 }

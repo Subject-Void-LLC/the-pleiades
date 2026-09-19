@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmsvc"
@@ -89,7 +91,7 @@ func TestRunServiceOp_ConvergedSkipsApply(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { applyCalled = true; return nil },
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runServiceOp: %v", err)
 	}
@@ -120,7 +122,7 @@ func TestRunServiceOp_NotConvergedCallsApplyAndRereads(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { applyCalled = true; return nil },
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runServiceOp: %v", err)
 	}
@@ -153,7 +155,7 @@ func TestRunServiceOp_RefusesAServiceThatDoesNotExist(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { return nil },
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Fatal("expected a refusal for a service the SCM does not know")
 	}
@@ -173,7 +175,7 @@ func TestRunServiceOp_RefusesDisabledWhenTheOpSaysSo(t *testing.T) {
 		converged:       winrmsvc.State.Running,
 		apply:           func(context.Context, winrmsvc.Session, string) error { applyCalled = true; return nil },
 		refusesDisabled: true,
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Fatal("expected a refusal for a Disabled service")
 	}
@@ -197,7 +199,7 @@ func TestRunServiceOp_DoesNotRefuseDisabledWhenTheOpDoesNotAsk(t *testing.T) {
 		fqcn:      "svc.windows.stop",
 		converged: func(s winrmsvc.State) bool { return !s.Running() },
 		apply:     func(context.Context, winrmsvc.Session, string) error { return nil },
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runServiceOp: %v", err)
 	}
@@ -216,7 +218,7 @@ func TestRunServiceOp_RestartAlwaysActsEvenWhenRunning(t *testing.T) {
 		fqcn:      "svc.windows.restart",
 		converged: nil,
 		apply:     func(context.Context, winrmsvc.Session, string) error { applyCalled = true; return nil },
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runServiceOp: %v", err)
 	}
@@ -240,7 +242,7 @@ func TestRunServiceOp_InverseOnlyEmittedWhenChanged(t *testing.T) {
 			inverseCalled = true
 			return sdk.Inverse{}, true
 		},
-	})
+	}, collection.ModeExecute)
 	_ = err
 	if inverseCalled {
 		t.Error("inverse must not be evaluated at all when the run converged without acting")
@@ -455,7 +457,7 @@ func TestRunServiceOp_ApplyFailureIsWrapped(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { return fmt.Errorf("boom") },
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "svc.windows.start") || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %v, want it to wrap the apply failure with the fqcn", err)
 	}
@@ -474,7 +476,7 @@ func TestRunServiceOp_AfterReadFailureIsWrapped(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { return nil },
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "svc.windows.start") || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %v, want it to wrap the after-change read failure with the fqcn", err)
 	}
@@ -489,7 +491,7 @@ func TestRunServiceOp_NameStatFailureIsWrapped(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { return nil },
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "svc.windows.start") {
 		t.Errorf("error = %v, want it to wrap the %q stat failure with the fqcn", err, statName)
 	}
@@ -504,7 +506,7 @@ func TestRunServiceOp_DiffStatFailureIsWrapped(t *testing.T) {
 		fqcn:      "svc.windows.start",
 		converged: winrmsvc.State.Running,
 		apply:     func(context.Context, winrmsvc.Session, string) error { return nil },
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "svc.windows.start") {
 		t.Errorf("error = %v, want it to wrap the %q stat failure with the fqcn", err, sdk.StatDiff)
 	}
@@ -522,8 +524,72 @@ func TestRunServiceOp_InverseStatFailureIsWrapped(t *testing.T) {
 		inverse: func(name string, _ winrmsvc.State) (sdk.Inverse, bool) {
 			return sdk.Inverse{FQCN: "svc.windows.stop", Params: map[string]any{paramName: name}}, true
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "svc.windows.start") {
 		t.Errorf("error = %v, want it to wrap the %q stat failure with the fqcn", err, sdk.StatInverse)
+	}
+}
+
+// TestServiceChecks covers each svc.windows method's check through the
+// same seams its real run is tested through: the check never calls the
+// method's apply (a call fails the test), predicts a change exactly when
+// the state it reads is not the one its real run converges to (restart
+// always), predicts the one field the change sets, records no undo, and
+// refuses what the real run refuses (a service the SCM does not know, a
+// start of a Disabled one).
+func TestServiceChecks(t *testing.T) {
+	stopped := winrmsvc.State{Name: "spooler", Exists: true, Status: "Stopped", StartType: "Manual"}
+	running := winrmsvc.State{Name: "spooler", Exists: true, Status: "Running", StartType: "Automatic"}
+	disabled := winrmsvc.State{Name: "spooler", Exists: true, Status: "Stopped", StartType: "Disabled"}
+	for _, tc := range []struct {
+		name        string
+		check       func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error)
+		apply       *func(context.Context, winrmsvc.Session, string) error
+		state       winrmsvc.State
+		wantChanged bool
+		wantField   string
+		wantValue   any
+		refused     string
+	}{
+		{"start, stopped", CheckStart, &startFunc, stopped, true, "status", "Running", ""},
+		{"start, running", CheckStart, &startFunc, running, false, "status", "Running", ""},
+		{"start, disabled", CheckStart, &startFunc, disabled, false, "", nil, "Disabled"},
+		{"stop, running", CheckStop, &stopFunc, running, true, "status", "Stopped", ""},
+		{"stop, stopped", CheckStop, &stopFunc, stopped, false, "status", "Stopped", ""},
+		{"restart, running", CheckRestart, &restartFunc, running, true, "status", "Running", ""},
+		{"enable, manual", CheckEnable, &enableFunc, stopped, true, "start_type", "Automatic", ""},
+		{"enable, automatic", CheckEnable, &enableFunc, running, false, "start_type", "Automatic", ""},
+		{"disable, automatic", CheckDisable, &disableFunc, running, true, "start_type", "Disabled", ""},
+		{"start, unknown service", CheckStart, &startFunc, winrmsvc.State{Name: "typo"}, false, "", nil, "does not know a service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withStatus(t, func(context.Context, winrmsvc.Session, string) (winrmsvc.State, error) { return tc.state, nil })
+			withApply(t, tc.apply, func(context.Context, winrmsvc.Session, string) error {
+				t.Error("the check applied the change")
+				return nil
+			})
+			rc := newFakeRC()
+			result, err := tc.check(context.Background(), rc, stubDevice(), map[string]any{"name": tc.state.Name})
+			if tc.refused != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.refused) {
+					t.Fatalf("check = %v, want it refused with %q", err, tc.refused)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("check: %v", err)
+			}
+			if result.Changed != tc.wantChanged {
+				t.Errorf("predicted changed %v, want %v", result.Changed, tc.wantChanged)
+			}
+			if rc.stats[sdk.StatInverse] != nil {
+				t.Error("the check recorded an undo instruction")
+			}
+			diff, _ := rc.stats[sdk.StatDiff].(map[string]any)
+			after, _ := diff["after"].(map[string]any)
+			if after[tc.wantField] != tc.wantValue {
+				t.Errorf("predicted %s = %v, want %v", tc.wantField, after[tc.wantField], tc.wantValue)
+			}
+		})
 	}
 }

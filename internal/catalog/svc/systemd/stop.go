@@ -28,9 +28,13 @@ func init() {
 					"restore what the service missed while it was down: requests that were refused, queues that " +
 					"backed up, timers that did not fire.",
 			},
-			Doc: stopDoc(),
+			// A check reads the unit's state and says whether a stop would
+			// be sent, without sending it. See CheckStop.
+			SupportsCheck: true,
+			Doc:           stopDoc(),
 		},
 		Invoke: Stop,
+		Check:  CheckStop,
 	})
 }
 
@@ -53,23 +57,38 @@ func stopDoc() collection.Doc {
 	)
 }
 
+// stopOp is what makes svc.systemd.stop different from its siblings,
+// shared by Stop and CheckStop.
+var stopOp = unitOp{
+	fqcn:      "svc.systemd.stop",
+	converged: func(s remotesvc.State) bool { return !s.Active() },
+	apply:     remotesvc.Stop,
+	predict:   predictActiveState(activeStateInactive),
+	inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
+		return sdk.Inverse{
+			FQCN:   "svc.systemd.start",
+			Params: map[string]any{paramName: unit},
+			Description: fmt.Sprintf("Start %s, which this task stopped. It does not recover anything the service "+
+				"missed while it was down.", unit),
+		}, true
+	},
+}
+
 // Stop implements "svc.systemd.stop".
 //
 // A masked unit is NOT refused here, unlike start: a masked unit cannot
 // be running, so asking to stop it is already satisfied and refusing
 // would fail a task whose goal is met.
 func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runUnitOp(ctx, rc, device, params, unitOp{
-		fqcn:      "svc.systemd.stop",
-		converged: func(s remotesvc.State) bool { return !s.Active() },
-		apply:     remotesvc.Stop,
-		inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
-			return sdk.Inverse{
-				FQCN:   "svc.systemd.start",
-				Params: map[string]any{paramName: unit},
-				Description: fmt.Sprintf("Start %s, which this task stopped. It does not recover anything the service "+
-					"missed while it was down.", unit),
-			}, true
-		},
-	})
+	return runUnitOp(ctx, rc, device, params, stopOp, collection.ModeExecute)
+}
+
+// CheckStop is "svc.systemd.stop" in check mode: it reads the unit and
+// reports whether Stop would send a stop, sending nothing.
+//
+// A running unit is predicted to end up with ActiveState "inactive". A
+// unit that is not running, including a masked one, is converged, so the
+// check predicts no change for it exactly as Stop would make none.
+func CheckStop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runUnitOp(ctx, rc, device, params, stopOp, collection.ModeCheck)
 }

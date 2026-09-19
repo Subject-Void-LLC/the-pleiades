@@ -21,6 +21,7 @@ func init() {
 			enableDoc(),
 		),
 		Invoke: Enable,
+		Check:  CheckEnable,
 	})
 }
 
@@ -41,5 +42,12 @@ func enableDoc() collection.Doc {
 // Enable implements "svc.enable" by resolving the device's service
 // manager and handing the call to that manager's concrete method.
 func Enable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "enable")
+	return dispatch(ctx, rc, device, params, "enable", collection.ModeExecute)
+}
+
+// CheckEnable is svc.enable's check: the device's service manager's own check
+// (dispatch), or "cannot check this call" for a manager whose method has
+// none.
+func CheckEnable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "enable", collection.ModeCheck)
 }
