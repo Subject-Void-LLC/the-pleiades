@@ -86,9 +86,14 @@ func init() {
 					"made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before " +
 					"failing stays applied and has to be re-run rather than undone.",
 			},
-			Doc: permissionsDoc(),
+			// A check reads the path and reports whether a real run would
+			// send a chmod, chown or chgrp, sending none. See
+			// CheckPermissions.
+			SupportsCheck: true,
+			Doc:           permissionsDoc(),
 		},
 		Invoke: Permissions,
+		Check:  CheckPermissions,
 	})
 }
 
@@ -155,6 +160,28 @@ func permissionsDoc() collection.Doc {
 // has run, what was there before is gone, and those are exactly the values
 // the emitted inverse carries. See permRecordInverse.
 func Permissions(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return permissions(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckPermissions is "file.permissions" in check mode: it reads the path
+// and reports whether Permissions would change its mode, owner or group,
+// and changes nothing.
+//
+// It runs Permissions' own body up to the point of acting, so every
+// refusal is shared: a missing path, a symlink, a mode or name it cannot
+// compare. The decision is remotefile.Differs, which is exactly the
+// comparison remotefile.Apply acts on, and the diff's after half is
+// remotefile.PredictApply's answer, which leaves the mode out rather than
+// guessing it in the one case the kernel decides it (an ownership change
+// on a setuid or setgid file when the task names no mode). No inverse is
+// recorded, since nothing was done that could be undone.
+func CheckPermissions(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return permissions(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// permissions is the one body Permissions and CheckPermissions share.
+// mode decides only whether anything is written.
+func permissions(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.permissions"
 
 	path, want, err := permRequest(params)
@@ -182,6 +209,10 @@ func Permissions(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	// every run and the operator would be reading the wrong path's state.
 	if before.Kind == remotefile.KindSymlink {
 		return collection.Result{}, fmt.Errorf("%s: %s is a symbolic link to %s: point the task at the target, since chmod and chown follow a link while its own mode never changes", fqcn, path, before.Target)
+	}
+
+	if mode == collection.ModeCheck {
+		return checkPermissions(rc, fqcn, path, want, before)
 	}
 
 	changed, err := remotefile.Apply(ctx, conn, path, want, before)
@@ -348,6 +379,28 @@ func permRecordInverse(rc sdk.RunbookContext, fqcn, path string, before remotefi
 		Description: fmt.Sprintf("Set %s back to mode %s, owned by %s:%s, which is what it was before this task ran.",
 			path, before.Mode, before.Owner, before.Group),
 	})
+}
+
+// checkPermissions finishes a check once permissions has read the path
+// and refused everything a real run refuses: it records what Permissions
+// would do, writing nothing.
+//
+// The stats are the path's current attributes, since permRecordStats
+// reports the state the path is in now and a check leaves it exactly as
+// it was. What a real run would leave is the diff's after half.
+func checkPermissions(rc sdk.RunbookContext, fqcn, path string, want remotefile.Attributes, before remotefile.Info) (collection.Result, error) {
+	changed := remotefile.Differs(want, before)
+	after := before.Map()
+	if changed {
+		after = remotefile.PredictApply(want, before).Map()
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := permRecordStats(rc, path, before); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: changed}, nil
 }
 
 // permRecordStats writes the stats this method returns, which are

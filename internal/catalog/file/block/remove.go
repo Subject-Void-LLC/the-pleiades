@@ -35,6 +35,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the file and computes the edit before it writes, so
+			// a check can predict through the same code (CheckRemove).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "Deleting text is usually the least reversible thing a method can do, and the markers are what make this the exception: they " +
@@ -48,6 +51,7 @@ func init() {
 			Doc: removeDoc(),
 		},
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -110,6 +114,20 @@ type removeInput struct {
 // the block is gone from the device, so an undo that was not built from
 // this read could not be built at all.
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRemove is the check of this method: the same reads, refusals and
+// change decision as Remove, through the one body both share, then a
+// prediction instead of the write. The predicted region is what reading
+// the file back would find (blockPredict), and the stats are the ones a
+// real run records from it.
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// remove is Remove's and CheckRemove's one body; mode says which.
+func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = blockFQCNRemove
 
 	req, err := removeRequest(params)
@@ -142,6 +160,19 @@ func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if changed {
 		lines, trailing, added := blockWithout(before)
 		addedNewline = added
+		if mode == collection.ModeCheck {
+			predicted, err := blockPredict(lines, trailing, req.markers)
+			if err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.region.state(), After: predicted.region.state()}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			if err := blockRecordStats(rc, req.path, predicted.region); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			return collection.Result{Changed: true}, nil
+		}
 		if err := remotefile.Write(ctx, conn, req.path, []byte(blockJoin(lines, trailing))); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}

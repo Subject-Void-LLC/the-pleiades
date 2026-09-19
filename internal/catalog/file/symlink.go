@@ -74,6 +74,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the path before it links, so a check can predict
+			// through the same code (CheckSymlink).
+			SupportsCheck: true,
 			// Which inverse this is depends on what the run found, so the
 			// run emits it and this field answers only whether one can
 			// exist. See symlinkRecordInverse, and permRecordInverse for
@@ -88,6 +91,7 @@ func init() {
 			Doc: symlinkDoc(),
 		},
 		Invoke: Symlink,
+		Check:  CheckSymlink,
 	})
 }
 
@@ -156,6 +160,20 @@ func symlinkDoc() collection.Doc {
 // our own intent, which are the same thing right up until the moment they
 // are not.
 func Symlink(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return symlink(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckSymlink is file.symlink's check: the same read and the same
+// refusal as Symlink, through the one body both share, then a prediction
+// instead of the link. A link already pointing at src predicts no change;
+// anything else predicts one, with a diff whose After half is
+// remotefile.PredictSymlink.
+func CheckSymlink(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return symlink(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// symlink is Symlink's and CheckSymlink's one body; mode says which.
+func symlink(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.symlink"
 
 	// Both parameters are read before connecting, so a runbook mistake
@@ -195,6 +213,17 @@ func Symlink(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	// The one case that must send nothing at all. Both halves matter: a
 	// link to the wrong place is a change, and so is no link at all.
 	converged := before.Kind == remotefile.KindSymlink && before.Target == src
+
+	if mode == collection.ModeCheck {
+		predicted := before.Map()
+		if !converged {
+			predicted = remotefile.PredictSymlink(src).Map()
+		}
+		if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: predicted}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: !converged}, nil
+	}
 
 	after := before
 	if !converged {

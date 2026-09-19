@@ -226,6 +226,20 @@ func blockObserve(ctx context.Context, conn *remoteexec.Conn, path string, m blo
 	return blockObservation{lines: lines, trailing: trailing, region: region}, nil
 }
 
+// blockPredict is what blockObserve would find in a file written as lines
+// and trailing: the text is joined and split exactly as a write and a
+// read-back would, and the region found by the same blockFind. A check's
+// prediction is therefore the observation a real run would make, not a
+// second description of it.
+func blockPredict(lines []string, trailing bool, m blockMarkers) (blockObservation, error) {
+	read, readTrailing := blockSplitLines(blockJoin(lines, trailing))
+	region, err := blockFind(read, m)
+	if err != nil {
+		return blockObservation{}, err
+	}
+	return blockObservation{lines: read, trailing: readTrailing, region: region}, nil
+}
+
 // blockWithout returns the file's lines with the managed region cut out,
 // and whether the result still ends with a newline.
 //
