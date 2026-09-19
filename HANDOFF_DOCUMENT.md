@@ -5,7 +5,8 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 ## Current Status (this session)
 
 **Branch `feature/Phase-46-Simulation-Modes`, off `origin/main` at `27d4bac` (the merge of PR #33).
-NOTHING IS COMMITTED: every change is in the working tree, and the 32-commit plan is below.** The
+COMMITTED 2026-09-19 at the user's request as the 19 commits listed below, on top of `cb509f7` (an
+earlier compose fix). Not pushed, and not yet gated: `make ci` has not run on these commits.** The
 branch has no upstream on purpose (`git branch --unset-upstream`): it was created from `origin/main`
 and tracked it, so a stray `git push` would have targeted main. Push with `-u` to its own name. The work
 answers the JetPorch comparison's two "ideas worth borrowing": check mode (Phase 46, first slice) and
@@ -270,82 +271,39 @@ headline gaps, all now build items:
 - Phases 42 to 44: OCI media types and artifacts, reproducible digests, a registry, signing.
 - External Collections on Windows.
 
-### Commit plan (not yet run; the user has not asked to commit)
+### Commits (made 2026-09-19)
 
-1. `chore: ignore .venv` (the user's own `.gitignore` line)
-2. `feat(collection): add check mode to the Collection contract` (pkg/collection)
-3. `feat(engine): run a task's declared check in check mode` (internal/engine, internal/validate)
-4. `refactor(native): move the collection child into pkg/external` (pkg/external device/context/child,
-   pkg/wire Mode, internal/adapters/native)
-5. `fix(remotefile): keep setuid and setgid right across ownership and directory mode changes`
-6. `feat(catalog): answer check mode in svc.systemd and three file methods`
-7. `feat(run): add pleiades run --mode check`
-8. `feat(external): load Collections built outside this repository` (pkg/external serve, internal/loader,
-   archtest, cmd wiring, doc origin, example)
-9. `feat(forge): scaffold check support and external Collection programs`
-10. `feat(loader): confine every external program with Landlock` (confine*.go, Options grants,
-    `remoteexec.KnownHostsFile`, extprog's reach probe, cmd wiring, docs 11/01, FAILURE_PATTERNS 251/254)
-11. `feat(engine): honor check_mode on a runbook, block or task, and refuse unknown top-level keys`
-    (check_mode.go, condition_refs.go, executor/journal per-node mode, validate rule, CLI, gendocs,
-    archtest TestOneYAMLModule, the key gate, the `.breaking` fragment, FAILURE_PATTERNS 252/255)
-12. `feat(engine): keep a third party's check off simulate-locked devices` (Descriptor.Provider,
-    checkAction guard, testdata/writingcheck and its gate, FAILURE_PATTERNS 253)
-13. `feat(loader): approve each external build, reserve Pleiades's namespaces, and test the Runner path`
-    (approval*.go, openProgram and fd exec, `pleiades collection`, clispec and cli.md,
-    `collection.BuiltinNamespaces`, `Descriptor.Provider` routing in native, the Runner's early load,
-    both new cmd/runner gates, docs and scaffold README)
-14. `feat(loader): keep an external program's text from controlling the terminal` (internal/termsafe,
-    the loader's description and stat-name checks, CLI escaping, hardening tests, the source-character
-    archtest, FAILURE_PATTERNS 256/257)
-15. `feat(journal): record which external program did each task` (JournalEntry provider fields, ent
-    schema and both migrations, EntStore, CSV, archtest classification, docs/10)
-16. `feat(run): end an incomplete check with 3 and mark every check result as a prediction`
-    (exit status, --allow-unchecked, clispec and cli.md, sdk.StatPredicted, stamp and refusal)
-17. `feat(controller): run a template as a check` (launch TypeChoice and mode.go, the runbook kind's
-    field, UI select, `CheckTemplate` and `RelCheck`, the job's mode in API/OpenAPI/UI,
-    `CheckSubject`/`runner-check`, dispatch admission and routing, `routing.CheckOnly`, both adapters,
-    the Runner's second loop, meshid grants, every test and gate named above, docs/01 and docs/10,
-    the `controller-check-mode.added.md` fragment)
-18. `feat(engine): answer a check's conditions by partial evaluation, and let a check decline one call`
-    (cel.go EvalPartial, conditional_partial.go, check_conditions.go, collection.CannotCheck, the wire
-    flag, both parents, methodError, their tests and fuzzes, docs/02 and 11, two fragments)
-19. `feat(build): report one build version everywhere and enforce engine constraints on releases`
-    (internal/buildinfo, `runner version`, the loader's check and per-program warning, doc's note, the
-    Dockerfiles, the scaffold's constraint, the version release gate and fixture, docs/10 and 11)
-20. `feat(forge): give a new external program a minimal go.mod` (the go.mod template, README build
-    steps, `--no-go-mod`, clispec and cli.md, the out-of-tree release gate, the go.mod tests)
-21. `test: fuzz registration parity, mixed check DAGs and hostile subjects; benchmark checks; run chmod
-    on BusyBox` (the parity fuzz and seam, the Windows refusal, the mixed-DAG fuzz, the benchmarks, the
-    BusyBox test, the Makefile's Docker list, the subject test)
-22. `feat(controller): report whether a check job was complete` (`wire.Outcome` and every adapter and
-    fake, the agent's result, `job_task.unchecked` and both migrations, `CheckCoverage`, the job API and
-    OpenAPI, the gate's incomplete check)
-23. `feat(auth): add the runbook:check scope` (the scope and its implication, the check route, the
-    external-checks decision from launch to engine, `jobs.external_checks` and both migrations, tests,
-    docs, and the two `internal/auth/scopes.go` gosec waivers renumbered for the lines it moved)
-24. `feat(collection): answer check mode per call, and say why a method cannot be checked`
-    (`Descriptor.CheckCall`, `Manifest.NoCheckReason`, `NoCheckAnswer`, both Register rules and the
-    loader's mirror with the parity fuzz, `engine.Checkable(fqcn, params)`, the unchecked reason,
-    `CheckModeRule`, the gendocs row, `TestEveryUncheckableMethodSaysWhy`)
-25. `feat(catalog): check the read-only methods` (facts.gather, net.ssh.ping, net.ios.facts and ping,
-    net.catalyst.*, http.request, `remoteexectest.Server.Commands`)
-26. `feat(catalog): check every file method` (touch, symlink, copy, line.*, block.*, remotefile Predict*)
-27. `feat(catalog): check the package methods` (apt, dnf, the generic three)
-28. `feat(catalog): check the identity and firewalld methods` (with the fakes' --state, and
-    `testsupport.InPrivateRoot`/`PrivateEtc` with the real account-database tests)
-29. `feat(catalog): check the Windows and generic service methods` (FAILURE_PATTERNS 259)
-30. `feat(catalog): check guarded commands, Windows features, archives, mounts and saves` (exec with the
-    key gate's new cases, win.feature, archive, fs's `fstabDecide` and its real-mount test,
-    net.ios.save, the nine reasons)
-31. `feat(catalog): check Docker containers and AWS resources` (docker with its real-daemon test and the
-    Makefile list, the AWS four, `awscloud.BucketHoldsAnything` and `AccessDenied`)
-32. `docs: document check mode and external Collections, and record what this work found` (01, 02
-    recaptured, 11, CLAUDE.md, the fragments, FAILURE_PATTERNS 259, LESSONS 204 and 205)
+Split by file rather than by hunk, since the engine, the native adapter and a few other files carry
+several features each; the 32-commit plan this replaces assumed hunk splits. Every commit was checked
+to build and vet from a clean worktree at that commit, cumulatively, before any was made. The commit
+gate refused nothing and warned three times: a deliberate capitalized test error in
+`pkg/awscloud/bucket_contents_test.go`, and `cb9388a` and `a62b891` editing a spec without the
+regenerated reference, which is in `37ead22`.
+
+1. `3040d2b` chore: ignore .venv
+2. `e3903d9` fix(remotefile): keep setuid and setgid right across chown and chmod
+3. `49ee6af` feat(build): report one build version from every binary
+4. `031a97b` feat(collection): add check mode to the Collection contract
+5. `eda7a21` feat(external): load Collections built outside this repository
+6. `73e58e1` feat(engine): run checks through the engine, both parents and the Runner
+7. `ec5d571` feat(runner): read checks from their own subject, load Collections first
+8. `0b47a5d` feat(store): record task providers, check coverage and external checks
+9. `ddeabe5` feat(catalog): check the read-only, network and HTTP methods
+10. `38dcd95` feat(catalog): check every file method
+11. `eeb2ba5` feat(catalog): check the package methods
+12. `1c8d258` feat(catalog): check the identity and firewalld methods
+13. `00a9477` feat(catalog): check the Windows and generic service methods
+14. `ae53ab6` feat(catalog): check guarded commands, features, archives and mounts
+15. `9c02b30` feat(catalog): check Docker and AWS, and say why the rest cannot be
+16. `cb9388a` feat(controller): run a template as a check
+17. `a62b891` feat(cli): add pleiades run --mode check, and load external Collections
+18. `37ead22` docs: document check mode and external Collections
+19. `0a2d28c` docs: record what the check mode and external Collection work found
 
 ### Next step
 
-Decide the commit split (or commit as planned; 11 and 12 touch shared files such as check_mode.go's
-neighbours in the engine, so split by hunk or merge them), then run `make ci` with nothing else
-running. Every doc-comment gap the commit gate would refuse is closed. The remaining build items:
+Run `make ci` (or `make push-gate`) on the committed tree with nothing else running; it writes the
+receipt the pre-push hook checks. Then push with `-u` to this branch's own name, since it has no
+upstream on purpose. The remaining build items:
 real-device proof for the checks proven only on fakes, toybox and BSD chmod (no device in the lab),
 and the Phase 35 cross-check (waits on Phase 35). Rotate the LocalStack token (finding 15).
