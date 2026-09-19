@@ -64,6 +64,8 @@ type Job struct {
 	ExtraVars map[string]interface{} `json:"extra_vars,omitempty"`
 	// CredentialIds holds the value of the "credential_ids" field.
 	CredentialIds []int `json:"credential_ids,omitempty"`
+	// ExternalChecks holds the value of the "external_checks" field.
+	ExternalChecks bool `json:"external_checks,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -95,6 +97,8 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds:
 			values[i] = new([]byte)
+		case job.FieldExternalChecks:
+			values[i] = new(sql.NullBool)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
 		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy:
@@ -270,6 +274,12 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field credential_ids: %w", err)
 				}
 			}
+		case job.FieldExternalChecks:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field external_checks", values[i])
+			} else if value.Valid {
+				_m.ExternalChecks = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -387,6 +397,9 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("credential_ids=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CredentialIds))
+	builder.WriteString(", ")
+	builder.WriteString("external_checks=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExternalChecks))
 	builder.WriteByte(')')
 	return builder.String()
 }

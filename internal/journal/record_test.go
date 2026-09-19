@@ -103,7 +103,8 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 	line := readLines(t, root, "run-a")[0]
 	for _, key := range []string{
 		"job_id", "attempt", "run_id", "sequence", "node_id", "dag_id", "dag_version",
-		"fqcn", "fqcn_unresolved", "task_name", "register", "device_id",
+		"fqcn", "fqcn_unresolved", "provider_program", "provider_digest",
+		"task_name", "register", "device_id",
 		"started_at", "finished_at", "outcome", "failure_stage",
 		"skip_kind", "skip_ordinal", "skip_total",
 		"stat_keys", "undeclared_stat_count", "param_keys", "undeclared_param_count",
@@ -114,8 +115,8 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 			t.Errorf("the record has no %q key: %v", key, line)
 		}
 	}
-	if len(line) != 28 {
-		t.Errorf("the record holds %d keys, want 28: no field carries omitempty, so every line is whole", len(line))
+	if len(line) != 30 {
+		t.Errorf("the record holds %d keys, want 30: no field carries omitempty, so every line is whole", len(line))
 	}
 }
 

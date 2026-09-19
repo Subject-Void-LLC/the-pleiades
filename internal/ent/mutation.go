@@ -10008,6 +10008,7 @@ type JobMutation struct {
 	extra_vars           *map[string]interface{}
 	credential_ids       *[]int
 	appendcredential_ids []int
+	external_checks      *bool
 	clearedFields        map[string]struct{}
 	tasks                map[int]struct{}
 	removedtasks         map[int]struct{}
@@ -11279,6 +11280,42 @@ func (m *JobMutation) ResetCredentialIds() {
 	delete(m.clearedFields, job.FieldCredentialIds)
 }
 
+// SetExternalChecks sets the "external_checks" field.
+func (m *JobMutation) SetExternalChecks(b bool) {
+	m.external_checks = &b
+}
+
+// ExternalChecks returns the value of the "external_checks" field in the mutation.
+func (m *JobMutation) ExternalChecks() (r bool, exists bool) {
+	v := m.external_checks
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExternalChecks returns the old "external_checks" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldExternalChecks(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExternalChecks is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExternalChecks requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExternalChecks: %w", err)
+	}
+	return oldValue.ExternalChecks, nil
+}
+
+// ResetExternalChecks resets all changes to the "external_checks" field.
+func (m *JobMutation) ResetExternalChecks() {
+	m.external_checks = nil
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by ids.
 func (m *JobMutation) AddTaskIDs(ids ...int) {
 	if m.tasks == nil {
@@ -11367,7 +11404,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -11437,6 +11474,9 @@ func (m *JobMutation) Fields() []string {
 	if m.credential_ids != nil {
 		fields = append(fields, job.FieldCredentialIds)
 	}
+	if m.external_checks != nil {
+		fields = append(fields, job.FieldExternalChecks)
+	}
 	return fields
 }
 
@@ -11491,6 +11531,8 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.ExtraVars()
 	case job.FieldCredentialIds:
 		return m.CredentialIds()
+	case job.FieldExternalChecks:
+		return m.ExternalChecks()
 	}
 	return nil, false
 }
@@ -11546,6 +11588,8 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldExtraVars(ctx)
 	case job.FieldCredentialIds:
 		return m.OldCredentialIds(ctx)
+	case job.FieldExternalChecks:
+		return m.OldExternalChecks(ctx)
 	}
 	return nil, fmt.Errorf("unknown Job field %s", name)
 }
@@ -11715,6 +11759,13 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCredentialIds(v)
+		return nil
+	case job.FieldExternalChecks:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExternalChecks(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
@@ -12008,6 +12059,9 @@ func (m *JobMutation) ResetField(name string) error {
 	case job.FieldCredentialIds:
 		m.ResetCredentialIds()
 		return nil
+	case job.FieldExternalChecks:
+		m.ResetExternalChecks()
+		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
 }
@@ -12111,6 +12165,8 @@ type JobTaskMutation struct {
 	result        *jobtask.Result
 	result_reason *string
 	finished_at   *time.Time
+	unchecked     *int
+	addunchecked  *int
 	clearedFields map[string]struct{}
 	job           *int
 	clearedjob    bool
@@ -12593,6 +12649,62 @@ func (m *JobTaskMutation) ResetFinishedAt() {
 	delete(m.clearedFields, jobtask.FieldFinishedAt)
 }
 
+// SetUnchecked sets the "unchecked" field.
+func (m *JobTaskMutation) SetUnchecked(i int) {
+	m.unchecked = &i
+	m.addunchecked = nil
+}
+
+// Unchecked returns the value of the "unchecked" field in the mutation.
+func (m *JobTaskMutation) Unchecked() (r int, exists bool) {
+	v := m.unchecked
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUnchecked returns the old "unchecked" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldUnchecked(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUnchecked is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUnchecked requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUnchecked: %w", err)
+	}
+	return oldValue.Unchecked, nil
+}
+
+// AddUnchecked adds i to the "unchecked" field.
+func (m *JobTaskMutation) AddUnchecked(i int) {
+	if m.addunchecked != nil {
+		*m.addunchecked += i
+	} else {
+		m.addunchecked = &i
+	}
+}
+
+// AddedUnchecked returns the value that was added to the "unchecked" field in this mutation.
+func (m *JobTaskMutation) AddedUnchecked() (r int, exists bool) {
+	v := m.addunchecked
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUnchecked resets all changes to the "unchecked" field.
+func (m *JobTaskMutation) ResetUnchecked() {
+	m.unchecked = nil
+	m.addunchecked = nil
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -12666,7 +12778,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 9)
+	fields := make([]string, 0, 10)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -12694,6 +12806,9 @@ func (m *JobTaskMutation) Fields() []string {
 	if m.finished_at != nil {
 		fields = append(fields, jobtask.FieldFinishedAt)
 	}
+	if m.unchecked != nil {
+		fields = append(fields, jobtask.FieldUnchecked)
+	}
 	return fields
 }
 
@@ -12720,6 +12835,8 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.ResultReason()
 	case jobtask.FieldFinishedAt:
 		return m.FinishedAt()
+	case jobtask.FieldUnchecked:
+		return m.Unchecked()
 	}
 	return nil, false
 }
@@ -12747,6 +12864,8 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldResultReason(ctx)
 	case jobtask.FieldFinishedAt:
 		return m.OldFinishedAt(ctx)
+	case jobtask.FieldUnchecked:
+		return m.OldUnchecked(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -12819,6 +12938,13 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFinishedAt(v)
 		return nil
+	case jobtask.FieldUnchecked:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUnchecked(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -12826,13 +12952,21 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *JobTaskMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addunchecked != nil {
+		fields = append(fields, jobtask.FieldUnchecked)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *JobTaskMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case jobtask.FieldUnchecked:
+		return m.AddedUnchecked()
+	}
 	return nil, false
 }
 
@@ -12841,6 +12975,13 @@ func (m *JobTaskMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *JobTaskMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case jobtask.FieldUnchecked:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUnchecked(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask numeric field %s", name)
 }
@@ -12921,6 +13062,9 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldFinishedAt:
 		m.ResetFinishedAt()
+		return nil
+	case jobtask.FieldUnchecked:
+		m.ResetUnchecked()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
@@ -13020,6 +13164,8 @@ type JournalEntryMutation struct {
 	dag_version                       *string
 	fqcn                              *string
 	fqcn_unresolved                   *bool
+	provider_program                  *string
+	provider_digest                   *string
 	task_name                         *string
 	register                          *string
 	started_at                        *time.Time
@@ -13672,6 +13818,104 @@ func (m *JournalEntryMutation) OldFqcnUnresolved(ctx context.Context) (v bool, e
 // ResetFqcnUnresolved resets all changes to the "fqcn_unresolved" field.
 func (m *JournalEntryMutation) ResetFqcnUnresolved() {
 	m.fqcn_unresolved = nil
+}
+
+// SetProviderProgram sets the "provider_program" field.
+func (m *JournalEntryMutation) SetProviderProgram(s string) {
+	m.provider_program = &s
+}
+
+// ProviderProgram returns the value of the "provider_program" field in the mutation.
+func (m *JournalEntryMutation) ProviderProgram() (r string, exists bool) {
+	v := m.provider_program
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderProgram returns the old "provider_program" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldProviderProgram(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderProgram is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderProgram requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderProgram: %w", err)
+	}
+	return oldValue.ProviderProgram, nil
+}
+
+// ClearProviderProgram clears the value of the "provider_program" field.
+func (m *JournalEntryMutation) ClearProviderProgram() {
+	m.provider_program = nil
+	m.clearedFields[journalentry.FieldProviderProgram] = struct{}{}
+}
+
+// ProviderProgramCleared returns if the "provider_program" field was cleared in this mutation.
+func (m *JournalEntryMutation) ProviderProgramCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldProviderProgram]
+	return ok
+}
+
+// ResetProviderProgram resets all changes to the "provider_program" field.
+func (m *JournalEntryMutation) ResetProviderProgram() {
+	m.provider_program = nil
+	delete(m.clearedFields, journalentry.FieldProviderProgram)
+}
+
+// SetProviderDigest sets the "provider_digest" field.
+func (m *JournalEntryMutation) SetProviderDigest(s string) {
+	m.provider_digest = &s
+}
+
+// ProviderDigest returns the value of the "provider_digest" field in the mutation.
+func (m *JournalEntryMutation) ProviderDigest() (r string, exists bool) {
+	v := m.provider_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderDigest returns the old "provider_digest" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldProviderDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderDigest: %w", err)
+	}
+	return oldValue.ProviderDigest, nil
+}
+
+// ClearProviderDigest clears the value of the "provider_digest" field.
+func (m *JournalEntryMutation) ClearProviderDigest() {
+	m.provider_digest = nil
+	m.clearedFields[journalentry.FieldProviderDigest] = struct{}{}
+}
+
+// ProviderDigestCleared returns if the "provider_digest" field was cleared in this mutation.
+func (m *JournalEntryMutation) ProviderDigestCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldProviderDigest]
+	return ok
+}
+
+// ResetProviderDigest resets all changes to the "provider_digest" field.
+func (m *JournalEntryMutation) ResetProviderDigest() {
+	m.provider_digest = nil
+	delete(m.clearedFields, journalentry.FieldProviderDigest)
 }
 
 // SetTaskName sets the "task_name" field.
@@ -14634,7 +14878,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 30)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -14670,6 +14914,12 @@ func (m *JournalEntryMutation) Fields() []string {
 	}
 	if m.fqcn_unresolved != nil {
 		fields = append(fields, journalentry.FieldFqcnUnresolved)
+	}
+	if m.provider_program != nil {
+		fields = append(fields, journalentry.FieldProviderProgram)
+	}
+	if m.provider_digest != nil {
+		fields = append(fields, journalentry.FieldProviderDigest)
 	}
 	if m.task_name != nil {
 		fields = append(fields, journalentry.FieldTaskName)
@@ -14757,6 +15007,10 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.Fqcn()
 	case journalentry.FieldFqcnUnresolved:
 		return m.FqcnUnresolved()
+	case journalentry.FieldProviderProgram:
+		return m.ProviderProgram()
+	case journalentry.FieldProviderDigest:
+		return m.ProviderDigest()
 	case journalentry.FieldTaskName:
 		return m.TaskName()
 	case journalentry.FieldRegister:
@@ -14826,6 +15080,10 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldFqcn(ctx)
 	case journalentry.FieldFqcnUnresolved:
 		return m.OldFqcnUnresolved(ctx)
+	case journalentry.FieldProviderProgram:
+		return m.OldProviderProgram(ctx)
+	case journalentry.FieldProviderDigest:
+		return m.OldProviderDigest(ctx)
 	case journalentry.FieldTaskName:
 		return m.OldTaskName(ctx)
 	case journalentry.FieldRegister:
@@ -14954,6 +15212,20 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetFqcnUnresolved(v)
+		return nil
+	case journalentry.FieldProviderProgram:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderProgram(v)
+		return nil
+	case journalentry.FieldProviderDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderDigest(v)
 		return nil
 	case journalentry.FieldTaskName:
 		v, ok := value.(string)
@@ -15210,6 +15482,12 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	if m.FieldCleared(journalentry.FieldFqcn) {
 		fields = append(fields, journalentry.FieldFqcn)
 	}
+	if m.FieldCleared(journalentry.FieldProviderProgram) {
+		fields = append(fields, journalentry.FieldProviderProgram)
+	}
+	if m.FieldCleared(journalentry.FieldProviderDigest) {
+		fields = append(fields, journalentry.FieldProviderDigest)
+	}
 	if m.FieldCleared(journalentry.FieldTaskName) {
 		fields = append(fields, journalentry.FieldTaskName)
 	}
@@ -15265,6 +15543,12 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldFqcn:
 		m.ClearFqcn()
+		return nil
+	case journalentry.FieldProviderProgram:
+		m.ClearProviderProgram()
+		return nil
+	case journalentry.FieldProviderDigest:
+		m.ClearProviderDigest()
 		return nil
 	case journalentry.FieldTaskName:
 		m.ClearTaskName()
@@ -15339,6 +15623,12 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldFqcnUnresolved:
 		m.ResetFqcnUnresolved()
+		return nil
+	case journalentry.FieldProviderProgram:
+		m.ResetProviderProgram()
+		return nil
+	case journalentry.FieldProviderDigest:
+		m.ResetProviderDigest()
 		return nil
 	case journalentry.FieldTaskName:
 		m.ResetTaskName()

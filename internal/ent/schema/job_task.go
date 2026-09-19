@@ -79,6 +79,11 @@ func (JobTask) Fields() []ent.Field {
 		// it must never echo a device property or a raw internal error.
 		field.String("result_reason").Optional(),
 		field.Time("finished_at").Optional(),
+		// unchecked is how many tasks a check could not check on this
+		// device, reported with the result, and zero for a real run and
+		// for a check that answered for every task. A check job is
+		// complete only when every device's count is zero.
+		field.Int("unchecked").Default(0).NonNegative(),
 	}
 }
 

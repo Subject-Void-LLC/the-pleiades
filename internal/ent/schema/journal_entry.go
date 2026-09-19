@@ -104,6 +104,11 @@ func (JournalEntry) Fields() []ent.Field {
 		// bytes were never stored.
 		field.String("fqcn").Immutable().Optional(),
 		field.Bool("fqcn_unresolved").Immutable().Default(false),
+		// provider_program and provider_digest name the external Collection
+		// program behind the method and the digest it ran as, and are empty
+		// for a method compiled into the binary.
+		field.String("provider_program").Immutable().Optional(),
+		field.String("provider_digest").Immutable().Optional(),
 
 		// task_name and register are author-written labels, carried
 		// through unchanged. They are the one residual channel by which a

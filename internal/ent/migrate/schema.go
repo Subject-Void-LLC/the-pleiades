@@ -391,6 +391,7 @@ var (
 		{Name: "fields", Type: field.TypeJSON, Nullable: true},
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 		{Name: "credential_ids", Type: field.TypeJSON, Nullable: true},
+		{Name: "external_checks", Type: field.TypeBool, Default: false},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{
@@ -417,6 +418,7 @@ var (
 		{Name: "result", Type: field.TypeEnum, Nullable: true, Enums: []string{"succeeded", "failed"}},
 		{Name: "result_reason", Type: field.TypeString, Nullable: true},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+		{Name: "unchecked", Type: field.TypeInt, Default: 0},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -427,7 +429,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[10]},
+				Columns:    []*schema.Column{JobTasksColumns[11]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -436,7 +438,7 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[10]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[11]},
 			},
 		},
 	}
@@ -455,6 +457,8 @@ var (
 		{Name: "dag_version", Type: field.TypeString, Nullable: true},
 		{Name: "fqcn", Type: field.TypeString, Nullable: true},
 		{Name: "fqcn_unresolved", Type: field.TypeBool, Default: false},
+		{Name: "provider_program", Type: field.TypeString, Nullable: true},
+		{Name: "provider_digest", Type: field.TypeString, Nullable: true},
 		{Name: "task_name", Type: field.TypeString, Nullable: true},
 		{Name: "register", Type: field.TypeString, Nullable: true},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},

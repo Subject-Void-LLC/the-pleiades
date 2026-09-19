@@ -443,6 +443,14 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindPlatformID,
 		why:  "the inventory item's own stored id field, never a device property the platform read back",
 	},
+	"ProviderProgram": {
+		kind: journalKindPlatformID,
+		why:  "the path the loader resolved itself (checkDir's resolved directory joined with the directory entry's name) and set on the descriptor when it registered the method, read back at write time through collection.Lookup as FQCN is; a program's description carries only a name and a manifest, so nothing the program, the runbook or a device says can reach it",
+	},
+	"ProviderDigest": {
+		kind: journalKindDigest,
+		why:  "sha256:<hex> of the program's bytes, computed by the loader's openProgram from the file it opened and set on the descriptor at registration, never reported by the program",
+	},
 	"DAGVersion": {
 		kind: journalKindDigest,
 		why:  "sha256:<hex> over the fully resolved definition, computed by the DAG builder and never authored",

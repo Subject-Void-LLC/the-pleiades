@@ -295,6 +295,20 @@ func (_c *JobCreate) SetCredentialIds(v []int) *JobCreate {
 	return _c
 }
 
+// SetExternalChecks sets the "external_checks" field.
+func (_c *JobCreate) SetExternalChecks(v bool) *JobCreate {
+	_c.mutation.SetExternalChecks(v)
+	return _c
+}
+
+// SetNillableExternalChecks sets the "external_checks" field if the given value is not nil.
+func (_c *JobCreate) SetNillableExternalChecks(v *bool) *JobCreate {
+	if v != nil {
+		_c.SetExternalChecks(*v)
+	}
+	return _c
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_c *JobCreate) AddTaskIDs(ids ...int) *JobCreate {
 	_c.mutation.AddTaskIDs(ids...)
@@ -377,6 +391,10 @@ func (_c *JobCreate) defaults() {
 		v := job.DefaultFence
 		_c.mutation.SetFence(v)
 	}
+	if _, ok := _c.mutation.ExternalChecks(); !ok {
+		v := job.DefaultExternalChecks
+		_c.mutation.SetExternalChecks(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -433,6 +451,9 @@ func (_c *JobCreate) check() error {
 	}
 	if _, ok := _c.mutation.Fence(); !ok {
 		return &ValidationError{Name: "fence", err: errors.New(`ent: missing required field "Job.fence"`)}
+	}
+	if _, ok := _c.mutation.ExternalChecks(); !ok {
+		return &ValidationError{Name: "external_checks", err: errors.New(`ent: missing required field "Job.external_checks"`)}
 	}
 	return nil
 }
@@ -551,6 +572,10 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CredentialIds(); ok {
 		_spec.SetField(job.FieldCredentialIds, field.TypeJSON, value)
 		_node.CredentialIds = value
+	}
+	if value, ok := _c.mutation.ExternalChecks(); ok {
+		_spec.SetField(job.FieldExternalChecks, field.TypeBool, value)
+		_node.ExternalChecks = value
 	}
 	if nodes := _c.mutation.TasksIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

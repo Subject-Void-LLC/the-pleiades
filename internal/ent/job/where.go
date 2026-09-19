@@ -150,6 +150,11 @@ func Fence(v int64) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldFence, v))
 }
 
+// ExternalChecks applies equality check predicate on the "external_checks" field. It's identical to ExternalChecksEQ.
+func ExternalChecks(v bool) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldExternalChecks, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldCreatedAt, v))
@@ -1248,6 +1253,16 @@ func CredentialIdsIsNil() predicate.Job {
 // CredentialIdsNotNil applies the NotNil predicate on the "credential_ids" field.
 func CredentialIdsNotNil() predicate.Job {
 	return predicate.Job(sql.FieldNotNull(FieldCredentialIds))
+}
+
+// ExternalChecksEQ applies the EQ predicate on the "external_checks" field.
+func ExternalChecksEQ(v bool) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldExternalChecks, v))
+}
+
+// ExternalChecksNEQ applies the NEQ predicate on the "external_checks" field.
+func ExternalChecksNEQ(v bool) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldExternalChecks, v))
 }
 
 // HasTasks applies the HasEdge predicate on the "tasks" edge.

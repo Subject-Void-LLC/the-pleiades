@@ -36,6 +36,8 @@ type JobTask struct {
 	ResultReason string `json:"result_reason,omitempty"`
 	// FinishedAt holds the value of the "finished_at" field.
 	FinishedAt time.Time `json:"finished_at,omitempty"`
+	// Unchecked holds the value of the "unchecked" field.
+	Unchecked int `json:"unchecked,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobTaskQuery when eager-loading is set.
 	Edges        JobTaskEdges `json:"edges"`
@@ -68,7 +70,7 @@ func (*JobTask) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case jobtask.FieldID:
+		case jobtask.FieldID, jobtask.FieldUnchecked:
 			values[i] = new(sql.NullInt64)
 		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason:
 			values[i] = new(sql.NullString)
@@ -151,6 +153,12 @@ func (_m *JobTask) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.FinishedAt = value.Time
 			}
+		case jobtask.FieldUnchecked:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field unchecked", values[i])
+			} else if value.Valid {
+				_m.Unchecked = int(value.Int64)
+			}
 		case jobtask.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field job_tasks", value)
@@ -225,6 +233,9 @@ func (_m *JobTask) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("finished_at=")
 	builder.WriteString(_m.FinishedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("unchecked=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Unchecked))
 	builder.WriteByte(')')
 	return builder.String()
 }

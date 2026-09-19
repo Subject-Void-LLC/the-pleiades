@@ -99,6 +99,12 @@ func (_u *JournalEntryUpdate) sqlSave(ctx context.Context) (_node int, err error
 	if _u.mutation.FqcnCleared() {
 		_spec.ClearField(journalentry.FieldFqcn, field.TypeString)
 	}
+	if _u.mutation.ProviderProgramCleared() {
+		_spec.ClearField(journalentry.FieldProviderProgram, field.TypeString)
+	}
+	if _u.mutation.ProviderDigestCleared() {
+		_spec.ClearField(journalentry.FieldProviderDigest, field.TypeString)
+	}
 	if _u.mutation.TaskNameCleared() {
 		_spec.ClearField(journalentry.FieldTaskName, field.TypeString)
 	}
@@ -249,6 +255,12 @@ func (_u *JournalEntryUpdateOne) sqlSave(ctx context.Context) (_node *JournalEnt
 	}
 	if _u.mutation.FqcnCleared() {
 		_spec.ClearField(journalentry.FieldFqcn, field.TypeString)
+	}
+	if _u.mutation.ProviderProgramCleared() {
+		_spec.ClearField(journalentry.FieldProviderProgram, field.TypeString)
+	}
+	if _u.mutation.ProviderDigestCleared() {
+		_spec.ClearField(journalentry.FieldProviderDigest, field.TypeString)
 	}
 	if _u.mutation.TaskNameCleared() {
 		_spec.ClearField(journalentry.FieldTaskName, field.TypeString)

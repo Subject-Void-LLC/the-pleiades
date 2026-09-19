@@ -294,6 +294,13 @@ func (Job) Fields() []ent.Field {
 		// rebound since the original run is what an operator relaunching
 		// expects to pick up.
 		field.JSON("credential_ids", []int{}).Optional().Immutable(),
+		// external_checks records whether whoever launched this job may run
+		// it for real (runbook:execute), which decides whether a check of
+		// it may run an external Collection program's Check: nothing has
+		// proven a third party's Check only reads. Captured at launch,
+		// because fan-out happens later and holds no identity, and false
+		// unless the launch said so, so a path that forgets fails closed.
+		field.Bool("external_checks").Default(false).Immutable(),
 	}
 }
 

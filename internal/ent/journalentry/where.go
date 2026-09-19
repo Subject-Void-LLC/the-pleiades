@@ -114,6 +114,16 @@ func FqcnUnresolved(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldFqcnUnresolved, v))
 }
 
+// ProviderProgram applies equality check predicate on the "provider_program" field. It's identical to ProviderProgramEQ.
+func ProviderProgram(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldProviderProgram, v))
+}
+
+// ProviderDigest applies equality check predicate on the "provider_digest" field. It's identical to ProviderDigestEQ.
+func ProviderDigest(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldProviderDigest, v))
+}
+
 // TaskName applies equality check predicate on the "task_name" field. It's identical to TaskNameEQ.
 func TaskName(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldTaskName, v))
@@ -847,6 +857,156 @@ func FqcnUnresolvedEQ(v bool) predicate.JournalEntry {
 // FqcnUnresolvedNEQ applies the NEQ predicate on the "fqcn_unresolved" field.
 func FqcnUnresolvedNEQ(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldNEQ(FieldFqcnUnresolved, v))
+}
+
+// ProviderProgramEQ applies the EQ predicate on the "provider_program" field.
+func ProviderProgramEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldProviderProgram, v))
+}
+
+// ProviderProgramNEQ applies the NEQ predicate on the "provider_program" field.
+func ProviderProgramNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldProviderProgram, v))
+}
+
+// ProviderProgramIn applies the In predicate on the "provider_program" field.
+func ProviderProgramIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldProviderProgram, vs...))
+}
+
+// ProviderProgramNotIn applies the NotIn predicate on the "provider_program" field.
+func ProviderProgramNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldProviderProgram, vs...))
+}
+
+// ProviderProgramGT applies the GT predicate on the "provider_program" field.
+func ProviderProgramGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldProviderProgram, v))
+}
+
+// ProviderProgramGTE applies the GTE predicate on the "provider_program" field.
+func ProviderProgramGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldProviderProgram, v))
+}
+
+// ProviderProgramLT applies the LT predicate on the "provider_program" field.
+func ProviderProgramLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldProviderProgram, v))
+}
+
+// ProviderProgramLTE applies the LTE predicate on the "provider_program" field.
+func ProviderProgramLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldProviderProgram, v))
+}
+
+// ProviderProgramContains applies the Contains predicate on the "provider_program" field.
+func ProviderProgramContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldProviderProgram, v))
+}
+
+// ProviderProgramHasPrefix applies the HasPrefix predicate on the "provider_program" field.
+func ProviderProgramHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldProviderProgram, v))
+}
+
+// ProviderProgramHasSuffix applies the HasSuffix predicate on the "provider_program" field.
+func ProviderProgramHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldProviderProgram, v))
+}
+
+// ProviderProgramIsNil applies the IsNil predicate on the "provider_program" field.
+func ProviderProgramIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldProviderProgram))
+}
+
+// ProviderProgramNotNil applies the NotNil predicate on the "provider_program" field.
+func ProviderProgramNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldProviderProgram))
+}
+
+// ProviderProgramEqualFold applies the EqualFold predicate on the "provider_program" field.
+func ProviderProgramEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldProviderProgram, v))
+}
+
+// ProviderProgramContainsFold applies the ContainsFold predicate on the "provider_program" field.
+func ProviderProgramContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldProviderProgram, v))
+}
+
+// ProviderDigestEQ applies the EQ predicate on the "provider_digest" field.
+func ProviderDigestEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldProviderDigest, v))
+}
+
+// ProviderDigestNEQ applies the NEQ predicate on the "provider_digest" field.
+func ProviderDigestNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldProviderDigest, v))
+}
+
+// ProviderDigestIn applies the In predicate on the "provider_digest" field.
+func ProviderDigestIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldProviderDigest, vs...))
+}
+
+// ProviderDigestNotIn applies the NotIn predicate on the "provider_digest" field.
+func ProviderDigestNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldProviderDigest, vs...))
+}
+
+// ProviderDigestGT applies the GT predicate on the "provider_digest" field.
+func ProviderDigestGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldProviderDigest, v))
+}
+
+// ProviderDigestGTE applies the GTE predicate on the "provider_digest" field.
+func ProviderDigestGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldProviderDigest, v))
+}
+
+// ProviderDigestLT applies the LT predicate on the "provider_digest" field.
+func ProviderDigestLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldProviderDigest, v))
+}
+
+// ProviderDigestLTE applies the LTE predicate on the "provider_digest" field.
+func ProviderDigestLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldProviderDigest, v))
+}
+
+// ProviderDigestContains applies the Contains predicate on the "provider_digest" field.
+func ProviderDigestContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldProviderDigest, v))
+}
+
+// ProviderDigestHasPrefix applies the HasPrefix predicate on the "provider_digest" field.
+func ProviderDigestHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldProviderDigest, v))
+}
+
+// ProviderDigestHasSuffix applies the HasSuffix predicate on the "provider_digest" field.
+func ProviderDigestHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldProviderDigest, v))
+}
+
+// ProviderDigestIsNil applies the IsNil predicate on the "provider_digest" field.
+func ProviderDigestIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldProviderDigest))
+}
+
+// ProviderDigestNotNil applies the NotNil predicate on the "provider_digest" field.
+func ProviderDigestNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldProviderDigest))
+}
+
+// ProviderDigestEqualFold applies the EqualFold predicate on the "provider_digest" field.
+func ProviderDigestEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldProviderDigest, v))
+}
+
+// ProviderDigestContainsFold applies the ContainsFold predicate on the "provider_digest" field.
+func ProviderDigestContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldProviderDigest, v))
 }
 
 // TaskNameEQ applies the EQ predicate on the "task_name" field.
