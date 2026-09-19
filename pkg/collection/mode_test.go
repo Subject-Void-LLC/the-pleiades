@@ -4,6 +4,8 @@ package collection_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -201,5 +203,28 @@ func TestNoCheckAnswer(t *testing.T) {
 	}
 	if got := reasoned.NoCheckAnswer(); got != reasoned.Manifest.NoCheckReason {
 		t.Errorf("reasoned answer = %q, want the method's own reason", got)
+	}
+}
+
+// TestCannotCheck_IsFoundThroughWrapping pins the contract every reader of
+// CannotCheck relies on: the engine, the external SDK's child and the
+// native adapter all find it with errors.As, however far a method wrapped
+// it, and the reason the method gave is what an operator reads.
+func TestCannotCheck_IsFoundThroughWrapping(t *testing.T) {
+	const reason = "the archive's source is not there yet"
+	err := fmt.Errorf("archive.unarchive: %w", collection.CannotCheck(reason))
+
+	var cannot *collection.CannotCheckError
+	if !errors.As(err, &cannot) {
+		t.Fatalf("errors.As did not find a CannotCheckError in %v", err)
+	}
+	if cannot.Reason != reason {
+		t.Errorf("Reason = %q, want %q", cannot.Reason, reason)
+	}
+	if want := "archive.unarchive: this call cannot be checked: " + reason; err.Error() != want {
+		t.Errorf("message = %q, want %q", err.Error(), want)
+	}
+	if errors.As(fmt.Errorf("an ordinary failure"), &cannot) {
+		t.Error("an ordinary error was taken for a CannotCheckError")
 	}
 }

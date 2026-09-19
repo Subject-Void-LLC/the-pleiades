@@ -72,6 +72,7 @@ func TestCheckModeRule_RefusesACheckThatCannotHappen(t *testing.T) {
 		{name: "a transport action", runbook: "id: r\ntasks:\n  - name: a\n    fqcn: ssh_exec\n    check_mode: true\n    params:\n      cmd: uptime\n", refused: "ssh_exec is neither"},
 		{name: "runbook level is a whole check", runbook: "id: r\ncheck_mode: true\ntasks:\n  - name: a\n    fqcn: rulecheck.cannot\n"},
 		{name: "no key", runbook: "id: r\ntasks:\n  - name: a\n    fqcn: rulecheck.cannot\n"},
+		{name: "an unnamed task is named by its place", runbook: "id: r\ntasks:\n  - fqcn: rulecheck.cannot\n    check_mode: true\n", refused: "task tasks[0] carries check_mode"},
 
 		// Methods whose check covers only some calls, the real ones: the
 		// call's own parameters decide, and the method's own reason is
@@ -152,6 +153,34 @@ func TestCheckModeRule_ARealChangeIsNeverDecidedByAPrediction(t *testing.T) {
 				t.Errorf("findings = %+v, want one containing %q", findings, tc.refused)
 			}
 		})
+	}
+}
+
+// TestCheckModeRule_RefusesAConditionItCannotRead covers the safe side of
+// a condition the rule cannot read. The builder compiles every condition,
+// so only a DAG changed after building can hold one; the rule must then
+// refuse the reader rather than pass it, since passing is what would let a
+// prediction decide a real change unseen. The control reads the same
+// checked result through a condition that parses.
+func TestCheckModeRule_RefusesAConditionItCannotRead(t *testing.T) {
+	registerMethod(t, "ruleunread.can", true)
+	const runbook = "id: r\ntasks:\n  - name: probe\n    fqcn: ruleunread.can\n    register: drift\n    check_mode: true\n" +
+		"  - name: act\n    fqcn: noop\n    when: vars.go == true\n"
+
+	control := yamlDAG(t, runbook)
+	if findings := validate.CheckModeRule(validate.WorldView{DAG: control}); len(findings) != 0 {
+		t.Fatalf("the control was refused: %+v", findings)
+	}
+
+	dag := yamlDAG(t, runbook)
+	act, ok := dag.Nodes["tasks[1]"]
+	if !ok {
+		t.Fatalf("no node tasks[1] in %v", dag.Nodes)
+	}
+	act.WhenCEL = "stat.drift[\"\"].changed &&"
+	findings := validate.CheckModeRule(validate.WorldView{DAG: dag})
+	if len(findings) != 1 || findings[0].Node != "tasks[1]" || !strings.Contains(findings[0].Message, "does not parse") {
+		t.Errorf("findings = %+v, want one refusing tasks[1] because its condition does not parse", findings)
 	}
 }
 
