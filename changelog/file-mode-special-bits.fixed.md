@@ -1,0 +1,1 @@
+Fixed the file methods leaving a setuid or setgid bit wrong: a task that changed a file's owner or group and asked for a mode carrying one of those bits now keeps it, and a task asking a directory carrying one to drop it (for example to 0755) now clears it instead of reporting a change on every run.
