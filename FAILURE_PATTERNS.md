@@ -267,6 +267,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 262. A re-sync reverted an operator's promotion, with no revision saying so
 263. A read-only sync hid the one list an operator previewing it needed
 264. Template launches minted unordered job ids under a list that orders by id
+265. One unresolvable entry failed a whole static_yaml sync
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

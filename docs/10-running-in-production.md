@@ -836,8 +836,9 @@ an operator.
 - **Quarantined, and not added.** A record a plugin cannot place is quarantined with a
   reason, and it is **not** added to the inventory, since a device needs a type to exist.
   For example, `catalyst_center` quarantines a device whose software type is neither IOS
-  nor IOS-XE, and `aws` quarantines an instance whose platform has no classification
-  rule. The sync's own report is the only place this shows: it lists each such record
+  nor IOS-XE, `aws` quarantines an instance whose platform has no classification rule,
+  and `static_yaml` quarantines an entry whose `classify` path does not resolve, while the
+  rest of the file still syncs. The sync's own report is the only place this shows: it lists each such record
   under "devices needing review", with its reason, including on a `--read-only` preview.
   Fix the source or wait for a plugin that can place the record; there is nothing in the
   inventory to promote.

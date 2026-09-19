@@ -42,6 +42,21 @@ every touched package, `-race` on the fixed ones, vet, gosec (20, all waived), d
 idempotent. Committed as: the security fix; the device-state fixes; the job id fix; removing the leaked
 fixtures; docs and records, each built and vetted on its own first.
 
+### Then a second round of easy wins (2026-09-19, committed at the user's request as two commits)
+
+`.SPECIFICATION/implementation.py` now flags a finished item citing a repository file that no longer
+exists, beside its existing check for missing tests (`repository_files`, `missing_files`; a same-name
+file elsewhere is offered as the likely new home). It found 27 items citing 16 missing paths; each was
+corrected by its kind: history kept as plain text with where the file went and in which commit, live
+references swapped (`design/hephaestus.md`, `pkg/policy/policy.go`). The dashboard now reports no
+missing tests and no missing files. It also gained `--json` (the user's request, so an LLM reads the
+roadmap natively): `implementation.py --json [--phase ID] [--open] [--details]` prints the dashboard's own
+model and exits, and the server answers `/roadmap.json` with the same filters; `--help` no longer starts
+the server. And `static_yaml` no longer fails a whole sync over one entry whose
+`classify` path does not resolve: that entry is quarantined with the reason (FAILURE_PATTERNS 265,
+`static-yaml-unresolvable-classify.fixed.md`, docs/10's quarantine examples). Verified: the inventory
+tree and `cmd/pleiades` suites, `-race` on `static_yaml`, vet, docs-lint.
+
 ### What was built
 
 - **Check mode.** `collection.Mode` and `ParseMode`; `Descriptor.Check` with `Manifest.SupportsCheck`

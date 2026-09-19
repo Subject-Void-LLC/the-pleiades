@@ -8421,3 +8421,13 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 **Fix.** `api.newJobID` mints a v7 (falling back to a v4 only on an entropy failure, as the schema and device ids do), and `TestLaunchTemplate_JobIDsAreTimeOrdered` checks each launch's id is version 7 and sorts after the one before.
 
 **Lesson.** When a column's default carries a property something else depends on, every code path that sets the column explicitly must keep it. Grep for the explicit setters, not just the default.
+
+## 265. One unresolvable entry failed a whole static_yaml sync
+
+**Symptom.** Found 2026-09-19 while documenting quarantine. `static_yaml` resolved every entry's `classify` path inside `Discover`, and returned the first resolution error, so one entry with a malformed or unmatched path made `pleiades inventory sync` fail for every host in the file. The plugin contract requires a record it cannot place to be quarantined with a reason, never returned as an error, and the plugin's own `Classify` comment said such an entry is quarantined.
+
+**Root cause.** The type is resolved early, in `Discover`, because the file is the classification; the error path was written as a validation of the whole file rather than as the per-record outcome the contract names.
+
+**Fix.** `Discover` records an entry it cannot resolve with no type and keeps the reason by host name; `Classify` quarantines it with that reason. `TestSync_AnUnresolvableClassifyPathIsQuarantinedNotFatal` covers a malformed path and a well-formed one matching no rule, beside a typed host that still syncs.
+
+**Lesson.** When a contract names the per-record outcome for bad input, check every stage that touches a record, not only the stage the contract names: an earlier stage can turn the same bad input into a whole-run failure.
