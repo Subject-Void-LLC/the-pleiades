@@ -68,3 +68,13 @@ obj/
 *.db
 *.db-shm
 *.db-wal
+
+# Fixtures tests write into this checkout and remove with t.Cleanup:
+# tools/gencatalog's end-to-end test (a collection and a device type named
+# gencatalogtest<pid>) and cmd/pleiades's forge gate (a device type named
+# e2egate<pid>). A test process killed before its cleanup runs leaves them
+# behind, and one pair was committed that way on 2026-08-24. Anchored to the
+# exact parents the tests write under.
+/internal/catalog/test/gencatalogtest*/
+/internal/inventory/devices/gencatalogtest*/
+/internal/inventory/devices/e2egate*/
