@@ -8240,3 +8240,134 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 **Fix.** `printablePath` replaces the same characters with a 4096 character limit, and every path in a message uses it.
 
 **Lesson.** A length cap is a decision about one kind of text. Applied to text whose whole value is being complete, it removes the reason to print it.
+
+## 247. An ownership change cleared a setgid bit the task asked for, and the run reported success
+
+**Symptom.** Found while writing check-mode predictions for `pkg/remotefile`, and reproduced on a real shell: a task asking a regular file that already carried mode 2755 to change group AND stay 2755 left 0755 behind and reported success. The diff's after half read back 0755, so nothing lied outright, but the task claimed to have converged a path it had just moved away from what was asked.
+
+**Root cause.** `remotefile.Apply` sends chown/chgrp first and chmod last, and decided whether to chmod by comparing the requested mode with the mode found BEFORE anything ran. Linux clears setuid and setgid on anything but a directory when its owner or group changes. The requested mode compared equal to the pre-change mode, so no chmod was sent, and the kernel's clearing stood.
+
+**Fix.** When the ownership changed and the requested mode carries setuid or setgid, the chmod is sent whatever the comparison said. The run has already changed something, so the extra chmod never turns a converged run into a changed one. `TestPrediction_MatchesWhatApplyDoes` pins it against a real file.
+
+**Lesson.** A comparison made before a multi-step change is a comparison with a state the first step may already have moved. When one step has a side effect on what a later step compares, compare against the state after the side effect, or send the later step unconditionally.
+
+## 248. GNU chmod keeps a directory's setuid and setgid bits for a four-digit mode, so "0755" never cleared them
+
+**Symptom.** Found by the same work as 247: a task asking a directory carrying 2755 to be 0755 sent `chmod 0755`, exited 0, read back 2755, reported changed, and would do the same on every run forever.
+
+**Root cause.** GNU coreutils chmod PRESERVES a directory's setuid and setgid bits when given a numeric mode of four digits or fewer. Its documentation names the five-digit form (`00755`) as the way to say exactly these bits. BusyBox, toybox and the BSD chmod read the whole string as one octal number, so the five-digit form means the same thing there.
+
+**Fix.** `remotefile.Apply` sends the requested mode as five digits (`chmodArgument`). Every method built on Apply (file.directory, file.permissions, file.copy, file.touch, file.attributes, file.line.*, file.block.*, fs.*) is covered by the one change, and their suites pass unchanged.
+
+**Lesson.** A command's numeric argument can carry a policy the number does not show. When a tool's documentation says "to clear X, write it this way", a convergence check built on the other way converges on nothing.
+
+## 249. Validation refused a check of a simulate-locked device that the engine was built to allow
+
+**Symptom.** Found by the check-mode Release Gate (`TestCLI_CheckModeChangesNothing`), after the engine's own unit test had passed: `pleiades run --mode check` against a simulate-locked device stopped at "validation failed, not executing", naming the lifecycle rule.
+
+**Root cause.** The lifecycle exception for check mode was added where the executor admits devices (`runNode`) and not where `pleiades run` first validates the plan (`validate.LifecycleRule`), which refused every non-active target regardless of mode. The engine test built its Executor directly and never called Validate, so it could not see the second gate.
+
+**Fix.** The exception has one definition, `engine.LifecycleAdmitsIn(mode, device)`, called by both the executor and `validate.LifecycleRule`, which now reads `WorldView.Mode` (zero value strict). `TestLifecycleRule_CheckModeAdmitsOnlySimulateLocked` covers the rule in both modes.
+
+**Lesson.** A check enforced at plan time and again at run time is two gates, and an exception added to one is refused by the other. Define the exception once and have both gates ask it, and test the path that goes through both.
+
+## 250. The plan said nothing ever sets simulate-locked; two sync plugins set it on every device they discover
+
+**Symptom.** IMPLEMENTATION.md (Part XI and Phase 46) states `pkg/inventory`'s `StateSimulateLocked` is a reserved state "nothing in the codebase ever sets or reads", and Phase 46 offered deleting it as one of two options.
+
+**Root cause.** The claim was true when written and went stale: `internal/inventory/plugins/aws` and `internal/inventory/plugins/catalystcenter` default every newly discovered device to simulate-locked, exactly as PLAN.md Section 9 intends ("newly onboarded devices default to simulate-locked until admin promotes"). Deleting the state on the plan's word would have silently changed what those plugins' devices are allowed to do.
+
+**Fix.** Phase 46's first slice uses the state: a check reaches a simulate-locked device, and a real run naming one is refused at validation. The plan text is corrected beside the Phase 46 entry.
+
+**Lesson.** A plan's "nothing uses X" is a claim about the code on the day it was written. Verify it against the code before acting on it, above all before deleting X.
+
+## 251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
+
+**Symptom.** `internal/loader` (capture.go, doc.go), `pkg/external`'s package doc and docs/11 all said that reducing an external program's environment to a short allowlist kept the master key and the broker's credentials from reaching it. A probe disproved it: a parent with `PLEIADES_MASTER_KEY` set, which then removed the variable from its own copy, started a child with an empty environment, and the child printed the key by reading `/proc/$PPID/environ`.
+
+**Root cause.** `/proc/<pid>/environ` exposes a process's starting environment block, and any process of the same user that passes the kernel's read-level ptrace check can open it. Yama's `ptrace_scope=1` (this host's setting) restricts attaching, not reading. `os.Unsetenv` changes only the Go runtime's copy, never that block. The allowlist decides what a child inherits; it was never isolation, and the comment claiming otherwise was written without trying to cross the boundary.
+
+**Fix.** Built the same day, as Phase 45's confinement decision (`internal/loader/confine*.go`). Before the first program starts, Load marks the process non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`, which the probe showed turns the read into "Permission denied"), and every run is confined with Landlock to its own directory, system files, the known_hosts file, a private TMPDIR and operator grants (never one reaching a credential store or containing the home directory). Loading is refused where Landlock is absent. `TestConfinement_AProgramReachesOnlyWhatItWasHanded` has a real program try the master key, `credentials.yaml`, an SSH key, `/proc/<parent>/environ` and `/proc/<parent>/mem`; each is denied, and the unconfined control reaches them. Each guard was mutation-checked.
+
+**Lesson.** An environment allowlist controls what a child is handed, not what it can reach. Before calling anything a boundary, try to cross it as the thing it is meant to stop.
+
+## 252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
+
+**Symptom.** Found while listing edge cases for Phase 46's runbook-mode decision, and confirmed with a probe test against `parseWorkflowYAML`: a runbook with top-level `check_mode: true` parses with no error and then executes normally. The same key on a task or a block is refused, but with a message about module-as-key syntax that never says the key is unsupported.
+
+**Root cause.** The runbook's top-level map is decoded by yaml.v3's non-strict `Decode`, which drops keys it does not know. Only task maps pass through `normalizeTaskNode`'s reserved-key check. So an Ansible author's "change nothing" survives parsing and means nothing, and the plan's description of the built behavior ("no key") was wrong for the runbook level.
+
+**Fix.** Built the same day. `engine.RunbookKeys` lists the accepted top-level keys, and `checkRunbookKeys` refuses any other one on the YAML and JSON paths, naming it and suggesting the nearest (`chek_mode` gets "did you mean check_mode?"). A test keeps the list equal to `WorkflowDef`'s struct tags, and `tools/gendocs` checks the documented keys against it. `check_mode` itself is now honored at runbook, block and task level (`engine.CheckModeFlag`), with `false` and templates refused. All 14 runbook files in the repository, and every package that builds runbooks, still pass. `TestRunbookKeys_UnknownTopLevelKeyRefused` is the regression test, mutation-checked.
+
+**Lesson.** A permissive decoder turns every unsupported safety keyword into a silent no-op. A key that narrows what a run may do must be honored or refused, never dropped.
+
+## 253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
+
+**Symptom.** Found by analysis, not observed. `engine.LifecycleAdmitsIn` admits a simulate-locked device whenever the run is a check, and an external program may declare `SupportsCheck`. Its Check then runs with the device's credential against a device nobody has approved for changes. The engine refuses a check result carrying an `inverse` stat, but it cannot see a write that records none.
+
+**Root cause.** Two features built on the same branch, each sound alone. Admitting simulate-locked devices to a check assumes every Check is read-only, which is proven for the nine built-in methods (each tested against its real run) and for nothing else. External Collections made Check third-party code.
+
+**Fix.** Built the same day. `collection.Descriptor.Provider` names the external program behind a method, set only by the loader when it registers the method (a description carries a name and a manifest, and extra fields claiming otherwise are ignored, as `TestLoad_TheLoaderSetsTheProvider` proves). The engine's check step (`checkAction`) reports an external method's check against a simulate-locked device as unchecked, naming the lock and the program, and never runs it. The CLI and the Runner share that step. `TestCLI_AnExternalCheckNeverReachesASimulateLockedDevice` uses a real program whose Check deliberately writes, against a real sshd: nothing lands on the locked device, the write does land on an active device (the control), and a built-in check still reaches the locked device. The guard and the loader's assignment were each mutation-checked.
+
+**Lesson.** When two features meet, re-check what each assumes about the other's inputs. "A Check never writes" was proven per method, so it holds only for the methods someone proved it for.
+
+## 254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+
+**Symptom.** While building confinement for external Collections, `TestConfinement_AProgramReachesOnlyWhatItWasHanded` showed a confined program able to signal its parent, although a direct probe showed the same ruleset refusing a signal to PID 1 and a read of `/etc/hostname`. It passed a second time. A loop of forty starts then passed with the fix removed, so the defect was intermittent, which is how it would have shipped.
+
+**Root cause.** Landlock restricts one thread, and a child inherits the restriction of the thread that started it. The loader restricts a goroutine that has called `runtime.LockOSThread` and never unlocks it, so the thread dies with the goroutine. The scheduler can run that goroutine on the process's main thread, which cannot exit, so Go parks it for ever instead. The main thread is also the thread group leader, the task a signal to the process's ID is checked against. With the leader inside the program's own Landlock domain, signal scoping allowed the program to signal Pleiades, and a SIGKILL would have killed the whole process.
+
+**Fix.** `confineAndStart` checks `gettid() == getpid()`. On the main thread it keeps that thread locked, so the goroutine it starts cannot be scheduled there, and hands the work to that goroutine. `TestConfinement_NeverOnTheMainThread` is deterministic: it re-runs the test binary with its main goroutine pinned to the main thread by an `init` (`runtime.LockOSThread`), starts a confined program from there, and asserts the signal is refused. With the check removed it fails every time.
+
+**Lesson.** When a kernel restriction is per thread and Go picks the thread, check which thread you got, above all the main thread, which never exits. An intermittent security test is a real defect showing on some runs, so pin the condition down until the test fails deterministically without the fix.
+
+## 255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
+
+**Symptom.** `engine.CheckModeFlag.UnmarshalYAML`, written to refuse `check_mode: false`, compiled cleanly, and `TestCheckModeKey_Spellings` showed `false`, `no` and `off` all accepted without error, and `yes` refused with a generic yaml.v3 "cannot unmarshal" message instead of the hook's own.
+
+**Root cause.** The file imported `gopkg.in/yaml.v3`, while the engine decodes with `go.yaml.in/yaml/v3`, the same library under its newer module path. The two are separate modules with separate `yaml.Node` types and separate `Unmarshaler` interfaces, so a method taking one module's `*yaml.Node` does not implement the other's interface, and the decoder fell back to decoding a bool into the flag's underlying type. `gopkg.in/yaml.v3` was already in `go.mod` as an indirect dependency, so the wrong import resolved with no warning.
+
+**Fix.** The import is `go.yaml.in/yaml/v3`. `internal/archtest`'s `TestOneYAMLModule` now fails for any package, or any package's tests, importing `gopkg.in/yaml.v3` or `gopkg.in/yaml.v2`, and it was mutation-checked by putting the wrong import back.
+
+**Lesson.** A custom unmarshal hook is only real if the decoder calls it, and a decoder calls only the interface of its own module. When a library has moved module paths, check which one the decoder uses before writing a hook, and test that the hook's own refusal fires rather than only that the good case decodes.
+
+## 256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
+
+**Symptom.** While writing `internal/termsafe`, the package that escapes terminal-controlling characters, its own tests failed: the expected strings, written in the source as backslash escapes for U+202E, U+2066 and U+2069 inside raw string literals, compared as the real characters. A scan found real U+202E, U+2066, U+2069 and U+009B characters in `termsafe.go`'s package comment and in `termsafe_test.go`: exactly the invisible "Trojan Source" characters the package exists to catch, now in source code where a reviewer's editor would render them as nothing, or reorder the text around them.
+
+**Root cause.** The agent's file-writing and shell tools decode JSON-style escapes (a backslash, "u" and four hex digits) in their input before writing or running it. Escapes meant to reach the file as text arrived as the characters themselves. The shell tool refused one command outright for containing such characters, which is how the mechanism was confirmed. Nothing in the repository checked source files for them.
+
+**Fix.** The characters were replaced with escape text, written through code points computed at run time so no escape passed through the tool. A scan of all 2,414 tracked and untracked text files found no others. `internal/archtest`'s `TestNoInvisibleControlCharactersInGoSource` now fails for any Go file holding a control character (other than tab and newline) or a bidirectional override, and was proven by planting one.
+
+**Lesson.** When a tool writes files for you, an escape sequence in what you hand it may not survive as text. Write byte escapes (`\xNN`) or build the characters in code, and keep a mechanical check for invisible characters in source, since a reader's eyes cannot find them.
+
+## 257. An external program's own text reached the terminal raw, including at the approval prompt
+
+**Symptom.** Found by Phase 45's hardening audit. Three paths printed a third party's text unescaped: `pleiades collection approve` printed the program's description (method names, summary, reversibility notes) before anything validated it; a method's own error message became the task's "FAILED:" line; and `pleiades run --verbose` printed stat values. A program could put an escape sequence, a carriage return, a newline or a bidirectional override in that text and redraw what the operator sees, for example a fake method list, or a fake "approved" line under the prompt that decides whether the program may run. Error messages that quote a program's stderr were already safe (`%q`).
+
+**Root cause.** The loader validated a description's name and structure, and treated its text as data. Nothing distinguished text shown to a person from text a program controls, and a terminal acts on some characters instead of showing them.
+
+**Fix.** `internal/termsafe` defines the characters a terminal acts on and escapes them visibly (never drops them). The loader refuses any description string holding one (every string in the manifest, found by walking it, so later fields are covered), escapes a program's own error onto one line, and refuses a stat name holding a newline, tab or control character. The approval list refuses such an account name. The CLI escapes node errors, reasons, stat values, metadata and everything the approve prompt shows. Tests: `TestHardening_*` in `internal/loader` and `TestCLI_CollectionApproveEscapesTheProgramsText` through the real binary, each mutation-checked, plus `FuzzEscape`, `FuzzDecodeResponse` and `FuzzParseApprovals`.
+
+**Lesson.** Text from a program you did not write is input, even when it is only going to be printed. Validate it where it can be refused, escape it where it must be shown, and test the output a person reads, not only the data structure behind it.
+
+
+## 258. A new NATS subject and consumer shipped without their mesh identity grants
+
+**Symptom.** Found while building Phase 46's Walk-tier check mode, after its real-NATS gate had passed. Checks go to their own subject (`pleiades.jobs.check.<device>`) through their own durable (`runner-check`), but `internal/meshid`'s `ControllerGrant` and `FleetRunnerGrant` listed only the dispatch subject and the `runner-agent` consumer. Under a minted identity, the Controller's publish of a check is denied with no reply and surfaces as a context deadline, so every checked device is recorded as failed; the Runner is denied creating its check consumer at startup and, because either loop failing is fatal, exits. No test failed, because the gate ran on an unauthenticated broker and the grant tables only pin the entries somebody thought to list.
+
+**Root cause.** A grant is a deny-by-default list kept in a different package from the code that decides which subjects exist. Adding a subject in `internal/topology` and a consumer in `cmd/runner` changes what each process does on the wire, and nothing ties that change back to the grant. The same shape as #207: the grant, the grant test and the feature are each written from one person's picture of the traffic.
+
+**Fix.** Both grants carry the check subject, the check consumer's create, info, pull and ack operations, and the check dead-letter subject; the grant tables pin them; and `TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity` now has the minted Runner create, probe and pull the check consumer, the minted Controller publish a check, and a widened check consumer refused, against a real operator-mode broker. Removing the Controller's entry fails that gate with the deadline it would produce in production.
+
+**Lesson.** Any new subject, stream or durable is also a grant change, on every process that touches it. Extend the real-broker enforcement gate with the new traffic in the same change; a grant table written beside the grant proves only that the two agree.
+
+## 259. A package-level struct literal froze a test seam at init, and a test dialed a real WinRM endpoint
+
+**Symptom.** Found while giving `svc.windows.*` their checks. The five operations had been built inline in each method; hoisting them to package-level values (`var startOp = serviceOp{..., run: startFunc}`) made the unit tests that swap `startFunc` for a fake hang for sixty seconds each and fail with a WinRM dial timeout. Nothing about the failure named the refactor: the tests had not changed, the code compiled, and the swapped seam was plainly assigned before the call.
+
+**Root cause.** A package-level `var` initialized from a composite literal copies the function values it names when the package initializes. The literal held the real `startFunc` from before any test ran, so a test assigning a fake to `startFunc` changed a variable nothing read any more. The method called the real WinRM client, which dialed the fixture's address and waited out its timeout.
+
+**Fix.** Each operation is a function returning the literal (`func startOp() serviceOp`), called where it is used, so the seam is read at call time, after a test has swapped it. The tests passed again in under a second.
+
+**Lesson.** A test seam held in a package variable must be read when it is used, never captured by another package-level value. Hoisting a literal that names a seam out of a function body changes when the seam is read; check every function variable a hoisted literal names before hoisting it, and treat a test that suddenly hangs on a real dial as a seam read too early.

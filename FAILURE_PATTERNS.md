@@ -249,6 +249,19 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 244. A setting a restored file attaches to its database applies to the sessions that check it
 245. `make up`'s documented script form never worked: its check drained the piped password before setup could read it
 246. A sanitizer written for names from an untrusted file cut host paths to 64 characters
+247. An ownership change cleared a setgid bit the task asked for, and the run reported success
+248. GNU chmod keeps a directory's setuid and setgid bits for a four-digit mode, so "0755" never cleared them
+249. Validation refused a check of a simulate-locked device that the engine was built to allow
+250. The plan said nothing ever sets simulate-locked; two sync plugins set it on every device they discover
+251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
+252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
+253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
+254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
+256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
+257. An external program's own text reached the terminal raw, including at the approval prompt
+258. A new NATS subject and consumer shipped without their mesh identity grants
+259. A package-level struct literal froze a test seam at init, and a test dialed a real WinRM endpoint
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
