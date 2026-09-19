@@ -177,25 +177,33 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	if read.err != nil {
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to decode subprocess response: %w (stderr: %s)", desc.Name, read.err, capturedErr)
 	}
-	if read.resp.CannotCheck {
-		// The method says it cannot check this call (a
-		// collection.CannotCheckError in the child). Honored only when a
-		// check was asked for, and never read as a success: see
-		// wire.ChildResponse.CannotCheck.
+	return childAnswer(desc.Name, mode, read.resp, secrets)
+}
+
+// childAnswer is what a child's decoded response means for a call of the
+// method name in mode, with every secret in secrets masked out of any text
+// the child sent back.
+//
+// A "cannot check this call" answer (a collection.CannotCheckError in the
+// child) is honored only when a check was asked for, and never read as a
+// success: see wire.ChildResponse.CannotCheck. The shared child code only
+// ever sends it in a check, so the refusal here is for a child binary that
+// disagrees with this one about what it was asked.
+func childAnswer(name string, mode collection.Mode, resp wire.ChildResponse, secrets []string) (collection.Result, map[string]interface{}, error) {
+	if resp.CannotCheck {
 		if mode != collection.ModeCheck {
-			return collection.Result{}, nil, fmt.Errorf("collection method %q answered that it cannot check a call that was not a check", desc.Name)
+			return collection.Result{}, nil, fmt.Errorf("collection method %q answered that it cannot check a call that was not a check", name)
 		}
-		reason := redact.Text(secrets, read.resp.Error)
+		reason := redact.Text(secrets, resp.Error)
 		if reason == "" {
 			reason = "the method gave no reason"
 		}
 		return collection.Result{}, nil, collection.CannotCheck(reason)
 	}
-	if read.resp.Error != "" {
-		return collection.Result{}, nil, errors.New(redact.Text(secrets, read.resp.Error))
+	if resp.Error != "" {
+		return collection.Result{}, nil, errors.New(redact.Text(secrets, resp.Error))
 	}
-
-	return collection.Result{Changed: read.resp.Changed}, read.resp.Facts, nil
+	return collection.Result{Changed: resp.Changed}, resp.Facts, nil
 }
 
 // invokeInProcess runs desc in mode in this process, for a method whose
