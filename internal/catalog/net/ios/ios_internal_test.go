@@ -659,3 +659,101 @@ func TestSave_RefusesWhenTheDeviceReportsAnError(t *testing.T) {
 		t.Error("Changed = true on a save the device refused")
 	}
 }
+
+// TestReadOnlyChecks_NeverConfigure covers net.ios.facts' and net.ios.ping's
+// checks, their own functions since both only read, through the fake
+// session that records every exec command and every configuration batch:
+// each check sends only the exec commands a real run sends (show commands,
+// one ping) and never a configuration batch, and answers as a real run
+// does, with no change.
+func TestReadOnlyChecks_NeverConfigure(t *testing.T) {
+	for _, tc := range []struct {
+		fqcn   string
+		params map[string]any
+		want   func(line string) bool
+	}{
+		{"net.ios.facts", map[string]any{"gather_subset": []any{"all"}}, func(l string) bool { return strings.HasPrefix(l, "show ") }},
+		{"net.ios.ping", map[string]any{"dest": "10.0.0.1"}, func(l string) bool { return strings.HasPrefix(l, "ping ") }},
+	} {
+		t.Run(tc.fqcn, func(t *testing.T) {
+			d, ok := collection.Lookup(tc.fqcn)
+			if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
+				t.Fatalf("%s does not declare a check", tc.fqcn)
+			}
+			run := func(method collection.Method) (*fakeSession, *stubContext, collection.Result) {
+				session := &fakeSession{defaultOutput: "Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/1 ms"}
+				swapOpenSession(t, func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
+					return session, nil
+				})
+				rc := newStubContext()
+				res, err := method(context.Background(), rc, nil, tc.params)
+				if err != nil {
+					t.Fatalf("%v", err)
+				}
+				return session, rc, res
+			}
+			checkSession, checkRC, checked := run(d.Check)
+			if len(checkSession.configCalls) != 0 {
+				t.Errorf("the check sent configuration: %v", checkSession.configCalls)
+			}
+			if len(checkSession.commandCalls) == 0 {
+				t.Fatal("the check sent nothing, so it read nothing")
+			}
+			for _, line := range checkSession.commandCalls {
+				if !tc.want(line) {
+					t.Errorf("the check sent %q", line)
+				}
+			}
+			runSession, runRC, ran := run(d.Invoke)
+			if checked.Changed || ran.Changed || !reflect.DeepEqual(checkSession.commandCalls, runSession.commandCalls) ||
+				!reflect.DeepEqual(checkRC.facts, runRC.facts) || !reflect.DeepEqual(checkRC.stats, runRC.stats) {
+				t.Errorf("check sent %v and answered %v %v %v; the run sent %v and answered %v %v %v",
+					checkSession.commandCalls, checked, checkRC.facts, checkRC.stats, runSession.commandCalls, ran, runRC.facts, runRC.stats)
+			}
+		})
+	}
+}
+
+// TestCheckSave_PredictsTheSaveAndSendsNothing covers net.ios.save's
+// check: it opens the session a real run opens and sends no command at
+// all, where the real run sends write memory, and predicts the change a
+// real save always reports. A device that cannot be reached fails the
+// check as it fails the real run.
+func TestCheckSave_PredictsTheSaveAndSendsNothing(t *testing.T) {
+	d, ok := collection.Lookup("net.ios.save")
+	if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
+		t.Fatal("net.ios.save does not declare a check")
+	}
+	opened := 0
+	f := &fakeSession{outputs: map[string]string{saveCommand: "Building configuration...\n[OK]"}}
+	swapOpenSession(t, func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
+		opened++
+		return f, nil
+	})
+	rc := newStubContext()
+	res, err := d.Check(context.Background(), rc, nil, nil)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if opened != 1 || len(f.commandCalls) != 0 || len(f.configCalls) != 0 {
+		t.Errorf("the check opened %d session(s) and sent %v and %v, want one session and nothing sent", opened, f.commandCalls, f.configCalls)
+	}
+	if !res.Changed {
+		t.Error("the check predicted no change, but a real save always reports one")
+	}
+	if _, recorded := rc.stats[statSaveStdout]; recorded {
+		t.Error("the check recorded a reply the device never gave")
+	}
+
+	ran, err := d.Invoke(context.Background(), newStubContext(), nil, nil)
+	if err != nil || ran.Changed != res.Changed || !reflect.DeepEqual(f.commandCalls, []string{saveCommand}) {
+		t.Errorf("the real run = %v, %v, sending %v; want the change predicted and write memory sent", ran, err, f.commandCalls)
+	}
+
+	swapOpenSession(t, func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
+		return nil, errors.New("dial tcp 192.0.2.1:22: connection refused")
+	})
+	if _, err := d.Check(context.Background(), newStubContext(), nil, nil); err == nil {
+		t.Error("a check of an unreachable device predicted a save")
+	}
+}

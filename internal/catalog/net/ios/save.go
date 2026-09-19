@@ -33,6 +33,10 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// A real save always reports a change, so a check predicts one
+			// after opening the session a real run opens, sending nothing
+			// (CheckSave).
+			SupportsCheck: true,
 			// Saving overwrites startup-config with running-config.
 			// The configuration that startup-config held before this ran
 			// is gone from the device at that moment, and this platform
@@ -44,7 +48,7 @@ func init() {
 			},
 			Doc: collection.Doc{
 				Summary:     "Saves a Cisco IOS device's running configuration to startup.",
-				Description: "Runs IOS's \"write memory\", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS \"% ...\" error rather than reporting a save that did not happen.",
+				Description: "Runs IOS's \"write memory\", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS \"% ...\" error rather than reporting a save that did not happen. A check opens the session a real run opens and predicts the change, since a save always reports one, without sending write memory.",
 				Params: []collection.Param{
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 				},
@@ -58,6 +62,7 @@ func init() {
 			},
 		},
 		Invoke: Save,
+		Check:  CheckSave,
 	})
 }
 
@@ -74,6 +79,21 @@ const saveCommand = "write memory"
 
 // Save implements the "net.ios.save" collection method.
 func Save(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return save(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckSave is "net.ios.save"'s check. A real save reports a change every
+// time it completes (see save), so the change is known without saving:
+// the check opens the session a real run opens, which proves the device
+// answers and takes this run's credential, sends nothing, and predicts
+// it. The device's reply, the stdout a real run records, only exists once
+// the save has run, so the check records none.
+func CheckSave(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return save(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// save is Save's and CheckSave's one body; mode says which.
+func save(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "net.ios.save"
 
 	session, err := openSession(ctx, rc, device, params, fqcn)
@@ -81,6 +101,10 @@ func Save(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, err
 	}
 	defer func() { _ = session.Close() }()
+
+	if mode == collection.ModeCheck {
+		return collection.Result{Changed: true}, nil
+	}
 
 	out, err := session.Command(ctx, saveCommand)
 	if err != nil {

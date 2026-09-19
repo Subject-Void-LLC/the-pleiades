@@ -131,9 +131,50 @@ func init() {
 					"which call would put it back, so any inverse would be a guess dressed as an instruction.",
 			},
 			Doc: requestDoc(),
+			// A check sends a read-only request for real, since reading is
+			// all it does (CheckRequest), and cannot check any other.
+			SupportsCheck: true,
 		},
-		Invoke: Request,
+		Invoke:    Request,
+		Check:     CheckRequest,
+		CheckCall: requestCheckCall,
 	})
+}
+
+// CheckRequest is http.request's check. A request in one of RFC 9110's
+// safe methods (GET, HEAD, OPTIONS, TRACE, requestIsSafe) is defined as
+// read-only, so a check sends it for real, through Request itself, and
+// reports exactly what a real run would: the same status check, the same
+// stats, no change. Any other method may change something on the server,
+// which cannot be known without sending it, so the check answers that it
+// cannot check this call (collection.CannotCheck) and sends nothing. A
+// request a real run would refuse (a bad URL, a bad parameter) is refused
+// here the same way, before either branch.
+//
+// The server's side of a safe request is the server's business: a server
+// that changes state on a GET breaks HTTP's own contract, and a check
+// cannot see that any more than a real run can.
+func CheckRequest(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	if _, err := requestBuild(params); err != nil {
+		return collection.Result{}, fmt.Errorf("http.request: %w", err)
+	}
+	if err := requestCheckCall(params); err != nil {
+		return collection.Result{}, err
+	}
+	return Request(ctx, rc, device, params)
+}
+
+// requestCheckCall is the part of CheckRequest's answer params settle on
+// their own (Descriptor.CheckCall): a request in any method but a safe one
+// cannot be checked. Validation asks it before a run, so check_mode on a
+// POST is refused when the runbook is written rather than reported
+// unchecked when it runs.
+func requestCheckCall(params map[string]any) error {
+	if method := requestMethod(params); !requestIsSafe(method) {
+		return collection.CannotCheck(fmt.Sprintf(
+			"a %s request may change something on the server, and whether it would cannot be known without sending it", method))
+	}
+	return nil
 }
 
 // requestDoc is this method's reference documentation, kept out of the
@@ -146,7 +187,7 @@ func init() {
 func requestDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Makes an HTTP request and reports its status code and body.",
-		Description: "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file).",
+		Description: "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file). Only a request in a safe method (GET, HEAD, OPTIONS or TRACE) can be checked, and a check sends it for real, since reading is all it does. Any other method may change something on the server, so such a call is named as unchecked and sends nothing, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
 			{Name: requestParamURL, Type: "string", Required: true, Description: "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make."},
 			{Name: requestParamMethod, Type: "string", Default: "GET", Description: "The HTTP method. It is upper-cased before being sent, because HTTP method names are case sensitive and a server given get will answer 501 rather than doing what the author meant."},
@@ -266,6 +307,19 @@ type requestSpec struct {
 
 // requestBuild reads and checks everything this method needs from the
 // task's params.
+// requestMethod is the HTTP method params ask for, GET when they name
+// none.
+func requestMethod(params map[string]any) string {
+	if named := sdk.StringParam(params, requestParamMethod); named != "" {
+		// Upper-cased rather than passed through. HTTP method names are
+		// case sensitive, so a runbook saying get would be asking for a
+		// method no server implements, and answering 501 to a task whose
+		// author clearly meant GET helps nobody.
+		return strings.ToUpper(named)
+	}
+	return requestDefaultMethod
+}
+
 func requestBuild(params map[string]any) (requestSpec, error) {
 	var none requestSpec
 
@@ -290,18 +344,9 @@ func requestBuild(params map[string]any) (requestSpec, error) {
 		return none, err
 	}
 
-	method := requestDefaultMethod
-	if named := sdk.StringParam(params, requestParamMethod); named != "" {
-		// Upper-cased rather than passed through. HTTP method names are
-		// case sensitive, so a runbook saying get would be asking for a
-		// method no server implements, and answering 501 to a task whose
-		// author clearly meant GET helps nobody.
-		method = strings.ToUpper(named)
-	}
-
 	return requestSpec{
 		url:           target,
-		method:        method,
+		method:        requestMethod(params),
 		body:          sdk.StringParam(params, requestParamBody),
 		headers:       headers,
 		statusCodes:   statusCodes,

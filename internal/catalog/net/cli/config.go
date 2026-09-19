@@ -36,6 +36,8 @@ func init() {
 				Reversible: false,
 				Notes:      "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it.",
 			},
+			NoCheckReason: "what a configuration line changes is decided by the device's own parser as it applies the line, and " +
+				"a CLI offers no way to ask without applying it",
 			Doc: configDoc(),
 		},
 		Invoke: Config,

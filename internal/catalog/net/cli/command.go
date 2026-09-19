@@ -43,6 +43,8 @@ func init() {
 				Reversible: false,
 				Notes:      "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it.",
 			},
+			NoCheckReason: "an arbitrary CLI line can be anything the device accepts, and what it changes, if anything, is known " +
+				"only once the device has run it",
 			Doc: commandDoc(),
 		},
 		Invoke: Command,

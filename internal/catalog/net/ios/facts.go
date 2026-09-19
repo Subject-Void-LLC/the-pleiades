@@ -34,6 +34,8 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Read-only: it sends only show commands (show version, show inventory, show ip interface brief) and never enters configuration mode, so a check runs it for real.
+			SupportsCheck: true,
 			// A read-only fact gatherer changes nothing, so there is
 			// nothing to undo. Stated the same way
 			// net.catalyst.device_facts states it, rather than left
@@ -68,6 +70,8 @@ func init() {
 			},
 		},
 		Invoke: Facts,
+		// Facts itself, since it only reads.
+		Check: Facts,
 	})
 }
 

@@ -79,6 +79,9 @@ func init() {
 				Reversible: false,
 				Notes:      "An edit-config merge has no reliable inverse: deleting what was added is not the same as restoring what was replaced, and this method cannot know which of the two a given element did. Set backup: true to capture the prior configuration for a human-directed rollback. Note that rollback-on-error, which this method requests whenever the device supports it, covers a DIFFERENT case: it undoes a partially applied edit that the device itself rejected, not one that succeeded and was later regretted.",
 			},
+			NoCheckReason: "only applying the document says what the device makes of it: the running datastore has no staging " +
+				"area, and a check through the candidate datastore would stage the document on the device, which a " +
+				"check promises not to do",
 			Doc: configDoc(),
 		},
 		Invoke: Config,
