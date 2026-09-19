@@ -33,7 +33,22 @@ const StatDiff = "diff"
 const (
 	DiffBefore = "before"
 	DiffAfter  = "after"
+
+	// DiffPredicted is set to true inside a check's diff by the engine,
+	// never by a method: the after half says what a real run would leave,
+	// not what is there. See StatPredicted.
+	DiffPredicted = "predicted"
 )
+
+// StatPredicted is the stat the engine sets to true on every result a
+// check produces, so the result says it is a prediction wherever it
+// travels (a registered result a later task reads, a stored check result
+// a promotion gate reads) and a reader far from the run cannot take it
+// for an observation. It belongs to the engine: a method never sets it,
+// a check's own value is overwritten, and a real run whose result carries
+// it (or a diff carrying DiffPredicted) is refused, since a real run
+// claiming to be a prediction misstates what happened.
+const StatPredicted = "predicted"
 
 // Diff is one method's record of what it found and what it left.
 //

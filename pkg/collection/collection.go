@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -60,6 +61,69 @@ type Descriptor struct {
 	// contradiction, and Register rejects it rather than letting it surface
 	// at run time as a nil-pointer panic three tasks into a runbook.
 	Invoke Method
+
+	// Check is the method's check-mode implementation, or nil for a method
+	// that cannot say what it would change without changing it.
+	//
+	// It takes exactly the arguments Invoke does and must change nothing
+	// on the device. It reads the state Invoke would have read, compares
+	// it against what the task asked for, and reports Result.Changed as
+	// "a real run would change something". It may record stats, including
+	// the ones Invoke records. A diff it records (sdk.RecordDiff) holds the
+	// state it read as Before and the state a real run would leave as
+	// After: predicted rather than read back, since nothing was written,
+	// which is exactly the "what would this do" answer a dry run exists to
+	// give. It must never record an inverse through
+	// sdk.RecordInverse: nothing was done, so there is nothing to undo, and
+	// the engine refuses a check that records one rather than letting a
+	// future rollback read an undo for a change that never happened.
+	//
+	// It sits beside Invoke for the same reason Invoke sits here at all:
+	// one table, so "declared to support check" and "has a Check function"
+	// cannot drift apart. Register refuses a Check whose manifest does not
+	// set SupportsCheck, and the reverse.
+	Check Method
+
+	// CheckCall is, for a method whose Check covers only some calls, the
+	// part of its answer that reads nothing but the call's parameters:
+	// nil when a call with params can be checked, and an error (a
+	// CannotCheckError, through CannotCheck) saying why when it cannot.
+	// It is nil for a method that can check every call.
+	//
+	// It exists so a runbook can be told before it runs. Validation calls
+	// it to refuse check_mode on a call that could only ever be reported
+	// unchecked, which is exactly what the check_mode key promises not to
+	// do. Check must give the same answer for the same parameters, and
+	// the simple way to keep that true is for Check to call this very
+	// function, as exec.command's does. Register refuses it on a method
+	// that does not declare check support, since it would be answering a
+	// question nothing asks.
+	//
+	// It never contacts a device and must not depend on one. A method
+	// provided by an external Collection program has none, since a
+	// program's description carries only data, and its call-level answer
+	// arrives from its Check at run time instead.
+	CheckCall func(params map[string]any) error
+
+	// Provider is nil for a method compiled into this binary. For a method
+	// an external Collection program provides, it names that program. Only
+	// the loader that runs the program sets it, when it registers the
+	// method: nothing a program says about itself does, since a
+	// description carries only a name and a manifest. The engine reads it
+	// to keep a third party's Check, which nothing has proven only reads,
+	// away from a simulate-locked device.
+	Provider *Provider
+}
+
+// Provider is where a method's code comes from when it is not compiled
+// into this binary: an external Collection program.
+type Provider struct {
+	// Program is the path of the external Collection program.
+	Program string
+
+	// Digest is the SHA-256 digest ("sha256:<hex>") the program was
+	// loaded with.
+	Digest string
 }
 
 // collections holds every registered Collection method. It is built on
@@ -86,7 +150,8 @@ func SnapshotForTest() func() {
 }
 
 // Register adds d under d.Name, rejecting a bare (non-namespaced) name, an
-// empty namespace or method segment, an unknown required capability, or a
+// empty namespace or method segment, an unknown required capability, a
+// check declaration that contradicts itself (see checkCheckSupport), or a
 // duplicate name. It returns an error rather than panicking, for genuine
 // runtime registration where a rejection is a data problem the caller must
 // handle, not a process-ending programmer error.
@@ -124,6 +189,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkCheckSupport(d); err != nil {
+		return err
+	}
+
 	return collections.Register(d.Name, d)
 }
 
@@ -143,4 +212,27 @@ func MustRegister(d Descriptor) {
 // found.
 func Lookup(name string) (Descriptor, bool) {
 	return collections.Get(name)
+}
+
+// BuiltinNamespaces returns, sorted, the namespace (the first dotted part
+// of the name) of every registered method compiled into this binary,
+// that is every method with no Provider, implemented or declared. A
+// loader of external Collections reserves these, so a name in one of
+// them can only ever mean code that ships with Pleiades.
+func BuiltinNamespaces() []string {
+	seen := map[string]bool{}
+	for name, d := range collections.All() {
+		if d.Provider != nil {
+			continue
+		}
+		if ns, _, ok := strings.Cut(name, "."); ok {
+			seen[ns] = true
+		}
+	}
+	namespaces := make([]string, 0, len(seen))
+	for ns := range seen {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+	return namespaces
 }

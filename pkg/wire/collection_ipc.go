@@ -36,6 +36,19 @@ type ChildRequest struct {
 	// "net.ssh.ping".
 	FQCN string `json:"fqcn"`
 
+	// Mode says which of the method's two functions the child runs: a
+	// pkg/collection Mode value, where "execute" runs Invoke and "check"
+	// runs Check (collection.Descriptor.MethodFor). Empty means execute,
+	// which is what every request written before this field existed meant,
+	// so a child reading an older parent's request behaves exactly as
+	// before. A value the child does not recognize is refused, never run.
+	//
+	// It is a plain string rather than collection.Mode because this
+	// package cannot import pkg/collection: pkg/remoteexec imports this
+	// package, and pkg/collection reaches pkg/remoteexec through pkg/sdk.
+	// collection.ParseMode is the one place the string is read.
+	Mode string `json:"mode,omitempty"`
+
 	// Params is the task's own params block, passed through unchanged.
 	Params map[string]any `json:"params"`
 
@@ -73,4 +86,13 @@ type ChildResponse struct {
 	// distinction ChildResponse's mere presence or absence on the pipe
 	// already carries without needing a second field for it.
 	Error string `json:"error,omitempty"`
+
+	// CannotCheck reports that Error is a check's answer that it cannot
+	// check this call (a pkg/collection.CannotCheckError, whose reason
+	// Error then holds), rather than a failure. It is set only by a child
+	// running a check, and read only by a parent that asked for one: from
+	// any other exchange it means nothing, and the response is an
+	// ordinary failure. An optional field, so a parent that predates it
+	// reads such an answer as a failed check, never as a passed one.
+	CannotCheck bool `json:"cannot_check,omitempty"`
 }

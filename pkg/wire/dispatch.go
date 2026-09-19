@@ -105,6 +105,24 @@ type DispatchPayload struct {
 	// second field would be empty on every dispatch.
 	RunbookID string `json:"runbook_id"`
 
+	// Mode is "check" for a dispatch that must change nothing
+	// (collection.ModeCheck), and "execute" or empty for a real run. It is
+	// never the only thing making a dispatch a check: a check is also
+	// published to its own subject (internal/topology's CheckSubject),
+	// which a Runner that predates this field never receives, because
+	// such a Runner would ignore this field and run the dispatch for real.
+	// A Runner treats anything from that subject as a check whatever this
+	// says, and refuses a value here it does not recognize.
+	Mode string `json:"mode,omitempty"`
+
+	// ExternalChecks is whether a check may run an external Collection
+	// program's Check: true only when whoever launched the job may run it
+	// for real (runbook:execute), since nothing has proven a third party's
+	// Check only reads. Absent or false, those tasks are reported
+	// unchecked, so a Controller that does not set it fails closed. It
+	// changes nothing about a real run.
+	ExternalChecks bool `json:"external_checks,omitempty"`
+
 	// Kind is the launch kind this dispatch is, which is what the Runner
 	// routes on to choose an execution adapter.
 	//
