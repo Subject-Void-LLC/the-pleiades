@@ -4,6 +4,7 @@ package ec2_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -144,4 +145,54 @@ func sameStates(a, b map[string]string) bool {
 		}
 	}
 	return len(a) == len(b)
+}
+
+// TestChecks_FailWhenTheyCannotRecord covers a check that cannot record
+// its answer, the instance ID or the diff, for an instance that exists and
+// for a name that matches none: it fails naming the method, as the real
+// run does, rather than reporting a decision with nothing behind it, and
+// it launches and terminates nothing.
+func TestChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	endpoint := requireLocalStack(t)
+	name := uniqueName(t)
+	create, terminate := lookup(t, "cloud.aws.ec2.create"), lookup(t, "cloud.aws.ec2.terminate")
+	createParams := func(name string) map[string]any {
+		return map[string]any{"name": name, "image_id": "ami-12345678", "instance_type": "t2.micro"}
+	}
+	if _, err := create.Invoke(context.Background(), newHarness(t).rc, newHarness(t).device, createParams(name)); err != nil {
+		t.Fatalf("launching the instance the checks read: %v", err)
+	}
+	var id string
+	for k := range instanceStates(t, endpoint, name) {
+		id = k
+	}
+	if id == "" {
+		t.Fatal("the launch left no instance")
+	}
+
+	for _, tc := range []struct {
+		name    string
+		d       collection.Descriptor
+		params  map[string]any
+		failKey string
+	}{
+		{"create, present, the instance ID", create, createParams(name), "instance_id"},
+		// uniqueName is the test's own name, so the absent one is suffixed.
+		{"create, absent, the diff", create, createParams(name + "-absent"), sdk.StatDiff},
+		{"terminate, the instance ID", terminate, map[string]any{"instance_id": id}, "instance_id"},
+		{"terminate, the diff", terminate, map[string]any{"instance_id": id}, sdk.StatDiff},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := instanceStates(t, endpoint, name)
+			h := newHarness(t)
+			h.rc.failOnKey = tc.failKey
+			_, err := tc.d.Check(context.Background(), h.rc, h.device, tc.params)
+			if err == nil || !strings.HasPrefix(err.Error(), tc.d.Name+": ") {
+				t.Errorf("check = %v, want the failure named for %s", err, tc.d.Name)
+			}
+			if after := instanceStates(t, endpoint, name); !sameStates(before, after) {
+				t.Errorf("the check changed the account: %v became %v", before, after)
+			}
+		})
+	}
 }

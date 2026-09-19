@@ -108,3 +108,29 @@ func TestDispatch_ACheckReachesTheConcreteCheck(t *testing.T) {
 		t.Errorf("Invoke ran %d time(s) and Check %d; want 0 and 1", invoked, checked)
 	}
 }
+
+// TestDispatch_RefusesWhatItCannotResolve covers the two refusals no real
+// verb reaches: a concrete method the device's manager maps to that is not
+// registered in this binary, and a mode that is neither a run nor a check.
+// Each must stop before anything is invoked and say what it could not
+// resolve, rather than falling through to some other method.
+func TestDispatch_RefusesWhatItCannotResolve(t *testing.T) {
+	dev := &dispatchTestDevice{Stub: &inventorytest.Stub{
+		StubName: "s1", Caps: []capability.Name{capability.NameSystemd},
+	}}
+	rc := &dispatchTestRC{stats: map[string]any{}}
+
+	_, err := dispatch(context.Background(), rc, dev, map[string]any{"name": "x"}, "nosuchverb", collection.ModeExecute)
+	if err == nil || !strings.Contains(err.Error(), "svc.systemd.nosuchverb is not registered") {
+		t.Errorf("an unregistered target = %v, want a refusal naming svc.systemd.nosuchverb", err)
+	}
+
+	_, err = dispatch(context.Background(), rc, dev, map[string]any{"name": "x"}, "start", collection.Mode("rehearse"))
+	if err == nil || !strings.Contains(err.Error(), `unknown mode "rehearse"`) {
+		t.Errorf("an unknown mode = %v, want a refusal naming the mode", err)
+	}
+	var cannot *collection.CannotCheckError
+	if errors.As(err, &cannot) {
+		t.Error("an unknown mode was answered as a check that cannot happen, which a check run would count as merely unchecked")
+	}
+}

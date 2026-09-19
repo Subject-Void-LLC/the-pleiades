@@ -129,3 +129,46 @@ func TestChecks_ReadAndPredict(t *testing.T) {
 		})
 	}
 }
+
+// TestChecks_FailWhenTheyCannotReadOrRecord covers a check that cannot
+// finish. An unmount check reads fstab a second time to decide whether the
+// entry would go; when that read fails the check fails naming the method,
+// rather than predicting the entry stays. A path or diff that cannot be
+// recorded fails the check as it fails the real run. None of them mounts,
+// unmounts or touches fstab.
+func TestChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
+	const mp = "/mnt/data"
+	entry := "/dev/sdb1\t" + mp + "\text4\trw,relatime\t0\t0\n"
+	mount := map[string]any{"src": "/dev/sdb1", "fstype": "ext4"}
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		state   mountState
+		params  map[string]any
+		budget  int
+		failKey string
+		want    string
+	}{
+		// findmnt, then the first fstab read's stat and read, take the three
+		// sessions allowed; the second fstab read's stat is refused.
+		{"unmount, fstab cannot be read again", "fs.unmount", mounted, nil, 3, "", "fs.unmount: stat"},
+		{"mount, the path cannot be recorded", "fs.mount", notMounted, mount, -1, "path", `injected failure recording "path"`},
+		{"mount, the diff cannot be recorded", "fs.mount", notMounted, mount, -1, sdk.StatDiff, "injected failure recording"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			h := newHarnessBudgeted(t, tc.state, entry, tc.budget)
+			h.rc.failOnKey = tc.failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params(mp, tc.params))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("check = %v, want an error containing %q", err, tc.want)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check ran %v", calls)
+			}
+			if got := h.fstabContent(t); got != entry {
+				t.Errorf("the check left fstab as %q", got)
+			}
+		})
+	}
+}

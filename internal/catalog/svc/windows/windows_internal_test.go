@@ -593,3 +593,33 @@ func TestServiceChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestRunServiceOp_CheckStatFailuresAreWrapped is the check-mode half of
+// the two tests above: a check that cannot record the service's name or
+// its diff fails naming the method, and never applies the change, since a
+// call to apply fails the test.
+func TestRunServiceOp_CheckStatFailuresAreWrapped(t *testing.T) {
+	withStatus(t, func(context.Context, winrmsvc.Session, string) (winrmsvc.State, error) {
+		return winrmsvc.State{Name: "spooler", Exists: true, Status: "Stopped", StartType: "Automatic"}, nil
+	})
+	for _, key := range []string{statName, sdk.StatDiff} {
+		t.Run(key, func(t *testing.T) {
+			rc := &failingRC{fakeRC: newFakeRC(), failOnKey: key}
+			_, err := runServiceOp(context.Background(), rc, stubDevice(), map[string]any{"name": "spooler"}, serviceOp{
+				fqcn:      "svc.windows.start",
+				converged: winrmsvc.State.Running,
+				predict: func(s winrmsvc.State) winrmsvc.State {
+					s.Status = "Running"
+					return s
+				},
+				apply: func(context.Context, winrmsvc.Session, string) error {
+					t.Error("a check applied the change")
+					return nil
+				},
+			}, collection.ModeCheck)
+			if err == nil || !strings.HasPrefix(err.Error(), "svc.windows.start: ") {
+				t.Errorf("error = %v, want the %q stat failure wrapped with the fqcn", err, key)
+			}
+		})
+	}
+}

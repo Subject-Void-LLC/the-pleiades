@@ -107,3 +107,19 @@ func TestDispatch_ACheckReachesTheConcreteCheck(t *testing.T) {
 		t.Errorf("Invoke ran %d time(s) and Check %d; want 0 and 1", invoked, checked)
 	}
 }
+
+// TestDispatch_RefusesAnUnknownMode covers the refusal no real method
+// reaches: a mode that is neither a run nor a check stops before anything
+// is invoked, and is not answered as a check that cannot happen, which a
+// check run would count as merely unchecked.
+func TestDispatch_RefusesAnUnknownMode(t *testing.T) {
+	dev := &dispatchTestDevice{Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameApt}}, manager: "apt"}
+	_, err := dispatch(context.Background(), nil, dev, nil, "install", collection.Mode("rehearse"))
+	if err == nil || !strings.Contains(err.Error(), `unknown mode "rehearse"`) {
+		t.Errorf("err = %v, want a refusal naming the mode", err)
+	}
+	var cannot *collection.CannotCheckError
+	if errors.As(err, &cannot) {
+		t.Error("an unknown mode was answered as a check that cannot happen")
+	}
+}

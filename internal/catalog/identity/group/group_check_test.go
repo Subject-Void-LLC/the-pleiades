@@ -4,6 +4,7 @@ package group_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/group"
@@ -68,6 +69,39 @@ func TestGroupChecks(t *testing.T) {
 			diff, _ := h.rc.stats[sdk.StatDiff].(map[string]any)
 			if after, _ := diff["after"].(map[string]any); !reflect.DeepEqual(after, tc.wantAfter) {
 				t.Errorf("predicted %v, want %v", after, tc.wantAfter)
+			}
+		})
+	}
+}
+
+// TestGroupChecks_FailWhenTheyCannotRecord covers
+// a check that cannot finish its reads or record its answer: it fails
+// naming why, as the real run does, rather than predicting from a value it
+// never read or reporting a decision with no diff behind it, and it sends
+// nothing that changes the device either way.
+func TestGroupChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		state   groupState
+		failKey string
+		extra   map[string]any
+		want    string
+	}{
+		{"create, the name cannot be recorded", "identity.group.create", absentGroup, "name", nil, `injected failure recording "name"`},
+		{"modify, the name cannot be recorded", "identity.group.modify", presentGroup, "name", map[string]any{"gid": 3000}, `injected failure recording "name"`},
+		{"remove, the name cannot be recorded", "identity.group.remove", presentGroup, "name", nil, `injected failure recording "name"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			h := newHarness(t, tc.state)
+			h.rc.failOnKey = tc.failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params("admins", tc.extra))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("check error = %v, want one containing %q", err, tc.want)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check sent %v", calls)
 			}
 		})
 	}

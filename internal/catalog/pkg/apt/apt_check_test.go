@@ -87,3 +87,43 @@ func TestAptChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestAptChecks_FailWhenTheyCannotReadOrRecord covers
+// a check that cannot finish its reads or record its answer: it fails
+// naming why, as the real run does, rather than predicting from a value it
+// never read or reporting a decision with no diff behind it, and it sends
+// nothing that changes the device either way.
+func TestAptChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
+	candidateFails := absent
+	candidateFails.candidateExit = 1
+	currentCandidateFails := installedCurrent
+	currentCandidateFails.candidateExit = 1
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		state   pkgState
+		failKey string
+		extra   map[string]any
+		want    string
+	}{
+		{"install, the candidate cannot be read", "pkg.apt.install", candidateFails, "", nil, "apt-cache policy curl exited 1"},
+		{"upgrade, absent, the candidate cannot be read", "pkg.apt.upgrade", candidateFails, "", nil, "apt-cache policy curl exited 1"},
+		{"upgrade, present, the candidate cannot be read", "pkg.apt.upgrade", currentCandidateFails, "", nil, "apt-cache policy curl exited 1"},
+		{"install, the name cannot be recorded", "pkg.apt.install", pkgState{candidate: "2.0"}, "name", nil, `injected failure recording "name"`},
+		{"remove, the name cannot be recorded", "pkg.apt.remove", installedCurrent, "name", nil, `injected failure recording "name"`},
+		{"upgrade, the name cannot be recorded", "pkg.apt.upgrade", installedOld, "name", nil, `injected failure recording "name"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			h := newHarness(t, tc.state)
+			h.rc.failOnKey = tc.failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params("curl", tc.extra))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("check error = %v, want one containing %q", err, tc.want)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check sent %v", calls)
+			}
+		})
+	}
+}

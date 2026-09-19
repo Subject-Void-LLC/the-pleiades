@@ -100,3 +100,42 @@ func TestLineChecks_PredictWhatARealRunLeaves(t *testing.T) {
 		})
 	}
 }
+
+// TestLineChecks_FailWhenTheyCannotRecord covers a check that has decided
+// on a change and cannot record it: the diff, or the stats a later task
+// reads. Either fails the check as it fails the real run, rather than
+// reporting a change with nothing behind it, and the file is left as it
+// was.
+func TestLineChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	const start = "deb http://keep.example.com main\ndeb http://old.example.com main\n"
+	for _, tc := range []struct {
+		name   string
+		fqcn   string
+		params map[string]any
+		failOn string
+	}{
+		{"set, the diff", "file.line.set", map[string]any{"line": "deb http://added.example.com main"}, sdk.StatDiff},
+		{"set, the stats", "file.line.set", map[string]any{"line": "deb http://added.example.com main"}, "msg"},
+		{"remove, the diff", "file.line.remove", map[string]any{"regexp": `old\.example`}, sdk.StatDiff},
+		{"remove, the stats", "file.line.remove", map[string]any{"regexp": `old\.example`}, "found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			server := startLineServer(t)
+			path := lineWriteFile(t, start, 0o640)
+			p := map[string]any{"path": path}
+			for k, v := range tc.params {
+				p[k] = v
+			}
+			rc := newLineContext(server)
+			rc.failOn = tc.failOn
+			_, err := d.Check(context.Background(), rc, newLineTarget(server), lineParams(p))
+			if err == nil || !strings.Contains(err.Error(), tc.fqcn) {
+				t.Errorf("check error = %v, want one naming %s", err, tc.fqcn)
+			}
+			if got := lineOnDisk(t, path); got != start {
+				t.Errorf("the check changed the file to %q", got)
+			}
+		})
+	}
+}

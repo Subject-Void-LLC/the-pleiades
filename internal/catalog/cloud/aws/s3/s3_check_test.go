@@ -113,3 +113,26 @@ func TestChecks_AgainstLocalStack(t *testing.T) {
 	step(remove, true, true)
 	step(remove, false, false)
 }
+
+// TestChecks_FailWhenTheyCannotRecord covers a check that cannot record
+// its answer, the bucket or the diff: it fails naming the method, as the
+// real run does, rather than reporting a decision with nothing behind it,
+// and the bucket is left as it was.
+func TestChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	endpoint := requireLocalStack(t)
+	bucket := uniqueBucket(t)
+	d := lookup(t, "cloud.aws.s3.create_bucket")
+	for _, key := range []string{"bucket", sdk.StatDiff} {
+		t.Run(key, func(t *testing.T) {
+			h := newHarness(t)
+			h.rc.failOnKey = key
+			_, err := d.Check(context.Background(), h.rc, h.device, map[string]any{"bucket": bucket})
+			if err == nil || !strings.HasPrefix(err.Error(), "cloud.aws.s3.create_bucket: ") {
+				t.Errorf("check = %v, want the failure named for cloud.aws.s3.create_bucket", err)
+			}
+			if bucketExists(t, endpoint, bucket) {
+				t.Error("the check created the bucket")
+			}
+		})
+	}
+}

@@ -403,3 +403,29 @@ func TestRemove_EnabledEmitsInstallInverse(t *testing.T) {
 		t.Errorf("stats[%q] = %v, want an inverse naming win.feature.install", sdk.StatInverse, rc.stats[sdk.StatInverse])
 	}
 }
+
+// TestRunFeatureOp_CheckStatFailuresAreWrapped is the check-mode half of
+// the stat-failure tests above: a check that cannot record the feature's
+// name or its diff fails naming the method, and never applies the change,
+// since a call to apply fails the test.
+func TestRunFeatureOp_CheckStatFailuresAreWrapped(t *testing.T) {
+	withStatus(t, func(context.Context, winrmdism.Session, string, string) (winrmdism.FeatureState, error) {
+		return winrmdism.FeatureState{Name: "IIS-WebServerRole", Exists: true, State: "Disabled"}, nil
+	})
+	for _, key := range []string{statName, sdk.StatDiff} {
+		t.Run(key, func(t *testing.T) {
+			rc := &failingRC{fakeRC: newFakeRC(), failOnKey: key}
+			_, err := runFeatureOp(context.Background(), rc, stubDevice(), map[string]any{"name": "IIS-WebServerRole"}, featureOp{
+				fqcn:      "win.feature.install",
+				converged: winrmdism.FeatureState.Enabled,
+				apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
+					t.Error("a check applied the change")
+					return winrmdism.ChangeResult{}, nil
+				},
+			}, collection.ModeCheck)
+			if err == nil || !strings.HasPrefix(err.Error(), "win.feature.install: ") {
+				t.Errorf("error = %v, want the %q stat failure wrapped with the fqcn", err, key)
+			}
+		})
+	}
+}

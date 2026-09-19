@@ -189,3 +189,24 @@ func TestChecks_AgainstRealDocker(t *testing.T) {
 	step("container.docker.remove", true)
 	step("container.docker.remove", false)
 }
+
+// TestChecks_FailWhenTheyCannotRecord covers a check that cannot record
+// its answer, the container's name or the diff: it fails naming the
+// method, as the real run fails, rather than reporting a decision with
+// nothing behind it, and it still runs nothing but inspect.
+func TestChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	for _, failKey := range []string{"name", sdk.StatDiff} {
+		t.Run(failKey, func(t *testing.T) {
+			d, _ := collection.Lookup("container.docker.stop")
+			h := newHarness(t, running)
+			h.rc.failOnKey = failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"}))
+			if err == nil || !strings.HasPrefix(err.Error(), "container.docker.stop: ") {
+				t.Errorf("check = %v, want the failure named for container.docker.stop", err)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check ran %v", calls)
+			}
+		})
+	}
+}

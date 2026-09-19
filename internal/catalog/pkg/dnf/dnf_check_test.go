@@ -78,3 +78,40 @@ func TestDnfChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestDnfChecks_FailWhenTheyCannotReadOrRecord covers
+// a check that cannot finish its reads or record its answer: it fails
+// naming why, as the real run does, rather than predicting from a value it
+// never read or reporting a decision with no diff behind it, and it sends
+// nothing that changes the device either way.
+func TestDnfChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
+	updateFails := installedCurrent
+	updateFails.updateExit = 1
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		state   pkgState
+		failKey string
+		extra   map[string]any
+		want    string
+	}{
+		{"upgrade, the update check fails", "pkg.dnf.upgrade", updateFails, "", nil, "dnf check-update curl exited 1"},
+		{"install, the name cannot be recorded", "pkg.dnf.install", absent, "name", nil, `injected failure recording "name"`},
+		{"install, a named version cannot be recorded", "pkg.dnf.install", absent, "version", map[string]any{"version": "2.0-1"}, `injected failure recording "version"`},
+		{"remove, the name cannot be recorded", "pkg.dnf.remove", installedCurrent, "name", nil, `injected failure recording "name"`},
+		{"upgrade, the name cannot be recorded", "pkg.dnf.upgrade", installedOld, "name", nil, `injected failure recording "name"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			h := newHarness(t, tc.state)
+			h.rc.failOnKey = tc.failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params("curl", tc.extra))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("check error = %v, want one containing %q", err, tc.want)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check sent %v", calls)
+			}
+		})
+	}
+}

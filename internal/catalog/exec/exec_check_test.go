@@ -95,3 +95,33 @@ func TestGuardedChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestGuardedChecks_FailWhenTheyCannotRecord covers a guarded check whose
+// guard would let the command run, and which cannot record that answer.
+// It fails naming the method, as the real run fails when it cannot record
+// its result, rather than predicting a run with no stats behind it; and
+// the command is never sent.
+func TestGuardedChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	for _, fqcn := range []string{"exec.command", "exec.shell"} {
+		t.Run(fqcn, func(t *testing.T) {
+			d, _ := collection.Lookup(fqcn)
+			srv, err := remoteexectest.Start(remoteexectest.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(srv.Close)
+			server := testSSHServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password}
+			marker := filepath.Join(t.TempDir(), "ran")
+			params := map[string]any{"cmd": "touch " + marker, "creates": marker, "insecure_skip_host_key_verify": true}
+			rc := newStubContext(server)
+			rc.statErr = errStat
+			_, err = d.Check(context.Background(), rc, newDevice(server, ""), params)
+			if !errors.Is(err, errStat) || !strings.HasPrefix(err.Error(), fqcn+": ") {
+				t.Errorf("check = %v, want the stat failure named for %s", err, fqcn)
+			}
+			if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+				t.Errorf("the check ran the command: %v", statErr)
+			}
+		})
+	}
+}

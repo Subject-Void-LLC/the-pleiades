@@ -100,3 +100,35 @@ func TestReloadCheck(t *testing.T) {
 		t.Errorf("a check with firewalld not running = %v, want it refused as a reload would be", err)
 	}
 }
+
+// TestFirewalldChecks_FailWhenTheyCannotRecord covers an allow or deny
+// check that cannot record its answer: the zone, or the diff holding the
+// predicted halves. Either fails the check naming the method, as it fails
+// the real run, rather than reporting a decision with nothing behind it,
+// and nothing is sent to firewall-cmd that changes it.
+func TestFirewalldChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	port := map[string]any{"port": 8443, "protocol": "tcp"}
+	for _, tc := range []struct {
+		name    string
+		fqcn    string
+		state   ruleFixture
+		failKey string
+	}{
+		{"allow, the zone", "fw.firewalld.allow", deniedEverywhere, "zone"},
+		{"allow, the diff", "fw.firewalld.allow", deniedEverywhere, sdk.StatDiff},
+		{"deny, the zone", "fw.firewalld.deny", allowedEverywhere, "zone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			h := newHarness(t, tc.state)
+			h.rc.failOnKey = tc.failKey
+			_, err := d.Check(context.Background(), h.rc, h.device, h.params(port))
+			if err == nil || !strings.Contains(err.Error(), tc.fqcn+": ") || !strings.Contains(err.Error(), "injected failure recording") {
+				t.Errorf("check = %v, want the injected failure, named for %s", err, tc.fqcn)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("the check changed the firewall: %v", calls)
+			}
+		})
+	}
+}
