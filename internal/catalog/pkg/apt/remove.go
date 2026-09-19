@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks dpkg before it acts, so a check can predict through the same code (CheckRemove).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that removed a present package emits a pkg.apt.install pinned to the exact version this " +
@@ -31,6 +33,7 @@ func init() {
 			Doc: removeDoc(),
 		},
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -63,6 +66,16 @@ func removeDoc() collection.Doc {
 // change. The version captured before removal is what makes this
 // method's inverse a real one rather than a guess.
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRemove is pkg.apt.remove's check: the same dpkg read and change decision as Remove, through the one body both share, then a prediction (not installed) instead of apt-get.
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// remove is Remove's and CheckRemove's one body; mode says which.
+func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.apt.remove"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -79,6 +92,13 @@ func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := queryDpkg(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		if err := recordState(rc, name, before, state{}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: before.installed}, nil
 	}
 
 	changed := false

@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks dpkg before it acts, so a check can predict through the same code (CheckInstall).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: installDoc(),
 		},
 		Invoke: Install,
+		Check:  CheckInstall,
 	})
 }
 
@@ -70,6 +73,16 @@ func installDoc() collection.Doc {
 // match, in which case apt-get is asked to install that exact version,
 // which upgrades or downgrades it as needed.
 func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return install(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckInstall is pkg.apt.install's check: the same dpkg read and change decision as Install, through the one body both share, then a prediction instead of apt-get (predictInstall).
+func CheckInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return install(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// install is Install's and CheckInstall's one body; mode says which.
+func install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.apt.install"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -87,6 +100,20 @@ func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryDpkg(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		if before.installed && (version == "" || before.version == version) {
+			return collection.Result{}, recordState(rc, name, before, before)
+		}
+		predicted, err := predictInstall(ctx, conn, name, version)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := recordState(rc, name, before, predicted); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	changed := false

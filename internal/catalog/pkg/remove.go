@@ -23,6 +23,7 @@ func init() {
 			removeDoc(),
 		),
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -43,5 +44,12 @@ func removeDoc() collection.Doc {
 // Remove implements "pkg.remove" by resolving the device's package
 // manager and handing the call to that manager's concrete method.
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "remove")
+	return dispatch(ctx, rc, device, params, "remove", collection.ModeExecute)
+}
+
+// CheckRemove is pkg.remove's check: the device's package manager's own
+// check (dispatch), or "cannot check this call" for a manager whose
+// method has none.
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "remove", collection.ModeCheck)
 }

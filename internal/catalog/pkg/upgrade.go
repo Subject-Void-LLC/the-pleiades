@@ -21,6 +21,7 @@ func init() {
 			upgradeDoc(),
 		),
 		Invoke: Upgrade,
+		Check:  CheckUpgrade,
 	})
 }
 
@@ -41,5 +42,12 @@ func upgradeDoc() collection.Doc {
 // Upgrade implements "pkg.upgrade" by resolving the device's package
 // manager and handing the call to that manager's concrete method.
 func Upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "upgrade")
+	return dispatch(ctx, rc, device, params, "upgrade", collection.ModeExecute)
+}
+
+// CheckUpgrade is pkg.upgrade's check: the device's package manager's own
+// check (dispatch), or "cannot check this call" for a manager whose
+// method has none.
+func CheckUpgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "upgrade", collection.ModeCheck)
 }
