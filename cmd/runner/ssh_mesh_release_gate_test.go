@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
@@ -147,6 +148,10 @@ type releaseGateHarness struct {
 	sshPort int
 	bus     event.Bus
 	js      jetstream.JetStream
+
+	// adapter is the native Adapter the harness's own Agent runs, kept so
+	// a test can start a second Agent over it (startCheckAgent).
+	adapter *native.Adapter
 }
 
 // knownHostsSource says how a test makes the container's real host key
@@ -221,6 +226,13 @@ func writeKnownHostsFor(t *testing.T, addr string, source knownHostsSource) {
 
 func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGateHarness {
 	t.Helper()
+	return newReleaseGateHarnessFor(t, source, map[string]string{"ping.yaml": "id: ping\ntasks:\n  - name: ping\n    fqcn: net.ssh.ping\n"})
+}
+
+// newReleaseGateHarnessFor is newReleaseGateHarnessWith serving the given
+// runbooks (file name to content) instead of the one ping runbook.
+func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFiles map[string]string) *releaseGateHarness {
+	t.Helper()
 	ctx := context.Background()
 
 	sshHost, sshPort := startSSHContainer(t)
@@ -270,9 +282,10 @@ func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGa
 	}
 
 	runbookDir := t.TempDir()
-	runbookYAML := "id: ping\ntasks:\n  - name: ping\n    fqcn: net.ssh.ping\n"
-	if err := os.WriteFile(filepath.Join(runbookDir, "ping.yaml"), []byte(runbookYAML), 0o644); err != nil {
-		t.Fatalf("failed to write runbook fixture: %v", err)
+	for name, content := range runbookFiles {
+		if err := os.WriteFile(filepath.Join(runbookDir, name), []byte(content), 0o644); err != nil { // #nosec G306 -- a test runbook fixture, not secret material
+			t.Fatalf("failed to write runbook fixture: %v", err)
+		}
 	}
 	runbooks, err := runbook.NewDirSource(runbookDir)
 	if err != nil {
@@ -289,7 +302,82 @@ func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGa
 	t.Cleanup(cancelAgent)
 	go func() { _ = agent.Run(agentCtx) }()
 
-	return &releaseGateHarness{sshHost: sshHost, sshPort: sshPort, bus: bus, js: js}
+	return &releaseGateHarness{sshHost: sshHost, sshPort: sshPort, bus: bus, js: js, adapter: adapter}
+}
+
+// startCheckAgent adds the check pull loop a check-capable Runner runs
+// beside its dispatch loop (cmd/runner's main): the check consumer, and
+// an Agent over the same adapter through routing.CheckOnly. The harness's
+// own Agent alone is a Runner from before check mode.
+func (h *releaseGateHarness) startCheckAgent(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	consumer, err := h.js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.CheckConsumerConfig())
+	if err != nil {
+		t.Fatalf("check consumer: %v", err)
+	}
+	// Reporting results as cmd/runner's own agents do, so a gate can read
+	// what a check reported back, not only what it logged.
+	agent := runner.NewAgent(consumer, routing.CheckOnly(h.adapter), h.js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil,
+		runner.WithResultReporting(h.bus))
+	agentCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	go func() { _ = agent.Run(agentCtx) }()
+}
+
+// jobWatch reads one job's events off its real log subject.
+type jobWatch struct {
+	consumer jetstream.Consumer
+}
+
+// watchJob starts reading jobID's log subject. It is called before the
+// dispatch is published, so no event can be missed.
+func (h *releaseGateHarness) watchJob(t *testing.T, jobID string) *jobWatch {
+	t.Helper()
+	consumer, err := h.js.CreateOrUpdateConsumer(context.Background(), topology.StreamName, topology.LogViewerConsumerConfig(jobID))
+	if err != nil {
+		t.Fatalf("failed to create log consumer: %v", err)
+	}
+	return &jobWatch{consumer: consumer}
+}
+
+// publish sends payload to subject, the way internal/dispatch does.
+func (h *releaseGateHarness) publish(t *testing.T, subject string, payload wire.DispatchPayload) {
+	t.Helper()
+	evt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)
+	if err != nil {
+		t.Fatalf("wrap payload: %v", err)
+	}
+	if err := h.bus.Publish(context.Background(), subject, *evt); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+}
+
+// completed waits up to within for the job's task.completed event, and
+// reports whether one arrived.
+func (w *jobWatch) completed(t *testing.T, within time.Duration) (wire.JobEvent, bool) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		msgs, err := w.consumer.Fetch(1, jetstream.FetchMaxWait(time.Second))
+		if err != nil {
+			t.Fatalf("fetch log events: %v", err)
+		}
+		for msg := range msgs.Messages() {
+			var wrapped event.Event
+			if err := json.Unmarshal(msg.Data(), &wrapped); err != nil {
+				t.Fatalf("unmarshal event envelope: %v", err)
+			}
+			var jobEvt wire.JobEvent
+			if err := json.Unmarshal(wrapped.Data, &jobEvt); err != nil {
+				t.Fatalf("unmarshal job event: %v", err)
+			}
+			if jobEvt.Task == "task.completed" {
+				return jobEvt, true
+			}
+		}
+	}
+	return wire.JobEvent{}, false
 }
 
 // dispatch publishes payload to the real dispatch subject and waits for a

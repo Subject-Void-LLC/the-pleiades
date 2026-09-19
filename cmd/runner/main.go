@@ -34,10 +34,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,6 +47,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	// Blank-imported so every generated Collection method registers itself
 	// into pkg/collection before native.Adapter's own
@@ -63,6 +66,7 @@ import (
 	// route nothing at all (FAILURE_PATTERNS.md #52).
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
@@ -117,6 +121,9 @@ func main() {
 		os.Exit(native.RunCollectionChild(context.Background()))
 	case routeHealthcheck:
 		os.Exit(runHealthcheck(os.Args[1:]))
+	case routeVersion:
+		fmt.Println("runner " + buildinfo.Version())
+		os.Exit(0)
 	case routeAgent:
 		// Fall through into the body below, which is the Agent.
 	}
@@ -146,6 +153,42 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, redact.Shared().HandlerOptions(slog.LevelInfo)))
 	slog.SetDefault(logger)
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
+	logger.Info("starting runner", "version", buildinfo.Version())
+
+	// External Collections: programs built outside this repository with
+	// pkg/external, loaded from the directory PLEIADES_COLLECTIONS_DIR
+	// names and registered like built-in methods. A directory that fails to
+	// load stops the Runner, the same fail-closed startup every dependency
+	// below has, because a refused program must never leave a Runner that
+	// silently cannot run a method the Controller will dispatch to it.
+	// It runs here, before telemetry or any connection to the broker, so a
+	// misconfigured directory (writable by others, an unapproved build, a
+	// kernel without Landlock) stops the Runner at once, with the reason,
+	// rather than after it has joined the mesh.
+	//
+	// The engine version is left empty: this binary carries no release
+	// version yet, which the loader treats as an unreleased build (a
+	// constrained method loads with a logged warning). The adapter needs
+	// no telling which methods are external: the loader marks each one it
+	// registers (collection.Descriptor.Provider), and the adapter runs
+	// those from this process rather than a re-executed child.
+	if dir := os.Getenv("PLEIADES_COLLECTIONS_DIR"); dir != "" {
+		// A Runner holds no credential store of its own, so only the home
+		// directory (always) is protected. PLEIADES_COLLECTIONS_READ_PATHS
+		// grants every program read access to more, separated like PATH.
+		var grants []string
+		for _, p := range filepath.SplitList(os.Getenv("PLEIADES_COLLECTIONS_READ_PATHS")) {
+			if p != "" {
+				grants = append(grants, p)
+			}
+		}
+		// The build's own version, the one `runner version` and `pleiades
+		// version` print, so a program's engine version constraint gets the
+		// same answer here as on the command line.
+		if _, err := loader.Load(context.Background(), dir, loader.Options{Logger: logger, ReadPaths: grants, EngineVersion: buildinfo.Version()}); err != nil {
+			log.Fatalf("failed to load external collections from PLEIADES_COLLECTIONS_DIR: %v", err)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -205,6 +248,14 @@ func main() {
 	consumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.DispatchConsumerConfig())
 	if err != nil {
 		log.Fatalf("failed to create dispatch consumer: %v", err)
+	}
+	// Checks arrive on a subject of their own (topology.CheckSubject),
+	// pulled by a second consumer. A Runner built before check mode never
+	// creates this one, which is what keeps a check from reaching a Runner
+	// that would run it for real.
+	checkConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.CheckConsumerConfig())
+	if err != nil {
+		log.Fatalf("failed to create check consumer: %v", err)
 	}
 
 	// lockMgr backs Agent's own per-device execution lease (PLAN.md
@@ -366,6 +417,10 @@ func main() {
 
 	agent := runner.NewAgent(consumer, router, js, lockMgr, topology.MaxDeliverDefault, logger,
 		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
+	// The check loop: everything from the check subject runs through
+	// routing.CheckOnly, so it is a check whatever its payload says.
+	checkAgent := runner.NewAgent(checkConsumer, routing.CheckOnly(router), js, lockMgr, topology.MaxDeliverDefault, logger,
+		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -381,8 +436,18 @@ func main() {
 	// to the fetch loop turns a clean SIGTERM shutdown into a Fatalf exit
 	// 1, which under a restartPolicy of Always reads as a crash loop on
 	// every rolling update.
-	if err := agent.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("agent run failed: %v", err)
+	//
+	// The two loops run side by side, and either one failing stops the
+	// Runner: a Runner that silently stopped taking checks, or dispatches,
+	// would look healthy while doing half its job.
+	loops := make(chan error, 2)
+	go func() { loops <- checkAgent.Run(ctx) }()
+	go func() { loops <- agent.Run(ctx) }()
+	for range 2 {
+		if err := <-loops; err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("agent run failed: %v", err)
+		}
+		cancel()
 	}
 
 	// Safe to close only after agent.Run has returned: Run's own

@@ -222,6 +222,54 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 		t.Fatalf("the Controller could not dead-letter a run journal batch under ControllerGrant: %v", err)
 	}
 
+	// ---- Act 4c: a check crosses the mesh on its own consumer. ----
+	//
+	// Phase 46 put checks on their own subject and durable so a Runner
+	// that predates them never receives one. That is two more grant
+	// entries on each side, and the same lesson as Act 4b: only a real
+	// broker can contradict a grant and the test written beside it. A
+	// Runner denied its check consumer exits at startup; a Controller
+	// denied the check subject records every checked device as failed.
+	checkConsumer, err := runJS.CreateOrUpdateConsumer(runCtx, topology.StreamName, topology.CheckConsumerConfig())
+	if err != nil {
+		t.Fatalf("the Runner could not create its check consumer under FleetRunnerGrant: %v", err)
+	}
+	if _, err := checkConsumer.Info(runCtx); err != nil {
+		t.Fatalf("the check loop's heartbeat probe was denied under FleetRunnerGrant: %v", err)
+	}
+	if _, err := ctrlJS.Publish(runCtx, topology.CheckSubject(deviceID), []byte(`{"job_id":"gate-check","mode":"check"}`)); err != nil {
+		t.Fatalf("the Controller could not publish a check under ControllerGrant: %v", err)
+	}
+	var check jetstream.Msg
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && check == nil {
+		batch, err := checkConsumer.FetchNoWait(1)
+		if err != nil {
+			t.Fatalf("the check loop's pull was denied under FleetRunnerGrant: %v", err)
+		}
+		for m := range batch.Messages() {
+			check = m
+		}
+		if err := batch.Error(); err != nil {
+			t.Fatalf("draining the check fetch: %v", err)
+		}
+		if check == nil {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	if check == nil {
+		t.Fatal("the Runner's check consumer never received the check the Controller published")
+	}
+	if check.Subject() != topology.CheckSubject(deviceID) {
+		t.Fatalf("the check consumer received %q, want %q", check.Subject(), topology.CheckSubject(deviceID))
+	}
+	if err := check.Ack(); err != nil {
+		t.Fatalf("the Runner could not settle a check under FleetRunnerGrant: %v", err)
+	}
+	if _, err := runJS.Publish(runCtx, topology.DeadLetterSubject(topology.CheckSubject(deviceID)), []byte(`{"dead":true}`)); err != nil {
+		t.Fatalf("the Runner could not dead-letter a check under FleetRunnerGrant: %v", err)
+	}
+
 	// ---- Act 5: the negative controls, which are the deliverable. ----
 	//
 	// A Runner must not be able to forge a job launch, and must not be
@@ -265,6 +313,18 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 		t.Error("a Runner reshaped the shared dispatch consumer to a wider filter, which lets it read every other device's dispatch payload")
 	} else if !errors.Is(err, context.DeadlineExceeded) && !isPermissionish(err) {
 		t.Logf("the widening attempt failed with %v, which is a refusal but not the expected shape", err)
+	}
+
+	// The check consumer is the same upsert with the same risk, and a
+	// check payload carries the same credentials a dispatch does.
+	widenedCheck := topology.CheckConsumerConfig()
+	widenedCheck.FilterSubject = "pleiades.>"
+	wideCheckCtx, cancelWideCheck := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWideCheck()
+	if _, err := runJS.CreateOrUpdateConsumer(wideCheckCtx, topology.StreamName, widenedCheck); err == nil {
+		t.Error("a Runner reshaped the shared check consumer to a wider filter, which lets it read every other device's dispatch payload")
+	} else if !errors.Is(err, context.DeadlineExceeded) && !isPermissionish(err) {
+		t.Logf("the check widening attempt failed with %v, which is a refusal but not the expected shape", err)
 	}
 }
 

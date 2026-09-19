@@ -265,6 +265,11 @@ func TestFleetRunnerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 		"$JS.API.CONSUMER.INFO.PLEIADES.runner-agent":                            "the liveness heartbeat probes it every ten seconds",
 		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-agent":                        "pulls work",
 		"$JS.ACK.PLEIADES.runner-agent.1.2.3.4.5.6":                              "Ack, Nak and Term are core publishes to the reply subject",
+		"$JS.API.CONSUMER.CREATE.PLEIADES.runner-check.pleiades.jobs.check.>":    "creates its own check consumer at startup, and exits if it cannot",
+		"$JS.API.CONSUMER.INFO.PLEIADES.runner-check":                            "the check loop's liveness heartbeat probes it",
+		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-check":                        "pulls checks",
+		"$JS.ACK.PLEIADES.runner-check.1.2.3.4.5.6":                              "settles a check",
+		topology.DeadLetterSubject(topology.CheckSubject("d")):                   "republishes a check's dead letter after MaxDeliver",
 	}
 
 	for subject, why := range required {
@@ -285,6 +290,7 @@ func TestControllerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 
 	required := map[string]string{
 		topology.DispatchSubject("device-1"):                             "fans a job out to one device",
+		topology.CheckSubject("device-1"):                                "fans a check out to one device",
 		topology.JobRequestedSubject():                                   "publishes the launch itself",
 		topology.DeadLetterSubject(topology.JobRequestedSubject()):       "dead-letters a job.requested that failed MaxDeliver times",
 		topology.DeadLetterSubject(topology.JournalSubject("job-1")):     "dead-letters a run journal batch that failed MaxDeliver times",

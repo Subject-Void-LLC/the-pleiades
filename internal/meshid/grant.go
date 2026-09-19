@@ -78,6 +78,7 @@ func FleetRunnerGrant(name string) Grant {
 			// journal is broken" rather than "the Runner is not allowed".
 			topology.JournalSubjectAll(),
 			topology.DeadLetterSubject(topology.DispatchSubjectAll()),
+			topology.DeadLetterSubject(topology.CheckSubjectAll()),
 
 			// The per-device execution lease, written both through the KV
 			// API and, for the TTL refresh, as a raw publish to the
@@ -110,9 +111,21 @@ func FleetRunnerGrant(name string) Grant {
 			consumerAPI("INFO", topology.StreamName, topology.DispatchDurableName),
 			consumerAPI("MSG.NEXT", topology.StreamName, topology.DispatchDurableName),
 
+			// The check consumer (Phase 46): a second loop in the same
+			// Runner, on its own durable, so a Runner that predates check
+			// mode never receives a check. Every operation the dispatch
+			// consumer needs, it needs too. Withholding them is not a
+			// quiet failure: the Runner cannot create the consumer at
+			// startup and exits, which is why they are listed rather than
+			// left for whoever wires this grant in.
+			consumerCreateWithFilter(topology.StreamName, topology.CheckDurableName, topology.CheckSubjectAll()),
+			consumerAPI("INFO", topology.StreamName, topology.CheckDurableName),
+			consumerAPI("MSG.NEXT", topology.StreamName, topology.CheckDurableName),
+
 			// Message settlement. Ack, Nak and Term are all core publishes
 			// to the reply subject JetStream stamped on the delivery.
 			ackSpace(topology.StreamName, topology.DispatchDurableName),
+			ackSpace(topology.StreamName, topology.CheckDurableName),
 		},
 		Sub: []string{
 			inboxPattern,
@@ -149,6 +162,11 @@ func ControllerGrant(name string) Grant {
 		Name: name,
 		Pub: []string{
 			topology.DispatchSubjectAll(),
+			// A check goes to its own subject rather than the dispatch
+			// one. Without this the publish is denied with no reply, the
+			// fan-out times out, and every check records its devices as
+			// failed.
+			topology.CheckSubjectAll(),
 			topology.JobRequestedSubject(),
 
 			// No grant for topology.EventSubject's own space. Nothing in

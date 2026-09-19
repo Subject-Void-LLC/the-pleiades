@@ -53,6 +53,11 @@ func TestRouteFor(t *testing.T) {
 			want: routeHealthcheck,
 		},
 		{
+			name: "version prints the build's version",
+			args: []string{versionCommand},
+			want: routeVersion,
+		},
+		{
 			// Unchanged, deliberately: every deployment that passes this
 			// binary something it does not know still gets an Agent, which
 			// is the behavior they already have.
