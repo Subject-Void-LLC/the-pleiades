@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks getent before it acts, so a check can predict through the same code (CheckModify).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that converged one or more attributes emits an identity.user.modify pinned to " +
@@ -29,6 +31,7 @@ func init() {
 			Doc: modifyDoc(),
 		},
 		Invoke: Modify,
+		Check:  CheckModify,
 	})
 }
 
@@ -69,6 +72,16 @@ func modifyDoc() collection.Doc {
 // creation: this method is for changing a known-existing account's
 // attributes, not for deciding whether one should exist at all.
 func Modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return modify(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckModify is identity.user.modify's check: the same getent reads, refusal and change decision as Modify, through the one body both share, then a prediction (predictAccount) instead of usermod.
+func CheckModify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return modify(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// modify is Modify's and CheckModify's one body; mode says which.
+func modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.user.modify"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -100,6 +113,18 @@ func Modify(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 
 	changed := len(usermodArgs) > 0
+	if mode == collection.ModeCheck {
+		after := before.Map()
+		if changed {
+			if after, err = predictAccount(ctx, conn, before, d); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+		if err := recordPrediction(rc, name, before, after); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: changed}, nil
+	}
 	if changed {
 		if _, err := runUsermod(ctx, conn, name, usermodArgs); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

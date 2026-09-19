@@ -21,6 +21,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks getent before it acts, so a check can predict through the same code (CheckCreate).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that created an absent group emits an identity.group.remove naming it. A run that " +
@@ -31,6 +33,7 @@ func init() {
 			Doc: createDoc(),
 		},
 		Invoke: Create,
+		Check:  CheckCreate,
 	})
 }
 
@@ -72,6 +75,16 @@ func createDoc() collection.Doc {
 // left alone unless a requested gid differs from what getent reports,
 // in which case groupmod converges it.
 func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCreate is identity.group.create's check: the same getent read and change decision as Create, through the one body both share, then a prediction instead of groupadd or groupmod. A gid the task does not name is the system's to choose, so a new group's is left out of the prediction.
+func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// create is Create's and CheckCreate's one body; mode says which.
+func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.group.create"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -96,6 +109,21 @@ func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := queryGroup(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		changed := !before.exists || (gidSet && gid != before.gid)
+		after := before.Map()
+		if changed {
+			after = map[string]any{"exists": true}
+			if gidSet {
+				after["gid"] = gid
+			}
+		}
+		if err := recordPrediction(rc, name, before, after); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: changed}, nil
 	}
 
 	changed := false

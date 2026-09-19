@@ -59,6 +59,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -207,20 +208,47 @@ func convergeRule(ctx context.Context, conn *remoteexec.Conn, zone string, tgt r
 	if !add {
 		flag = tgt.removeFlag()
 	}
+	changePermanent, changeRuntime := ruleChanges(before, permanent, immediate, add)
 
-	if permanent && before.permanentAllowed != add {
+	if changePermanent {
 		if err := runFirewallCmd(ctx, conn, []string{"firewall-cmd", "--permanent", "--zone=" + zone, flag}); err != nil {
 			return false, false, err
 		}
 		permanentChanged = true
 	}
-	if immediate && before.runtimeAllowed != add {
+	if changeRuntime {
 		if err := runFirewallCmd(ctx, conn, []string{"firewall-cmd", "--zone=" + zone, flag}); err != nil {
 			return permanentChanged, false, err
 		}
 		runtimeChanged = true
 	}
 	return permanentChanged, runtimeChanged, nil
+}
+
+// ruleChanges is convergeRule's decision, with nothing run: whether the
+// permanent configuration and the runtime one each need changing, which
+// is exactly the halves the task asked for (permanent, immediate) that are
+// not already in the requested state. A check predicts from it and
+// convergeRule acts on it, so the two cannot disagree.
+func ruleChanges(before ruleState, permanent, immediate, add bool) (changePermanent, changeRuntime bool) {
+	return permanent && before.permanentAllowed != add, immediate && before.runtimeAllowed != add
+}
+
+// checkRule is allow's and deny's check: the halves ruleChanges says would
+// change, set to the requested state, recorded as the predicted after.
+func checkRule(rc sdk.RunbookContext, zone string, before ruleState, permanent, immediate, add bool) (collection.Result, error) {
+	changePermanent, changeRuntime := ruleChanges(before, permanent, immediate, add)
+	after := before
+	if changePermanent {
+		after.permanentAllowed = add
+	}
+	if changeRuntime {
+		after.runtimeAllowed = add
+	}
+	if err := recordRuleState(rc, zone, before, after); err != nil {
+		return collection.Result{}, err
+	}
+	return collection.Result{Changed: changePermanent || changeRuntime}, nil
 }
 
 // runFirewallCmd runs one mutating firewall-cmd invocation (add, remove

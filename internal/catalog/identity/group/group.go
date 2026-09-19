@@ -126,6 +126,16 @@ func failureDetail(result remoteexec.Result) string {
 // recordState writes the group name and the before/after diff, the two
 // things every method in this namespace reports regardless of which one
 // ran.
+// recordPrediction is recordState for a check: the diff from before to
+// the predicted after, given as a map so a gid the system would choose
+// can be left out rather than guessed.
+func recordPrediction(rc sdk.RunbookContext, name string, before groupAccount, after map[string]any) error {
+	if err := rc.SetStat(statName, name); err != nil {
+		return err
+	}
+	return sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after})
+}
+
 func recordState(rc sdk.RunbookContext, name string, before, after groupAccount) error {
 	if err := rc.SetStat(statName, name); err != nil {
 		return err

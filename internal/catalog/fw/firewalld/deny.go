@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It queries firewalld before it acts, so a check can predict through the same code (CheckDeny).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that removed the rule from the permanent configuration, the runtime one, or both " +
@@ -30,6 +32,7 @@ func init() {
 			Doc: denyDoc(),
 		},
 		Invoke: Deny,
+		Check:  CheckDeny,
 	})
 }
 
@@ -66,6 +69,16 @@ func denyDoc() collection.Doc {
 
 // Deny implements "fw.firewalld.deny".
 func Deny(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return deny(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckDeny is fw.firewalld.deny's check: the same queries and decision as Deny (ruleChanges), through the one body both share, then a prediction instead of firewall-cmd's add or remove.
+func CheckDeny(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return deny(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// deny is Deny's and CheckDeny's one body; mode says which.
+func deny(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fw.firewalld.deny"
 
 	tgt, err := parseTarget(params)
@@ -91,6 +104,14 @@ func Deny(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	before, err := queryRuleState(ctx, conn, zone, tgt)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		result, err := checkRule(rc, zone, before, permanent, immediate, false)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return result, nil
 	}
 
 	permanentChanged, runtimeChanged, err := convergeRule(ctx, conn, zone, tgt, before, permanent, immediate, false)
