@@ -1,5 +1,6 @@
 # Ignore files and directories starting with a dot followed by uppercase letters
 .[A-Z]*
+.venv
 
 # Standard Go ignores
 bin/
