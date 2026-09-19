@@ -31,6 +31,16 @@ func newSyncProject(t *testing.T) string {
 // network.
 func fakeController(t *testing.T) *httptest.Server {
 	t.Helper()
+	return fakeControllerServing(t, `{"response":[{"id":"id-sw1","hostname":"sw1",`+
+		`"managementIpAddress":"10.0.0.1","family":"Switches and Hubs",`+
+		`"softwareType":"IOS-XE","softwareVersion":"17.12.1",`+
+		`"reachabilityStatus":"Reachable","collectionStatus":"Managed"}]}`)
+}
+
+// fakeControllerServing is fakeController answering the device listing
+// with devices, a network-device response body.
+func fakeControllerServing(t *testing.T, devices string) *httptest.Server {
+	t.Helper()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -47,10 +57,7 @@ func fakeController(t *testing.T) *httptest.Server {
 		case strings.HasPrefix(r.URL.Path, "/dna/intent/api/v1/network-device/count"):
 			_, _ = w.Write([]byte(`{"response":1}`))
 		case strings.HasPrefix(r.URL.Path, "/dna/intent/api/v1/network-device"):
-			_, _ = w.Write([]byte(`{"response":[{"id":"id-sw1","hostname":"sw1",` +
-				`"managementIpAddress":"10.0.0.1","family":"Switches and Hubs",` +
-				`"softwareType":"IOS-XE","softwareVersion":"17.12.1",` +
-				`"reachabilityStatus":"Reachable","collectionStatus":"Managed"}]}`))
+			_, _ = w.Write([]byte(devices))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -220,6 +227,34 @@ func TestRunInventorySync_ReadOnlyIsADryRun(t *testing.T) {
 	}
 	if got := hostCount(t, dir); got != 0 {
 		t.Errorf("a read-only sync wrote %d hosts to the inventory", got)
+	}
+}
+
+// TestRunInventorySync_ReadOnlyStillListsWhatNeedsReview is the regression
+// test for a read-only sync hiding the one list an operator previewing a
+// sync most needs. The report returned after its summary whenever anything
+// would be added or updated, so the devices needing review, and the reason
+// each was quarantined, were printed only when nothing would change. A
+// quarantine reason is shown nowhere but this report: a quarantined record
+// is not stored. The NX-OS switch is the quarantined record, and the
+// IOS-XE one is the control that something would be added.
+func TestRunInventorySync_ReadOnlyStillListsWhatNeedsReview(t *testing.T) {
+	dir := newSyncProject(t)
+	srv := fakeControllerServing(t, `{"response":[`+
+		`{"id":"id-sw1","hostname":"sw1","managementIpAddress":"10.0.0.1","family":"Switches and Hubs",`+
+		`"softwareType":"IOS-XE","softwareVersion":"17.12.1","reachabilityStatus":"Reachable","collectionStatus":"Managed"},`+
+		`{"id":"id-nx1","hostname":"nx1","managementIpAddress":"10.0.0.2","family":"Switches and Hubs",`+
+		`"softwareType":"NX-OS","softwareVersion":"10.3","reachabilityStatus":"Reachable","collectionStatus":"Managed"}]}`)
+
+	out := captureStdout(t, func() {
+		if err := runInventorySync([]string{"--plugin", "catalyst_center", "--endpoint", srv.URL, "--read-only", "--dir", dir}); err != nil {
+			t.Fatalf("inventory sync --read-only: %v", err)
+		}
+	})
+	for _, want := range []string{"would be added", "1 quarantined", "devices needing review", "nx1", `no classification rule for software type "NX-OS"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the read-only report does not say %q:\n%s", want, out)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -91,7 +92,7 @@ func (r *entRepository) Retire(ctx context.Context, name string) error {
 // because both adapters write it and the conformance suite reads it back;
 // three independent spellings of one field name is how an audit trail
 // becomes unqueryable across backends.
-const retiredRevisionField = "state"
+const retiredRevisionField = record.RevisionFieldState
 
 // propertyValuePtr adapts a value to the pointer-to-any shape ent's
 // optional JSON columns take. ent models an optional JSON column as *any,

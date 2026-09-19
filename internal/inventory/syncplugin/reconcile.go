@@ -244,12 +244,17 @@ func updateDevice(
 	stored := existing.Properties().Raw()
 
 	rec := record.Record{
-		ID:           existing.ID(),
-		Name:         existing.Name(),
-		Type:         cls.Type,
-		Properties:   stored,
-		Tags:         existing.Tags(),
-		State:        cls.State,
+		ID:         existing.ID(),
+		Name:       existing.Name(),
+		Type:       cls.Type,
+		Properties: stored,
+		Tags:       existing.Tags(),
+		// The stored state, never the classification's. A classification's
+		// state is where a device lands when a source first adds it; after
+		// that the lifecycle is an operator's decision, and rebuilding with
+		// the landing state put a promoted device back to simulate-locked on
+		// the next upstream change, with no revision saying so.
+		State:        existing.State(),
 		Source:       source,
 		Version:      existing.Version(),
 		History:      existing.History(),
