@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -89,5 +90,54 @@ func TestDeviceUpdate_AStateOrTagsOnlyChangeIsStored(t *testing.T) {
 	}
 	if got := stored.Tags(); len(got) != 2 {
 		t.Errorf("after PATCH {tags: [web, prod]} the device is stored with tags %v", got)
+	}
+}
+
+// opaqueFactory builds devices with the real factory and hides every method
+// but the InventoryItem interface's, standing in for a device type that
+// cannot record a state or tag change.
+type opaqueFactory struct{ real api.DeviceFactory }
+
+func (f opaqueFactory) Build(rec record.Record) (pkginventory.InventoryItem, error) {
+	item, err := f.real.Build(rec)
+	return struct{ pkginventory.InventoryItem }{item}, err
+}
+
+// TestDeviceUpdate_ADeviceThatCannotRecordTheChangeIsRefused guards the
+// shape FAILURE_PATTERNS 261 had: an update that answers 200 having stored
+// nothing. A device the factory builds without the mutators a state or tag
+// change goes through is answered 500, and the stored device is left at
+// its state and version rather than saved unchanged under a success.
+func TestDeviceUpdate_ADeviceThatCannotRecordTheChangeIsRefused(t *testing.T) {
+	client := enttest.Open(t, "sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name()))
+	defer client.Close()
+	ctx := context.Background()
+	client.Device.Create().
+		SetName("web1").
+		SetType("linux_server").
+		SetProperties(map[string]interface{}{"host": "10.0.0.1"}).
+		SetState(pkginventory.StateSimulateLocked.String()).
+		SaveX(ctx)
+	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
+	before, err := repo.GetByName(ctx, "web1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := api.NewDeviceHandler(repo, opaqueFactory{real: inventory.NewItemFactory()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := chi.NewRouter()
+	router.Patch("/inventory/devices/{name}", handler.Update)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/inventory/devices/web1", strings.NewReader(`{"state": "active"}`)))
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("PATCH state on a device that cannot record it = %d, want 500: %s", rec.Code, rec.Body)
+	}
+	stored, err := repo.GetByName(ctx, "web1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State() != pkginventory.StateSimulateLocked || stored.Version() != before.Version() {
+		t.Errorf("the refused update left the device %s at version %d, want %s at %d",
+			stored.State(), stored.Version(), pkginventory.StateSimulateLocked, before.Version())
 	}
 }

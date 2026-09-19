@@ -146,6 +146,37 @@ func TestTemplateAPI_RefusesAMalformedRequestRatherThanNarrowingItSilently(t *te
 	}
 }
 
+// TestTemplateAPI_RefusesASavedModeTheTemplateCouldNeverRun covers the
+// run mode half of saving a configuration: a value that is not a mode, and
+// a real run saved beneath a template that makes every launch a check, are
+// refused when saved, with the rule's own reason, rather than failing every
+// time a schedule fires from them. The control is a check saved against a
+// template with no mode, which any layer may ask for.
+func TestTemplateAPI_RefusesASavedModeTheTemplateCouldNeverRun(t *testing.T) {
+	f := newTemplateFixture(t)
+	plain := f.createTemplate(t, fmt.Sprintf(`{"name": "plain", "kind": "runbook", "definition": "patch-edge", "inventory": %d}`, f.invA))
+	checked := f.createTemplate(t, fmt.Sprintf(`{"name": "drift", "kind": "runbook", "definition": "patch-edge", "inventory": %d, "defaults": {"mode": "check"}}`, f.invA))
+
+	for _, tc := range []struct {
+		name     string
+		template int
+		body     string
+		status   int
+		reason   string
+	}{
+		{"not a mode", plain.ID, `{"name": "bad", "fields": {"mode": "rehearse"}}`, http.StatusUnprocessableEntity, "asks for mode rehearse"},
+		{"a real run beneath a check", checked.ID, `{"name": "bad", "fields": {"mode": "execute"}}`, http.StatusUnprocessableEntity, "never turned back into a real run"},
+		{"a check", plain.ID, `{"name": "drift", "fields": {"mode": "check"}}`, http.StatusCreated, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, f.router, http.MethodPost, configsPath(tc.template), tc.body)
+			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.reason) {
+				t.Errorf("status = %d, body %s; want %d naming %q", rec.Code, rec.Body.String(), tc.status, tc.reason)
+			}
+		})
+	}
+}
+
 func TestTemplateAPI_RefusesAnAnswerASavedConfigurationCouldNotSurvive(t *testing.T) {
 	f := newTemplateFixture(t)
 	tmpl := f.createTemplate(t, fmt.Sprintf(`{
