@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // Finding the marked region in a file, and putting one back.
@@ -224,6 +225,27 @@ func blockObserve(ctx context.Context, conn *remoteexec.Conn, path string, m blo
 		return blockObservation{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return blockObservation{lines: lines, trailing: trailing, region: region}, nil
+}
+
+// blockCheckAnswer is set's and remove's check answer once either has
+// decided on a change and built the lines a real run would write: the file
+// those lines make, read back as the real run reads it (blockPredict), and
+// recorded as the same diff and stats the real run records.
+//
+// Neither caller can hand it lines that fail to read back today: set
+// refuses a block containing a marker line before building anything, and
+// remove only ever takes the one region out of a file that held exactly
+// one. The read-back error is returned anyway, since a prediction nobody
+// could find again is worse than no prediction.
+func blockCheckAnswer(rc sdk.RunbookContext, path string, before blockObservation, lines []string, trailing bool, m blockMarkers) error {
+	predicted, err := blockPredict(lines, trailing, m)
+	if err != nil {
+		return err
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.region.state(), After: predicted.region.state()}); err != nil {
+		return err
+	}
+	return blockRecordStats(rc, path, predicted.region)
 }
 
 // blockPredict is what blockObserve would find in a file written as lines

@@ -161,14 +161,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		lines, trailing, added := blockWithout(before)
 		addedNewline = added
 		if mode == collection.ModeCheck {
-			predicted, err := blockPredict(lines, trailing, req.markers)
-			if err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-			if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.region.state(), After: predicted.region.state()}); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-			if err := blockRecordStats(rc, req.path, predicted.region); err != nil {
+			if err := blockCheckAnswer(rc, req.path, before, lines, trailing, req.markers); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 			return collection.Result{Changed: true}, nil

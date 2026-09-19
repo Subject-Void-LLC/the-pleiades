@@ -93,3 +93,45 @@ func TestBlockChecks_PredictWhatARealRunLeaves(t *testing.T) {
 		})
 	}
 }
+
+// TestBlockChecks_FailWhenTheyCannotPredictOrRecord covers a check that
+// cannot finish. A set whose block holds a marker line is refused by the
+// check exactly as by the real run, before anything is predicted, since
+// the marker would then appear twice. A diff or stat that cannot be
+// recorded fails the check as it fails the real run. None of them writes.
+func TestBlockChecks_FailWhenTheyCannotPredictOrRecord(t *testing.T) {
+	const marked = "before\n# BEGIN ANSIBLE MANAGED BLOCK\nold body\n# END ANSIBLE MANAGED BLOCK\nafter\n"
+	for _, tc := range []struct {
+		name   string
+		fqcn   string
+		run    collection.Method
+		extra  map[string]any
+		failOn string
+	}{
+		{"set, the block holds a marker", "file.block.set", block.Set, map[string]any{"block": "new body\n# END ANSIBLE MANAGED BLOCK\n"}, ""},
+		{"set, the diff cannot be recorded", "file.block.set", block.Set, map[string]any{"block": "new body\n"}, sdk.StatDiff},
+		{"set, the stats cannot be recorded", "file.block.set", block.Set, map[string]any{"block": "new body\n"}, "present"},
+		{"remove, the diff cannot be recorded", "file.block.remove", block.Remove, nil, sdk.StatDiff},
+		{"remove, the stats cannot be recorded", "file.block.remove", block.Remove, nil, "present"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := collection.Lookup(tc.fqcn)
+			server := startBlockServer(t)
+			path := blockFile(t, marked)
+			rc := newBlockContext(server)
+			rc.failOn = tc.failOn
+			if _, err := d.Check(context.Background(), rc, newBlockTarget(server), blockParams(path, tc.extra)); err == nil {
+				t.Fatal("the check succeeded")
+			}
+			if got := blockContents(t, path); got != marked {
+				t.Errorf("the check changed the file to %q", got)
+			}
+			if tc.failOn == "" {
+				runRC := newBlockContext(server)
+				if _, err := tc.run(context.Background(), runRC, newBlockTarget(server), blockParams(blockFile(t, marked), tc.extra)); err == nil {
+					t.Error("the real run accepted what the check refused")
+				}
+			}
+		})
+	}
+}
