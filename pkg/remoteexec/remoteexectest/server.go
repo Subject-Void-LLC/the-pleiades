@@ -86,6 +86,19 @@ type Options struct {
 	// Both default when empty.
 	Username string
 	Password string
+
+	// Netconf, when set, makes this server answer a "netconf" subsystem
+	// request by speaking RFC 6241, for the methods that configure a
+	// device that way rather than over a terminal. See netconf_device.go.
+	Netconf *NetconfDevice
+
+	// Device, when set, makes this server answer a shell request with a
+	// scripted CLI instead of declining it, for the methods that open an
+	// interactive session rather than running a command. See device.go
+	// for what such a script is and is not evidence of. Exec sessions are
+	// unaffected: a server with a Device still runs commands through a
+	// real shell.
+	Device *Device
 }
 
 // Limit returns a SessionLimit for n, so a caller can write
@@ -117,6 +130,8 @@ type Server struct {
 	serving  *sync.WaitGroup
 	closed   sync.Once
 	log      *commandLog
+	device   *Device
+	netconf  *NetconfDevice
 }
 
 // commandLog is every command the server was asked to run, in order.
@@ -213,6 +228,8 @@ func Start(opts Options) (*Server, error) {
 		listener: listener,
 		serving:  serving,
 		log:      &commandLog{},
+		device:   opts.Device,
+		netconf:  opts.Netconf,
 	}
 
 	go func() {
@@ -224,7 +241,7 @@ func Start(opts Options) (*Server, error) {
 			serving.Add(1)
 			go func() {
 				defer serving.Done()
-				serveConn(conn, config, &remaining, srv.log)
+				serveConn(conn, config, &remaining, srv.log, srv.device, srv.netconf)
 			}()
 		}
 	}()
@@ -244,7 +261,7 @@ func (s *Server) Secrets() map[string]string {
 // Errors are dropped rather than reported. The listener closing at
 // cleanup is the ordinary way this ends, and this runs on a background
 // goroutine that may outlive the test's own failure reporting.
-func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, log *commandLog) {
+func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, log *commandLog, device *Device, netconf *NetconfDevice) {
 	defer func() { _ = conn.Close() }()
 
 	serverConn, chans, reqs, err := cryptossh.NewServerConn(conn, config)
@@ -271,6 +288,14 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, 
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
+				if netconf != nil {
+					serveNetconfSubsystem(channel, requests, log, netconf)
+					return
+				}
+				if device != nil {
+					serveDeviceSession(channel, requests, log, device)
+					return
+				}
 				serveSession(channel, requests, log)
 			}()
 
