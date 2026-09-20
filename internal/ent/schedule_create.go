@@ -10,11 +10,11 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // ScheduleCreate is the builder for creating a Schedule entity.
@@ -185,15 +185,15 @@ func (_c *ScheduleCreate) SetOrganization(v *Organization) *ScheduleCreate {
 	return _c.SetOrganizationID(v.ID)
 }
 
-// SetTemplateID sets the "template" edge to the Template entity by ID.
-func (_c *ScheduleCreate) SetTemplateID(id int) *ScheduleCreate {
-	_c.mutation.SetTemplateID(id)
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_c *ScheduleCreate) SetLaunchableID(id int) *ScheduleCreate {
+	_c.mutation.SetLaunchableID(id)
 	return _c
 }
 
-// SetTemplate sets the "template" edge to the Template entity.
-func (_c *ScheduleCreate) SetTemplate(v *Template) *ScheduleCreate {
-	return _c.SetTemplateID(v.ID)
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_c *ScheduleCreate) SetLaunchable(v *Launchable) *ScheduleCreate {
+	return _c.SetLaunchableID(v.ID)
 }
 
 // SetSavedConfigID sets the "saved_config" edge to the SavedLaunchConfig entity by ID.
@@ -336,8 +336,8 @@ func (_c *ScheduleCreate) check() error {
 	if len(_c.mutation.OrganizationIDs()) == 0 {
 		return &ValidationError{Name: "organization", err: errors.New(`ent: missing required edge "Schedule.organization"`)}
 	}
-	if len(_c.mutation.TemplateIDs()) == 0 {
-		return &ValidationError{Name: "template", err: errors.New(`ent: missing required edge "Schedule.template"`)}
+	if len(_c.mutation.LaunchableIDs()) == 0 {
+		return &ValidationError{Name: "launchable", err: errors.New(`ent: missing required edge "Schedule.launchable"`)}
 	}
 	return nil
 }
@@ -434,21 +434,21 @@ func (_c *ScheduleCreate) createSpec() (*Schedule, *sqlgraph.CreateSpec) {
 		_node.organization_schedules = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
-	if nodes := _c.mutation.TemplateIDs(); len(nodes) > 0 {
+	if nodes := _c.mutation.LaunchableIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   schedule.TemplateTable,
-			Columns: []string{schedule.TemplateColumn},
+			Table:   schedule.LaunchableTable,
+			Columns: []string{schedule.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.template_schedules = &nodes[0]
+		_node.launchable_schedules = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.SavedConfigIDs(); len(nodes) > 0 {

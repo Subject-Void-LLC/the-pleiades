@@ -55,6 +55,20 @@ func (_c *SyncRunCreate) SetStatus(v syncrun.Status) *SyncRunCreate {
 	return _c
 }
 
+// SetActor sets the "actor" field.
+func (_c *SyncRunCreate) SetActor(v string) *SyncRunCreate {
+	_c.mutation.SetActor(v)
+	return _c
+}
+
+// SetNillableActor sets the "actor" field if the given value is not nil.
+func (_c *SyncRunCreate) SetNillableActor(v *string) *SyncRunCreate {
+	if v != nil {
+		_c.SetActor(*v)
+	}
+	return _c
+}
+
 // SetRevision sets the "revision" field.
 func (_c *SyncRunCreate) SetRevision(v string) *SyncRunCreate {
 	_c.mutation.SetRevision(v)
@@ -92,6 +106,14 @@ func (_c *SyncRunCreate) SetStartedAt(v time.Time) *SyncRunCreate {
 // SetFinishedAt sets the "finished_at" field.
 func (_c *SyncRunCreate) SetFinishedAt(v time.Time) *SyncRunCreate {
 	_c.mutation.SetFinishedAt(v)
+	return _c
+}
+
+// SetNillableFinishedAt sets the "finished_at" field if the given value is not nil.
+func (_c *SyncRunCreate) SetNillableFinishedAt(v *time.Time) *SyncRunCreate {
+	if v != nil {
+		_c.SetFinishedAt(*v)
+	}
 	return _c
 }
 
@@ -175,6 +197,11 @@ func (_c *SyncRunCreate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "SyncRun.status": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.Actor(); ok {
+		if err := syncrun.ActorValidator(v); err != nil {
+			return &ValidationError{Name: "actor", err: fmt.Errorf(`ent: validator failed for field "SyncRun.actor": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Revision(); !ok {
 		return &ValidationError{Name: "revision", err: errors.New(`ent: missing required field "SyncRun.revision"`)}
 	}
@@ -193,9 +220,6 @@ func (_c *SyncRunCreate) check() error {
 	}
 	if _, ok := _c.mutation.StartedAt(); !ok {
 		return &ValidationError{Name: "started_at", err: errors.New(`ent: missing required field "SyncRun.started_at"`)}
-	}
-	if _, ok := _c.mutation.FinishedAt(); !ok {
-		return &ValidationError{Name: "finished_at", err: errors.New(`ent: missing required field "SyncRun.finished_at"`)}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "SyncRun.project"`)}
@@ -238,6 +262,10 @@ func (_c *SyncRunCreate) createSpec() (*SyncRun, *sqlgraph.CreateSpec) {
 		_spec.SetField(syncrun.FieldStatus, field.TypeEnum, value)
 		_node.Status = value
 	}
+	if value, ok := _c.mutation.Actor(); ok {
+		_spec.SetField(syncrun.FieldActor, field.TypeString, value)
+		_node.Actor = value
+	}
 	if value, ok := _c.mutation.Revision(); ok {
 		_spec.SetField(syncrun.FieldRevision, field.TypeString, value)
 		_node.Revision = value
@@ -252,7 +280,7 @@ func (_c *SyncRunCreate) createSpec() (*SyncRun, *sqlgraph.CreateSpec) {
 	}
 	if value, ok := _c.mutation.FinishedAt(); ok {
 		_spec.SetField(syncrun.FieldFinishedAt, field.TypeTime, value)
-		_node.FinishedAt = value
+		_node.FinishedAt = &value
 	}
 	if nodes := _c.mutation.ProjectIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

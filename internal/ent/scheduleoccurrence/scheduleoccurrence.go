@@ -29,6 +29,8 @@ const (
 	FieldSuppressedCount = "suppressed_count"
 	// FieldJobID holds the string denoting the job_id field in the database.
 	FieldJobID = "job_id"
+	// FieldUnifiedJobType holds the string denoting the unified_job_type field in the database.
+	FieldUnifiedJobType = "unified_job_type"
 	// EdgeSchedule holds the string denoting the schedule edge name in mutations.
 	EdgeSchedule = "schedule"
 	// Table holds the table name of the scheduleoccurrence in the database.
@@ -52,6 +54,7 @@ var Columns = []string{
 	FieldReason,
 	FieldSuppressedCount,
 	FieldJobID,
+	FieldUnifiedJobType,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "schedule_occurrences"
@@ -84,6 +87,8 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// DefaultSuppressedCount holds the default value on creation for the "suppressed_count" field.
 	DefaultSuppressedCount int
+	// UnifiedJobTypeValidator is a validator for the "unified_job_type" field. It is called by the builders before save.
+	UnifiedJobTypeValidator func(string) error
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -154,6 +159,11 @@ func BySuppressedCount(opts ...sql.OrderTermOption) OrderOption {
 // ByJobID orders the results by the job_id field.
 func ByJobID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldJobID, opts...).ToFunc()
+}
+
+// ByUnifiedJobType orders the results by the unified_job_type field.
+func ByUnifiedJobType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUnifiedJobType, opts...).ToFunc()
 }
 
 // ByScheduleField orders the results by schedule field.

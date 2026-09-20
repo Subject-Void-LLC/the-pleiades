@@ -21,6 +21,8 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldActor holds the string denoting the actor field in the database.
+	FieldActor = "actor"
 	// FieldRevision holds the string denoting the revision field in the database.
 	FieldRevision = "revision"
 	// FieldError holds the string denoting the error field in the database.
@@ -48,6 +50,7 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldStatus,
+	FieldActor,
 	FieldRevision,
 	FieldError,
 	FieldStartedAt,
@@ -82,6 +85,8 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// ActorValidator is a validator for the "actor" field. It is called by the builders before save.
+	ActorValidator func(string) error
 	// DefaultRevision holds the default value on creation for the "revision" field.
 	DefaultRevision string
 	// RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
@@ -97,6 +102,7 @@ type Status string
 
 // Status values.
 const (
+	StatusRunning   Status = "running"
 	StatusSucceeded Status = "succeeded"
 	StatusFailed    Status = "failed"
 )
@@ -108,7 +114,7 @@ func (s Status) String() string {
 // StatusValidator is a validator for the "status" field enum values. It is called by the builders before save.
 func StatusValidator(s Status) error {
 	switch s {
-	case StatusSucceeded, StatusFailed:
+	case StatusRunning, StatusSucceeded, StatusFailed:
 		return nil
 	default:
 		return fmt.Errorf("syncrun: invalid enum value for status field: %q", s)
@@ -136,6 +142,11 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByActor orders the results by the actor field.
+func ByActor(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldActor, opts...).ToFunc()
 }
 
 // ByRevision orders the results by the revision field.

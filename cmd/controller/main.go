@@ -141,6 +141,17 @@ import (
 	// (FAILURE_PATTERNS.md #52).
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 
+	// The built-in launchable TYPES, which is the other axis: what sort of
+	// object can be launched, as against which engine runs a definition.
+	// Blank for the same reason, and with a sharper consequence here:
+	// launchable.NewRouter below refuses to build unless every registered
+	// type has a launcher, so a Controller that did not import this would
+	// have an empty registry and could not schedule anything at all.
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types/jobtemplate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types/projectsync"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
@@ -879,8 +890,39 @@ func main() {
 	// anywhere a project names: a working tree's path is derived from
 	// numeric ids (internal/project's pathFor), so nothing an operator
 	// types reaches the filesystem.
-	projectStore := project.NewEntStore(client)
-	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver})
+	// Which sources a project may be fetched from. Both halves default to
+	// refusing, and each toggle grants exactly one thing: what a clone
+	// produces is code this platform runs on managed devices, so a transport
+	// with no integrity and a path on this server's own disk are two different
+	// decisions rather than one "be permissive" switch.
+	//
+	// Read here, once, and threaded as a value to the two things that need it
+	// (the store refuses at the write, the syncer refuses at the fetch), so
+	// what a project is judged by is what this Controller was started with.
+	allowInsecureSource, err := boolToggle("PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE")
+	if err != nil {
+		fatal("invalid PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE", err)
+	}
+	allowLocalSource, err := boolToggle("PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE")
+	if err != nil {
+		fatal("invalid PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE", err)
+	}
+	sourcePolicy := project.SourcePolicy{
+		AllowInsecureTransport: allowInsecureSource,
+		AllowLocalPath:         allowLocalSource,
+	}
+	if allowInsecureSource || allowLocalSource {
+		// Said out loud at startup, because both widen what this deployment
+		// will run automation out of, and an operator reading a boot log is
+		// the one person positioned to notice a toggle nobody meant to leave
+		// on.
+		logger.Warn("project sources beyond https and ssh are permitted",
+			slog.Bool("insecure_transport", allowInsecureSource),
+			slog.Bool("local_paths", allowLocalSource))
+	}
+
+	projectStore := project.NewEntStore(client, sourcePolicy)
+	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver}, sourcePolicy)
 
 	// projectRunner clones asynchronously, so a slow fetch no longer holds a
 	// page or an API call open while it runs. RecoverInterrupted, run once
@@ -1114,8 +1156,33 @@ func main() {
 	// ListDue/ClaimOccurrence/ResolveOccurrence/MarkFired entirely, so
 	// nothing reachable from an HTTP request can claim or fire an
 	// occurrence directly.
-	scheduleStore := schedule.NewEntStore(client)
-	schedules := api.NewScheduleHandler(scheduleStore, logger)
+	// What a schedule can point at, and what runs each sort of thing.
+	//
+	// The Router is where the two halves meet: the Dispatcher launches a job
+	// template and internal/project's Runner syncs a project, and neither
+	// knows the other exists. It is built strictly, so a registered type with
+	// no launcher stops the Controller here rather than failing at 03:00 when
+	// a schedule fires onto it (internal/launchable.NewRouter).
+	launchableStore := launchable.NewEntStore(client)
+	launchRouter, err := launchable.NewRouter(map[string]launchable.Launcher{
+		jobtemplate.Type: dispatcher,
+		projectsync.Type: projectRunner,
+	})
+	if err != nil {
+		// Fatal rather than degraded. A Controller whose launchable types and
+		// launchers disagree cannot schedule correctly, and the failure it
+		// would otherwise produce is an occurrence skipped at three in the
+		// morning with nobody watching.
+		fatal("wiring what this controller can launch failed", err)
+	}
+	// The admission side of the same pair: read a launchable, and ask its own
+	// type whether a launch would be refused. It is what lets a schedule's
+	// write path refuse a target the caller may not launch, or one that could
+	// only ever fail, instead of storing it and finding out unattended.
+	launchAdmission := launchable.Admission{Store: launchableStore, Router: launchRouter}
+
+	scheduleStore := schedule.NewEntStore(client, launchAdmission)
+	schedules := api.NewScheduleHandler(scheduleStore, templateStore, logger)
 	// The scheduler, and the first thing ever to gate real work on the
 	// scheduler lease elector above has held since Phase 4. Until now that
 	// election ran, logged "Acquired Scheduler Lease" and decided nothing;
@@ -1139,7 +1206,7 @@ func main() {
 	// scheduled run resolves its template, binds its credentials, creates
 	// its job and reaches JetStream by exactly the same code a person
 	// clicking Launch does.
-	scanner := schedule.NewScanner(scheduleStore, dispatcher,
+	scanner := schedule.NewScanner(scheduleStore, launchRouter,
 		schedule.WithLogger(logger))
 	scannerDone := make(chan struct{})
 	go func() {
@@ -1413,6 +1480,7 @@ func main() {
 		Projects:      projectStore,
 		ProjectSync:   projectSyncer,
 		ProjectRunner: projectRunner,
+		Launchables:   launchableStore,
 		// The redacted credential store, never the resolver: the UI's
 		// credential views hold a projection with no field a plaintext
 		// value could occupy, and internal/archtest fails the build if

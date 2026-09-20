@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entoccurrence "github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
@@ -171,6 +172,19 @@ func seedOverdueSchedule(t *testing.T, dbPath, runbookDir string) string {
 		t.Fatalf("seeding a template: %v", err)
 	}
 
+	// The launchable row standing for that template, which is what a schedule
+	// points at. Written here the way the real template store writes it, since
+	// this seed goes straight to the database.
+	lnch, err := client.Launchable.Create().
+		SetType(launchable.TypeJobTemplate).
+		SetName(tmpl.Name).
+		SetOrganization(org).
+		SetTemplate(tmpl).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("seeding a launchable: %v", err)
+	}
+
 	// Overdue by an hour, on an hourly rule, so every replica's very first
 	// scan finds it due. next_run is written directly rather than computed,
 	// because the point is to have something already waiting the moment the
@@ -184,7 +198,7 @@ func seedOverdueSchedule(t *testing.T, dbPath, runbookDir string) string {
 		SetDtstart(dtstart).
 		SetNextRun(time.Now().UTC().Add(-time.Hour).Truncate(time.Hour)).
 		SetOrganization(org).
-		SetTemplate(tmpl).
+		SetLaunchable(lnch).
 		Save(ctx)
 	if err != nil {
 		t.Fatalf("seeding a schedule: %v", err)

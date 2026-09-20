@@ -633,21 +633,21 @@ func HasCredentialsWith(preds ...predicate.Credential) predicate.Template {
 	})
 }
 
-// HasSchedules applies the HasEdge predicate on the "schedules" edge.
-func HasSchedules() predicate.Template {
+// HasLaunchable applies the HasEdge predicate on the "launchable" edge.
+func HasLaunchable() predicate.Template {
 	return predicate.Template(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
+			sqlgraph.Edge(sqlgraph.O2O, false, LaunchableTable, LaunchableColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
 }
 
-// HasSchedulesWith applies the HasEdge predicate on the "schedules" edge with a given conditions (other predicates).
-func HasSchedulesWith(preds ...predicate.Schedule) predicate.Template {
+// HasLaunchableWith applies the HasEdge predicate on the "launchable" edge with a given conditions (other predicates).
+func HasLaunchableWith(preds ...predicate.Launchable) predicate.Template {
 	return predicate.Template(func(s *sql.Selector) {
-		step := newSchedulesStep()
+		step := newLaunchableStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

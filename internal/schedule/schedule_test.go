@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 )
 
@@ -14,12 +15,12 @@ import (
 // each test says exactly what makes its own case invalid.
 func validSchedule() schedule.Schedule {
 	return schedule.Schedule{
-		Name:       "nightly",
-		TemplateID: 42,
-		Enabled:    true,
-		RRule:      "FREQ=DAILY",
-		Timezone:   "America/New_York",
-		DTStart:    time.Date(2024, 3, 8, 14, 0, 0, 0, time.UTC),
+		Name:         "nightly",
+		LaunchableID: 42,
+		Enabled:      true,
+		RRule:        "FREQ=DAILY",
+		Timezone:     "America/New_York",
+		DTStart:      time.Date(2024, 3, 8, 14, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -34,7 +35,7 @@ func TestValidateRefusalsNameTheFieldAtFault(t *testing.T) {
 		field string
 	}{
 		{"no name", func(s *schedule.Schedule) { s.Name = "  " }, "name"},
-		{"no template", func(s *schedule.Schedule) { s.TemplateID = 0 }, "template"},
+		{"nothing to launch", func(s *schedule.Schedule) { s.LaunchableID = 0 }, schedule.TargetField},
 		{"no dtstart", func(s *schedule.Schedule) { s.DTStart = time.Time{} }, "dtstart"},
 		{"unknown zone", func(s *schedule.Schedule) { s.Timezone = "Mars/Olympus" }, "timezone"},
 		{"hostile zone", func(s *schedule.Schedule) { s.Timezone = "../../etc/passwd" }, "timezone"},
@@ -305,7 +306,7 @@ func TestListPagesAnOrganizationsSchedules(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		s := f.newSchedule(fmt.Sprintf("sched-%d", i))
-		if _, err := f.store.Create(ctx, s); err != nil {
+		if _, err := f.store.Create(ctx, s, launchable.Everything()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -366,32 +367,32 @@ func TestStoreRefusesAnInvalidSchedule(t *testing.T) {
 
 	bad := f.newSchedule("nightly")
 	bad.RRule = "FREQ=SECONDLY"
-	if _, err := f.store.Create(ctx, bad); !errors.Is(err, schedule.ErrInvalid) {
+	if _, err := f.store.Create(ctx, bad, launchable.Everything()); !errors.Is(err, schedule.ErrInvalid) {
 		t.Errorf("Create = %v, want ErrInvalid", err)
 	}
 
-	good, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	good, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
 	good.RRule = "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30"
-	if _, err := f.store.Update(ctx, good); !errors.Is(err, schedule.ErrInvalid) {
+	if _, err := f.store.Update(ctx, good, launchable.Everything()); !errors.Is(err, schedule.ErrInvalid) {
 		t.Errorf("Update = %v, want ErrInvalid", err)
 	}
 }
 
-// TestStoreRefusesAnUnknownTemplate covers the other create-time refusal.
-func TestStoreRefusesAnUnknownTemplate(t *testing.T) {
+// TestStoreRefusesAnUnknownTarget covers the other create-time refusal.
+func TestStoreRefusesAnUnknownTarget(t *testing.T) {
 	f := newStoreFixture(t)
 	s := f.newSchedule("nightly")
-	s.TemplateID = 99999
+	s.LaunchableID = 99999
 
-	_, err := f.store.Create(context.Background(), s)
+	_, err := f.store.Create(context.Background(), s, launchable.Everything())
 	if err == nil {
-		t.Fatal("a schedule naming a template that does not exist was accepted")
+		t.Fatal("a schedule naming something that does not exist was accepted")
 	}
 	var fe schedule.FieldError
-	if !errors.As(err, &fe) || fe.Field != "template" {
+	if !errors.As(err, &fe) || fe.Field != schedule.TargetField {
 		t.Errorf("error = %v, want a FieldError blaming the template", err)
 	}
 }
@@ -404,7 +405,7 @@ func TestUpdateAndGetOnAMissingSchedule(t *testing.T) {
 	missing := f.newSchedule("ghost")
 	missing.ScheduleID = "does-not-exist"
 	missing.OrganizationID = f.orgA
-	if _, err := f.store.Update(ctx, missing); !errors.Is(err, schedule.ErrNotFound) {
+	if _, err := f.store.Update(ctx, missing, launchable.Everything()); !errors.Is(err, schedule.ErrNotFound) {
 		t.Errorf("Update = %v, want ErrNotFound", err)
 	}
 	if _, err := f.store.ListOccurrences(ctx, f.orgA, "does-not-exist", 10); !errors.Is(err, schedule.ErrNotFound) {
@@ -419,7 +420,7 @@ func TestUpdateAndGetOnAMissingSchedule(t *testing.T) {
 	if err := f.store.MarkFired(ctx, "does-not-exist", time.Now(), nil); !errors.Is(err, schedule.ErrNotFound) {
 		t.Errorf("MarkFired = %v, want ErrNotFound", err)
 	}
-	if err := f.store.ResolveOccurrence(ctx, 99999, schedule.OutcomeFired, "", "job"); !errors.Is(err, schedule.ErrNotFound) {
+	if err := f.store.ResolveOccurrence(ctx, 99999, schedule.OutcomeFired, "", launchable.Launched{RunID: "job", UnifiedJobType: launchable.UnifiedJobJob}); !errors.Is(err, schedule.ErrNotFound) {
 		t.Errorf("ResolveOccurrence = %v, want ErrNotFound", err)
 	}
 }
@@ -431,7 +432,7 @@ func TestResolveOccurrenceRefusesAnUnknownOutcome(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,12 +440,12 @@ func TestResolveOccurrenceRefusesAnUnknownOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.store.ResolveOccurrence(ctx, occ.ID, schedule.Outcome("exploded"), "", ""); err == nil {
+	if err := f.store.ResolveOccurrence(ctx, occ.ID, schedule.Outcome("exploded"), "", launchable.Launched{}); err == nil {
 		t.Error("an unknown outcome was accepted")
 	}
 	// The claimed outcome round-trips, which is the third enum value and
 	// the one a crash leaves behind.
-	if err := f.store.ResolveOccurrence(ctx, occ.ID, schedule.OutcomeClaimed, "", ""); err != nil {
+	if err := f.store.ResolveOccurrence(ctx, occ.ID, schedule.OutcomeClaimed, "", launchable.Launched{}); err != nil {
 		t.Errorf("resolving back to claimed: %v", err)
 	}
 }
@@ -456,7 +457,7 @@ func TestRecordSkipIsIdempotent(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestClampPageSizeBounds(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
-		if _, err := f.store.Create(ctx, f.newSchedule(fmt.Sprintf("s-%d", i))); err != nil {
+		if _, err := f.store.Create(ctx, f.newSchedule(fmt.Sprintf("s-%d", i)), launchable.Everything()); err != nil {
 			t.Fatal(err)
 		}
 	}

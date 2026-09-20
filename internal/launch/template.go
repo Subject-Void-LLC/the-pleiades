@@ -1,45 +1,12 @@
 package launch
 
 import (
-	"context"
 	"fmt"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"sort"
 	"strings"
 	"time"
 )
-
-// Launchable is anything this platform can run on request.
-//
-// Three methods, and each one exists because a consumer needs it without
-// knowing what it is holding. A scheduler needs Kind to route a dispatch; a
-// launch endpoint needs Resolve to turn a template plus a caller's wishes
-// into one concrete run; a plan-time capability check needs
-// RequiredCapabilities before anything is dispatched anywhere.
-//
-// What the interface deliberately does not offer is a way to ask "are you a
-// runbook". PLAN.md Section 28's own requirement, and Phase 21's
-// adversarial gate, is that no consumer type-switches on kind: the moment
-// one does, every future kind means editing that consumer, which is the
-// closed-enum cost the open registry exists to avoid.
-type Launchable interface {
-	// Kind is the registry key of what this is.
-	Kind() string
-
-	// Resolve folds a caller's configuration over this template's own
-	// defaults and returns the concrete run, plus every value the caller
-	// supplied that this template does not permit them to set.
-	//
-	// It does not fail on a value the template locked. Silently applying
-	// an unopened override is a privilege escalation; silently dropping
-	// one is a lie about what ran. Reporting it is the only remaining
-	// option, and it is why the second return value is not an error.
-	Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredField, error)
-
-	// RequiredCapabilities is what a device must be able to do for this to
-	// run against it.
-	RequiredCapabilities() []string
-}
 
 // Template is the saved definition: what to run, where to run it, and how
 // to run it.
@@ -57,7 +24,9 @@ type Template struct {
 	Name        string
 	Description string
 
-	// KindName is the registry key: what sort of thing this runs.
+	// KindName is the registry key naming which engine runs this
+	// template's definition: the native runbook engine, or a sandboxed
+	// ansible-playbook. See this package's doc comment on the two axes.
 	KindName string
 
 	// Definition is the reference this kind resolves: a runbook id, a
@@ -79,6 +48,17 @@ type Template struct {
 	// loaded, never a fallback to the id.
 	OrganizationName string
 	InventoryName    string
+
+	// LaunchableID is this template's row in the launchables table: the
+	// stable reference a schedule points at, unique across every sort of
+	// launchable thing (internal/launchable).
+	//
+	// Read-side only, like OrganizationName below: it is written by this
+	// package's store when the template is created and never submitted. Zero
+	// means the edge was not loaded, or, for a row created before launchables
+	// existed and never migrated, that the template cannot be scheduled and
+	// the backfill did not run.
+	LaunchableID int
 
 	// OrganizationID is that tenant, resolved when the template is saved.
 	//
@@ -169,10 +149,14 @@ type JobSummary struct {
 	CreatedAt       time.Time
 }
 
-// Kind implements Launchable.
+// Kind is this template's engine: the registry key naming which engine
+// runs its definition, "runbook" or "playbook". It is not a statement
+// about what sort of object this is; that distinction is axis A and it
+// belongs to internal/launchable.
 func (t Template) Kind() string { return t.KindName }
 
-// RequiredCapabilities implements Launchable.
+// RequiredCapabilities is what a device must be able to do for this
+// template to run against it, checked before anything is dispatched.
 func (t Template) RequiredCapabilities() []string {
 	return append([]string(nil), t.RequiredCaps...)
 }

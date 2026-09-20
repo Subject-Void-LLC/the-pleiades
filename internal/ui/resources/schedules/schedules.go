@@ -24,14 +24,14 @@ package schedules
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule/zoneinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
@@ -51,17 +51,14 @@ const timeFormat = "2006-01-02T15:04"
 // browser can claim, fire or resolve an occurrence, only describe when one
 // should happen.
 type Store interface {
-	Create(ctx context.Context, s schedule.Schedule) (schedule.Schedule, error)
-	Update(ctx context.Context, s schedule.Schedule) (schedule.Schedule, error)
+	Create(ctx context.Context, s schedule.Schedule, reach launchable.Reach) (schedule.Schedule, error)
+	Update(ctx context.Context, s schedule.Schedule, reach launchable.Reach) (schedule.Schedule, error)
 	Get(ctx context.Context, orgID int, scheduleID string) (schedule.Schedule, error)
 	List(ctx context.Context, orgID int, after string, limit int) ([]schedule.Schedule, error)
 	Delete(ctx context.Context, orgID int, scheduleID string) error
 }
 
-// Templates is the slice of the template store the RUNS picker needs.
-type Templates interface {
-	List(ctx context.Context, q launch.Query) ([]launch.Template, error)
-}
+// The RUNS picker's own port lives in runs.go, beside the filtering it does.
 
 // fields drive the table, the form, the detail list, validation and the
 // mobile card layout from one declaration.
@@ -75,7 +72,8 @@ var fields = []view.Field{
 	{
 		Name: "runs", Label: "RUNS", Kind: view.KindSelect,
 		Required: true, InForm: true, InList: true,
-		Help: "The template this launches. Its organization becomes the schedule's.",
+		Help: "What this launches: a job template, or a project whose run is a sync. " +
+			"Its organization becomes the schedule's, and only things you may launch are offered.",
 	},
 	{
 		Name: "rrule", Label: "RECURRENCE", Kind: view.KindText,
@@ -215,7 +213,7 @@ type writer struct {
 }
 
 func (w writer) Create(ctx context.Context, s schedule.Schedule) (string, error) {
-	created, err := w.store.Create(ctx, s)
+	created, err := w.store.Create(ctx, s, reachOf(ctx))
 	if err != nil {
 		return "", asFieldFault(err)
 	}
@@ -233,10 +231,41 @@ func (w writer) Update(ctx context.Context, id string, s schedule.Schedule) erro
 	s.ID = existing.ID
 	s.ScheduleID = existing.ScheduleID
 	s.OrganizationID = existing.OrganizationID
-	if _, err := w.store.Update(ctx, s); err != nil {
+
+	// The saved configuration is carried forward rather than cleared. This
+	// form renders no control for it, so a submission never carries one, and
+	// the store reads an absent value as "run the target's own defaults": an
+	// edit that only renamed a schedule used to silently drop the overrides it
+	// ran with (FAILURE_PATTERNS.md #269). Changing what a schedule launches
+	// is the one case where carrying it forward would be wrong, so that is
+	// refused instead, with a message naming the control.
+	switch {
+	case s.LaunchableID == existing.LaunchableID:
+		s.SavedConfigID = existing.SavedConfigID
+	case existing.SavedConfigID != 0:
+		return view.FieldFault{
+			Field: "runs",
+			Message: "This schedule runs with a saved configuration, which belongs to what it launches now. " +
+				"Clear the configuration before pointing it at something else.",
+		}
+	}
+
+	if _, err := w.store.Update(ctx, s, reachOf(ctx)); err != nil {
 		return asFieldFault(err)
 	}
 	return nil
+}
+
+// reachOf is the writing viewer's own reach: what they may launch.
+//
+// Organization zero means "not narrowed to one tenant", matching the API
+// handler: no request in this build carries a tenant, so the tenancy half of
+// the check compares the target's organization to the schedule's. The scope
+// half is per launchable type and is enforced regardless, which is what makes
+// this form unable to schedule something the viewer could not launch by hand.
+func reachOf(ctx context.Context) launchable.Reach {
+	identity, _ := api.IdentityFromContext(ctx)
+	return launchable.ReachOf(identity, 0)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
@@ -265,12 +294,12 @@ func asScheduleFieldError(err error, target *schedule.FieldError) bool {
 }
 
 // Register adds the Schedules view over a real store.
-func Register(store Store, templates Templates) error {
+func Register(store Store, launchables Launchables) error {
 	projector := view.Projector[schedule.Schedule]{
 		Row: func(s schedule.Schedule) view.Row {
 			return view.Row{ID: s.ScheduleID, Cells: view.Cells{
 				"name":       s.Name,
-				"runs":       templateLabel(s),
+				"runs":       targetLabel(s),
 				"rrule":      s.RRule,
 				"exclusions": strings.Join(s.Exclusions, "\n"),
 				"timezone":   s.Timezone,
@@ -284,7 +313,7 @@ func Register(store Store, templates Templates) error {
 		Form: func(s schedule.Schedule) map[string]string {
 			return map[string]string{
 				"name":       s.Name,
-				"runs":       strconv.Itoa(s.TemplateID),
+				"runs":       strconv.Itoa(s.LaunchableID),
 				"rrule":      s.RRule,
 				"exclusions": strings.Join(s.Exclusions, "\n"),
 				"timezone":   s.Timezone,
@@ -307,11 +336,11 @@ func Register(store Store, templates Templates) error {
 			}
 			out.Exclusions = splitLines(v.Get("exclusions"))
 
-			templateID, err := strconv.Atoi(strings.TrimSpace(v.Get("runs")))
-			if err != nil || templateID < 1 {
+			launchableID, err := strconv.Atoi(strings.TrimSpace(v.Get("runs")))
+			if err != nil || launchableID < 1 {
 				errs.Add("runs", "Choose what this schedule runs.")
 			}
-			out.TemplateID = templateID
+			out.LaunchableID = launchableID
 
 			// The two datetimes are read in the schedule's OWN zone, not
 			// UTC and not the browser's. That is the only reading that
@@ -356,12 +385,13 @@ func Register(store Store, templates Templates) error {
 	}
 
 	// The RUNS picker is populated from the same store the schedule store
-	// resolves a template against, so what the form offers and what a save
-	// accepts are one list.
+	// resolves its target against, and filtered by the same reach the store
+	// checks on submit, so what the form offers and what a save accepts are
+	// one list under one rule.
 	descriptorFields := append([]view.Field(nil), fields...)
 	for i := range descriptorFields {
 		if descriptorFields[i].Name == "runs" {
-			descriptorFields[i].Options = templateOptions(templates)
+			descriptorFields[i].Options = runsOptions(launchables)
 		}
 	}
 
@@ -389,36 +419,6 @@ func Register(store Store, templates Templates) error {
 		},
 		Handlers: view.MustBind[schedule.Schedule](reader{store}, writer{store}, projector),
 	})
-}
-
-// templateOptions builds the RUNS picker.
-func templateOptions(templates Templates) func(context.Context) ([]view.Option, error) {
-	return func(ctx context.Context) ([]view.Option, error) {
-		if templates == nil {
-			return nil, nil
-		}
-		found, err := templates.List(ctx, launch.Query{Limit: 200})
-		if err != nil {
-			return nil, err
-		}
-		opts := make([]view.Option, 0, len(found))
-		for _, t := range found {
-			opts = append(opts, view.Option{
-				Value: strconv.Itoa(t.ID),
-				Label: t.Name,
-			})
-		}
-		return opts, nil
-	}
-}
-
-// templateLabel names what a schedule runs, falling back to the numeric id
-// when the name was not loaded rather than rendering an empty cell.
-func templateLabel(s schedule.Schedule) string {
-	if s.TemplateID == 0 {
-		return ""
-	}
-	return fmt.Sprintf("#%d", s.TemplateID)
 }
 
 // formatIn renders an optional instant in the schedule's own zone.

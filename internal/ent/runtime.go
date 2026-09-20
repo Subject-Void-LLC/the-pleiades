@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -479,6 +480,57 @@ func init() {
 	journalentryDescDiffRecorded := journalentryFields[29].Descriptor()
 	// journalentry.DefaultDiffRecorded holds the default value on creation for the diff_recorded field.
 	journalentry.DefaultDiffRecorded = journalentryDescDiffRecorded.Default.(bool)
+	launchableMixin := schema.Launchable{}.Mixin()
+	launchableMixinFields0 := launchableMixin[0].Fields()
+	_ = launchableMixinFields0
+	launchableFields := schema.Launchable{}.Fields()
+	_ = launchableFields
+	// launchableDescCreatedAt is the schema descriptor for created_at field.
+	launchableDescCreatedAt := launchableMixinFields0[0].Descriptor()
+	// launchable.DefaultCreatedAt holds the default value on creation for the created_at field.
+	launchable.DefaultCreatedAt = launchableDescCreatedAt.Default.(func() time.Time)
+	// launchableDescUpdatedAt is the schema descriptor for updated_at field.
+	launchableDescUpdatedAt := launchableMixinFields0[1].Descriptor()
+	// launchable.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	launchable.DefaultUpdatedAt = launchableDescUpdatedAt.Default.(func() time.Time)
+	// launchable.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	launchable.UpdateDefaultUpdatedAt = launchableDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// launchableDescType is the schema descriptor for type field.
+	launchableDescType := launchableFields[0].Descriptor()
+	// launchable.TypeValidator is a validator for the "type" field. It is called by the builders before save.
+	launchable.TypeValidator = func() func(string) error {
+		validators := launchableDescType.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(_type string) error {
+			for _, fn := range fns {
+				if err := fn(_type); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// launchableDescName is the schema descriptor for name field.
+	launchableDescName := launchableFields[1].Descriptor()
+	// launchable.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	launchable.NameValidator = func() func(string) error {
+		validators := launchableDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	localcredentialMixin := schema.LocalCredential{}.Mixin()
 	localcredentialMixinFields0 := localcredentialMixin[0].Fields()
 	_ = localcredentialMixinFields0
@@ -764,6 +816,10 @@ func init() {
 	scheduleoccurrenceDescSuppressedCount := scheduleoccurrenceFields[3].Descriptor()
 	// scheduleoccurrence.DefaultSuppressedCount holds the default value on creation for the suppressed_count field.
 	scheduleoccurrence.DefaultSuppressedCount = scheduleoccurrenceDescSuppressedCount.Default.(int)
+	// scheduleoccurrenceDescUnifiedJobType is the schema descriptor for unified_job_type field.
+	scheduleoccurrenceDescUnifiedJobType := scheduleoccurrenceFields[5].Descriptor()
+	// scheduleoccurrence.UnifiedJobTypeValidator is a validator for the "unified_job_type" field. It is called by the builders before save.
+	scheduleoccurrence.UnifiedJobTypeValidator = scheduleoccurrenceDescUnifiedJobType.Validators[0].(func(string) error)
 	sessionMixin := schema.Session{}.Mixin()
 	sessionMixinFields0 := sessionMixin[0].Fields()
 	_ = sessionMixinFields0
@@ -885,14 +941,18 @@ func init() {
 	syncrun.DefaultUpdatedAt = syncrunDescUpdatedAt.Default.(func() time.Time)
 	// syncrun.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	syncrun.UpdateDefaultUpdatedAt = syncrunDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// syncrunDescActor is the schema descriptor for actor field.
+	syncrunDescActor := syncrunFields[1].Descriptor()
+	// syncrun.ActorValidator is a validator for the "actor" field. It is called by the builders before save.
+	syncrun.ActorValidator = syncrunDescActor.Validators[0].(func(string) error)
 	// syncrunDescRevision is the schema descriptor for revision field.
-	syncrunDescRevision := syncrunFields[1].Descriptor()
+	syncrunDescRevision := syncrunFields[2].Descriptor()
 	// syncrun.DefaultRevision holds the default value on creation for the revision field.
 	syncrun.DefaultRevision = syncrunDescRevision.Default.(string)
 	// syncrun.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
 	syncrun.RevisionValidator = syncrunDescRevision.Validators[0].(func(string) error)
 	// syncrunDescError is the schema descriptor for error field.
-	syncrunDescError := syncrunFields[2].Descriptor()
+	syncrunDescError := syncrunFields[3].Descriptor()
 	// syncrun.DefaultError holds the default value on creation for the error field.
 	syncrun.DefaultError = syncrunDescError.Default.(string)
 	// syncrun.ErrorValidator is a validator for the "error" field. It is called by the builders before save.

@@ -14,11 +14,11 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -36,7 +36,7 @@ type TemplateQuery struct {
 	withSurveyQuestions *SurveyQuestionQuery
 	withSavedConfigs    *SavedLaunchConfigQuery
 	withCredentials     *CredentialQuery
-	withSchedules       *ScheduleQuery
+	withLaunchable      *LaunchableQuery
 	withFKs             bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -206,9 +206,9 @@ func (_q *TemplateQuery) QueryCredentials() *CredentialQuery {
 	return query
 }
 
-// QuerySchedules chains the current query on the "schedules" edge.
-func (_q *TemplateQuery) QuerySchedules() *ScheduleQuery {
-	query := (&ScheduleClient{config: _q.config}).Query()
+// QueryLaunchable chains the current query on the "launchable" edge.
+func (_q *TemplateQuery) QueryLaunchable() *LaunchableQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := _q.prepareQuery(ctx); err != nil {
 			return nil, err
@@ -219,8 +219,8 @@ func (_q *TemplateQuery) QuerySchedules() *ScheduleQuery {
 		}
 		step := sqlgraph.NewStep(
 			sqlgraph.From(template.Table, template.FieldID, selector),
-			sqlgraph.To(schedule.Table, schedule.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, template.SchedulesTable, template.SchedulesColumn),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, template.LaunchableTable, template.LaunchableColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -426,7 +426,7 @@ func (_q *TemplateQuery) Clone() *TemplateQuery {
 		withSurveyQuestions: _q.withSurveyQuestions.Clone(),
 		withSavedConfigs:    _q.withSavedConfigs.Clone(),
 		withCredentials:     _q.withCredentials.Clone(),
-		withSchedules:       _q.withSchedules.Clone(),
+		withLaunchable:      _q.withLaunchable.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -499,14 +499,14 @@ func (_q *TemplateQuery) WithCredentials(opts ...func(*CredentialQuery)) *Templa
 	return _q
 }
 
-// WithSchedules tells the query-builder to eager-load the nodes that are connected to
-// the "schedules" edge. The optional arguments are used to configure the query builder of the edge.
-func (_q *TemplateQuery) WithSchedules(opts ...func(*ScheduleQuery)) *TemplateQuery {
-	query := (&ScheduleClient{config: _q.config}).Query()
+// WithLaunchable tells the query-builder to eager-load the nodes that are connected to
+// the "launchable" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *TemplateQuery) WithLaunchable(opts ...func(*LaunchableQuery)) *TemplateQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	_q.withSchedules = query
+	_q.withLaunchable = query
 	return _q
 }
 
@@ -596,7 +596,7 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 			_q.withSurveyQuestions != nil,
 			_q.withSavedConfigs != nil,
 			_q.withCredentials != nil,
-			_q.withSchedules != nil,
+			_q.withLaunchable != nil,
 		}
 	)
 	if _q.withProject != nil || _q.withOrganization != nil || _q.withInventory != nil {
@@ -662,10 +662,9 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 			return nil, err
 		}
 	}
-	if query := _q.withSchedules; query != nil {
-		if err := _q.loadSchedules(ctx, query, nodes,
-			func(n *Template) { n.Edges.Schedules = []*Schedule{} },
-			func(n *Template, e *Schedule) { n.Edges.Schedules = append(n.Edges.Schedules, e) }); err != nil {
+	if query := _q.withLaunchable; query != nil {
+		if err := _q.loadLaunchable(ctx, query, nodes, nil,
+			func(n *Template, e *Launchable) { n.Edges.Launchable = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -891,32 +890,29 @@ func (_q *TemplateQuery) loadCredentials(ctx context.Context, query *CredentialQ
 	}
 	return nil
 }
-func (_q *TemplateQuery) loadSchedules(ctx context.Context, query *ScheduleQuery, nodes []*Template, init func(*Template), assign func(*Template, *Schedule)) error {
+func (_q *TemplateQuery) loadLaunchable(ctx context.Context, query *LaunchableQuery, nodes []*Template, init func(*Template), assign func(*Template, *Launchable)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*Template)
 	for i := range nodes {
 		fks = append(fks, nodes[i].ID)
 		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
-		}
 	}
 	query.withFKs = true
-	query.Where(predicate.Schedule(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(template.SchedulesColumn), fks...))
+	query.Where(predicate.Launchable(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(template.LaunchableColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.template_schedules
+		fk := n.template_launchable
 		if fk == nil {
-			return fmt.Errorf(`foreign-key "template_schedules" is nil for node %v`, n.ID)
+			return fmt.Errorf(`foreign-key "template_launchable" is nil for node %v`, n.ID)
 		}
 		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "template_schedules" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "template_launchable" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

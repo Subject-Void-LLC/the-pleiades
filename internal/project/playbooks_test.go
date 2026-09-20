@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
@@ -40,10 +41,15 @@ func (s stubStore) Update(context.Context, project.Project) error         { retu
 func (s stubStore) Delete(context.Context, int) error                     { return nil }
 func (s stubStore) RecordSync(context.Context, int, project.Result) error { return nil }
 
-func (s stubStore) BeginSync(_ context.Context, id int) (project.Project, error) {
-	return s.Get(context.Background(), id)
+func (s stubStore) BeginSync(_ context.Context, id int, _ string) (project.Claim, error) {
+	p, err := s.Get(context.Background(), id)
+	return project.Claim{Project: p, RunID: id, StartedAt: time.Now()}, err
 }
 func (s stubStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, nil }
+
+func (s stubStore) ByLaunchable(_ context.Context, launchableID int) (project.Project, error) {
+	return s.Get(context.Background(), launchableID)
+}
 
 func (s stubStore) ListSyncRuns(context.Context, int, int) ([]project.SyncRun, error) {
 	return nil, nil

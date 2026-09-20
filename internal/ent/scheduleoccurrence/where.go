@@ -85,6 +85,11 @@ func JobID(v string) predicate.ScheduleOccurrence {
 	return predicate.ScheduleOccurrence(sql.FieldEQ(FieldJobID, v))
 }
 
+// UnifiedJobType applies equality check predicate on the "unified_job_type" field. It's identical to UnifiedJobTypeEQ.
+func UnifiedJobType(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldEQ(FieldUnifiedJobType, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.ScheduleOccurrence {
 	return predicate.ScheduleOccurrence(sql.FieldEQ(FieldCreatedAt, v))
@@ -413,6 +418,81 @@ func JobIDEqualFold(v string) predicate.ScheduleOccurrence {
 // JobIDContainsFold applies the ContainsFold predicate on the "job_id" field.
 func JobIDContainsFold(v string) predicate.ScheduleOccurrence {
 	return predicate.ScheduleOccurrence(sql.FieldContainsFold(FieldJobID, v))
+}
+
+// UnifiedJobTypeEQ applies the EQ predicate on the "unified_job_type" field.
+func UnifiedJobTypeEQ(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldEQ(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeNEQ applies the NEQ predicate on the "unified_job_type" field.
+func UnifiedJobTypeNEQ(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldNEQ(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeIn applies the In predicate on the "unified_job_type" field.
+func UnifiedJobTypeIn(vs ...string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldIn(FieldUnifiedJobType, vs...))
+}
+
+// UnifiedJobTypeNotIn applies the NotIn predicate on the "unified_job_type" field.
+func UnifiedJobTypeNotIn(vs ...string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldNotIn(FieldUnifiedJobType, vs...))
+}
+
+// UnifiedJobTypeGT applies the GT predicate on the "unified_job_type" field.
+func UnifiedJobTypeGT(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldGT(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeGTE applies the GTE predicate on the "unified_job_type" field.
+func UnifiedJobTypeGTE(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldGTE(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeLT applies the LT predicate on the "unified_job_type" field.
+func UnifiedJobTypeLT(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldLT(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeLTE applies the LTE predicate on the "unified_job_type" field.
+func UnifiedJobTypeLTE(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldLTE(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeContains applies the Contains predicate on the "unified_job_type" field.
+func UnifiedJobTypeContains(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldContains(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeHasPrefix applies the HasPrefix predicate on the "unified_job_type" field.
+func UnifiedJobTypeHasPrefix(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldHasPrefix(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeHasSuffix applies the HasSuffix predicate on the "unified_job_type" field.
+func UnifiedJobTypeHasSuffix(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldHasSuffix(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeIsNil applies the IsNil predicate on the "unified_job_type" field.
+func UnifiedJobTypeIsNil() predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldIsNull(FieldUnifiedJobType))
+}
+
+// UnifiedJobTypeNotNil applies the NotNil predicate on the "unified_job_type" field.
+func UnifiedJobTypeNotNil() predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldNotNull(FieldUnifiedJobType))
+}
+
+// UnifiedJobTypeEqualFold applies the EqualFold predicate on the "unified_job_type" field.
+func UnifiedJobTypeEqualFold(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldEqualFold(FieldUnifiedJobType, v))
+}
+
+// UnifiedJobTypeContainsFold applies the ContainsFold predicate on the "unified_job_type" field.
+func UnifiedJobTypeContainsFold(v string) predicate.ScheduleOccurrence {
+	return predicate.ScheduleOccurrence(sql.FieldContainsFold(FieldUnifiedJobType, v))
 }
 
 // HasSchedule applies the HasEdge predicate on the "schedule" edge.

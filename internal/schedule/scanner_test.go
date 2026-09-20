@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 )
 
@@ -28,21 +29,30 @@ type recordingLauncher struct {
 
 type launchCall struct {
 	actor         string
-	templateID    int
+	launchableID  int
+	targetType    string
 	savedConfigID int
 }
 
-func (l *recordingLauncher) LaunchScheduled(_ context.Context, actor string, templateID, savedConfigID int) (string, error) {
+func (l *recordingLauncher) Launch(_ context.Context, req launchable.Request) (launchable.Launched, error) {
 	if l.delay > 0 {
 		time.Sleep(l.delay)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.err != nil {
-		return "", l.err
+		return launchable.Launched{}, l.err
 	}
-	l.launches = append(l.launches, launchCall{actor: actor, templateID: templateID, savedConfigID: savedConfigID})
-	return fmt.Sprintf("job-%d", len(l.launches)), nil
+	l.launches = append(l.launches, launchCall{
+		actor:         req.Actor,
+		launchableID:  req.Target.ID,
+		targetType:    req.Target.Type,
+		savedConfigID: req.SavedConfigID,
+	})
+	return launchable.Launched{
+		RunID:          fmt.Sprintf("job-%d", len(l.launches)),
+		UnifiedJobType: launchable.UnifiedJobJob,
+	}, nil
 }
 
 func (l *recordingLauncher) calls() []launchCall {
@@ -58,14 +68,14 @@ func (f storeFixture) overdueHourly(t *testing.T, name string, lastFired, dueAt 
 	ctx := context.Background()
 
 	s := schedule.Schedule{
-		Name:       name,
-		TemplateID: f.tmplA,
-		Enabled:    true,
-		RRule:      "FREQ=HOURLY",
-		Timezone:   "UTC",
-		DTStart:    lastFired,
+		Name:         name,
+		LaunchableID: f.launchableA,
+		Enabled:      true,
+		RRule:        "FREQ=HOURLY",
+		Timezone:     "UTC",
+		DTStart:      lastFired,
 	}
-	created, err := f.store.Create(ctx, s)
+	created, err := f.store.Create(ctx, s, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +118,8 @@ func TestSweepCoalescesMissedRuns(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("recovery launched %d jobs, want exactly 1", len(calls))
 	}
-	if calls[0].templateID != f.tmplA {
-		t.Errorf("launched template %d, want %d", calls[0].templateID, f.tmplA)
+	if calls[0].launchableID != f.launchableA {
+		t.Errorf("launched launchable %d, want %d", calls[0].launchableID, f.launchableA)
 	}
 	if want := schedule.ScheduleActor(sched.ScheduleID); calls[0].actor != want {
 		t.Errorf("actor = %q, want %q so the activity stream names the schedule", calls[0].actor, want)
@@ -445,13 +455,13 @@ func TestSweepRepairsAStaleNextRun(t *testing.T) {
 	// cached next_run has been left in the past.
 	future := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	created, err := f.store.Create(ctx, schedule.Schedule{
-		Name:       "future",
-		TemplateID: f.tmplA,
-		Enabled:    true,
-		RRule:      "FREQ=DAILY",
-		Timezone:   "UTC",
-		DTStart:    future,
-	})
+		Name:         "future",
+		LaunchableID: f.launchableA,
+		Enabled:      true,
+		RRule:        "FREQ=DAILY",
+		Timezone:     "UTC",
+		DTStart:      future,
+	}, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,14 +502,14 @@ func TestSweepStopsAtDTEnd(t *testing.T) {
 	dtstart := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	end := dtstart.Add(2 * time.Hour)
 	created, err := f.store.Create(ctx, schedule.Schedule{
-		Name:       "bounded",
-		TemplateID: f.tmplA,
-		Enabled:    true,
-		RRule:      "FREQ=HOURLY",
-		Timezone:   "UTC",
-		DTStart:    dtstart,
-		DTEnd:      &end,
-	})
+		Name:         "bounded",
+		LaunchableID: f.launchableA,
+		Enabled:      true,
+		RRule:        "FREQ=HOURLY",
+		Timezone:     "UTC",
+		DTStart:      dtstart,
+		DTEnd:        &end,
+	}, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +546,10 @@ func TestSweepCarriesTheSavedConfiguration(t *testing.T) {
 	cfg, err := f.client.SavedLaunchConfig.Create().
 		SetName("core only").
 		SetFields(map[string]any{"limit": "core-*"}).
-		SetTemplateID(f.tmplA).
+		// A saved configuration belongs to a TEMPLATE, not to a launchable:
+		// the overrides it holds are keyed by that template's own promptable
+		// fields.
+		SetTemplateID(f.templateA).
 		Save(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -545,13 +558,13 @@ func TestSweepCarriesTheSavedConfiguration(t *testing.T) {
 	lastFired := time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC)
 	created, err := f.store.Create(ctx, schedule.Schedule{
 		Name:          "with config",
-		TemplateID:    f.tmplA,
+		LaunchableID:  f.launchableA,
 		SavedConfigID: cfg.ID,
 		Enabled:       true,
 		RRule:         "FREQ=HOURLY",
 		Timezone:      "UTC",
 		DTStart:       lastFired,
-	})
+	}, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +598,10 @@ func TestUpdateClearsASavedConfiguration(t *testing.T) {
 	cfg, err := f.client.SavedLaunchConfig.Create().
 		SetName("core only").
 		SetFields(map[string]any{"limit": "core-*"}).
-		SetTemplateID(f.tmplA).
+		// A saved configuration belongs to a TEMPLATE, not to a launchable:
+		// the overrides it holds are keyed by that template's own promptable
+		// fields.
+		SetTemplateID(f.templateA).
 		Save(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -593,13 +609,13 @@ func TestUpdateClearsASavedConfiguration(t *testing.T) {
 
 	s := f.newSchedule("nightly")
 	s.SavedConfigID = cfg.ID
-	created, err := f.store.Create(ctx, s)
+	created, err := f.store.Create(ctx, s, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	created.SavedConfigID = 0
-	updated, err := f.store.Update(ctx, created)
+	updated, err := f.store.Update(ctx, created, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,7 +36,7 @@ type Config struct {
 	// is here immediately before resolving.
 	//
 	// It lives on Config because Config is the only value that reaches
-	// Template.Resolve without widening the Launchable interface, and
+	// Template.Resolve without changing that method's signature, and
 	// because its zero value is the refusing one: a Config nobody stamped
 	// admits no program content.
 	FilePolicy FilePolicy
@@ -50,7 +50,14 @@ type Config struct {
 // limit means that limit instead of the template's, not both.
 const extraVarsField = "extra_vars"
 
-// Resolve implements Launchable.
+// Resolve folds a caller's configuration over this template's own
+// defaults and returns the concrete run, plus every value the caller
+// supplied that this template does not permit them to set.
+//
+// It does not fail on a value the template locked. Silently applying an
+// unopened override is a privilege escalation; silently dropping one is a
+// lie about what ran. Reporting it is the only remaining option, and it
+// is why the second return value is not an error.
 //
 // The fold is pkg/policy.Resolve, consumed rather than reimplemented, which
 // is Phase 21's own checklist item: "Consume the shared hierarchical policy

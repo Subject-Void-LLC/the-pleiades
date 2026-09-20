@@ -1,5 +1,5 @@
-// This file is the Sync history tab: every completed attempt to fetch this
-// project's source.
+// This file is the Sync history tab: every attempt to fetch this project's
+// source, including one still running.
 //
 // The project's own badge answers "is this usable right now". A history
 // answers the different question an operator opens a project for when
@@ -21,11 +21,11 @@ import (
 // historyTitle is the section heading.
 const historyTitle = "Sync history"
 
-// historySection lists a project's completed sync attempts, newest first.
+// historySection lists a project's sync attempts, newest first.
 func historySection(store project.Store) view.Section {
 	return view.Section{
 		Title:   historyTitle,
-		Summary: "Every completed attempt to fetch this project's source, newest first.",
+		Summary: "Every attempt to fetch this project's source, newest first, including one still running.",
 		Status:  view.StatusImplemented,
 		Fields: []view.Field{
 			{
@@ -33,6 +33,10 @@ func historySection(store project.Store) view.Section {
 				MobilePrimary: true, BadgeClass: syncBadge,
 			},
 			{Name: "started", Label: "STARTED", Kind: view.KindText, InList: true},
+			{
+				Name: "actor", Label: "STARTED BY", Kind: view.KindText, InList: true,
+				Help: "Who asked for this attempt: a person, or the scheduler and the schedule that fired it.",
+			},
 			{Name: "took", Label: "TOOK", Kind: view.KindText, InList: true},
 			{
 				Name: "revision", Label: "REVISION", Kind: view.KindText, InList: true,
@@ -43,7 +47,7 @@ func historySection(store project.Store) view.Section {
 				Help: "Why a failed attempt failed. Credential material is stripped before this is stored.",
 			},
 		},
-		Empty: "This project has no completed syncs yet. An attempt still running shows on the badge above rather than here.",
+		Empty: "This project has never been synced.",
 		Rows:  historyRows(store),
 	}
 }
@@ -69,12 +73,28 @@ func historyRows(store project.Store) func(context.Context, string) ([]view.Row,
 
 		rows := make([]view.Row, 0, len(runs))
 		for _, r := range runs {
+			// An attempt in flight has no total yet, so its duration is
+			// labelled as what it is: how long it has been going.
+			took := describeDuration(r.Took())
+			if r.Running() {
+				took += " so far"
+			}
+
+			// An attempt recorded before attribution existed has nobody to
+			// name, which is said rather than left as a blank cell a reader
+			// would read as a rendering fault.
+			actor := r.Actor
+			if actor == "" {
+				actor = "not recorded"
+			}
+
 			rows = append(rows, view.Row{
 				ID: strconv.Itoa(r.ID),
 				Cells: view.Cells{
 					"outcome":  string(r.Status),
 					"started":  r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"),
-					"took":     describeDuration(r.Took()),
+					"actor":    actor,
+					"took":     took,
 					"revision": shortRevision(r.Revision),
 					"detail":   r.Err,
 				},

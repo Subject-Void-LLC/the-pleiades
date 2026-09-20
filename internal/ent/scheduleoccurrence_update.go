@@ -89,6 +89,26 @@ func (_u *ScheduleOccurrenceUpdate) ClearJobID() *ScheduleOccurrenceUpdate {
 	return _u
 }
 
+// SetUnifiedJobType sets the "unified_job_type" field.
+func (_u *ScheduleOccurrenceUpdate) SetUnifiedJobType(v string) *ScheduleOccurrenceUpdate {
+	_u.mutation.SetUnifiedJobType(v)
+	return _u
+}
+
+// SetNillableUnifiedJobType sets the "unified_job_type" field if the given value is not nil.
+func (_u *ScheduleOccurrenceUpdate) SetNillableUnifiedJobType(v *string) *ScheduleOccurrenceUpdate {
+	if v != nil {
+		_u.SetUnifiedJobType(*v)
+	}
+	return _u
+}
+
+// ClearUnifiedJobType clears the value of the "unified_job_type" field.
+func (_u *ScheduleOccurrenceUpdate) ClearUnifiedJobType() *ScheduleOccurrenceUpdate {
+	_u.mutation.ClearUnifiedJobType()
+	return _u
+}
+
 // SetScheduleID sets the "schedule" edge to the Schedule entity by ID.
 func (_u *ScheduleOccurrenceUpdate) SetScheduleID(id int) *ScheduleOccurrenceUpdate {
 	_u.mutation.SetScheduleID(id)
@@ -154,6 +174,11 @@ func (_u *ScheduleOccurrenceUpdate) check() error {
 			return &ValidationError{Name: "outcome", err: fmt.Errorf(`ent: validator failed for field "ScheduleOccurrence.outcome": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.UnifiedJobType(); ok {
+		if err := scheduleoccurrence.UnifiedJobTypeValidator(v); err != nil {
+			return &ValidationError{Name: "unified_job_type", err: fmt.Errorf(`ent: validator failed for field "ScheduleOccurrence.unified_job_type": %w`, err)}
+		}
+	}
 	if _u.mutation.ScheduleCleared() && len(_u.mutation.ScheduleIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ScheduleOccurrence.schedule"`)
 	}
@@ -189,6 +214,12 @@ func (_u *ScheduleOccurrenceUpdate) sqlSave(ctx context.Context) (_node int, err
 	}
 	if _u.mutation.JobIDCleared() {
 		_spec.ClearField(scheduleoccurrence.FieldJobID, field.TypeString)
+	}
+	if value, ok := _u.mutation.UnifiedJobType(); ok {
+		_spec.SetField(scheduleoccurrence.FieldUnifiedJobType, field.TypeString, value)
+	}
+	if _u.mutation.UnifiedJobTypeCleared() {
+		_spec.ClearField(scheduleoccurrence.FieldUnifiedJobType, field.TypeString)
 	}
 	if _u.mutation.ScheduleCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -299,6 +330,26 @@ func (_u *ScheduleOccurrenceUpdateOne) ClearJobID() *ScheduleOccurrenceUpdateOne
 	return _u
 }
 
+// SetUnifiedJobType sets the "unified_job_type" field.
+func (_u *ScheduleOccurrenceUpdateOne) SetUnifiedJobType(v string) *ScheduleOccurrenceUpdateOne {
+	_u.mutation.SetUnifiedJobType(v)
+	return _u
+}
+
+// SetNillableUnifiedJobType sets the "unified_job_type" field if the given value is not nil.
+func (_u *ScheduleOccurrenceUpdateOne) SetNillableUnifiedJobType(v *string) *ScheduleOccurrenceUpdateOne {
+	if v != nil {
+		_u.SetUnifiedJobType(*v)
+	}
+	return _u
+}
+
+// ClearUnifiedJobType clears the value of the "unified_job_type" field.
+func (_u *ScheduleOccurrenceUpdateOne) ClearUnifiedJobType() *ScheduleOccurrenceUpdateOne {
+	_u.mutation.ClearUnifiedJobType()
+	return _u
+}
+
 // SetScheduleID sets the "schedule" edge to the Schedule entity by ID.
 func (_u *ScheduleOccurrenceUpdateOne) SetScheduleID(id int) *ScheduleOccurrenceUpdateOne {
 	_u.mutation.SetScheduleID(id)
@@ -377,6 +428,11 @@ func (_u *ScheduleOccurrenceUpdateOne) check() error {
 			return &ValidationError{Name: "outcome", err: fmt.Errorf(`ent: validator failed for field "ScheduleOccurrence.outcome": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.UnifiedJobType(); ok {
+		if err := scheduleoccurrence.UnifiedJobTypeValidator(v); err != nil {
+			return &ValidationError{Name: "unified_job_type", err: fmt.Errorf(`ent: validator failed for field "ScheduleOccurrence.unified_job_type": %w`, err)}
+		}
+	}
 	if _u.mutation.ScheduleCleared() && len(_u.mutation.ScheduleIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ScheduleOccurrence.schedule"`)
 	}
@@ -429,6 +485,12 @@ func (_u *ScheduleOccurrenceUpdateOne) sqlSave(ctx context.Context) (_node *Sche
 	}
 	if _u.mutation.JobIDCleared() {
 		_spec.ClearField(scheduleoccurrence.FieldJobID, field.TypeString)
+	}
+	if value, ok := _u.mutation.UnifiedJobType(); ok {
+		_spec.SetField(scheduleoccurrence.FieldUnifiedJobType, field.TypeString, value)
+	}
+	if _u.mutation.UnifiedJobTypeCleared() {
+		_spec.ClearField(scheduleoccurrence.FieldUnifiedJobType, field.TypeString)
 	}
 	if _u.mutation.ScheduleCleared() {
 		edge := &sqlgraph.EdgeSpec{

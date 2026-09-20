@@ -564,7 +564,7 @@ func (d Descriptor) RowAction(name string) (RowAction, bool) {
 // An action may prompt or not. With no Fields it is a button that posts
 // straight through; with Fields it renders the same shared, validated,
 // accessible form every other write uses. That is deliberately the smallest
-// thing that works: Phase 21's Launchable owns the real prompting matrix --
+// thing that works: internal/launch owns the real prompting matrix --
 // survey specs, saved configurations, ignored-field contracts -- and this
 // is the seam it will land in rather than a competing design.
 type RecordAction struct {

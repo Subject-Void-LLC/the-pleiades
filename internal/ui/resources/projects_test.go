@@ -273,7 +273,7 @@ func TestProjectsView_SyncHistoryRecordsEachAttempt(t *testing.T) {
 	id := recordPath(t, body(t, h, "/ui/projects"), created)
 
 	// Nothing has run, so the history is empty rather than absent.
-	if before := h.section(t, id, "Sync history"); !strings.Contains(before, "no completed syncs yet") {
+	if before := h.section(t, id, "Sync history"); !strings.Contains(before, "never been synced") {
 		t.Errorf("a never-synced project's history does not say so:\n%s", before)
 	}
 
@@ -285,6 +285,24 @@ func TestProjectsView_SyncHistoryRecordsEachAttempt(t *testing.T) {
 	after := h.section(t, id, "Sync history")
 	if !strings.Contains(after, "succeeded") {
 		t.Errorf("the Sync history tab does not record the completed attempt:\n%s", after)
+	}
+
+	// The attempt names who asked for it, taken from the request's identity
+	// rather than from the submission, and the history says so in a column of
+	// its own. Without this a scheduled sync and a person's sync would be
+	// indistinguishable afterward.
+	if !strings.Contains(after, "STARTED BY") {
+		t.Errorf("the Sync history tab has no STARTED BY column:\n%s", after)
+	}
+	// Inside the history table, not merely somewhere on the page: the
+	// sidebar prints the signed-in subject too, so a page-wide search for it
+	// would pass whether the column rendered or not.
+	inTable := regexp.MustCompile(`(?s)<table.*?` + regexp.QuoteMeta(adminIdentity.Subject) + `.*?</table>`)
+	if !inTable.MatchString(after) {
+		t.Errorf("the history table does not name the identity that asked for the attempt (%q):\n%s", adminIdentity.Subject, after)
+	}
+	if got := conformanceProjectStore.lastClaimedActor(); got != adminIdentity.Subject {
+		t.Errorf("the claim recorded actor %q, want the caller's identity %q", got, adminIdentity.Subject)
 	}
 }
 

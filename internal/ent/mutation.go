@@ -26,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -67,6 +68,7 @@ const (
 	TypeJob                   = "Job"
 	TypeJobTask               = "JobTask"
 	TypeJournalEntry          = "JournalEntry"
+	TypeLaunchable            = "Launchable"
 	TypeLocalCredential       = "LocalCredential"
 	TypeMeshSigningKey        = "MeshSigningKey"
 	TypeOrganization          = "Organization"
@@ -15736,6 +15738,764 @@ func (m *JournalEntryMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown JournalEntry edge %s", name)
 }
 
+// LaunchableMutation represents an operation that mutates the Launchable nodes in the graph.
+type LaunchableMutation struct {
+	config
+	op                  Op
+	typ                 string
+	id                  *int
+	created_at          *time.Time
+	updated_at          *time.Time
+	_type               *string
+	name                *string
+	clearedFields       map[string]struct{}
+	organization        *int
+	clearedorganization bool
+	template            *int
+	clearedtemplate     bool
+	project             *int
+	clearedproject      bool
+	schedules           map[int]struct{}
+	removedschedules    map[int]struct{}
+	clearedschedules    bool
+	done                bool
+	oldValue            func(context.Context) (*Launchable, error)
+	predicates          []predicate.Launchable
+}
+
+var _ ent.Mutation = (*LaunchableMutation)(nil)
+
+// launchableOption allows management of the mutation configuration using functional options.
+type launchableOption func(*LaunchableMutation)
+
+// newLaunchableMutation creates new mutation for the Launchable entity.
+func newLaunchableMutation(c config, op Op, opts ...launchableOption) *LaunchableMutation {
+	m := &LaunchableMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeLaunchable,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withLaunchableID sets the ID field of the mutation.
+func withLaunchableID(id int) launchableOption {
+	return func(m *LaunchableMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *Launchable
+		)
+		m.oldValue = func(ctx context.Context) (*Launchable, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().Launchable.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withLaunchable sets the old Launchable of the mutation.
+func withLaunchable(node *Launchable) launchableOption {
+	return func(m *LaunchableMutation) {
+		m.oldValue = func(context.Context) (*Launchable, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m LaunchableMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m LaunchableMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *LaunchableMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *LaunchableMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().Launchable.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *LaunchableMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *LaunchableMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the Launchable entity.
+// If the Launchable object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LaunchableMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *LaunchableMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *LaunchableMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *LaunchableMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the Launchable entity.
+// If the Launchable object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LaunchableMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *LaunchableMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetType sets the "type" field.
+func (m *LaunchableMutation) SetType(s string) {
+	m._type = &s
+}
+
+// GetType returns the value of the "type" field in the mutation.
+func (m *LaunchableMutation) GetType() (r string, exists bool) {
+	v := m._type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldType returns the old "type" field's value of the Launchable entity.
+// If the Launchable object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LaunchableMutation) OldType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldType: %w", err)
+	}
+	return oldValue.Type, nil
+}
+
+// ResetType resets all changes to the "type" field.
+func (m *LaunchableMutation) ResetType() {
+	m._type = nil
+}
+
+// SetName sets the "name" field.
+func (m *LaunchableMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *LaunchableMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the Launchable entity.
+// If the Launchable object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LaunchableMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *LaunchableMutation) ResetName() {
+	m.name = nil
+}
+
+// SetOrganizationID sets the "organization" edge to the Organization entity by id.
+func (m *LaunchableMutation) SetOrganizationID(id int) {
+	m.organization = &id
+}
+
+// ClearOrganization clears the "organization" edge to the Organization entity.
+func (m *LaunchableMutation) ClearOrganization() {
+	m.clearedorganization = true
+}
+
+// OrganizationCleared reports if the "organization" edge to the Organization entity was cleared.
+func (m *LaunchableMutation) OrganizationCleared() bool {
+	return m.clearedorganization
+}
+
+// OrganizationID returns the "organization" edge ID in the mutation.
+func (m *LaunchableMutation) OrganizationID() (id int, exists bool) {
+	if m.organization != nil {
+		return *m.organization, true
+	}
+	return
+}
+
+// OrganizationIDs returns the "organization" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// OrganizationID instead. It exists only for internal usage by the builders.
+func (m *LaunchableMutation) OrganizationIDs() (ids []int) {
+	if id := m.organization; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetOrganization resets all changes to the "organization" edge.
+func (m *LaunchableMutation) ResetOrganization() {
+	m.organization = nil
+	m.clearedorganization = false
+}
+
+// SetTemplateID sets the "template" edge to the Template entity by id.
+func (m *LaunchableMutation) SetTemplateID(id int) {
+	m.template = &id
+}
+
+// ClearTemplate clears the "template" edge to the Template entity.
+func (m *LaunchableMutation) ClearTemplate() {
+	m.clearedtemplate = true
+}
+
+// TemplateCleared reports if the "template" edge to the Template entity was cleared.
+func (m *LaunchableMutation) TemplateCleared() bool {
+	return m.clearedtemplate
+}
+
+// TemplateID returns the "template" edge ID in the mutation.
+func (m *LaunchableMutation) TemplateID() (id int, exists bool) {
+	if m.template != nil {
+		return *m.template, true
+	}
+	return
+}
+
+// TemplateIDs returns the "template" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// TemplateID instead. It exists only for internal usage by the builders.
+func (m *LaunchableMutation) TemplateIDs() (ids []int) {
+	if id := m.template; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetTemplate resets all changes to the "template" edge.
+func (m *LaunchableMutation) ResetTemplate() {
+	m.template = nil
+	m.clearedtemplate = false
+}
+
+// SetProjectID sets the "project" edge to the Project entity by id.
+func (m *LaunchableMutation) SetProjectID(id int) {
+	m.project = &id
+}
+
+// ClearProject clears the "project" edge to the Project entity.
+func (m *LaunchableMutation) ClearProject() {
+	m.clearedproject = true
+}
+
+// ProjectCleared reports if the "project" edge to the Project entity was cleared.
+func (m *LaunchableMutation) ProjectCleared() bool {
+	return m.clearedproject
+}
+
+// ProjectID returns the "project" edge ID in the mutation.
+func (m *LaunchableMutation) ProjectID() (id int, exists bool) {
+	if m.project != nil {
+		return *m.project, true
+	}
+	return
+}
+
+// ProjectIDs returns the "project" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProjectID instead. It exists only for internal usage by the builders.
+func (m *LaunchableMutation) ProjectIDs() (ids []int) {
+	if id := m.project; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProject resets all changes to the "project" edge.
+func (m *LaunchableMutation) ResetProject() {
+	m.project = nil
+	m.clearedproject = false
+}
+
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by ids.
+func (m *LaunchableMutation) AddScheduleIDs(ids ...int) {
+	if m.schedules == nil {
+		m.schedules = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.schedules[ids[i]] = struct{}{}
+	}
+}
+
+// ClearSchedules clears the "schedules" edge to the Schedule entity.
+func (m *LaunchableMutation) ClearSchedules() {
+	m.clearedschedules = true
+}
+
+// SchedulesCleared reports if the "schedules" edge to the Schedule entity was cleared.
+func (m *LaunchableMutation) SchedulesCleared() bool {
+	return m.clearedschedules
+}
+
+// RemoveScheduleIDs removes the "schedules" edge to the Schedule entity by IDs.
+func (m *LaunchableMutation) RemoveScheduleIDs(ids ...int) {
+	if m.removedschedules == nil {
+		m.removedschedules = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.schedules, ids[i])
+		m.removedschedules[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedSchedules returns the removed IDs of the "schedules" edge to the Schedule entity.
+func (m *LaunchableMutation) RemovedSchedulesIDs() (ids []int) {
+	for id := range m.removedschedules {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// SchedulesIDs returns the "schedules" edge IDs in the mutation.
+func (m *LaunchableMutation) SchedulesIDs() (ids []int) {
+	for id := range m.schedules {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetSchedules resets all changes to the "schedules" edge.
+func (m *LaunchableMutation) ResetSchedules() {
+	m.schedules = nil
+	m.clearedschedules = false
+	m.removedschedules = nil
+}
+
+// Where appends a list predicates to the LaunchableMutation builder.
+func (m *LaunchableMutation) Where(ps ...predicate.Launchable) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the LaunchableMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *LaunchableMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.Launchable, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *LaunchableMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *LaunchableMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (Launchable).
+func (m *LaunchableMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *LaunchableMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.created_at != nil {
+		fields = append(fields, launchable.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, launchable.FieldUpdatedAt)
+	}
+	if m._type != nil {
+		fields = append(fields, launchable.FieldType)
+	}
+	if m.name != nil {
+		fields = append(fields, launchable.FieldName)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *LaunchableMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case launchable.FieldCreatedAt:
+		return m.CreatedAt()
+	case launchable.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case launchable.FieldType:
+		return m.GetType()
+	case launchable.FieldName:
+		return m.Name()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *LaunchableMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case launchable.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case launchable.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case launchable.FieldType:
+		return m.OldType(ctx)
+	case launchable.FieldName:
+		return m.OldName(ctx)
+	}
+	return nil, fmt.Errorf("unknown Launchable field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *LaunchableMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case launchable.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case launchable.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case launchable.FieldType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetType(v)
+		return nil
+	case launchable.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	}
+	return fmt.Errorf("unknown Launchable field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *LaunchableMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *LaunchableMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *LaunchableMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown Launchable numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *LaunchableMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *LaunchableMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *LaunchableMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown Launchable nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *LaunchableMutation) ResetField(name string) error {
+	switch name {
+	case launchable.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case launchable.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case launchable.FieldType:
+		m.ResetType()
+		return nil
+	case launchable.FieldName:
+		m.ResetName()
+		return nil
+	}
+	return fmt.Errorf("unknown Launchable field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *LaunchableMutation) AddedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.organization != nil {
+		edges = append(edges, launchable.EdgeOrganization)
+	}
+	if m.template != nil {
+		edges = append(edges, launchable.EdgeTemplate)
+	}
+	if m.project != nil {
+		edges = append(edges, launchable.EdgeProject)
+	}
+	if m.schedules != nil {
+		edges = append(edges, launchable.EdgeSchedules)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *LaunchableMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case launchable.EdgeOrganization:
+		if id := m.organization; id != nil {
+			return []ent.Value{*id}
+		}
+	case launchable.EdgeTemplate:
+		if id := m.template; id != nil {
+			return []ent.Value{*id}
+		}
+	case launchable.EdgeProject:
+		if id := m.project; id != nil {
+			return []ent.Value{*id}
+		}
+	case launchable.EdgeSchedules:
+		ids := make([]ent.Value, 0, len(m.schedules))
+		for id := range m.schedules {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *LaunchableMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.removedschedules != nil {
+		edges = append(edges, launchable.EdgeSchedules)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *LaunchableMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case launchable.EdgeSchedules:
+		ids := make([]ent.Value, 0, len(m.removedschedules))
+		for id := range m.removedschedules {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *LaunchableMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.clearedorganization {
+		edges = append(edges, launchable.EdgeOrganization)
+	}
+	if m.clearedtemplate {
+		edges = append(edges, launchable.EdgeTemplate)
+	}
+	if m.clearedproject {
+		edges = append(edges, launchable.EdgeProject)
+	}
+	if m.clearedschedules {
+		edges = append(edges, launchable.EdgeSchedules)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *LaunchableMutation) EdgeCleared(name string) bool {
+	switch name {
+	case launchable.EdgeOrganization:
+		return m.clearedorganization
+	case launchable.EdgeTemplate:
+		return m.clearedtemplate
+	case launchable.EdgeProject:
+		return m.clearedproject
+	case launchable.EdgeSchedules:
+		return m.clearedschedules
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *LaunchableMutation) ClearEdge(name string) error {
+	switch name {
+	case launchable.EdgeOrganization:
+		m.ClearOrganization()
+		return nil
+	case launchable.EdgeTemplate:
+		m.ClearTemplate()
+		return nil
+	case launchable.EdgeProject:
+		m.ClearProject()
+		return nil
+	}
+	return fmt.Errorf("unknown Launchable unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *LaunchableMutation) ResetEdge(name string) error {
+	switch name {
+	case launchable.EdgeOrganization:
+		m.ResetOrganization()
+		return nil
+	case launchable.EdgeTemplate:
+		m.ResetTemplate()
+		return nil
+	case launchable.EdgeProject:
+		m.ResetProject()
+		return nil
+	case launchable.EdgeSchedules:
+		m.ResetSchedules()
+		return nil
+	}
+	return fmt.Errorf("unknown Launchable edge %s", name)
+}
+
 // LocalCredentialMutation represents an operation that mutates the LocalCredential nodes in the graph.
 type LocalCredentialMutation struct {
 	config
@@ -17250,6 +18010,9 @@ type OrganizationMutation struct {
 	schedules               map[int]struct{}
 	removedschedules        map[int]struct{}
 	clearedschedules        bool
+	launchables             map[int]struct{}
+	removedlaunchables      map[int]struct{}
+	clearedlaunchables      bool
 	credential_types        map[int]struct{}
 	removedcredential_types map[int]struct{}
 	clearedcredential_types bool
@@ -18223,6 +18986,60 @@ func (m *OrganizationMutation) ResetSchedules() {
 	m.removedschedules = nil
 }
 
+// AddLaunchableIDs adds the "launchables" edge to the Launchable entity by ids.
+func (m *OrganizationMutation) AddLaunchableIDs(ids ...int) {
+	if m.launchables == nil {
+		m.launchables = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.launchables[ids[i]] = struct{}{}
+	}
+}
+
+// ClearLaunchables clears the "launchables" edge to the Launchable entity.
+func (m *OrganizationMutation) ClearLaunchables() {
+	m.clearedlaunchables = true
+}
+
+// LaunchablesCleared reports if the "launchables" edge to the Launchable entity was cleared.
+func (m *OrganizationMutation) LaunchablesCleared() bool {
+	return m.clearedlaunchables
+}
+
+// RemoveLaunchableIDs removes the "launchables" edge to the Launchable entity by IDs.
+func (m *OrganizationMutation) RemoveLaunchableIDs(ids ...int) {
+	if m.removedlaunchables == nil {
+		m.removedlaunchables = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.launchables, ids[i])
+		m.removedlaunchables[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedLaunchables returns the removed IDs of the "launchables" edge to the Launchable entity.
+func (m *OrganizationMutation) RemovedLaunchablesIDs() (ids []int) {
+	for id := range m.removedlaunchables {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// LaunchablesIDs returns the "launchables" edge IDs in the mutation.
+func (m *OrganizationMutation) LaunchablesIDs() (ids []int) {
+	for id := range m.launchables {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetLaunchables resets all changes to the "launchables" edge.
+func (m *OrganizationMutation) ResetLaunchables() {
+	m.launchables = nil
+	m.clearedlaunchables = false
+	m.removedlaunchables = nil
+}
+
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by ids.
 func (m *OrganizationMutation) AddCredentialTypeIDs(ids ...int) {
 	if m.credential_types == nil {
@@ -18887,7 +19704,7 @@ func (m *OrganizationMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *OrganizationMutation) AddedEdges() []string {
-	edges := make([]string, 0, 10)
+	edges := make([]string, 0, 11)
 	if m.devices != nil {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -18902,6 +19719,9 @@ func (m *OrganizationMutation) AddedEdges() []string {
 	}
 	if m.schedules != nil {
 		edges = append(edges, organization.EdgeSchedules)
+	}
+	if m.launchables != nil {
+		edges = append(edges, organization.EdgeLaunchables)
 	}
 	if m.credential_types != nil {
 		edges = append(edges, organization.EdgeCredentialTypes)
@@ -18955,6 +19775,12 @@ func (m *OrganizationMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case organization.EdgeLaunchables:
+		ids := make([]ent.Value, 0, len(m.launchables))
+		for id := range m.launchables {
+			ids = append(ids, id)
+		}
+		return ids
 	case organization.EdgeCredentialTypes:
 		ids := make([]ent.Value, 0, len(m.credential_types))
 		for id := range m.credential_types {
@@ -18991,7 +19817,7 @@ func (m *OrganizationMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *OrganizationMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 10)
+	edges := make([]string, 0, 11)
 	if m.removeddevices != nil {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -19006,6 +19832,9 @@ func (m *OrganizationMutation) RemovedEdges() []string {
 	}
 	if m.removedschedules != nil {
 		edges = append(edges, organization.EdgeSchedules)
+	}
+	if m.removedlaunchables != nil {
+		edges = append(edges, organization.EdgeLaunchables)
 	}
 	if m.removedcredential_types != nil {
 		edges = append(edges, organization.EdgeCredentialTypes)
@@ -19059,6 +19888,12 @@ func (m *OrganizationMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case organization.EdgeLaunchables:
+		ids := make([]ent.Value, 0, len(m.removedlaunchables))
+		for id := range m.removedlaunchables {
+			ids = append(ids, id)
+		}
+		return ids
 	case organization.EdgeCredentialTypes:
 		ids := make([]ent.Value, 0, len(m.removedcredential_types))
 		for id := range m.removedcredential_types {
@@ -19095,7 +19930,7 @@ func (m *OrganizationMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *OrganizationMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 10)
+	edges := make([]string, 0, 11)
 	if m.cleareddevices {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -19110,6 +19945,9 @@ func (m *OrganizationMutation) ClearedEdges() []string {
 	}
 	if m.clearedschedules {
 		edges = append(edges, organization.EdgeSchedules)
+	}
+	if m.clearedlaunchables {
+		edges = append(edges, organization.EdgeLaunchables)
 	}
 	if m.clearedcredential_types {
 		edges = append(edges, organization.EdgeCredentialTypes)
@@ -19143,6 +19981,8 @@ func (m *OrganizationMutation) EdgeCleared(name string) bool {
 		return m.clearedtemplates
 	case organization.EdgeSchedules:
 		return m.clearedschedules
+	case organization.EdgeLaunchables:
+		return m.clearedlaunchables
 	case organization.EdgeCredentialTypes:
 		return m.clearedcredential_types
 	case organization.EdgeCredentials:
@@ -19183,6 +20023,9 @@ func (m *OrganizationMutation) ResetEdge(name string) error {
 		return nil
 	case organization.EdgeSchedules:
 		m.ResetSchedules()
+		return nil
+	case organization.EdgeLaunchables:
+		m.ResetLaunchables()
 		return nil
 	case organization.EdgeCredentialTypes:
 		m.ResetCredentialTypes()
@@ -19232,6 +20075,8 @@ type ProjectMutation struct {
 	sync_runs           map[int]struct{}
 	removedsync_runs    map[int]struct{}
 	clearedsync_runs    bool
+	launchable          *int
+	clearedlaunchable   bool
 	done                bool
 	oldValue            func(context.Context) (*Project, error)
 	predicates          []predicate.Project
@@ -19966,6 +20811,45 @@ func (m *ProjectMutation) ResetSyncRuns() {
 	m.removedsync_runs = nil
 }
 
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by id.
+func (m *ProjectMutation) SetLaunchableID(id int) {
+	m.launchable = &id
+}
+
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (m *ProjectMutation) ClearLaunchable() {
+	m.clearedlaunchable = true
+}
+
+// LaunchableCleared reports if the "launchable" edge to the Launchable entity was cleared.
+func (m *ProjectMutation) LaunchableCleared() bool {
+	return m.clearedlaunchable
+}
+
+// LaunchableID returns the "launchable" edge ID in the mutation.
+func (m *ProjectMutation) LaunchableID() (id int, exists bool) {
+	if m.launchable != nil {
+		return *m.launchable, true
+	}
+	return
+}
+
+// LaunchableIDs returns the "launchable" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// LaunchableID instead. It exists only for internal usage by the builders.
+func (m *ProjectMutation) LaunchableIDs() (ids []int) {
+	if id := m.launchable; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetLaunchable resets all changes to the "launchable" edge.
+func (m *ProjectMutation) ResetLaunchable() {
+	m.launchable = nil
+	m.clearedlaunchable = false
+}
+
 // Where appends a list predicates to the ProjectMutation builder.
 func (m *ProjectMutation) Where(ps ...predicate.Project) {
 	m.predicates = append(m.predicates, ps...)
@@ -20295,7 +21179,7 @@ func (m *ProjectMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ProjectMutation) AddedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.organization != nil {
 		edges = append(edges, project.EdgeOrganization)
 	}
@@ -20307,6 +21191,9 @@ func (m *ProjectMutation) AddedEdges() []string {
 	}
 	if m.sync_runs != nil {
 		edges = append(edges, project.EdgeSyncRuns)
+	}
+	if m.launchable != nil {
+		edges = append(edges, project.EdgeLaunchable)
 	}
 	return edges
 }
@@ -20335,13 +21222,17 @@ func (m *ProjectMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case project.EdgeLaunchable:
+		if id := m.launchable; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ProjectMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.removedtemplates != nil {
 		edges = append(edges, project.EdgeTemplates)
 	}
@@ -20373,7 +21264,7 @@ func (m *ProjectMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ProjectMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.clearedorganization {
 		edges = append(edges, project.EdgeOrganization)
 	}
@@ -20385,6 +21276,9 @@ func (m *ProjectMutation) ClearedEdges() []string {
 	}
 	if m.clearedsync_runs {
 		edges = append(edges, project.EdgeSyncRuns)
+	}
+	if m.clearedlaunchable {
+		edges = append(edges, project.EdgeLaunchable)
 	}
 	return edges
 }
@@ -20401,6 +21295,8 @@ func (m *ProjectMutation) EdgeCleared(name string) bool {
 		return m.clearedtemplates
 	case project.EdgeSyncRuns:
 		return m.clearedsync_runs
+	case project.EdgeLaunchable:
+		return m.clearedlaunchable
 	}
 	return false
 }
@@ -20414,6 +21310,9 @@ func (m *ProjectMutation) ClearEdge(name string) error {
 		return nil
 	case project.EdgeCredential:
 		m.ClearCredential()
+		return nil
+	case project.EdgeLaunchable:
+		m.ClearLaunchable()
 		return nil
 	}
 	return fmt.Errorf("unknown Project unique edge %s", name)
@@ -20434,6 +21333,9 @@ func (m *ProjectMutation) ResetEdge(name string) error {
 		return nil
 	case project.EdgeSyncRuns:
 		m.ResetSyncRuns()
+		return nil
+	case project.EdgeLaunchable:
+		m.ResetLaunchable()
 		return nil
 	}
 	return fmt.Errorf("unknown Project edge %s", name)
@@ -22720,8 +23622,8 @@ type ScheduleMutation struct {
 	clearedFields       map[string]struct{}
 	organization        *int
 	clearedorganization bool
-	template            *int
-	clearedtemplate     bool
+	launchable          *int
+	clearedlaunchable   bool
 	saved_config        *int
 	clearedsaved_config bool
 	occurrences         map[int]struct{}
@@ -23418,43 +24320,43 @@ func (m *ScheduleMutation) ResetOrganization() {
 	m.clearedorganization = false
 }
 
-// SetTemplateID sets the "template" edge to the Template entity by id.
-func (m *ScheduleMutation) SetTemplateID(id int) {
-	m.template = &id
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by id.
+func (m *ScheduleMutation) SetLaunchableID(id int) {
+	m.launchable = &id
 }
 
-// ClearTemplate clears the "template" edge to the Template entity.
-func (m *ScheduleMutation) ClearTemplate() {
-	m.clearedtemplate = true
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (m *ScheduleMutation) ClearLaunchable() {
+	m.clearedlaunchable = true
 }
 
-// TemplateCleared reports if the "template" edge to the Template entity was cleared.
-func (m *ScheduleMutation) TemplateCleared() bool {
-	return m.clearedtemplate
+// LaunchableCleared reports if the "launchable" edge to the Launchable entity was cleared.
+func (m *ScheduleMutation) LaunchableCleared() bool {
+	return m.clearedlaunchable
 }
 
-// TemplateID returns the "template" edge ID in the mutation.
-func (m *ScheduleMutation) TemplateID() (id int, exists bool) {
-	if m.template != nil {
-		return *m.template, true
+// LaunchableID returns the "launchable" edge ID in the mutation.
+func (m *ScheduleMutation) LaunchableID() (id int, exists bool) {
+	if m.launchable != nil {
+		return *m.launchable, true
 	}
 	return
 }
 
-// TemplateIDs returns the "template" edge IDs in the mutation.
+// LaunchableIDs returns the "launchable" edge IDs in the mutation.
 // Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
-// TemplateID instead. It exists only for internal usage by the builders.
-func (m *ScheduleMutation) TemplateIDs() (ids []int) {
-	if id := m.template; id != nil {
+// LaunchableID instead. It exists only for internal usage by the builders.
+func (m *ScheduleMutation) LaunchableIDs() (ids []int) {
+	if id := m.launchable; id != nil {
 		ids = append(ids, *id)
 	}
 	return
 }
 
-// ResetTemplate resets all changes to the "template" edge.
-func (m *ScheduleMutation) ResetTemplate() {
-	m.template = nil
-	m.clearedtemplate = false
+// ResetLaunchable resets all changes to the "launchable" edge.
+func (m *ScheduleMutation) ResetLaunchable() {
+	m.launchable = nil
+	m.clearedlaunchable = false
 }
 
 // SetSavedConfigID sets the "saved_config" edge to the SavedLaunchConfig entity by id.
@@ -23924,8 +24826,8 @@ func (m *ScheduleMutation) AddedEdges() []string {
 	if m.organization != nil {
 		edges = append(edges, schedule.EdgeOrganization)
 	}
-	if m.template != nil {
-		edges = append(edges, schedule.EdgeTemplate)
+	if m.launchable != nil {
+		edges = append(edges, schedule.EdgeLaunchable)
 	}
 	if m.saved_config != nil {
 		edges = append(edges, schedule.EdgeSavedConfig)
@@ -23944,8 +24846,8 @@ func (m *ScheduleMutation) AddedIDs(name string) []ent.Value {
 		if id := m.organization; id != nil {
 			return []ent.Value{*id}
 		}
-	case schedule.EdgeTemplate:
-		if id := m.template; id != nil {
+	case schedule.EdgeLaunchable:
+		if id := m.launchable; id != nil {
 			return []ent.Value{*id}
 		}
 	case schedule.EdgeSavedConfig:
@@ -23991,8 +24893,8 @@ func (m *ScheduleMutation) ClearedEdges() []string {
 	if m.clearedorganization {
 		edges = append(edges, schedule.EdgeOrganization)
 	}
-	if m.clearedtemplate {
-		edges = append(edges, schedule.EdgeTemplate)
+	if m.clearedlaunchable {
+		edges = append(edges, schedule.EdgeLaunchable)
 	}
 	if m.clearedsaved_config {
 		edges = append(edges, schedule.EdgeSavedConfig)
@@ -24009,8 +24911,8 @@ func (m *ScheduleMutation) EdgeCleared(name string) bool {
 	switch name {
 	case schedule.EdgeOrganization:
 		return m.clearedorganization
-	case schedule.EdgeTemplate:
-		return m.clearedtemplate
+	case schedule.EdgeLaunchable:
+		return m.clearedlaunchable
 	case schedule.EdgeSavedConfig:
 		return m.clearedsaved_config
 	case schedule.EdgeOccurrences:
@@ -24026,8 +24928,8 @@ func (m *ScheduleMutation) ClearEdge(name string) error {
 	case schedule.EdgeOrganization:
 		m.ClearOrganization()
 		return nil
-	case schedule.EdgeTemplate:
-		m.ClearTemplate()
+	case schedule.EdgeLaunchable:
+		m.ClearLaunchable()
 		return nil
 	case schedule.EdgeSavedConfig:
 		m.ClearSavedConfig()
@@ -24043,8 +24945,8 @@ func (m *ScheduleMutation) ResetEdge(name string) error {
 	case schedule.EdgeOrganization:
 		m.ResetOrganization()
 		return nil
-	case schedule.EdgeTemplate:
-		m.ResetTemplate()
+	case schedule.EdgeLaunchable:
+		m.ResetLaunchable()
 		return nil
 	case schedule.EdgeSavedConfig:
 		m.ResetSavedConfig()
@@ -24070,6 +24972,7 @@ type ScheduleOccurrenceMutation struct {
 	suppressed_count    *int
 	addsuppressed_count *int
 	job_id              *string
+	unified_job_type    *string
 	clearedFields       map[string]struct{}
 	schedule            *int
 	clearedschedule     bool
@@ -24474,6 +25377,55 @@ func (m *ScheduleOccurrenceMutation) ResetJobID() {
 	delete(m.clearedFields, scheduleoccurrence.FieldJobID)
 }
 
+// SetUnifiedJobType sets the "unified_job_type" field.
+func (m *ScheduleOccurrenceMutation) SetUnifiedJobType(s string) {
+	m.unified_job_type = &s
+}
+
+// UnifiedJobType returns the value of the "unified_job_type" field in the mutation.
+func (m *ScheduleOccurrenceMutation) UnifiedJobType() (r string, exists bool) {
+	v := m.unified_job_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUnifiedJobType returns the old "unified_job_type" field's value of the ScheduleOccurrence entity.
+// If the ScheduleOccurrence object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScheduleOccurrenceMutation) OldUnifiedJobType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUnifiedJobType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUnifiedJobType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUnifiedJobType: %w", err)
+	}
+	return oldValue.UnifiedJobType, nil
+}
+
+// ClearUnifiedJobType clears the value of the "unified_job_type" field.
+func (m *ScheduleOccurrenceMutation) ClearUnifiedJobType() {
+	m.unified_job_type = nil
+	m.clearedFields[scheduleoccurrence.FieldUnifiedJobType] = struct{}{}
+}
+
+// UnifiedJobTypeCleared returns if the "unified_job_type" field was cleared in this mutation.
+func (m *ScheduleOccurrenceMutation) UnifiedJobTypeCleared() bool {
+	_, ok := m.clearedFields[scheduleoccurrence.FieldUnifiedJobType]
+	return ok
+}
+
+// ResetUnifiedJobType resets all changes to the "unified_job_type" field.
+func (m *ScheduleOccurrenceMutation) ResetUnifiedJobType() {
+	m.unified_job_type = nil
+	delete(m.clearedFields, scheduleoccurrence.FieldUnifiedJobType)
+}
+
 // SetScheduleID sets the "schedule" edge to the Schedule entity by id.
 func (m *ScheduleOccurrenceMutation) SetScheduleID(id int) {
 	m.schedule = &id
@@ -24547,7 +25499,7 @@ func (m *ScheduleOccurrenceMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ScheduleOccurrenceMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
 	if m.created_at != nil {
 		fields = append(fields, scheduleoccurrence.FieldCreatedAt)
 	}
@@ -24568,6 +25520,9 @@ func (m *ScheduleOccurrenceMutation) Fields() []string {
 	}
 	if m.job_id != nil {
 		fields = append(fields, scheduleoccurrence.FieldJobID)
+	}
+	if m.unified_job_type != nil {
+		fields = append(fields, scheduleoccurrence.FieldUnifiedJobType)
 	}
 	return fields
 }
@@ -24591,6 +25546,8 @@ func (m *ScheduleOccurrenceMutation) Field(name string) (ent.Value, bool) {
 		return m.SuppressedCount()
 	case scheduleoccurrence.FieldJobID:
 		return m.JobID()
+	case scheduleoccurrence.FieldUnifiedJobType:
+		return m.UnifiedJobType()
 	}
 	return nil, false
 }
@@ -24614,6 +25571,8 @@ func (m *ScheduleOccurrenceMutation) OldField(ctx context.Context, name string) 
 		return m.OldSuppressedCount(ctx)
 	case scheduleoccurrence.FieldJobID:
 		return m.OldJobID(ctx)
+	case scheduleoccurrence.FieldUnifiedJobType:
+		return m.OldUnifiedJobType(ctx)
 	}
 	return nil, fmt.Errorf("unknown ScheduleOccurrence field %s", name)
 }
@@ -24672,6 +25631,13 @@ func (m *ScheduleOccurrenceMutation) SetField(name string, value ent.Value) erro
 		}
 		m.SetJobID(v)
 		return nil
+	case scheduleoccurrence.FieldUnifiedJobType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUnifiedJobType(v)
+		return nil
 	}
 	return fmt.Errorf("unknown ScheduleOccurrence field %s", name)
 }
@@ -24723,6 +25689,9 @@ func (m *ScheduleOccurrenceMutation) ClearedFields() []string {
 	if m.FieldCleared(scheduleoccurrence.FieldJobID) {
 		fields = append(fields, scheduleoccurrence.FieldJobID)
 	}
+	if m.FieldCleared(scheduleoccurrence.FieldUnifiedJobType) {
+		fields = append(fields, scheduleoccurrence.FieldUnifiedJobType)
+	}
 	return fields
 }
 
@@ -24742,6 +25711,9 @@ func (m *ScheduleOccurrenceMutation) ClearField(name string) error {
 		return nil
 	case scheduleoccurrence.FieldJobID:
 		m.ClearJobID()
+		return nil
+	case scheduleoccurrence.FieldUnifiedJobType:
+		m.ClearUnifiedJobType()
 		return nil
 	}
 	return fmt.Errorf("unknown ScheduleOccurrence nullable field %s", name)
@@ -24771,6 +25743,9 @@ func (m *ScheduleOccurrenceMutation) ResetField(name string) error {
 		return nil
 	case scheduleoccurrence.FieldJobID:
 		m.ResetJobID()
+		return nil
+	case scheduleoccurrence.FieldUnifiedJobType:
+		m.ResetUnifiedJobType()
 		return nil
 	}
 	return fmt.Errorf("unknown ScheduleOccurrence field %s", name)
@@ -26930,6 +27905,7 @@ type SyncRunMutation struct {
 	created_at     *time.Time
 	updated_at     *time.Time
 	status         *syncrun.Status
+	actor          *string
 	revision       *string
 	error          *string
 	started_at     *time.Time
@@ -27148,6 +28124,55 @@ func (m *SyncRunMutation) ResetStatus() {
 	m.status = nil
 }
 
+// SetActor sets the "actor" field.
+func (m *SyncRunMutation) SetActor(s string) {
+	m.actor = &s
+}
+
+// Actor returns the value of the "actor" field in the mutation.
+func (m *SyncRunMutation) Actor() (r string, exists bool) {
+	v := m.actor
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldActor returns the old "actor" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldActor(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldActor is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldActor requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldActor: %w", err)
+	}
+	return oldValue.Actor, nil
+}
+
+// ClearActor clears the value of the "actor" field.
+func (m *SyncRunMutation) ClearActor() {
+	m.actor = nil
+	m.clearedFields[syncrun.FieldActor] = struct{}{}
+}
+
+// ActorCleared returns if the "actor" field was cleared in this mutation.
+func (m *SyncRunMutation) ActorCleared() bool {
+	_, ok := m.clearedFields[syncrun.FieldActor]
+	return ok
+}
+
+// ResetActor resets all changes to the "actor" field.
+func (m *SyncRunMutation) ResetActor() {
+	m.actor = nil
+	delete(m.clearedFields, syncrun.FieldActor)
+}
+
 // SetRevision sets the "revision" field.
 func (m *SyncRunMutation) SetRevision(s string) {
 	m.revision = &s
@@ -27273,7 +28298,7 @@ func (m *SyncRunMutation) FinishedAt() (r time.Time, exists bool) {
 // OldFinishedAt returns the old "finished_at" field's value of the SyncRun entity.
 // If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *SyncRunMutation) OldFinishedAt(ctx context.Context) (v time.Time, err error) {
+func (m *SyncRunMutation) OldFinishedAt(ctx context.Context) (v *time.Time, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldFinishedAt is only allowed on UpdateOne operations")
 	}
@@ -27287,9 +28312,22 @@ func (m *SyncRunMutation) OldFinishedAt(ctx context.Context) (v time.Time, err e
 	return oldValue.FinishedAt, nil
 }
 
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (m *SyncRunMutation) ClearFinishedAt() {
+	m.finished_at = nil
+	m.clearedFields[syncrun.FieldFinishedAt] = struct{}{}
+}
+
+// FinishedAtCleared returns if the "finished_at" field was cleared in this mutation.
+func (m *SyncRunMutation) FinishedAtCleared() bool {
+	_, ok := m.clearedFields[syncrun.FieldFinishedAt]
+	return ok
+}
+
 // ResetFinishedAt resets all changes to the "finished_at" field.
 func (m *SyncRunMutation) ResetFinishedAt() {
 	m.finished_at = nil
+	delete(m.clearedFields, syncrun.FieldFinishedAt)
 }
 
 // SetProjectID sets the "project" edge to the Project entity by id.
@@ -27365,7 +28403,7 @@ func (m *SyncRunMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SyncRunMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
 	if m.created_at != nil {
 		fields = append(fields, syncrun.FieldCreatedAt)
 	}
@@ -27374,6 +28412,9 @@ func (m *SyncRunMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, syncrun.FieldStatus)
+	}
+	if m.actor != nil {
+		fields = append(fields, syncrun.FieldActor)
 	}
 	if m.revision != nil {
 		fields = append(fields, syncrun.FieldRevision)
@@ -27401,6 +28442,8 @@ func (m *SyncRunMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case syncrun.FieldStatus:
 		return m.Status()
+	case syncrun.FieldActor:
+		return m.Actor()
 	case syncrun.FieldRevision:
 		return m.Revision()
 	case syncrun.FieldError:
@@ -27424,6 +28467,8 @@ func (m *SyncRunMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldUpdatedAt(ctx)
 	case syncrun.FieldStatus:
 		return m.OldStatus(ctx)
+	case syncrun.FieldActor:
+		return m.OldActor(ctx)
 	case syncrun.FieldRevision:
 		return m.OldRevision(ctx)
 	case syncrun.FieldError:
@@ -27461,6 +28506,13 @@ func (m *SyncRunMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case syncrun.FieldActor:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetActor(v)
 		return nil
 	case syncrun.FieldRevision:
 		v, ok := value.(string)
@@ -27519,7 +28571,14 @@ func (m *SyncRunMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *SyncRunMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(syncrun.FieldActor) {
+		fields = append(fields, syncrun.FieldActor)
+	}
+	if m.FieldCleared(syncrun.FieldFinishedAt) {
+		fields = append(fields, syncrun.FieldFinishedAt)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -27532,6 +28591,14 @@ func (m *SyncRunMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *SyncRunMutation) ClearField(name string) error {
+	switch name {
+	case syncrun.FieldActor:
+		m.ClearActor()
+		return nil
+	case syncrun.FieldFinishedAt:
+		m.ClearFinishedAt()
+		return nil
+	}
 	return fmt.Errorf("unknown SyncRun nullable field %s", name)
 }
 
@@ -27547,6 +28614,9 @@ func (m *SyncRunMutation) ResetField(name string) error {
 		return nil
 	case syncrun.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case syncrun.FieldActor:
+		m.ResetActor()
 		return nil
 	case syncrun.FieldRevision:
 		m.ResetRevision()
@@ -28647,9 +29717,8 @@ type TemplateMutation struct {
 	credentials             map[int]struct{}
 	removedcredentials      map[int]struct{}
 	clearedcredentials      bool
-	schedules               map[int]struct{}
-	removedschedules        map[int]struct{}
-	clearedschedules        bool
+	launchable              *int
+	clearedlaunchable       bool
 	done                    bool
 	oldValue                func(context.Context) (*Template, error)
 	predicates              []predicate.Template
@@ -29512,58 +30581,43 @@ func (m *TemplateMutation) ResetCredentials() {
 	m.removedcredentials = nil
 }
 
-// AddScheduleIDs adds the "schedules" edge to the Schedule entity by ids.
-func (m *TemplateMutation) AddScheduleIDs(ids ...int) {
-	if m.schedules == nil {
-		m.schedules = make(map[int]struct{})
-	}
-	for i := range ids {
-		m.schedules[ids[i]] = struct{}{}
-	}
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by id.
+func (m *TemplateMutation) SetLaunchableID(id int) {
+	m.launchable = &id
 }
 
-// ClearSchedules clears the "schedules" edge to the Schedule entity.
-func (m *TemplateMutation) ClearSchedules() {
-	m.clearedschedules = true
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (m *TemplateMutation) ClearLaunchable() {
+	m.clearedlaunchable = true
 }
 
-// SchedulesCleared reports if the "schedules" edge to the Schedule entity was cleared.
-func (m *TemplateMutation) SchedulesCleared() bool {
-	return m.clearedschedules
+// LaunchableCleared reports if the "launchable" edge to the Launchable entity was cleared.
+func (m *TemplateMutation) LaunchableCleared() bool {
+	return m.clearedlaunchable
 }
 
-// RemoveScheduleIDs removes the "schedules" edge to the Schedule entity by IDs.
-func (m *TemplateMutation) RemoveScheduleIDs(ids ...int) {
-	if m.removedschedules == nil {
-		m.removedschedules = make(map[int]struct{})
-	}
-	for i := range ids {
-		delete(m.schedules, ids[i])
-		m.removedschedules[ids[i]] = struct{}{}
-	}
-}
-
-// RemovedSchedules returns the removed IDs of the "schedules" edge to the Schedule entity.
-func (m *TemplateMutation) RemovedSchedulesIDs() (ids []int) {
-	for id := range m.removedschedules {
-		ids = append(ids, id)
+// LaunchableID returns the "launchable" edge ID in the mutation.
+func (m *TemplateMutation) LaunchableID() (id int, exists bool) {
+	if m.launchable != nil {
+		return *m.launchable, true
 	}
 	return
 }
 
-// SchedulesIDs returns the "schedules" edge IDs in the mutation.
-func (m *TemplateMutation) SchedulesIDs() (ids []int) {
-	for id := range m.schedules {
-		ids = append(ids, id)
+// LaunchableIDs returns the "launchable" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// LaunchableID instead. It exists only for internal usage by the builders.
+func (m *TemplateMutation) LaunchableIDs() (ids []int) {
+	if id := m.launchable; id != nil {
+		ids = append(ids, *id)
 	}
 	return
 }
 
-// ResetSchedules resets all changes to the "schedules" edge.
-func (m *TemplateMutation) ResetSchedules() {
-	m.schedules = nil
-	m.clearedschedules = false
-	m.removedschedules = nil
+// ResetLaunchable resets all changes to the "launchable" edge.
+func (m *TemplateMutation) ResetLaunchable() {
+	m.launchable = nil
+	m.clearedlaunchable = false
 }
 
 // Where appends a list predicates to the TemplateMutation builder.
@@ -29915,8 +30969,8 @@ func (m *TemplateMutation) AddedEdges() []string {
 	if m.credentials != nil {
 		edges = append(edges, template.EdgeCredentials)
 	}
-	if m.schedules != nil {
-		edges = append(edges, template.EdgeSchedules)
+	if m.launchable != nil {
+		edges = append(edges, template.EdgeLaunchable)
 	}
 	return edges
 }
@@ -29955,12 +31009,10 @@ func (m *TemplateMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
-	case template.EdgeSchedules:
-		ids := make([]ent.Value, 0, len(m.schedules))
-		for id := range m.schedules {
-			ids = append(ids, id)
+	case template.EdgeLaunchable:
+		if id := m.launchable; id != nil {
+			return []ent.Value{*id}
 		}
-		return ids
 	}
 	return nil
 }
@@ -29976,9 +31028,6 @@ func (m *TemplateMutation) RemovedEdges() []string {
 	}
 	if m.removedcredentials != nil {
 		edges = append(edges, template.EdgeCredentials)
-	}
-	if m.removedschedules != nil {
-		edges = append(edges, template.EdgeSchedules)
 	}
 	return edges
 }
@@ -30002,12 +31051,6 @@ func (m *TemplateMutation) RemovedIDs(name string) []ent.Value {
 	case template.EdgeCredentials:
 		ids := make([]ent.Value, 0, len(m.removedcredentials))
 		for id := range m.removedcredentials {
-			ids = append(ids, id)
-		}
-		return ids
-	case template.EdgeSchedules:
-		ids := make([]ent.Value, 0, len(m.removedschedules))
-		for id := range m.removedschedules {
 			ids = append(ids, id)
 		}
 		return ids
@@ -30036,8 +31079,8 @@ func (m *TemplateMutation) ClearedEdges() []string {
 	if m.clearedcredentials {
 		edges = append(edges, template.EdgeCredentials)
 	}
-	if m.clearedschedules {
-		edges = append(edges, template.EdgeSchedules)
+	if m.clearedlaunchable {
+		edges = append(edges, template.EdgeLaunchable)
 	}
 	return edges
 }
@@ -30058,8 +31101,8 @@ func (m *TemplateMutation) EdgeCleared(name string) bool {
 		return m.clearedsaved_configs
 	case template.EdgeCredentials:
 		return m.clearedcredentials
-	case template.EdgeSchedules:
-		return m.clearedschedules
+	case template.EdgeLaunchable:
+		return m.clearedlaunchable
 	}
 	return false
 }
@@ -30076,6 +31119,9 @@ func (m *TemplateMutation) ClearEdge(name string) error {
 		return nil
 	case template.EdgeInventory:
 		m.ClearInventory()
+		return nil
+	case template.EdgeLaunchable:
+		m.ClearLaunchable()
 		return nil
 	}
 	return fmt.Errorf("unknown Template unique edge %s", name)
@@ -30103,8 +31149,8 @@ func (m *TemplateMutation) ResetEdge(name string) error {
 	case template.EdgeCredentials:
 		m.ResetCredentials()
 		return nil
-	case template.EdgeSchedules:
-		m.ResetSchedules()
+	case template.EdgeLaunchable:
+		m.ResetLaunchable()
 		return nil
 	}
 	return fmt.Errorf("unknown Template edge %s", name)

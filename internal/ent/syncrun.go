@@ -24,6 +24,8 @@ type SyncRun struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Status holds the value of the "status" field.
 	Status syncrun.Status `json:"status,omitempty"`
+	// Actor holds the value of the "actor" field.
+	Actor string `json:"actor,omitempty"`
 	// Revision holds the value of the "revision" field.
 	Revision string `json:"revision,omitempty"`
 	// Error holds the value of the "error" field.
@@ -31,7 +33,7 @@ type SyncRun struct {
 	// StartedAt holds the value of the "started_at" field.
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// FinishedAt holds the value of the "finished_at" field.
-	FinishedAt time.Time `json:"finished_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the SyncRunQuery when eager-loading is set.
 	Edges             SyncRunEdges `json:"edges"`
@@ -66,7 +68,7 @@ func (*SyncRun) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case syncrun.FieldID:
 			values[i] = new(sql.NullInt64)
-		case syncrun.FieldStatus, syncrun.FieldRevision, syncrun.FieldError:
+		case syncrun.FieldStatus, syncrun.FieldActor, syncrun.FieldRevision, syncrun.FieldError:
 			values[i] = new(sql.NullString)
 		case syncrun.FieldCreatedAt, syncrun.FieldUpdatedAt, syncrun.FieldStartedAt, syncrun.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -111,6 +113,12 @@ func (_m *SyncRun) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Status = syncrun.Status(value.String)
 			}
+		case syncrun.FieldActor:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field actor", values[i])
+			} else if value.Valid {
+				_m.Actor = value.String
+			}
 		case syncrun.FieldRevision:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field revision", values[i])
@@ -133,7 +141,8 @@ func (_m *SyncRun) assignValues(columns []string, values []any) error {
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field finished_at", values[i])
 			} else if value.Valid {
-				_m.FinishedAt = value.Time
+				_m.FinishedAt = new(time.Time)
+				*_m.FinishedAt = value.Time
 			}
 		case syncrun.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -192,6 +201,9 @@ func (_m *SyncRun) String() string {
 	builder.WriteString("status=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Status))
 	builder.WriteString(", ")
+	builder.WriteString("actor=")
+	builder.WriteString(_m.Actor)
+	builder.WriteString(", ")
 	builder.WriteString("revision=")
 	builder.WriteString(_m.Revision)
 	builder.WriteString(", ")
@@ -201,8 +213,10 @@ func (_m *SyncRun) String() string {
 	builder.WriteString("started_at=")
 	builder.WriteString(_m.StartedAt.Format(time.ANSIC))
 	builder.WriteString(", ")
-	builder.WriteString("finished_at=")
-	builder.WriteString(_m.FinishedAt.Format(time.ANSIC))
+	if v := _m.FinishedAt; v != nil {
+		builder.WriteString("finished_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -7,9 +7,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
+
+	// The built-in launchable types, blank-imported for exactly the reason
+	// cmd/controller blank-imports them: their init() functions are the only
+	// thing that registers them, and a store admitting a target of an
+	// unregistered type refuses it. A suite that did not import this would
+	// fail in a way that looks like a store bug and is a wiring one.
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -26,8 +35,15 @@ type storeFixture struct {
 	store  schedule.Store
 	client *ent.Client
 
-	orgA, tmplA int
-	orgB, tmplB int
+	// The launchable ids, not the template ids: a schedule points at the row
+	// standing for a template rather than at the template, which is what lets
+	// one schedule mechanism cover every sort of launchable thing.
+	orgA, launchableA int
+	orgB, launchableB int
+
+	// The template ids too, for the one test that deletes a template and
+	// expects the refusal a schedule pointing at its launchable produces.
+	templateA int
 }
 
 func newStoreFixture(t *testing.T) storeFixture {
@@ -62,22 +78,36 @@ func newStoreFixture(t *testing.T) storeFixture {
 		SetName("patch the racks").SetKind("runbook").SetDefinition("patch-racks").
 		SetOrganization(orgB).SetInventory(invB).SaveX(ctx)
 
+	// The launchable row standing for each template, written here the way the
+	// real template store writes it, so these fixtures exercise the same
+	// shape production produces.
+	lnchA := client.Launchable.Create().
+		SetType(launchable.TypeJobTemplate).SetName(tmplA.Name).
+		SetOrganization(orgA).SetTemplate(tmplA).SaveX(ctx)
+	lnchB := client.Launchable.Create().
+		SetType(launchable.TypeJobTemplate).SetName(tmplB.Name).
+		SetOrganization(orgB).SetTemplate(tmplB).SaveX(ctx)
+
 	return storeFixture{
-		store:  schedule.NewEntStore(client),
+		// No Router on the admission: these tests exercise the store, and a
+		// nil Router means "no launcher has anything to object to in
+		// advance", which is honest here rather than a stubbed approval.
+		store:  schedule.NewEntStore(client, launchable.Admission{Store: launchable.NewEntStore(client)}),
 		client: client,
-		orgA:   orgA.ID, tmplA: tmplA.ID,
-		orgB: orgB.ID, tmplB: tmplB.ID,
+		orgA:   orgA.ID, launchableA: lnchA.ID,
+		orgB: orgB.ID, launchableB: lnchB.ID,
+		templateA: tmplA.ID,
 	}
 }
 
 func (f storeFixture) newSchedule(name string) schedule.Schedule {
 	return schedule.Schedule{
-		Name:       name,
-		TemplateID: f.tmplA,
-		Enabled:    true,
-		RRule:      "FREQ=DAILY",
-		Timezone:   "America/New_York",
-		DTStart:    time.Date(2024, 3, 8, 9, 0, 0, 0, time.UTC),
+		Name:         name,
+		LaunchableID: f.launchableA,
+		Enabled:      true,
+		RRule:        "FREQ=DAILY",
+		Timezone:     "America/New_York",
+		DTStart:      time.Date(2024, 3, 8, 9, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -89,7 +119,7 @@ func TestCreateDerivesTenantFromTemplate(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	got, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	got, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -107,22 +137,32 @@ func TestCreateDerivesTenantFromTemplate(t *testing.T) {
 	}
 }
 
-// TestCreateRefusesCrossTenantTemplate covers the check ent cannot express.
-func TestCreateRefusesCrossTenantTemplate(t *testing.T) {
+// TestCreateRefusesACrossTenantTarget covers the check ent cannot express.
+func TestCreateRefusesACrossTenantTarget(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
 	s := f.newSchedule("nightly")
-	s.OrganizationID = f.orgB // claims tenant B
-	s.TemplateID = f.tmplA    // but launches tenant A's template
+	s.OrganizationID = f.orgB      // claims tenant B
+	s.LaunchableID = f.launchableA // but launches tenant A's template
 
-	_, err := f.store.Create(ctx, s)
+	_, err := f.store.Create(ctx, s, launchable.Everything())
 	if err == nil {
-		t.Fatal("Create accepted a schedule whose template belongs to another tenant")
+		t.Fatal("Create accepted a schedule whose target belongs to another tenant")
 	}
 	var fe schedule.FieldError
-	if !errors.As(err, &fe) || fe.Field != "template" {
-		t.Errorf("error = %v, want a FieldError blaming the template", err)
+	if !errors.As(err, &fe) || fe.Field != schedule.TargetField {
+		t.Errorf("error = %v, want a FieldError blaming what the schedule launches", err)
+	}
+
+	// The narrowed caller is refused the same target for the other reason, so
+	// neither the submission nor the caller's own reach can cross a tenant.
+	narrowed := f.newSchedule("nightly")
+	if _, err := f.store.Create(ctx, narrowed, launchable.Reach{
+		OrganizationID: f.orgB,
+		Grants:         func(auth.Scope) bool { return true },
+	}); !errors.Is(err, launchable.ErrCrossTenant) {
+		t.Errorf("a caller in another organization = %v, want ErrCrossTenant", err)
 	}
 }
 
@@ -130,7 +170,7 @@ func TestGetIsTenantScoped(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,10 +188,10 @@ func TestCreateRefusesDuplicateNameWithinOrg(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.store.Create(ctx, f.newSchedule("nightly")); err != nil {
+	if _, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything()); err != nil {
 		t.Fatal(err)
 	}
-	_, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	_, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err == nil {
 		t.Fatal("two schedules with the same name in one organization were accepted")
 	}
@@ -162,8 +202,8 @@ func TestCreateRefusesDuplicateNameWithinOrg(t *testing.T) {
 
 	// The same name in a different tenant is the ordinary case.
 	other := f.newSchedule("nightly")
-	other.TemplateID = f.tmplB
-	if _, err := f.store.Create(ctx, other); err != nil {
+	other.LaunchableID = f.launchableB
+	if _, err := f.store.Create(ctx, other, launchable.Everything()); err != nil {
 		t.Errorf("the same name in another organization was refused: %v", err)
 	}
 }
@@ -175,7 +215,7 @@ func TestClaimOccurrenceIsExactlyOnce(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +247,7 @@ func TestClaimIsIndifferentToLocationOfTheSameInstant(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +280,7 @@ func TestListDuePagesByKeyset(t *testing.T) {
 	var ids []string
 	for i := 0; i < 6; i++ {
 		s := f.newSchedule(fmt.Sprintf("sched-%d", i))
-		created, err := f.store.Create(ctx, s)
+		created, err := f.store.Create(ctx, s, launchable.Everything())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -287,7 +327,7 @@ func TestListDueExcludesDisabledAndFuture(t *testing.T) {
 	now := time.Now().UTC()
 	past := now.Add(-time.Hour)
 
-	overdue, err := f.store.Create(ctx, f.newSchedule("overdue"))
+	overdue, err := f.store.Create(ctx, f.newSchedule("overdue"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +337,7 @@ func TestListDueExcludesDisabledAndFuture(t *testing.T) {
 
 	disabled := f.newSchedule("disabled")
 	disabled.Enabled = false
-	off, err := f.store.Create(ctx, disabled)
+	off, err := f.store.Create(ctx, disabled, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +346,7 @@ func TestListDueExcludesDisabledAndFuture(t *testing.T) {
 	}
 
 	// A future one, left with whatever next_run Create computed.
-	if _, err := f.store.Create(ctx, f.newSchedule("future")); err != nil {
+	if _, err := f.store.Create(ctx, f.newSchedule("future"), launchable.Everything()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,7 +368,7 @@ func TestDisablingClearsNextRun(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +377,7 @@ func TestDisablingClearsNextRun(t *testing.T) {
 	}
 
 	created.Enabled = false
-	updated, err := f.store.Update(ctx, created)
+	updated, err := f.store.Update(ctx, created, launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +390,7 @@ func TestResolveAndListOccurrences(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +400,8 @@ func TestResolveAndListOccurrences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.store.ResolveOccurrence(ctx, claim.ID, schedule.OutcomeFired, "", "job-123"); err != nil {
+	if err := f.store.ResolveOccurrence(ctx, claim.ID, schedule.OutcomeFired, "",
+		launchable.Launched{RunID: "job-123", UnifiedJobType: launchable.UnifiedJobJob}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.RecordSkip(ctx, created.ScheduleID, at.Add(-time.Hour), schedule.ReasonMissedWindow, 0); err != nil {
@@ -387,7 +428,7 @@ func TestDeleteRemovesHistory(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +454,7 @@ func TestDeleteIsTenantScoped(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +480,7 @@ func TestDeletingAScheduledTemplateIsRefused(t *testing.T) {
 	f := newStoreFixture(t)
 	ctx := context.Background()
 
-	created, err := f.store.Create(ctx, f.newSchedule("nightly"))
+	created, err := f.store.Create(ctx, f.newSchedule("nightly"), launchable.Everything())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +489,7 @@ func TestDeletingAScheduledTemplateIsRefused(t *testing.T) {
 		launch.CatalogEntry{Kind: "runbook", Definition: "patch-edge"},
 	))
 
-	err = templates.Delete(ctx, f.tmplA)
+	err = templates.Delete(ctx, f.templateA)
 	if !errors.Is(err, launch.ErrInUse) {
 		t.Fatalf("deleting a scheduled template = %v, want launch.ErrInUse", err)
 	}
@@ -469,7 +510,7 @@ func TestDeletingAScheduledTemplateIsRefused(t *testing.T) {
 	if err := f.store.Delete(ctx, f.orgA, created.ScheduleID); err != nil {
 		t.Fatal(err)
 	}
-	if err := templates.Delete(ctx, f.tmplA); err != nil {
+	if err := templates.Delete(ctx, f.templateA); err != nil {
 		t.Errorf("deleting an unscheduled template: %v", err)
 	}
 }

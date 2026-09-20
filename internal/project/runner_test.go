@@ -24,13 +24,30 @@ type recordingStore struct {
 	recorded    []project.Result
 	resetN      int
 	resetCalled bool
+
+	// claimedActor is the actor the last claim carried, so a test can check
+	// the runner passes through what it was given rather than inventing one.
+	claimedActor string
 }
 
-func (s *recordingStore) BeginSync(_ context.Context, id int) (project.Project, error) {
+func (s *recordingStore) BeginSync(_ context.Context, id int, actor string) (project.Claim, error) {
 	if s.beginErr != nil {
-		return project.Project{}, s.beginErr
+		return project.Claim{}, s.beginErr
 	}
-	return project.Project{ID: id, SCMType: project.SCMGit, SCMURL: "https://example.invalid/a.git"}, nil
+	s.mu.Lock()
+	s.claimedActor = actor
+	s.mu.Unlock()
+	return project.Claim{
+		Project:   project.Project{ID: id, SCMType: project.SCMGit, SCMURL: "https://example.invalid/a.git"},
+		RunID:     id * 10,
+		StartedAt: time.Now(),
+	}, nil
+}
+
+func (s *recordingStore) actor() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claimedActor
 }
 
 func (s *recordingStore) RecordSync(_ context.Context, _ int, result project.Result) error {
@@ -38,6 +55,18 @@ func (s *recordingStore) RecordSync(_ context.Context, _ int, result project.Res
 	defer s.mu.Unlock()
 	s.recorded = append(s.recorded, result)
 	return nil
+}
+
+// ByLaunchable resolves a launchable reference into a project, standing in for
+// the store's own lookup: the fake treats the launchable id as the project id,
+// which is enough for the launch path under test.
+func (s *recordingStore) ByLaunchable(_ context.Context, launchableID int) (project.Project, error) {
+	if s.beginErr != nil {
+		return project.Project{}, s.beginErr
+	}
+	return project.Project{
+		ID: launchableID, SCMType: project.SCMGit, SCMURL: "https://example.invalid/a.git",
+	}, nil
 }
 
 func (s *recordingStore) ResetInterruptedSyncs(context.Context) (int, error) {
@@ -91,7 +120,7 @@ func TestRunner_EnqueueRunsAndRecordsTheOutcome(t *testing.T) {
 	syncer := &controllableSyncer{result: project.Result{Status: project.SyncSucceeded, Revision: "abc123"}}
 	r := project.NewRunner(store, syncer, nil)
 
-	if err := r.Enqueue(context.Background(), 7); err != nil {
+	if _, err := r.Enqueue(context.Background(), 7, "tester"); err != nil {
 		t.Fatalf("Enqueue() = %v, want it to start the sync", err)
 	}
 	r.Wait()
@@ -109,7 +138,7 @@ func TestRunner_EnqueueSurfacesAClaimRefusal(t *testing.T) {
 	store := &recordingStore{beginErr: project.ErrSyncInProgress}
 	r := project.NewRunner(store, &controllableSyncer{}, nil)
 
-	err := r.Enqueue(context.Background(), 7)
+	_, err := r.Enqueue(context.Background(), 7, "tester")
 	if !errors.Is(err, project.ErrSyncInProgress) {
 		t.Errorf("Enqueue() = %v, want the claim refusal surfaced to the caller", err)
 	}
@@ -124,7 +153,7 @@ func TestRunner_RecordsASyncerFailureRatherThanSwallowingIt(t *testing.T) {
 	syncer := &controllableSyncer{err: errors.New("could not attempt: host unreachable")}
 	r := project.NewRunner(store, syncer, nil)
 
-	if err := r.Enqueue(context.Background(), 7); err != nil {
+	if _, err := r.Enqueue(context.Background(), 7, "tester"); err != nil {
 		t.Fatalf("Enqueue() = %v", err)
 	}
 	r.Wait()
@@ -160,7 +189,7 @@ func TestRunner_ShutdownDrainsAnInFlightClone(t *testing.T) {
 	}
 	r := project.NewRunner(store, syncer, nil)
 
-	if err := r.Enqueue(context.Background(), 7); err != nil {
+	if _, err := r.Enqueue(context.Background(), 7, "tester"); err != nil {
 		t.Fatalf("Enqueue() = %v", err)
 	}
 	<-started // the clone is in flight, blocked
@@ -193,7 +222,7 @@ func TestRunner_CancelStopsOneCloneAndRecordsItAsCancelled(t *testing.T) {
 	}
 	r := project.NewRunner(store, syncer, nil)
 
-	if err := r.Enqueue(context.Background(), 7); err != nil {
+	if _, err := r.Enqueue(context.Background(), 7, "tester"); err != nil {
 		t.Fatalf("Enqueue() = %v", err)
 	}
 	<-started
@@ -242,7 +271,7 @@ func TestRunner_CancelLeavesOtherClonesAlone(t *testing.T) {
 	}
 	r := project.NewRunner(store, syncer, nil)
 
-	if err := r.Enqueue(context.Background(), 7); err != nil {
+	if _, err := r.Enqueue(context.Background(), 7, "tester"); err != nil {
 		t.Fatalf("Enqueue() = %v", err)
 	}
 	<-startedSeven
@@ -256,4 +285,50 @@ func TestRunner_CancelLeavesOtherClonesAlone(t *testing.T) {
 		t.Error("Cancel(7) did not stop its own clone")
 	}
 	r.Wait()
+}
+
+// TestEnqueue_CarriesTheActorAndNamesTheAttempt proves the runner passes the
+// caller's actor through to the claim untouched and hands back the attempt's
+// id, which is what lets a schedule record which sync it started.
+func TestEnqueue_CarriesTheActorAndNamesTheAttempt(t *testing.T) {
+	store := &recordingStore{}
+	runner := project.NewRunner(store, &controllableSyncer{
+		result: project.Result{Status: project.SyncSucceeded, Revision: "abc123"},
+	}, nil)
+	defer runner.Shutdown(context.Background())
+
+	runID, err := runner.Enqueue(context.Background(), 7, "scheduler:9")
+	if err != nil {
+		t.Fatalf("Enqueue() = %v", err)
+	}
+	if runID != 70 {
+		t.Errorf("Enqueue() returned attempt %d, want the claim's own run id 70", runID)
+	}
+	if got := store.actor(); got != "scheduler:9" {
+		t.Errorf("claimed actor = %q, want the actor the caller named", got)
+	}
+
+	runner.Wait()
+	results := store.results()
+	if len(results) != 1 {
+		t.Fatalf("recorded %d outcomes, want 1", len(results))
+	}
+	if results[0].RunID != 70 {
+		t.Errorf("recorded outcome names attempt %d, want 70: the outcome would open a second row", results[0].RunID)
+	}
+}
+
+// TestEnqueue_RefusesASyncWithNoActor proves an unattributable sync never
+// reaches the store or a goroutine.
+func TestEnqueue_RefusesASyncWithNoActor(t *testing.T) {
+	store := &recordingStore{}
+	runner := project.NewRunner(store, &controllableSyncer{}, nil)
+	defer runner.Shutdown(context.Background())
+
+	if _, err := runner.Enqueue(context.Background(), 7, "  "); !errors.Is(err, project.ErrNoActor) {
+		t.Errorf("Enqueue with a blank actor = %v, want ErrNoActor", err)
+	}
+	if got := store.actor(); got != "" {
+		t.Errorf("the store was asked to claim for actor %q, want no claim at all", got)
+	}
 }

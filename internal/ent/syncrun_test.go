@@ -97,10 +97,15 @@ func TestSyncRunRequiresAProject(t *testing.T) {
 	}
 }
 
-// TestSyncRunStatusRefusesANonTerminalOutcome pins the enum. A row is
-// written when an attempt finishes, so "running" belongs on the project's
-// own status and never here; admitting it would strand a row on every crash.
-func TestSyncRunStatusRefusesANonTerminalOutcome(t *testing.T) {
+// TestSyncRunStatusHoldsAnAttemptInFlight pins the enum, which changed when a
+// sync run started existing from the moment it is claimed rather than only once
+// it ends: an attempt needs an identity while it runs, so that whatever started
+// it can record which one it started.
+//
+// A running row therefore has no finish time, and that is the state this
+// asserts. It replaces a test that pinned the opposite, which was right for the
+// design it described and is no longer the design.
+func TestSyncRunStatusHoldsAnAttemptInFlight(t *testing.T) {
 	client := enttest.Open(t, "sqlite3", "file:syncrunstatus?mode=memory&cache=shared&_fk=1")
 	defer client.Close()
 	ctx := context.Background()
@@ -112,17 +117,28 @@ func TestSyncRunStatusRefusesANonTerminalOutcome(t *testing.T) {
 		SetOrganizationID(org.ID).
 		SaveX(ctx)
 
-	now := time.Now()
-	_, err := client.SyncRun.Create().
+	running, err := client.SyncRun.Create().
 		SetStatus(entsyncrun.Status("running")).
-		SetStartedAt(now).
-		SetFinishedAt(now).
+		SetActor("tester").
+		SetStartedAt(time.Now()).
 		SetProjectID(proj.ID).
 		Save(ctx)
-	if err == nil {
-		t.Fatal("a run saved with a running status, so the history can hold an unfinished attempt")
+	if err != nil {
+		t.Fatalf("saving a running attempt: %v", err)
 	}
-	if !ent.IsValidationError(err) {
+	if running.FinishedAt != nil {
+		t.Errorf("a running attempt has a finish time of %v, want none", running.FinishedAt)
+	}
+
+	// The enum is still closed: a status outside the three is refused, so the
+	// column cannot come to mean whatever a caller passes.
+	if _, err := client.SyncRun.Create().
+		SetStatus(entsyncrun.Status("cancelled")).
+		SetStartedAt(time.Now()).
+		SetProjectID(proj.ID).
+		Save(ctx); err == nil {
+		t.Error("a run saved with a status outside the enum")
+	} else if !ent.IsValidationError(err) {
 		t.Errorf("err = %v, want a validation error from the enum", err)
 	}
 }

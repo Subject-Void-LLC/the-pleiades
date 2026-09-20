@@ -8,10 +8,12 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entinventory "github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	entlaunchable "github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	entconfig "github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	entquestion "github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	enttemplate "github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
 
 // defaultPageSize bounds a List with no explicit limit.
@@ -75,7 +77,23 @@ func (s *entStore) Create(ctx context.Context, tmpl Template) (Template, error) 
 		return Template{}, err
 	}
 
-	created, err := s.client.Template.Create().
+	// The template, the launchable row standing for it and its survey are
+	// written in one transaction. The launchable row is what a schedule
+	// points at, so a template created without one is a template nothing can
+	// schedule, and a crash between the two writes would leave exactly that
+	// with nothing to say why.
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return Template{}, fmt.Errorf("launch: opening a transaction to create template %q: %w", tmpl.Name, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	created, err := tx.Template.Create().
 		SetName(strings.TrimSpace(tmpl.Name)).
 		SetDescription(tmpl.Description).
 		SetKind(tmpl.KindName).
@@ -98,9 +116,24 @@ func (s *entStore) Create(ctx context.Context, tmpl Template) (Template, error) 
 		return Template{}, fmt.Errorf("launch: creating template %q: %w", tmpl.Name, err)
 	}
 
-	if err := s.replaceQuestions(ctx, created.ID, tmpl.Survey.Questions); err != nil {
+	if err := tx.Launchable.Create().
+		SetType(launchable.TypeJobTemplate).
+		SetName(created.Name).
+		SetOrganizationID(organizationID).
+		SetTemplateID(created.ID).
+		Exec(ctx); err != nil {
+		return Template{}, fmt.Errorf("launch: recording template %d as launchable: %w", created.ID, err)
+	}
+
+	if err := replaceQuestionsTx(ctx, tx, created.ID, tmpl.Survey.Questions); err != nil {
 		return Template{}, err
 	}
+
+	if err := tx.Commit(); err != nil {
+		return Template{}, fmt.Errorf("launch: committing template %q: %w", tmpl.Name, err)
+	}
+	committed = true
+
 	return s.Get(ctx, created.ID)
 }
 
@@ -119,6 +152,9 @@ func (s *entStore) Get(ctx context.Context, id int) (Template, error) {
 		// is what needs to know what it runs as. Loading them per row would
 		// be an extra query per page for data no column shows.
 		WithCredentials().
+		// The launchable row standing for this template, so a caller that
+		// holds a Template can name it to a schedule without a second query.
+		WithLaunchable().
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -127,6 +163,24 @@ func (s *entStore) Get(ctx context.Context, id int) (Template, error) {
 		return Template{}, fmt.Errorf("launch: loading template %d: %w", id, err)
 	}
 	return hydrate(row), nil
+}
+
+// ByLaunchable returns the template a launchable row stands for.
+func (s *entStore) ByLaunchable(ctx context.Context, launchableID int) (Template, error) {
+	row, err := s.client.Template.Query().
+		Where(enttemplate.HasLaunchableWith(entlaunchable.IDEQ(launchableID))).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return Template{}, fmt.Errorf("%w: no template for launchable %d", ErrNotFound, launchableID)
+		}
+		return Template{}, fmt.Errorf("launch: loading the template for launchable %d: %w", launchableID, err)
+	}
+	// Re-read through Get rather than hydrating this row, so a caller gets
+	// the same fully loaded Template every other read returns: the survey and
+	// the bound credentials are exactly what a launch needs, and this query
+	// deliberately loads neither.
+	return s.Get(ctx, row.ID)
 }
 
 // List returns a page of templates.
@@ -140,6 +194,7 @@ func (s *entStore) List(ctx context.Context, q Query) ([]Template, error) {
 	query := s.client.Template.Query().
 		WithOrganization().
 		WithInventory().
+		WithLaunchable().
 		Order(ent.Asc(enttemplate.FieldID)).
 		Limit(limit)
 
@@ -188,7 +243,22 @@ func (s *entStore) Update(ctx context.Context, tmpl Template) error {
 		return err
 	}
 
-	updated, err := s.client.Template.UpdateOneID(tmpl.ID).
+	// One transaction again, for the reason Create gives plus one more: the
+	// launchable row carries a copy of the name, and a rename that reached
+	// only one of the two would leave a picker offering the old name for a
+	// template that no longer has it.
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("launch: opening a transaction to update template %d: %w", tmpl.ID, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	updated, err := tx.Template.UpdateOneID(tmpl.ID).
 		SetName(strings.TrimSpace(tmpl.Name)).
 		SetDescription(tmpl.Description).
 		SetDefaults(map[string]any(tmpl.Defaults)).
@@ -207,7 +277,22 @@ func (s *entStore) Update(ctx context.Context, tmpl Template) error {
 		return fmt.Errorf("launch: updating template %d: %w", tmpl.ID, err)
 	}
 
-	return s.replaceQuestions(ctx, updated.ID, tmpl.Survey.Questions)
+	if _, err := tx.Launchable.Update().
+		Where(entlaunchable.HasTemplateWith(enttemplate.IDEQ(updated.ID))).
+		SetName(updated.Name).
+		Save(ctx); err != nil {
+		return fmt.Errorf("launch: renaming the launchable row for template %d: %w", updated.ID, err)
+	}
+
+	if err := replaceQuestionsTx(ctx, tx, updated.ID, tmpl.Survey.Questions); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("launch: committing template %d: %w", tmpl.ID, err)
+	}
+	committed = true
+	return nil
 }
 
 // Delete removes a template, its survey and its saved configurations.
@@ -312,26 +397,23 @@ func (s *entStore) tenantFor(ctx context.Context, inventoryID int) (int, error) 
 	return row.Edges.Organization.ID, nil
 }
 
-// replaceQuestions rewrites a template's survey.
+// replaceQuestionsTx rewrites a template's survey inside a transaction: the
+// questions are deleted and rewritten rather than diffed, because a survey is
+// an ordered whole and display order is positional.
 //
-// Replaced wholesale rather than diffed, because a survey is authored as a
-// unit: the questions have an order, and reconciling an edited list
-// position by position would mean deciding whether a renamed variable is a
-// rename or a delete plus an insert. Deleting and re-inserting makes the
-// stored order exactly the authored order every time.
-//
-// The answers already stored in saved configurations are unaffected: they
-// are keyed by variable name, and Survey.Resolve drops an answer to a
-// question the survey no longer asks rather than failing on it.
-func (s *entStore) replaceQuestions(ctx context.Context, templateID int, questions []Question) error {
-	if _, err := s.client.SurveyQuestion.Delete().
+// It takes the transaction rather than the store so that a survey cannot be
+// half-written beside a committed template: the create and update paths both
+// write the template, its launchable row and its survey together or not at
+// all.
+func replaceQuestionsTx(ctx context.Context, tx *ent.Tx, templateID int, questions []Question) error {
+	if _, err := tx.SurveyQuestion.Delete().
 		Where(entquestion.HasTemplateWith(enttemplate.IDEQ(templateID))).
 		Exec(ctx); err != nil {
 		return fmt.Errorf("launch: replacing the survey of template %d: %w", templateID, err)
 	}
 
 	for i, q := range questions {
-		if _, err := s.client.SurveyQuestion.Create().
+		if _, err := tx.SurveyQuestion.Create().
 			SetVariable(strings.TrimSpace(q.Variable)).
 			SetLabel(q.Label).
 			SetHelp(q.Help).
@@ -376,6 +458,9 @@ func hydrate(row *ent.Template) Template {
 	if row.Edges.Inventory != nil {
 		tmpl.InventoryID = row.Edges.Inventory.ID
 		tmpl.InventoryName = row.Edges.Inventory.Name
+	}
+	if row.Edges.Launchable != nil {
+		tmpl.LaunchableID = row.Edges.Launchable.ID
 	}
 
 	// The bound credentials, as opaque ids. This package knows nothing else

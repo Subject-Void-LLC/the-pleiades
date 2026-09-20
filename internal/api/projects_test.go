@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
@@ -139,7 +140,7 @@ func newProjectFixture(t *testing.T) *projectFixture {
 	ctx := context.Background()
 	org := client.Organization.Create().SetName("network").SaveX(ctx)
 
-	store := project.NewEntStore(client)
+	store := project.NewEntStore(client, project.SourcePolicy{})
 	syncer := &fakeSyncer{}
 	// The real runner over the fake syncer, so the sync endpoint exercises
 	// the genuine async path: the handler enqueues, the runner claims and
@@ -731,7 +732,7 @@ func TestProjects_ASyncAlreadyRunningIsRefused(t *testing.T) {
 
 	// Claim it directly, so it is running when the request arrives and is
 	// never completed for the duration of the test.
-	if _, err := f.store.BeginSync(context.Background(), id); err != nil {
+	if _, err := f.store.BeginSync(context.Background(), id, "tester"); err != nil {
 		t.Fatalf("claiming the project: %v", err)
 	}
 
@@ -757,7 +758,7 @@ func TestNewProjectHandler_DefaultsItsLogger(t *testing.T) {
 func TestProjects_ANilCredentialListerAcceptsAnyCredential(t *testing.T) {
 	client := newSerializedSQLiteClient(t, fmt.Sprintf("projects-nilcreds-%d", projectFixtureSeq.Add(1)))
 	org := client.Organization.Create().SetName("network").SaveX(context.Background())
-	store := project.NewEntStore(client)
+	store := project.NewEntStore(client, project.SourcePolicy{})
 	handler := api.NewProjectHandler(store, project.NewRunner(store, &fakeSyncer{}, nil), nil, nil)
 
 	router, err := api.NewRouter(api.RouterConfig{
@@ -846,8 +847,8 @@ func (f *failingStore) RecordSync(context.Context, int, project.Result) error { 
 // BeginSync fails, which is how a broken store surfaces on the sync path now
 // that the clone and its recording happen in the background: the one thing a
 // request still owns is whether the sync could be claimed at all.
-func (f *failingStore) BeginSync(context.Context, int) (project.Project, error) {
-	return project.Project{}, f.err
+func (f *failingStore) BeginSync(context.Context, int, string) (project.Claim, error) {
+	return project.Claim{}, f.err
 }
 
 // ResetInterruptedSyncs fails.
@@ -1062,10 +1063,14 @@ type syncThenBlindStore struct {
 }
 
 // BeginSync claims the project, so the handler reaches the read-back.
-func (s *syncThenBlindStore) BeginSync(_ context.Context, id int) (project.Project, error) {
-	return project.Project{
-		ID: id, Name: "readable", SCMType: project.SCMGit,
-		SCMURL: "https://example.invalid/a.git", SyncStatus: project.SyncRunning,
+func (s *syncThenBlindStore) BeginSync(_ context.Context, id int, _ string) (project.Claim, error) {
+	return project.Claim{
+		Project: project.Project{
+			ID: id, Name: "readable", SCMType: project.SCMGit,
+			SCMURL: "https://example.invalid/a.git", SyncStatus: project.SyncRunning,
+		},
+		RunID:     id,
+		StartedAt: time.Now(),
 	}, nil
 }
 
@@ -1240,5 +1245,86 @@ func TestProjects_CancelAnUnknownProjectIsNotFound(t *testing.T) {
 
 	if status, _ := f.do(t, http.MethodPost, "/api/v1/projects/999999/sync/cancel", nil); status != http.StatusNotFound {
 		t.Errorf("cancelling an unknown project = %d, want 404", status)
+	}
+}
+
+// TestProjects_ASyncRecordsWhoAskedForIt proves the attempt is attributable
+// afterward: the history row names the request's own identity, so a person's
+// sync and a schedule's sync can be told apart weeks later.
+//
+// The actor is read back through the real store rather than asserted on the
+// response, because the response does not carry it and the question this
+// covers is what was durably recorded.
+func TestProjects_ASyncRecordsWhoAskedForIt(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "attributed")
+	// The outcome the background clone reports. Without one the fake syncer
+	// reports an empty status, which is not an outcome the store can record.
+	f.syncer.result = project.Result{
+		Status:    project.SyncSucceeded,
+		Revision:  "abc123",
+		LocalPath: t.TempDir(),
+	}
+
+	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("status %d, want 202; body %s", status, body)
+	}
+	f.runner.Wait()
+
+	runs, err := f.store.ListSyncRuns(context.Background(), id, 0)
+	if err != nil {
+		t.Fatalf("ListSyncRuns() = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("recorded %d attempts, want exactly 1", len(runs))
+	}
+	// alwaysAuthenticated's identity, which is what the request carried.
+	if runs[0].Actor != "test-user" {
+		t.Errorf("attempt actor = %q, want the request's own subject", runs[0].Actor)
+	}
+	if runs[0].Running() {
+		t.Errorf("the attempt still reads as running after the runner finished it: %+v", runs[0])
+	}
+}
+
+// TestProjects_ASyncWithNoIdentityIsRefused proves an unattributable sync is
+// refused rather than recorded against nobody. It is a 401 rather than a 500,
+// because a request with no identity is an authentication failure, and rather
+// than a silent default, because a default actor is a name in an audit trail
+// that nothing answers to.
+func TestProjects_ASyncWithNoIdentityIsRefused(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "anonymous")
+
+	// The same handler behind a middleware that authenticates nobody, which
+	// is the shape a broken or misordered chain produces.
+	handler := api.NewProjectHandler(f.store, f.runner, f.creds, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	router, err := api.NewRouter(api.RouterConfig{
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Auth:      func(next http.Handler) http.Handler { return next },
+		Admission: &fakeAdmitter{},
+		HATEOAS:   allowAllGenerator(t),
+		Routes:    []api.Route{apispec.SyncProject.Route(handler.Sync)},
+	})
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401; body %s", rec.Code, rec.Body.String())
+	}
+
+	// Nothing was claimed, so the project is still syncable and its history
+	// is empty.
+	runs, err := f.store.ListSyncRuns(context.Background(), id, 0)
+	if err != nil {
+		t.Fatalf("ListSyncRuns() = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("a refused sync recorded %d attempts, want none", len(runs))
 	}
 }

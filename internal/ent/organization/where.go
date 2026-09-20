@@ -1040,6 +1040,29 @@ func HasSchedulesWith(preds ...predicate.Schedule) predicate.Organization {
 	})
 }
 
+// HasLaunchables applies the HasEdge predicate on the "launchables" edge.
+func HasLaunchables() predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, LaunchablesTable, LaunchablesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasLaunchablesWith applies the HasEdge predicate on the "launchables" edge with a given conditions (other predicates).
+func HasLaunchablesWith(preds ...predicate.Launchable) predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := newLaunchablesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasCredentialTypes applies the HasEdge predicate on the "credential_types" edge.
 func HasCredentialTypes() predicate.Organization {
 	return predicate.Organization(func(s *sql.Selector) {

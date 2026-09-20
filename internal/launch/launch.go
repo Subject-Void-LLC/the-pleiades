@@ -1,6 +1,6 @@
-// Package launch is the Launchable abstraction: the saved, reusable
-// definition of something this platform can run, and the rules for what a
-// caller may change at the moment they run it.
+// Package launch is the job template: the saved, reusable definition of
+// something this platform can run, and the rules for what a caller may
+// change at the moment they run it.
 //
 // It exists because the launch surface was four scalars. Dispatching meant
 // naming a group and a runbook, with no way to save the pairing, no way to
@@ -9,21 +9,36 @@
 // Task Template; the sentence both build around is that a template defines
 // what to run, where to run it, and how to run it.
 //
-// The Kind is an OPEN registry key, not a closed enum, and that is the
-// single most consequential decision in this package. PLAN.md Section 28
-// names it explicitly, and the reason is downstream: a closed set forces a
-// type switch at every consumer, and the consumers are schedules, workflow
-// nodes, notification policies, approvals and the runner's own adapter
-// selection. Each one would grow a case per kind, and each new kind would
-// mean editing every one of them. With a registry, a kind is one file plus
-// a line in builtins.go, exactly the shape Collections, device types and
-// sync plugins already use here.
+// # Two axes, and this package owns one of them
 //
-// It is pure domain: no ent, no HTTP, no runbook source, no filesystem. A
-// Descriptor declares what a definition reference must *look* like; what a
-// reference actually resolves to belongs to whoever owns that source. That
-// keeps this package testable without a database and keeps the resolution
-// rules in one place rather than one place per storage backend.
+// A Kind here answers "which engine runs this definition": the native
+// runbook engine, or a sandboxed ansible-playbook. AWX has no equivalent,
+// because AWX always runs ansible-playbook.
+//
+// It does NOT answer "what sort of object is this", which is the question a
+// schedule, a workflow node and a notification policy actually ask, and
+// whose answers are a job template, a project sync, an inventory sync and a
+// workflow. That axis is AWX's UnifiedJobTemplate and it belongs to
+// internal/launchable, which is what those consumers bind to. Conflating
+// the two is a recorded mistake (.SPECIFICATION/AWX_PARITY_ROADMAP.md
+// section 1.1): a Template is one object type that can be run by either
+// engine, so the two axes cross rather than nest, and an interface named
+// for both once lived here and was consumed by nothing.
+//
+// The Kind is still an OPEN registry key rather than a closed enum, for the
+// reason PLAN.md Section 28 gives: a closed set forces a type switch at
+// every consumer, and the consumers here are the runner's adapter
+// selection, validation and the launch API. With a registry, a kind is one
+// file plus a line in builtins.go, exactly the shape Collections, device
+// types and sync plugins already use.
+//
+// Almost all of this package is pure domain, and everything except
+// ent_store.go (the one file that reaches a database) stays that way: a
+// Descriptor declares what a definition reference must *look* like, while
+// what a reference actually resolves to belongs to whoever owns that
+// source. That keeps the rules in one place rather than one place per
+// storage backend, and keeps most of the package testable with no database
+// at all.
 package launch
 
 import (

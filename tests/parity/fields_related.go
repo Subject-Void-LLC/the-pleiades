@@ -58,6 +58,13 @@ var ProjectFields = []Field{
 // is why C1 has to exist before schedules and notifications rather than
 // after: a schedule attaches to a project sync exactly as it attaches to a
 // job template.
+//
+// C1 is built as of 2026-09-19, and a schedule does attach to a project
+// exactly as it attaches to a job template. One thing it deliberately did not
+// do is make a sync a row in the Jobs list: its record is its own SyncRun, and
+// unifying the two lists (AWX's UnifiedJob) is a separate decision nobody has
+// taken. So the four fields below are answered, and "where would I see it" is
+// still the project's own Sync history rather than Jobs.
 var ProjectUpdateFields = []Field{
 	{Name: "id", Status: Metadata},
 	{Name: "type", Status: Metadata, Note: "the UnifiedJob subclass discriminator"},
@@ -68,10 +75,26 @@ var ProjectUpdateFields = []Field{
 	{Name: "job_type", Status: Gap, Phase: "A1b git sync", Note: `"check" here means an SCM update mode, unrelated to a job template's run/check`},
 	{Name: "job_tags", Status: Gap, Phase: "A1b git sync", Note: "empty on a sync; present because AWX shares one job model across kinds"},
 
-	{Name: "status", Status: Gap, Phase: "C1 Launchable", Note: "our dispatch.Job has a state, but only a job template can produce one. A sync has no launchable to be a job of until C1."},
-	{Name: "failed", Status: Gap, Phase: "C1 Launchable", Note: "AWX carries a boolean beside the status string"},
-	{Name: "started", Status: Gap, Phase: "C1 Launchable"},
-	{Name: "finished", Status: Gap, Phase: "C1 Launchable"},
+	// C1 landed on 2026-09-19 (internal/launchable), and with it a project
+	// became a launchable thing whose run is a recorded attempt rather than a
+	// side effect. These four are answered by project.SyncRun, which is what a
+	// schedule now records as the run it started.
+	{
+		Name: "status", Status: Convertible, Ours: "project.SyncRun.Status",
+		Conversion: "AWX's successful/failed/error/canceled/running onto running, succeeded and failed. " +
+			"We do not distinguish failed from error (both are a failed attempt carrying its reason) and " +
+			"have no canceled state for a sync: a cancelled clone is recorded as failed with the reason.",
+	},
+	{
+		Name: "failed", Status: Convertible, Ours: "project.SyncRun.Status",
+		Conversion: "derived rather than stored, as status == failed. A boolean beside a status string is " +
+			"two places one fact can disagree with itself.",
+	},
+	{Name: "started", Status: Represented, Ours: "project.SyncRun.StartedAt"},
+	{
+		Name: "finished", Status: Represented, Ours: "project.SyncRun.FinishedAt",
+		Note: "empty for exactly as long as the attempt is running, which is the state the column itself holds",
+	},
 
 	{Name: "execution_environment", Status: Gap, Phase: "A3 Execution Environments", Note: "a sync runs in a container too"},
 }
@@ -125,6 +148,12 @@ var CredentialTypeFields = []Field{
 // makes the zone and the anchor queryable and editable without parsing the
 // rule, and makes rrule mean exactly one thing.
 var ScheduleFields = []Field{
+	{
+		Name: "unified_job_template", Status: Represented, Ours: "schedule.Schedule.LaunchableID",
+		Note: "the same field name, and the same meaning: one id space across every sort of launchable " +
+			"thing, so an imported schedule resolves without translation. Two types exist here so far, a " +
+			"job template and a project; AWX also has inventory sources, workflows and system jobs.",
+	},
 	{Name: "id", Status: Metadata},
 	{Name: "type", Status: Metadata},
 	{Name: "url", Status: Metadata},

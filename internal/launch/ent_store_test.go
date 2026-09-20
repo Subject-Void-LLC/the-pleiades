@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -682,5 +683,81 @@ func TestGetCarriesTheTemplatesBoundCredentials(t *testing.T) {
 	if len(listed[0].CredentialIDs) != 0 {
 		t.Errorf("a listed template carries CredentialIDs = %v, which costs a query per row for data no column shows",
 			listed[0].CredentialIDs)
+	}
+}
+
+// TestCreate_WritesTheLaunchableRowThatMakesATemplateSchedulable proves the
+// row exists, is of the right type, and carries the facts every consumer reads
+// off it rather than resolving per type.
+//
+// It matters because that row is a template's identity as something launchable:
+// a template created without one could never be scheduled, and nothing else in
+// the system would say why.
+func TestCreate_WritesTheLaunchableRowThatMakesATemplateSchedulable(t *testing.T) {
+	f := newStoreFixture(t)
+	client := f.client
+	ctx := context.Background()
+
+	created, err := f.store.Create(ctx, f.template("patch the edge"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.LaunchableID == 0 {
+		t.Fatal("Create reported no launchable row, so nothing could schedule this template")
+	}
+
+	rows, err := client.Launchable.Query().WithOrganization().All(ctx)
+	if err != nil {
+		t.Fatalf("reading launchables: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("%d launchable rows exist, want exactly one for the one template", len(rows))
+	}
+	row := rows[0]
+	if row.ID != created.LaunchableID {
+		t.Errorf("the template names launchable %d, but the row is %d", created.LaunchableID, row.ID)
+	}
+	if row.Type != launchable.TypeJobTemplate {
+		t.Errorf("launchable type = %q, want %q", row.Type, launchable.TypeJobTemplate)
+	}
+	if row.Name != "patch the edge" {
+		t.Errorf("launchable name = %q, want the template's own", row.Name)
+	}
+	if row.Edges.Organization == nil || row.Edges.Organization.ID != f.orgA {
+		t.Errorf("launchable organization = %v, want the template's own %d", row.Edges.Organization, f.orgA)
+	}
+
+	// A rename reaches it, so a picker never offers a name the template no
+	// longer has.
+	created.Name = "patch the core"
+	if err := f.store.Update(ctx, created); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	renamed, err := client.Launchable.Get(ctx, created.LaunchableID)
+	if err != nil {
+		t.Fatalf("re-reading the launchable: %v", err)
+	}
+	if renamed.Name != "patch the core" {
+		t.Errorf("launchable name after a rename = %q, want the new name", renamed.Name)
+	}
+}
+
+// TestDelete_TakesTheLaunchableRowWithIt proves the cascade, which is what lets
+// a schedule's own key refuse the delete of something it still launches: the
+// refusal only works if the target's delete reaches that row at all.
+func TestDelete_TakesTheLaunchableRowWithIt(t *testing.T) {
+	f := newStoreFixture(t)
+	client := f.client
+	ctx := context.Background()
+
+	created, err := f.store.Create(ctx, f.template("patch the edge"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := f.store.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if n := client.Launchable.Query().CountX(ctx); n != 0 {
+		t.Errorf("%d launchable rows outlived their template", n)
 	}
 }

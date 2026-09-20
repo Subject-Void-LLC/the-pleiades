@@ -18,11 +18,6 @@ import (
 // `forks` or `timeout` is a behaviour change nobody would attribute to a
 // type assertion.
 
-// Template satisfying Launchable is asserted at compile time, so a method
-// removed from the interface's implementation fails the build rather than a
-// test somebody has to run.
-var _ launch.Launchable = launch.Template{}
-
 func wireTemplate() launch.Template {
 	return launch.Template{
 		Name: "wire", KindName: "runbook", Definition: "wire-runbook",

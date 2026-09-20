@@ -40,6 +40,8 @@ type Tx struct {
 	JobTask *JobTaskClient
 	// JournalEntry is the client for interacting with the JournalEntry builders.
 	JournalEntry *JournalEntryClient
+	// Launchable is the client for interacting with the Launchable builders.
+	Launchable *LaunchableClient
 	// LocalCredential is the client for interacting with the LocalCredential builders.
 	LocalCredential *LocalCredentialClient
 	// MeshSigningKey is the client for interacting with the MeshSigningKey builders.
@@ -215,6 +217,7 @@ func (tx *Tx) init() {
 	tx.Job = NewJobClient(tx.config)
 	tx.JobTask = NewJobTaskClient(tx.config)
 	tx.JournalEntry = NewJournalEntryClient(tx.config)
+	tx.Launchable = NewLaunchableClient(tx.config)
 	tx.LocalCredential = NewLocalCredentialClient(tx.config)
 	tx.MeshSigningKey = NewMeshSigningKeyClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)

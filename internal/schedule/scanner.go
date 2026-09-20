@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
 
 // Defaults for a Scanner. They are exported so a composition root can state
@@ -49,20 +51,22 @@ const (
 	maxCatchUpExpansion = 10000
 )
 
-// Launcher is the narrow port the Scanner needs from the dispatch side: the
-// ability to launch a template and get back a job id.
+// Launcher is the narrow port the Scanner needs in order to run something:
+// launchable.Launcher, one method wide.
 //
-// It is deliberately one method wide. api.Dispatcher satisfies it, so a
-// scheduled run goes through exactly the path a person clicking Launch
-// goes through -- template resolution, credential binding, job creation,
-// JetStream publication, the activity stream -- with no second
-// implementation to drift. Declaring the narrow interface here rather than
-// taking *api.Dispatcher is also what keeps internal/api out of this
-// package's imports, and therefore out of a cycle.
+// It used to name a template and return a job id, which meant this package
+// knew what sort of thing a schedule launches. It no longer does, and that is
+// the point of the seam: *launchable.Router satisfies this, routes by the
+// target's own type, and a schedule on a project sync therefore travels this
+// identical path. Whatever each type's launcher does behind it is the same
+// path a person pressing the button goes through, with no second
+// implementation to drift.
+//
+// Declaring the narrow interface here rather than taking *launchable.Router
+// keeps this package free of the launchers themselves (internal/api and
+// internal/project), which internal/archtest asserts.
 type Launcher interface {
-	// LaunchScheduled launches templateID under actor, optionally reusing
-	// a saved launch configuration, and returns the new job's id.
-	LaunchScheduled(ctx context.Context, actor string, templateID, savedConfigID int) (string, error)
+	Launch(ctx context.Context, req launchable.Request) (launchable.Launched, error)
 }
 
 // Scanner is the loop that turns due schedules into jobs.
@@ -407,9 +411,33 @@ func (s *Scanner) fire(ctx context.Context, sched Schedule, occurrenceAt time.Ti
 		return err
 	}
 
-	jobID, launchErr := s.launcher.LaunchScheduled(ctx, ScheduleActor(sched.ScheduleID), sched.TemplateID, sched.SavedConfigID)
+	launched, launchErr := s.launcher.Launch(ctx, launchable.Request{
+		Target:        sched.Launchable,
+		Actor:         ScheduleActor(sched.ScheduleID),
+		SavedConfigID: sched.SavedConfigID,
+	})
+
+	// A target already running is a skip, not a failure, and the difference
+	// decides whether this schedule limps or loops. A project mid-sync will
+	// still be mid-sync for as long as the clone takes, so reporting a failure
+	// would produce a run of failures and hold the occurrence open; recording
+	// the collision and moving on lets the next occurrence try. The reason is
+	// a closed vocabulary constant, never interpolated text.
+	if errors.Is(launchErr, launchable.ErrBusy) {
+		if err := s.store.ResolveOccurrence(ctx, occ.ID, OutcomeSkipped, ReasonAlreadyRunning, launchable.Launched{}); err != nil {
+			s.logger.Error("scheduler could not record a collision with a run already in flight",
+				slog.String("schedule_id", sched.ScheduleID),
+				slog.String("error", err.Error()))
+		}
+		s.logger.Info("scheduler skipped an occurrence whose target was already running",
+			slog.String("schedule_id", sched.ScheduleID),
+			slog.String("launchable", sched.Launchable.Name),
+			slog.Time("occurrence_at", occurrenceAt))
+		return nil
+	}
+
 	if launchErr != nil {
-		if err := s.store.ResolveOccurrence(ctx, occ.ID, OutcomeSkipped, ReasonLaunchFailed, ""); err != nil {
+		if err := s.store.ResolveOccurrence(ctx, occ.ID, OutcomeSkipped, ReasonLaunchFailed, launchable.Launched{}); err != nil {
 			s.logger.Error("scheduler could not record a failed launch",
 				slog.String("schedule_id", sched.ScheduleID),
 				slog.String("error", err.Error()))
@@ -417,20 +445,22 @@ func (s *Scanner) fire(ctx context.Context, sched Schedule, occurrenceAt time.Ti
 		return launchErr
 	}
 
-	if err := s.store.ResolveOccurrence(ctx, occ.ID, OutcomeFired, "", jobID); err != nil {
-		// The job is already running; only the bookkeeping failed. Say so
+	if err := s.store.ResolveOccurrence(ctx, occ.ID, OutcomeFired, "", launched); err != nil {
+		// The run is already under way; only the bookkeeping failed. Say so
 		// loudly and carry on rather than returning an error that would
 		// read as "the schedule did not run".
-		s.logger.Error("scheduler launched a job but could not record the occurrence",
+		s.logger.Error("scheduler started a run but could not record the occurrence",
 			slog.String("schedule_id", sched.ScheduleID),
-			slog.String("job_id", jobID),
+			slog.String("run_id", launched.RunID),
 			slog.String("error", err.Error()))
 	}
 
-	s.logger.Info("scheduler launched a scheduled job",
+	s.logger.Info("scheduler started a scheduled run",
 		slog.String("schedule_id", sched.ScheduleID),
 		slog.String("name", sched.Name),
-		slog.String("job_id", jobID),
+		slog.String("launchable", sched.Launchable.Name),
+		slog.String("unified_job_type", string(launched.UnifiedJobType)),
+		slog.String("run_id", launched.RunID),
 		slog.Time("occurrence_at", occurrenceAt))
 	return nil
 }

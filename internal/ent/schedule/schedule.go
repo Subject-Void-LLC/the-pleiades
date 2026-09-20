@@ -42,8 +42,8 @@ const (
 	FieldLastFired = "last_fired"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
-	// EdgeTemplate holds the string denoting the template edge name in mutations.
-	EdgeTemplate = "template"
+	// EdgeLaunchable holds the string denoting the launchable edge name in mutations.
+	EdgeLaunchable = "launchable"
 	// EdgeSavedConfig holds the string denoting the saved_config edge name in mutations.
 	EdgeSavedConfig = "saved_config"
 	// EdgeOccurrences holds the string denoting the occurrences edge name in mutations.
@@ -57,13 +57,13 @@ const (
 	OrganizationInverseTable = "organizations"
 	// OrganizationColumn is the table column denoting the organization relation/edge.
 	OrganizationColumn = "organization_schedules"
-	// TemplateTable is the table that holds the template relation/edge.
-	TemplateTable = "schedules"
-	// TemplateInverseTable is the table name for the Template entity.
-	// It exists in this package in order to avoid circular dependency with the "template" package.
-	TemplateInverseTable = "templates"
-	// TemplateColumn is the table column denoting the template relation/edge.
-	TemplateColumn = "template_schedules"
+	// LaunchableTable is the table that holds the launchable relation/edge.
+	LaunchableTable = "schedules"
+	// LaunchableInverseTable is the table name for the Launchable entity.
+	// It exists in this package in order to avoid circular dependency with the "launchable" package.
+	LaunchableInverseTable = "launchables"
+	// LaunchableColumn is the table column denoting the launchable relation/edge.
+	LaunchableColumn = "launchable_schedules"
 	// SavedConfigTable is the table that holds the saved_config relation/edge.
 	SavedConfigTable = "schedules"
 	// SavedConfigInverseTable is the table name for the SavedLaunchConfig entity.
@@ -101,9 +101,9 @@ var Columns = []string{
 // ForeignKeys holds the SQL foreign-keys that are owned by the "schedules"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
+	"launchable_schedules",
 	"organization_schedules",
 	"schedule_saved_config",
-	"template_schedules",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -219,10 +219,10 @@ func ByOrganizationField(field string, opts ...sql.OrderTermOption) OrderOption 
 	}
 }
 
-// ByTemplateField orders the results by template field.
-func ByTemplateField(field string, opts ...sql.OrderTermOption) OrderOption {
+// ByLaunchableField orders the results by launchable field.
+func ByLaunchableField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newTemplateStep(), sql.OrderByField(field, opts...))
+		sqlgraph.OrderByNeighborTerms(s, newLaunchableStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -253,11 +253,11 @@ func newOrganizationStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2O, true, OrganizationTable, OrganizationColumn),
 	)
 }
-func newTemplateStep() *sqlgraph.Step {
+func newLaunchableStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(TemplateInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, true, TemplateTable, TemplateColumn),
+		sqlgraph.To(LaunchableInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, LaunchableTable, LaunchableColumn),
 	)
 }
 func newSavedConfigStep() *sqlgraph.Step {

@@ -9,7 +9,7 @@ import (
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	entschedule "github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	entoccurrence "github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
-	enttemplate "github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
 
 // Page-size bounds, matching internal/launch's own so a caller moving
@@ -21,36 +21,54 @@ const (
 
 // entStore is the ent-backed Store.
 type entStore struct {
-	client *ent.Client
+	client   *ent.Client
+	admitter Admitter
 }
 
-// NewEntStore builds the ent-backed Store over client.
-func NewEntStore(client *ent.Client) Store {
-	return &entStore{client: client}
+// NewEntStore builds the ent-backed Store over client, admitting targets
+// through admitter.
+//
+// The admitter is required and this panics without one, rather than skipping
+// the checks it performs. A store that silently admitted anything would
+// re-open the hole where writing a schedule needed no permission to launch
+// what it launches, and would accept schedules that can only ever fail. It is
+// the same refusing-constructor shape launch.NewEntStore takes for its
+// catalog, and for the same reason: FAILURE_PATTERNS.md #110 is this
+// project's own record of an optional collaborator going missing in
+// production with nothing failing at build time.
+func NewEntStore(client *ent.Client, admitter Admitter) Store {
+	if admitter == nil {
+		panic("schedule.NewEntStore: a nil Admitter would skip every check on what a schedule launches; wire one")
+	}
+	return &entStore{client: client, admitter: admitter}
 }
 
-// Create validates, resolves the template's tenancy, and persists.
-func (s *entStore) Create(ctx context.Context, sched Schedule) (Schedule, error) {
+// Create validates, admits what the schedule launches, and persists.
+func (s *entStore) Create(ctx context.Context, sched Schedule, reach launchable.Reach) (Schedule, error) {
 	if err := sched.Validate(); err != nil {
 		return Schedule{}, err
 	}
 
-	orgID, err := s.templateOrg(ctx, sched.TemplateID)
+	target, err := s.admit(ctx, sched, reach)
 	if err != nil {
 		return Schedule{}, err
 	}
-	// The tenancy check ent cannot express. A schedule whose template
-	// belongs to another organization would let one tenant launch
-	// another's work on a timer, with every individual step passing its
-	// own check -- the shape internal/ent/schema/template.go already
-	// records for the inventory edge.
-	if sched.OrganizationID != 0 && sched.OrganizationID != orgID {
+	// The schedule's tenancy comes from its target rather than from the
+	// submission: a caller who could set it directly could put their own timer
+	// on somebody else's work. A submission that names a DIFFERENT
+	// organization is refused rather than quietly corrected, which is the
+	// same choice internal/launch makes for a template and its inventory. The
+	// caller asked for something that cannot exist, and answering with a
+	// schedule in another organization than the one they named would be a
+	// surprise they have no way to see.
+	if sched.OrganizationID != 0 && sched.OrganizationID != target.OrganizationID {
 		return Schedule{}, FieldError{
-			Field:   "template",
-			Message: "That template belongs to a different organization.",
+			Field:   TargetField,
+			Message: "That belongs to a different organization.",
+			Cause:   launchable.ErrCrossTenant,
 		}
 	}
-	sched.OrganizationID = orgID
+	sched.OrganizationID = target.OrganizationID
 
 	next, err := sched.ComputeNextRun(time.Now().UTC())
 	if err != nil {
@@ -65,8 +83,8 @@ func (s *entStore) Create(ctx context.Context, sched Schedule) (Schedule, error)
 		SetExclusions(sched.Exclusions).
 		SetTimezone(sched.Timezone).
 		SetDtstart(sched.DTStart.UTC()).
-		SetOrganizationID(orgID).
-		SetTemplateID(sched.TemplateID)
+		SetOrganizationID(sched.OrganizationID).
+		SetLaunchableID(sched.LaunchableID)
 	if sched.DTEnd != nil {
 		create = create.SetDtend(sched.DTEnd.UTC())
 	}
@@ -88,7 +106,7 @@ func (s *entStore) Create(ctx context.Context, sched Schedule) (Schedule, error)
 		}
 		return Schedule{}, fmt.Errorf("schedule: create: %w", err)
 	}
-	return s.Get(ctx, orgID, row.ScheduleID)
+	return s.Get(ctx, sched.OrganizationID, row.ScheduleID)
 }
 
 // Update replaces the mutable fields and recomputes next_run.
@@ -98,7 +116,7 @@ func (s *entStore) Create(ctx context.Context, sched Schedule) (Schedule, error)
 // rule, the exclusions, the zone, the anchor, the end, and enabled itself.
 // Trusting a caller-supplied value here would let a stale form post pin a
 // schedule to a time its own rule no longer produces.
-func (s *entStore) Update(ctx context.Context, sched Schedule) (Schedule, error) {
+func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.Reach) (Schedule, error) {
 	if err := sched.Validate(); err != nil {
 		return Schedule{}, err
 	}
@@ -108,14 +126,18 @@ func (s *entStore) Update(ctx context.Context, sched Schedule) (Schedule, error)
 		return Schedule{}, err
 	}
 
-	orgID, err := s.templateOrg(ctx, sched.TemplateID)
+	// The target is admitted again on every edit, not only at create: an edit
+	// can repoint a schedule at something else entirely, and a target that
+	// was admissible when the schedule was written may not be now.
+	target, err := s.admit(ctx, sched, reach)
 	if err != nil {
 		return Schedule{}, err
 	}
-	if orgID != existing.OrganizationID {
+	if target.OrganizationID != existing.OrganizationID {
 		return Schedule{}, FieldError{
-			Field:   "template",
-			Message: "That template belongs to a different organization.",
+			Field:   TargetField,
+			Message: "That belongs to a different organization.",
+			Cause:   launchable.ErrCrossTenant,
 		}
 	}
 
@@ -132,7 +154,7 @@ func (s *entStore) Update(ctx context.Context, sched Schedule) (Schedule, error)
 		SetExclusions(sched.Exclusions).
 		SetTimezone(sched.Timezone).
 		SetDtstart(sched.DTStart.UTC()).
-		SetTemplateID(sched.TemplateID).
+		SetLaunchableID(sched.LaunchableID).
 		ClearNextRun().
 		ClearDtend()
 	if sched.DTEnd != nil {
@@ -164,7 +186,7 @@ func (s *entStore) Update(ctx context.Context, sched Schedule) (Schedule, error)
 func (s *entStore) Get(ctx context.Context, orgID int, scheduleID string) (Schedule, error) {
 	row, err := scopeToOrg(s.client.Schedule.Query(), orgID).
 		Where(entschedule.ScheduleIDEQ(scheduleID)).
-		WithTemplate().
+		WithLaunchable(withLaunchableOrganization).
 		WithSavedConfig().
 		WithOrganization().
 		Only(ctx)
@@ -181,7 +203,7 @@ func (s *entStore) Get(ctx context.Context, orgID int, scheduleID string) (Sched
 func (s *entStore) List(ctx context.Context, orgID int, after string, limit int) ([]Schedule, error) {
 	limit = clampPageSize(limit)
 	q := scopeToOrg(s.client.Schedule.Query(), orgID).
-		WithTemplate().
+		WithLaunchable(withLaunchableOrganization).
 		WithSavedConfig().
 		WithOrganization().
 		Order(ent.Asc(entschedule.FieldName), ent.Asc(entschedule.FieldScheduleID)).
@@ -239,7 +261,7 @@ func (s *entStore) ListDue(ctx context.Context, now time.Time, cursor DueCursor,
 			entschedule.NextRunNotNil(),
 			entschedule.NextRunLTE(now.UTC()),
 		).
-		WithTemplate().
+		WithLaunchable(withLaunchableOrganization).
 		WithSavedConfig().
 		WithOrganization().
 		Order(ent.Asc(entschedule.FieldNextRun), ent.Asc(entschedule.FieldScheduleID)).
@@ -294,7 +316,7 @@ func (s *entStore) ClaimOccurrence(ctx context.Context, scheduleID string, occur
 }
 
 // ResolveOccurrence records what happened to a claimed occurrence.
-func (s *entStore) ResolveOccurrence(ctx context.Context, occurrenceID int, outcome Outcome, reason, jobID string) error {
+func (s *entStore) ResolveOccurrence(ctx context.Context, occurrenceID int, outcome Outcome, reason string, launched launchable.Launched) error {
 	entOutcome, err := toEntOutcome(outcome)
 	if err != nil {
 		return err
@@ -302,8 +324,12 @@ func (s *entStore) ResolveOccurrence(ctx context.Context, occurrenceID int, outc
 	update := s.client.ScheduleOccurrence.UpdateOneID(occurrenceID).
 		SetOutcome(entOutcome).
 		SetReason(reason)
-	if jobID != "" {
-		update = update.SetJobID(jobID)
+	if launched.RunID != "" {
+		// Both written together or neither: an id with no type is a reference
+		// a reader cannot resolve, since a job and a sync attempt are looked
+		// up in different places.
+		update = update.SetJobID(launched.RunID).
+			SetUnifiedJobType(string(launched.UnifiedJobType))
 	}
 	if err := update.Exec(ctx); err != nil {
 		if ent.IsNotFound(err) {
@@ -402,25 +428,11 @@ func (s *entStore) byScheduleID(ctx context.Context, scheduleID string) (*ent.Sc
 	return row, nil
 }
 
-// templateOrg returns the organization a template belongs to, which is
-// where a schedule's own tenancy comes from: a template's organization edge
-// is required, so a schedule that names one has a tenant by construction
-// rather than by somebody remembering to set it.
-func (s *entStore) templateOrg(ctx context.Context, templateID int) (int, error) {
-	row, err := s.client.Template.Query().
-		Where(enttemplate.IDEQ(templateID)).
-		WithOrganization().
-		Only(ctx)
-	if err != nil {
-		if ent.IsNotFound(err) {
-			return 0, FieldError{Field: "template", Message: "That template does not exist."}
-		}
-		return 0, fmt.Errorf("schedule: resolve template %d: %w", templateID, err)
-	}
-	if row.Edges.Organization == nil {
-		return 0, fmt.Errorf("schedule: template %d has no organization", templateID)
-	}
-	return row.Edges.Organization.ID, nil
+// withLaunchableOrganization loads a launchable's own organization alongside
+// it, so a schedule read carries the target's tenant and organization name
+// without a second query per row.
+func withLaunchableOrganization(q *ent.LaunchableQuery) {
+	q.WithOrganization()
 }
 
 // toDomain converts a persisted row to the domain type.
@@ -444,8 +456,17 @@ func toDomain(row *ent.Schedule) Schedule {
 	if row.Edges.Organization != nil {
 		s.OrganizationID = row.Edges.Organization.ID
 	}
-	if row.Edges.Template != nil {
-		s.TemplateID = row.Edges.Template.ID
+	if l := row.Edges.Launchable; l != nil {
+		s.LaunchableID = l.ID
+		s.Launchable = launchable.Target{
+			ID:   l.ID,
+			Type: l.Type,
+			Name: l.Name,
+		}
+		if org := l.Edges.Organization; org != nil {
+			s.Launchable.OrganizationID = org.ID
+			s.Launchable.OrganizationName = org.Name
+		}
 	}
 	if row.Edges.SavedConfig != nil {
 		s.SavedConfigID = row.Edges.SavedConfig.ID
@@ -463,6 +484,7 @@ func occurrenceToDomain(row *ent.ScheduleOccurrence, scheduleID string) Occurren
 		Reason:          row.Reason,
 		SuppressedCount: row.SuppressedCount,
 		JobID:           row.JobID,
+		UnifiedJobType:  launchable.UnifiedJobType(row.UnifiedJobType),
 		CreatedAt:       row.CreatedAt,
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 )
 
@@ -44,7 +45,9 @@ type ProjectHandler struct {
 // It is *project.Runner in a real controller; the handler holds the interface
 // so a test can drive the sync surface without a real clone.
 type syncEnqueuer interface {
-	Enqueue(ctx context.Context, id int) error
+	// Enqueue starts a clone and returns the id of the attempt it started.
+	// The actor is who asked, and it comes from the request's identity.
+	Enqueue(ctx context.Context, id int, actor string) (int, error)
 
 	// Subscribe returns a running clone's output, closed when it finishes.
 	// The returned func releases the subscription.
@@ -298,7 +301,18 @@ func (h *ProjectHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.syncs.Enqueue(r.Context(), id); err != nil {
+	// Who asked, taken from the request's identity and never from the body:
+	// a caller who could name the actor could forge the audit trail the
+	// field exists to be. There is no anonymous path to this route (it
+	// requires project:write), so a missing identity is a broken chain
+	// rather than a guest, and answering 401 is the honest reading.
+	identity, ok := IdentityFromContext(r.Context())
+	if !ok || identity == nil || identity.Subject == "" {
+		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if _, err := h.syncs.Enqueue(r.Context(), id, identity.Subject); err != nil {
 		h.respondSyncError(w, r, err)
 		return
 	}
@@ -417,7 +431,9 @@ func (h *ProjectHandler) StreamSyncLogs(w http.ResponseWriter, r *http.Request) 
 
 // respondSyncError maps a claim refusal onto the status that names it: a
 // project with no fetchable source is a 400, one whose sync is already
-// running a 409, an unknown id a 404. Anything else is a storage failure.
+// running a 409, an unknown id a 404, and a claim with no actor a 401,
+// since an unattributable request is an authentication problem rather than
+// a storage failure. Anything else is a storage failure.
 func (h *ProjectHandler) respondSyncError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, project.ErrNotFound):
@@ -426,6 +442,8 @@ func (h *ProjectHandler) respondSyncError(w http.ResponseWriter, r *http.Request
 		RespondError(w, r, http.StatusBadRequest, err.Error())
 	case errors.Is(err, project.ErrSyncInProgress):
 		RespondError(w, r, http.StatusConflict, err.Error())
+	case errors.Is(err, project.ErrNoActor):
+		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 	default:
 		h.respondStoreError(w, r, "sync", err)
 	}
@@ -483,6 +501,19 @@ func (h *ProjectHandler) respondStoreError(w http.ResponseWriter, r *http.Reques
 		RespondError(w, r, http.StatusNotFound, "no project with that id")
 	case strings.Contains(err.Error(), project.ErrExists.Error()):
 		RespondError(w, r, http.StatusConflict, project.ErrExists.Error())
+	case errors.Is(err, project.ErrSourceRefused), errors.Is(err, project.ErrSourceSecretInURL):
+		// 400 naming the field: the caller asked for something this
+		// deployment will not do, and the message says which control to
+		// change and what would change the answer. Not a 403, because it is
+		// not about who they are.
+		RespondError(w, r, http.StatusBadRequest, "scm_url: "+err.Error())
+	case errors.Is(err, launchable.ErrInUse):
+		// A schedule still syncs this project, so deleting it would stop
+		// automation somebody relies on. A 409 naming the reason, rather than
+		// the opaque 500 the raw constraint failure used to produce
+		// (FAILURE_PATTERNS.md #267 is the same key's other half).
+		RespondError(w, r, http.StatusConflict,
+			"a schedule still syncs this project; delete the schedule, or point it at something else, first")
 	default:
 		h.logger.ErrorContext(r.Context(), "failed to "+what+" project", slog.String("error", err.Error()))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")

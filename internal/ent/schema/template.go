@@ -178,17 +178,20 @@ func (Template) Edges() []ent.Edge {
 		// dispatch and every pre-existing Walk dispatch working unchanged.
 		edge.To("credentials", Credential.Type),
 
-		// The schedules that launch this template.
+		// This template's row in the launchables table: the stable reference
+		// a schedule, and later a workflow node, points at.
 		//
-		// Deliberately NOT cascaded, unlike survey_questions and
-		// saved_configs above, and the difference is the point: those two
-		// are parts of the template and meaningless without it, whereas a
-		// schedule is an independent object an operator created and can
-		// see in its own list. Deleting a template out from under a
-		// schedule should be refused, not silently take the schedule with
-		// it -- the deletion is the moment to tell somebody that automation
-		// they rely on is about to stop.
-		edge.To("schedules", Schedule.Type),
+		// Cascaded, because that row is this template's identity as
+		// something launchable and means nothing without it. What protects a
+		// schedule from a template being deleted out from under it is the
+		// schedule's own NO ACTION key into launchables: this cascade is
+		// refused while a schedule still points at the row, and the whole
+		// delete fails. That is the same refusal a direct edge to Schedule
+		// used to produce, and the deletion is still the moment somebody is
+		// told that automation they rely on is about to stop.
+		edge.To("launchable", Launchable.Type).
+			Unique().
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }
 

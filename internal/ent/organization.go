@@ -61,6 +61,8 @@ type OrganizationEdges struct {
 	Templates []*Template `json:"templates,omitempty"`
 	// Schedules holds the value of the schedules edge.
 	Schedules []*Schedule `json:"schedules,omitempty"`
+	// Launchables holds the value of the launchables edge.
+	Launchables []*Launchable `json:"launchables,omitempty"`
 	// CredentialTypes holds the value of the credential_types edge.
 	CredentialTypes []*CredentialType `json:"credential_types,omitempty"`
 	// Credentials holds the value of the credentials edge.
@@ -73,7 +75,7 @@ type OrganizationEdges struct {
 	Contacts []*Contact `json:"contacts,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [10]bool
+	loadedTypes [11]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -121,10 +123,19 @@ func (e OrganizationEdges) SchedulesOrErr() ([]*Schedule, error) {
 	return nil, &NotLoadedError{edge: "schedules"}
 }
 
+// LaunchablesOrErr returns the Launchables value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) LaunchablesOrErr() ([]*Launchable, error) {
+	if e.loadedTypes[5] {
+		return e.Launchables, nil
+	}
+	return nil, &NotLoadedError{edge: "launchables"}
+}
+
 // CredentialTypesOrErr returns the CredentialTypes value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) CredentialTypesOrErr() ([]*CredentialType, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.CredentialTypes, nil
 	}
 	return nil, &NotLoadedError{edge: "credential_types"}
@@ -133,7 +144,7 @@ func (e OrganizationEdges) CredentialTypesOrErr() ([]*CredentialType, error) {
 // CredentialsOrErr returns the Credentials value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) CredentialsOrErr() ([]*Credential, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[7] {
 		return e.Credentials, nil
 	}
 	return nil, &NotLoadedError{edge: "credentials"}
@@ -142,7 +153,7 @@ func (e OrganizationEdges) CredentialsOrErr() ([]*Credential, error) {
 // ProjectsOrErr returns the Projects value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) ProjectsOrErr() ([]*Project, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[8] {
 		return e.Projects, nil
 	}
 	return nil, &NotLoadedError{edge: "projects"}
@@ -151,7 +162,7 @@ func (e OrganizationEdges) ProjectsOrErr() ([]*Project, error) {
 // AnnouncementsOrErr returns the Announcements value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
-	if e.loadedTypes[8] {
+	if e.loadedTypes[9] {
 		return e.Announcements, nil
 	}
 	return nil, &NotLoadedError{edge: "announcements"}
@@ -160,7 +171,7 @@ func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
 // ContactsOrErr returns the Contacts value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) ContactsOrErr() ([]*Contact, error) {
-	if e.loadedTypes[9] {
+	if e.loadedTypes[10] {
 		return e.Contacts, nil
 	}
 	return nil, &NotLoadedError{edge: "contacts"}
@@ -315,6 +326,11 @@ func (_m *Organization) QueryTemplates() *TemplateQuery {
 // QuerySchedules queries the "schedules" edge of the Organization entity.
 func (_m *Organization) QuerySchedules() *ScheduleQuery {
 	return NewOrganizationClient(_m.config).QuerySchedules(_m)
+}
+
+// QueryLaunchables queries the "launchables" edge of the Organization entity.
+func (_m *Organization) QueryLaunchables() *LaunchableQuery {
+	return NewOrganizationClient(_m.config).QueryLaunchables(_m)
 }
 
 // QueryCredentialTypes queries the "credential_types" edge of the Organization entity.

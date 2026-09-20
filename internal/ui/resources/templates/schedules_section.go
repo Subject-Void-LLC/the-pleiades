@@ -9,6 +9,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -28,7 +29,7 @@ import (
 // one, which is why the cap is stated in the empty text rather than hidden:
 // a deployment that outgrows it wants a real ListForTemplate, not a bigger
 // number here.
-func schedulesSection(schedules schedule.Store) view.Section {
+func schedulesSection(templates launch.Store, schedules schedule.Store) view.Section {
 	return view.Section{
 		Status:  view.StatusImplemented,
 		Title:   "Schedules",
@@ -51,6 +52,22 @@ func schedulesSection(schedules schedule.Store) view.Section {
 				return nil, nil
 			}
 
+			// A schedule names the LAUNCHABLE it fires, not the template, so
+			// the template's own launchable row is what its schedules point
+			// at. Resolved here rather than compared by template id, which a
+			// schedule no longer carries.
+			tmpl, err := templates.Get(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if tmpl.LaunchableID == 0 {
+				// A template with no launchable row cannot be scheduled, so
+				// nothing can point at it. Answering with no rows is the
+				// truthful reading; it happens only on a database the
+				// launchable migration has not reached.
+				return nil, nil
+			}
+
 			// AnyOrganization because this platform does not derive a tenant
 			// from a request yet: internal/schedule names that gap and every
 			// caller outside the scheduler passes this sentinel, so a search
@@ -62,7 +79,7 @@ func schedulesSection(schedules schedule.Store) view.Section {
 
 			rows := make([]view.Row, 0, 4)
 			for _, s := range found {
-				if s.TemplateID != id {
+				if s.LaunchableID != tmpl.LaunchableID {
 					continue
 				}
 				rows = append(rows, view.Row{

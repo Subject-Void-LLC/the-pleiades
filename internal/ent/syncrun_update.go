@@ -49,6 +49,26 @@ func (_u *SyncRunUpdate) SetNillableStatus(v *syncrun.Status) *SyncRunUpdate {
 	return _u
 }
 
+// SetActor sets the "actor" field.
+func (_u *SyncRunUpdate) SetActor(v string) *SyncRunUpdate {
+	_u.mutation.SetActor(v)
+	return _u
+}
+
+// SetNillableActor sets the "actor" field if the given value is not nil.
+func (_u *SyncRunUpdate) SetNillableActor(v *string) *SyncRunUpdate {
+	if v != nil {
+		_u.SetActor(*v)
+	}
+	return _u
+}
+
+// ClearActor clears the value of the "actor" field.
+func (_u *SyncRunUpdate) ClearActor() *SyncRunUpdate {
+	_u.mutation.ClearActor()
+	return _u
+}
+
 // SetRevision sets the "revision" field.
 func (_u *SyncRunUpdate) SetRevision(v string) *SyncRunUpdate {
 	_u.mutation.SetRevision(v)
@@ -102,6 +122,12 @@ func (_u *SyncRunUpdate) SetNillableFinishedAt(v *time.Time) *SyncRunUpdate {
 	if v != nil {
 		_u.SetFinishedAt(*v)
 	}
+	return _u
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (_u *SyncRunUpdate) ClearFinishedAt() *SyncRunUpdate {
+	_u.mutation.ClearFinishedAt()
 	return _u
 }
 
@@ -170,6 +196,11 @@ func (_u *SyncRunUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "SyncRun.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Actor(); ok {
+		if err := syncrun.ActorValidator(v); err != nil {
+			return &ValidationError{Name: "actor", err: fmt.Errorf(`ent: validator failed for field "SyncRun.actor": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Revision(); ok {
 		if err := syncrun.RevisionValidator(v); err != nil {
 			return &ValidationError{Name: "revision", err: fmt.Errorf(`ent: validator failed for field "SyncRun.revision": %w`, err)}
@@ -204,6 +235,12 @@ func (_u *SyncRunUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(syncrun.FieldStatus, field.TypeEnum, value)
 	}
+	if value, ok := _u.mutation.Actor(); ok {
+		_spec.SetField(syncrun.FieldActor, field.TypeString, value)
+	}
+	if _u.mutation.ActorCleared() {
+		_spec.ClearField(syncrun.FieldActor, field.TypeString)
+	}
 	if value, ok := _u.mutation.Revision(); ok {
 		_spec.SetField(syncrun.FieldRevision, field.TypeString, value)
 	}
@@ -215,6 +252,9 @@ func (_u *SyncRunUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.FinishedAt(); ok {
 		_spec.SetField(syncrun.FieldFinishedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinishedAtCleared() {
+		_spec.ClearField(syncrun.FieldFinishedAt, field.TypeTime)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -285,6 +325,26 @@ func (_u *SyncRunUpdateOne) SetNillableStatus(v *syncrun.Status) *SyncRunUpdateO
 	return _u
 }
 
+// SetActor sets the "actor" field.
+func (_u *SyncRunUpdateOne) SetActor(v string) *SyncRunUpdateOne {
+	_u.mutation.SetActor(v)
+	return _u
+}
+
+// SetNillableActor sets the "actor" field if the given value is not nil.
+func (_u *SyncRunUpdateOne) SetNillableActor(v *string) *SyncRunUpdateOne {
+	if v != nil {
+		_u.SetActor(*v)
+	}
+	return _u
+}
+
+// ClearActor clears the value of the "actor" field.
+func (_u *SyncRunUpdateOne) ClearActor() *SyncRunUpdateOne {
+	_u.mutation.ClearActor()
+	return _u
+}
+
 // SetRevision sets the "revision" field.
 func (_u *SyncRunUpdateOne) SetRevision(v string) *SyncRunUpdateOne {
 	_u.mutation.SetRevision(v)
@@ -338,6 +398,12 @@ func (_u *SyncRunUpdateOne) SetNillableFinishedAt(v *time.Time) *SyncRunUpdateOn
 	if v != nil {
 		_u.SetFinishedAt(*v)
 	}
+	return _u
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (_u *SyncRunUpdateOne) ClearFinishedAt() *SyncRunUpdateOne {
+	_u.mutation.ClearFinishedAt()
 	return _u
 }
 
@@ -419,6 +485,11 @@ func (_u *SyncRunUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "SyncRun.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Actor(); ok {
+		if err := syncrun.ActorValidator(v); err != nil {
+			return &ValidationError{Name: "actor", err: fmt.Errorf(`ent: validator failed for field "SyncRun.actor": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Revision(); ok {
 		if err := syncrun.RevisionValidator(v); err != nil {
 			return &ValidationError{Name: "revision", err: fmt.Errorf(`ent: validator failed for field "SyncRun.revision": %w`, err)}
@@ -470,6 +541,12 @@ func (_u *SyncRunUpdateOne) sqlSave(ctx context.Context) (_node *SyncRun, err er
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(syncrun.FieldStatus, field.TypeEnum, value)
 	}
+	if value, ok := _u.mutation.Actor(); ok {
+		_spec.SetField(syncrun.FieldActor, field.TypeString, value)
+	}
+	if _u.mutation.ActorCleared() {
+		_spec.ClearField(syncrun.FieldActor, field.TypeString)
+	}
 	if value, ok := _u.mutation.Revision(); ok {
 		_spec.SetField(syncrun.FieldRevision, field.TypeString, value)
 	}
@@ -481,6 +558,9 @@ func (_u *SyncRunUpdateOne) sqlSave(ctx context.Context) (_node *SyncRun, err er
 	}
 	if value, ok := _u.mutation.FinishedAt(); ok {
 		_spec.SetField(syncrun.FieldFinishedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinishedAtCleared() {
+		_spec.ClearField(syncrun.FieldFinishedAt, field.TypeTime)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{

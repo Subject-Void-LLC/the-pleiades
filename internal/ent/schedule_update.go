@@ -12,12 +12,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // ScheduleUpdate is the builder for updating Schedule entities.
@@ -218,15 +218,15 @@ func (_u *ScheduleUpdate) SetOrganization(v *Organization) *ScheduleUpdate {
 	return _u.SetOrganizationID(v.ID)
 }
 
-// SetTemplateID sets the "template" edge to the Template entity by ID.
-func (_u *ScheduleUpdate) SetTemplateID(id int) *ScheduleUpdate {
-	_u.mutation.SetTemplateID(id)
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_u *ScheduleUpdate) SetLaunchableID(id int) *ScheduleUpdate {
+	_u.mutation.SetLaunchableID(id)
 	return _u
 }
 
-// SetTemplate sets the "template" edge to the Template entity.
-func (_u *ScheduleUpdate) SetTemplate(v *Template) *ScheduleUpdate {
-	return _u.SetTemplateID(v.ID)
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_u *ScheduleUpdate) SetLaunchable(v *Launchable) *ScheduleUpdate {
+	return _u.SetLaunchableID(v.ID)
 }
 
 // SetSavedConfigID sets the "saved_config" edge to the SavedLaunchConfig entity by ID.
@@ -274,9 +274,9 @@ func (_u *ScheduleUpdate) ClearOrganization() *ScheduleUpdate {
 	return _u
 }
 
-// ClearTemplate clears the "template" edge to the Template entity.
-func (_u *ScheduleUpdate) ClearTemplate() *ScheduleUpdate {
-	_u.mutation.ClearTemplate()
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (_u *ScheduleUpdate) ClearLaunchable() *ScheduleUpdate {
+	_u.mutation.ClearLaunchable()
 	return _u
 }
 
@@ -363,8 +363,8 @@ func (_u *ScheduleUpdate) check() error {
 	if _u.mutation.OrganizationCleared() && len(_u.mutation.OrganizationIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Schedule.organization"`)
 	}
-	if _u.mutation.TemplateCleared() && len(_u.mutation.TemplateIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Schedule.template"`)
+	if _u.mutation.LaunchableCleared() && len(_u.mutation.LaunchableIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Schedule.launchable"`)
 	}
 	return nil
 }
@@ -463,28 +463,28 @@ func (_u *ScheduleUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.TemplateCleared() {
+	if _u.mutation.LaunchableCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   schedule.TemplateTable,
-			Columns: []string{schedule.TemplateColumn},
+			Table:   schedule.LaunchableTable,
+			Columns: []string{schedule.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := _u.mutation.TemplateIDs(); len(nodes) > 0 {
+	if nodes := _u.mutation.LaunchableIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   schedule.TemplateTable,
-			Columns: []string{schedule.TemplateColumn},
+			Table:   schedule.LaunchableTable,
+			Columns: []string{schedule.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -771,15 +771,15 @@ func (_u *ScheduleUpdateOne) SetOrganization(v *Organization) *ScheduleUpdateOne
 	return _u.SetOrganizationID(v.ID)
 }
 
-// SetTemplateID sets the "template" edge to the Template entity by ID.
-func (_u *ScheduleUpdateOne) SetTemplateID(id int) *ScheduleUpdateOne {
-	_u.mutation.SetTemplateID(id)
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_u *ScheduleUpdateOne) SetLaunchableID(id int) *ScheduleUpdateOne {
+	_u.mutation.SetLaunchableID(id)
 	return _u
 }
 
-// SetTemplate sets the "template" edge to the Template entity.
-func (_u *ScheduleUpdateOne) SetTemplate(v *Template) *ScheduleUpdateOne {
-	return _u.SetTemplateID(v.ID)
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_u *ScheduleUpdateOne) SetLaunchable(v *Launchable) *ScheduleUpdateOne {
+	return _u.SetLaunchableID(v.ID)
 }
 
 // SetSavedConfigID sets the "saved_config" edge to the SavedLaunchConfig entity by ID.
@@ -827,9 +827,9 @@ func (_u *ScheduleUpdateOne) ClearOrganization() *ScheduleUpdateOne {
 	return _u
 }
 
-// ClearTemplate clears the "template" edge to the Template entity.
-func (_u *ScheduleUpdateOne) ClearTemplate() *ScheduleUpdateOne {
-	_u.mutation.ClearTemplate()
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (_u *ScheduleUpdateOne) ClearLaunchable() *ScheduleUpdateOne {
+	_u.mutation.ClearLaunchable()
 	return _u
 }
 
@@ -929,8 +929,8 @@ func (_u *ScheduleUpdateOne) check() error {
 	if _u.mutation.OrganizationCleared() && len(_u.mutation.OrganizationIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Schedule.organization"`)
 	}
-	if _u.mutation.TemplateCleared() && len(_u.mutation.TemplateIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Schedule.template"`)
+	if _u.mutation.LaunchableCleared() && len(_u.mutation.LaunchableIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Schedule.launchable"`)
 	}
 	return nil
 }
@@ -1046,28 +1046,28 @@ func (_u *ScheduleUpdateOne) sqlSave(ctx context.Context) (_node *Schedule, err 
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.TemplateCleared() {
+	if _u.mutation.LaunchableCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   schedule.TemplateTable,
-			Columns: []string{schedule.TemplateColumn},
+			Table:   schedule.LaunchableTable,
+			Columns: []string{schedule.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := _u.mutation.TemplateIDs(); len(nodes) > 0 {
+	if nodes := _u.mutation.LaunchableIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   schedule.TemplateTable,
-			Columns: []string{schedule.TemplateColumn},
+			Table:   schedule.LaunchableTable,
+			Columns: []string{schedule.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
