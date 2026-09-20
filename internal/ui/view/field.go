@@ -134,6 +134,46 @@ func (f Field) SelectsMany() bool { return f.Kind == KindLookup }
 type Option struct {
 	Label string
 	Value string
+
+	// Group is the heading this option sits under, empty for one that sits
+	// under none. It renders as an <optgroup>, which is the native element
+	// for the job: it needs no ARIA, and a screen reader announces the group
+	// as it moves through the list.
+	//
+	// It exists because one picker now offers more than one sort of thing (a
+	// job template and a project, on the Schedules form), and a flat list
+	// mixing them makes a reader guess from the name alone which is which.
+	Group string
+}
+
+// OptionGroup is a run of options under one heading.
+type OptionGroup struct {
+	// Label is the heading. Empty means these options belong to no group and
+	// render directly in the control.
+	Label string
+
+	Options []Option
+}
+
+// GroupOptions splits options into groups, preserving the order they arrived
+// in.
+//
+// Ungrouped options keep their position relative to the groups rather than
+// being gathered to the front, because the caller's order is the considered
+// one: a picker that lists a default choice first means it to be first.
+// Consecutive options sharing a group become one group, so a caller that
+// sorted by group gets one heading each, and one that interleaved them gets
+// the headings it asked for rather than a silent regrouping.
+func GroupOptions(opts []Option) []OptionGroup {
+	groups := make([]OptionGroup, 0, len(opts))
+	for _, opt := range opts {
+		if n := len(groups); n > 0 && groups[n-1].Label == opt.Group {
+			groups[n-1].Options = append(groups[n-1].Options, opt)
+			continue
+		}
+		groups = append(groups, OptionGroup{Label: opt.Group, Options: []Option{opt}})
+	}
+	return groups
 }
 
 // Field declares one attribute of a resource, once, for every consumer

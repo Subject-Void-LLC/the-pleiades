@@ -62,11 +62,31 @@ templ field(m view.FormModel, f view.Field) {
 						required
 					}
 				>
-					for _, opt := range m.Choices(f) {
-						if opt.Value == m.Value(f) {
-							<option value={ opt.Value } selected>{ opt.Label }</option>
+					// Grouped through <optgroup>, the native element for the
+					// job, so a picker offering more than one sort of thing
+					// says which is which without ARIA and without repeating
+					// the type in every row. A field whose options carry no
+					// group comes back as one unlabelled run and renders
+					// exactly as a flat list.
+					for _, group := range m.ChoiceGroups(f) {
+						if group.Label == "" {
+							for _, opt := range group.Options {
+								if opt.Value == m.Value(f) {
+									<option value={ opt.Value } selected>{ opt.Label }</option>
+								} else {
+									<option value={ opt.Value }>{ opt.Label }</option>
+								}
+							}
 						} else {
-							<option value={ opt.Value }>{ opt.Label }</option>
+							<optgroup label={ group.Label }>
+								for _, opt := range group.Options {
+									if opt.Value == m.Value(f) {
+										<option value={ opt.Value } selected>{ opt.Label }</option>
+									} else {
+										<option value={ opt.Value }>{ opt.Label }</option>
+									}
+								}
+							</optgroup>
 						}
 					}
 				</select>
