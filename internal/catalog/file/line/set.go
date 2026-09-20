@@ -45,6 +45,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the file and computes the edit before it writes, so
+			// a check can predict through the same code (CheckSet).
+			SupportsCheck: true,
 			// True, and the concrete instruction comes from the run rather than
 			// from here: which bytes to put back is a property of what this run
 			// found, not of what this method is. See lineRecordInverse.
@@ -60,6 +63,7 @@ func init() {
 			Doc: setDoc(),
 		},
 		Invoke: Set,
+		Check:  CheckSet,
 	})
 }
 
@@ -144,6 +148,21 @@ type setParams struct {
 // The read is also the only chance to capture the prior text, which is what
 // the emitted inverse carries. Once the file is rewritten it is gone.
 func Set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return set(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckSet is file.line.set's check: the same read, the same refusals and the same
+// edit computed in memory, through the one body both share, then a
+// prediction instead of the write. Whether it changes anything is decided
+// exactly as a real run decides it, by the rendered text against the
+// bytes read, and the predicted diff carries the whole new text
+// (linePredictDiff).
+func CheckSet(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return set(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// set is Set's and CheckSet's one body; mode says which.
+func set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.line.set"
 
 	req, err := setRequest(params)
@@ -195,6 +214,16 @@ func Set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		// Emitting one here would have a rollback rewrite a file this run
 		// never touched.
 		return collection.Result{}, nil
+	}
+
+	if mode == collection.ModeCheck {
+		if err := linePredictDiff(rc, before, content); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := lineRecordStats(rc, map[string]any{lineStatPath: req.path, lineStatMsg: msg}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	after, afterContent, err := lineWrite(ctx, conn, req.path, content, before.info)

@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reads findmnt and fstab and changes neither.
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that unmounted a mounted path emits an fs.mount pinned to the exact src, fstype " +
@@ -33,6 +35,7 @@ func init() {
 			Doc: unmountDoc(),
 		},
 		Invoke: Unmount,
+		Check:  CheckUnmount,
 	})
 }
 
@@ -75,6 +78,17 @@ func unmountDoc() collection.Doc {
 // file's own inverse construction below for exactly what each half can
 // and cannot undo.
 func Unmount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return unmount(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckUnmount is "fs.unmount"'s check: it reads the mountpoint and fstab and
+// says whether Unmount would unmount the path or remove its fstab entry, sending no umount and writing no fstab.
+func CheckUnmount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return unmount(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// unmount is Unmount's and CheckUnmount's one body; mode says which.
+func unmount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fs.unmount"
 
 	path, err := sdk.RequiredStringParam(params, paramPath)
@@ -96,6 +110,23 @@ func Unmount(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryState(ctx, conn, fstabPath, path)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		fstabChanged := false
+		if persist {
+			if fstabChanged, err = fstabWouldChange(ctx, conn, fstabPath, path, nil); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+		predicted := before.Map()
+		if before.mounted {
+			predicted = fsState{persisted: before.persisted}.Map()
+		}
+		if persist {
+			predicted["persisted"] = false
+		}
+		return predictState(rc, fqcn, path, before, before.mounted || fstabChanged, predicted)
 	}
 
 	var mountChanged bool

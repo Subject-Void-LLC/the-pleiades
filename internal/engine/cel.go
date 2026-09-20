@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/ext"
 )
 
@@ -40,6 +41,27 @@ type Program interface {
 	// supply map[string]interface{}{"stat": ...} itself; Eval no longer
 	// guesses which variable a flat map belongs under.
 	Eval(vars map[string]interface{}) (bool, error)
+
+	// EvalPartial is Eval with the registered results unknown names
+	// marked as not known (a check's unchecked tasks, which registered
+	// nothing). known is false when the answer depends on one of them,
+	// and true when the rest of the expression settles it whatever they
+	// hold, by CEL's own rules: a true operand decides an OR and a false
+	// one an AND, and an unknown absorbs an error in either. An error that
+	// no unknown absorbs is returned as Eval would return it.
+	EvalPartial(vars map[string]interface{}, unknown []UnknownRegister) (value, known bool, err error)
+}
+
+// UnknownRegister names a registered result whose value a check does not
+// know, because the task that registers it could not be checked: its
+// result on one Device, or on every device when Whole is set (a task whose
+// own condition could not be decided, which never reached a device). The
+// device key is the one the result would be registered under, which is
+// the empty string for a task with no target device.
+type UnknownRegister struct {
+	Name   string
+	Device string
+	Whole  bool
 }
 
 // celEvaluator is a Facade over cel-go's env/ast/issues/program machinery
@@ -61,6 +83,14 @@ type celEvaluator struct {
 
 type celProgram struct {
 	prg cel.Program
+
+	// env and ast build partial on first use. A real run never asks for
+	// it, so a real run's evaluation is exactly the program above, and a
+	// check pays for the second program only for the conditions it
+	// reaches.
+	env     *cel.Env
+	ast     *cel.Ast
+	partial func() (cel.Program, error)
 }
 
 // CELVariableOptions returns the cel.EnvOption values declaring this
@@ -177,7 +207,10 @@ func (e *celEvaluator) Compile(expression string) (Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL program: %w", err)
 	}
-	compiled := &celProgram{prg: prg}
+	compiled := &celProgram{prg: prg, env: e.env, ast: ast}
+	compiled.partial = sync.OnceValues(func() (cel.Program, error) {
+		return compiled.env.Program(compiled.ast, cel.CostLimit(defaultCELCostLimit), cel.EvalOptions(cel.OptPartialEval))
+	})
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -203,4 +236,41 @@ func (p *celProgram) Eval(vars map[string]interface{}) (bool, error) {
 	}
 
 	return result, nil
+}
+
+// EvalPartial implements Program. Each unknown register is marked under
+// both variables that reach the register tree (registerVariables), since
+// runNode binds stat and nodes to the same snapshot and a condition may
+// read it through either.
+func (p *celProgram) EvalPartial(vars map[string]interface{}, unknown []UnknownRegister) (bool, bool, error) {
+	prg, err := p.partial()
+	if err != nil {
+		return false, false, fmt.Errorf("failed to create partial CEL program: %w", err)
+	}
+	patterns := make([]*cel.AttributePatternType, 0, 2*len(unknown))
+	for _, u := range unknown {
+		for variable := range registerVariables {
+			pattern := cel.AttributePattern(variable).QualString(u.Name)
+			if !u.Whole {
+				pattern = pattern.QualString(u.Device)
+			}
+			patterns = append(patterns, pattern)
+		}
+	}
+	activation, err := cel.PartialVars(vars, patterns...)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to build partial CEL activation: %w", err)
+	}
+	out, _, err := prg.Eval(activation)
+	if err != nil {
+		return false, false, fmt.Errorf("CEL evaluation failed: %w", err)
+	}
+	if types.IsUnknown(out) {
+		return false, false, nil
+	}
+	result, ok := out.Value().(bool)
+	if !ok {
+		return false, false, fmt.Errorf("CEL expression did not return a boolean")
+	}
+	return result, true, nil
 }

@@ -15,6 +15,7 @@ Makes sure one named package is at the newest version DNF knows about, upgrading
 | Capabilities | `DnfCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

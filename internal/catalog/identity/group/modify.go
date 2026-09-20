@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks getent before it acts, so a check can predict through the same code (CheckModify).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that converged the gid emits an identity.group.modify pinned to the old gid, which " +
@@ -28,6 +30,7 @@ func init() {
 			Doc: modifyDoc(),
 		},
 		Invoke: Modify,
+		Check:  CheckModify,
 	})
 }
 
@@ -64,6 +67,16 @@ func modifyDoc() collection.Doc {
 // Unlike Create, an absent group is a refusal rather than an implicit
 // creation.
 func Modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return modify(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckModify is identity.group.modify's check: the same getent read, refusal and change decision as Modify, through the one body both share, then a prediction (the new gid) instead of groupmod.
+func CheckModify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return modify(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// modify is Modify's and CheckModify's one body; mode says which.
+func modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.group.modify"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -93,6 +106,12 @@ func Modify(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 
 	changed := gid != before.gid
+	if mode == collection.ModeCheck {
+		if err := recordState(rc, name, before, groupAccount{exists: true, gid: gid}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: changed}, nil
+	}
 	if changed {
 		if _, err := runGroupmod(ctx, conn, name, gid); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

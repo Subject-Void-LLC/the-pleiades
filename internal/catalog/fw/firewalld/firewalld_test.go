@@ -122,6 +122,11 @@ for arg in "$@"; do
       fi
       exit "$exit_code"
       ;;
+    --state)
+      # firewall-cmd's own answer: "running" and 0, or "not running" and 252.
+      if [ "${FAKE_NOT_RUNNING:-0}" = "1" ]; then printf 'not running\n'; exit 252; fi
+      printf 'running\n'; exit 0
+      ;;
     --reload)
       printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
       for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done

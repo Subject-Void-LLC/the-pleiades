@@ -822,6 +822,29 @@ func HasSyncRunsWith(preds ...predicate.SyncRun) predicate.Project {
 	})
 }
 
+// HasLaunchable applies the HasEdge predicate on the "launchable" edge.
+func HasLaunchable() predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, LaunchableTable, LaunchableColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasLaunchableWith applies the HasEdge predicate on the "launchable" edge with a given conditions (other predicates).
+func HasLaunchableWith(preds ...predicate.Launchable) predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := newLaunchableStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Project) predicate.Project {
 	return predicate.Project(sql.AndPredicates(predicates...))

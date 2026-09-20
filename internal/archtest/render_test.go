@@ -65,6 +65,7 @@ var templateEngineAllowlist = map[string]bool{
 	modulePath + "/internal/forge/pluginscaffold":     true,
 	modulePath + "/internal/forge/viewscaffold":       true,
 	modulePath + "/internal/forge/filterscaffold":     true,
+	modulePath + "/internal/forge/externalscaffold":   true,
 	modulePath + "/internal/inventory/devicescaffold": true,
 }
 

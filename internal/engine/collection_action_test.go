@@ -204,7 +204,7 @@ func TestCollectionActionExecutor_WithCollectionInvoker_ReplacesDirectInvoke(t *
 
 	var gotFQCN string
 	var gotParams map[string]any
-	invoker := func(_ context.Context, desc collection.Descriptor, _ inventory.InventoryItem, params map[string]any) (collection.Result, map[string]interface{}, error) {
+	invoker := func(_ context.Context, desc collection.Descriptor, _ inventory.InventoryItem, params map[string]any, _ collection.Mode) (collection.Result, map[string]interface{}, error) {
 		gotFQCN = desc.Name
 		gotParams = params
 		return collection.Result{Changed: true}, map[string]interface{}{"from": "invoker"}, nil
@@ -244,7 +244,7 @@ func TestCollectionActionExecutor_WithCollectionInvoker_PropagatesError(t *testi
 			return collection.Result{}, nil
 		})
 
-	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any) (collection.Result, map[string]interface{}, error) {
+	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any, collection.Mode) (collection.Result, map[string]interface{}, error) {
 		return collection.Result{}, nil, sentinel
 	}
 
@@ -266,7 +266,7 @@ func TestCollectionActionExecutor_WithCollectionInvoker_StillRefusesDeclaredMeth
 	name := registerTestMethod(t, "decorated-declared", collection.StatusDeclared, nil)
 
 	var invokerCalled bool
-	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any) (collection.Result, map[string]interface{}, error) {
+	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any, collection.Mode) (collection.Result, map[string]interface{}, error) {
 		invokerCalled = true
 		return collection.Result{}, nil, nil
 	}

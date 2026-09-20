@@ -51,6 +51,10 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Read-only: it sends GET requests and the one POST that fetches an
+			// API token, which changes no controller data, so a check runs it
+			// for real.
+			SupportsCheck: true,
 			// Nothing to undo, which is the same fact that makes this
 			// method report changed: false.
 			Reversibility: collection.Reversibility{
@@ -74,6 +78,8 @@ func init() {
 			},
 		},
 		Invoke: Reachability,
+		// Reachability itself, since it only reads.
+		Check: Reachability,
 	})
 }
 

@@ -95,6 +95,27 @@ func (_u *JobTaskUpdate) ClearFinishedAt() *JobTaskUpdate {
 	return _u
 }
 
+// SetUnchecked sets the "unchecked" field.
+func (_u *JobTaskUpdate) SetUnchecked(v int) *JobTaskUpdate {
+	_u.mutation.ResetUnchecked()
+	_u.mutation.SetUnchecked(v)
+	return _u
+}
+
+// SetNillableUnchecked sets the "unchecked" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableUnchecked(v *int) *JobTaskUpdate {
+	if v != nil {
+		_u.SetUnchecked(*v)
+	}
+	return _u
+}
+
+// AddUnchecked adds value to the "unchecked" field.
+func (_u *JobTaskUpdate) AddUnchecked(v int) *JobTaskUpdate {
+	_u.mutation.AddUnchecked(v)
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdate) SetJobID(id int) *JobTaskUpdate {
 	_u.mutation.SetJobID(id)
@@ -160,6 +181,11 @@ func (_u *JobTaskUpdate) check() error {
 			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Unchecked(); ok {
+		if err := jobtask.UncheckedValidator(v); err != nil {
+			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -201,6 +227,12 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.FinishedAtCleared() {
 		_spec.ClearField(jobtask.FieldFinishedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.Unchecked(); ok {
+		_spec.SetField(jobtask.FieldUnchecked, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedUnchecked(); ok {
+		_spec.AddField(jobtask.FieldUnchecked, field.TypeInt, value)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -317,6 +349,27 @@ func (_u *JobTaskUpdateOne) ClearFinishedAt() *JobTaskUpdateOne {
 	return _u
 }
 
+// SetUnchecked sets the "unchecked" field.
+func (_u *JobTaskUpdateOne) SetUnchecked(v int) *JobTaskUpdateOne {
+	_u.mutation.ResetUnchecked()
+	_u.mutation.SetUnchecked(v)
+	return _u
+}
+
+// SetNillableUnchecked sets the "unchecked" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableUnchecked(v *int) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetUnchecked(*v)
+	}
+	return _u
+}
+
+// AddUnchecked adds value to the "unchecked" field.
+func (_u *JobTaskUpdateOne) AddUnchecked(v int) *JobTaskUpdateOne {
+	_u.mutation.AddUnchecked(v)
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdateOne) SetJobID(id int) *JobTaskUpdateOne {
 	_u.mutation.SetJobID(id)
@@ -395,6 +448,11 @@ func (_u *JobTaskUpdateOne) check() error {
 			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Unchecked(); ok {
+		if err := jobtask.UncheckedValidator(v); err != nil {
+			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -453,6 +511,12 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	}
 	if _u.mutation.FinishedAtCleared() {
 		_spec.ClearField(jobtask.FieldFinishedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.Unchecked(); ok {
+		_spec.SetField(jobtask.FieldUnchecked, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedUnchecked(); ok {
+		_spec.AddField(jobtask.FieldUnchecked, field.TypeInt, value)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{

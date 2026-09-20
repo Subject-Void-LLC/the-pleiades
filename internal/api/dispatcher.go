@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
@@ -96,6 +97,12 @@ type CredentialReader interface {
 // TemplateReader is the slice of internal/launch's store a launch needs.
 type TemplateReader interface {
 	Get(ctx context.Context, id int) (launch.Template, error)
+
+	// ByLaunchable resolves a launchable reference into the template it
+	// stands for, which is how a launch that came from a schedule arrives:
+	// the schedule stores the reference rather than the template so that one
+	// schedule mechanism can point at any sort of launchable thing.
+	ByLaunchable(ctx context.Context, launchableID int) (launch.Template, error)
 }
 
 // LaunchConfigStore is the second, separate slice: recording what a launch
@@ -319,6 +326,15 @@ func toIgnoredDTOs(ignored []launch.IgnoredField) []ignoredFieldDTO {
 // person's error, and would leave an operator unable to run a template at
 // all because their client sent a field they were never allowed to set.
 func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) {
+	d.serveLaunch(w, r, false)
+}
+
+// serveLaunch is LaunchFromTemplate's and CheckFromTemplate's one body.
+// When check is set, the launch's own overrides are made to ask for a
+// check (forceCheck) before anything resolves, so the resolution, the
+// recorded configuration and the job all say check by the one rule a
+// check asked for any other way goes through.
+func (d *Dispatcher) serveLaunch(w http.ResponseWriter, r *http.Request, check bool) {
 	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
@@ -333,6 +349,15 @@ func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) 
 	var body launchRequestDTO
 	if r.ContentLength > 0 && !decodeJSON(w, r, &body) {
 		return
+	}
+
+	if check {
+		overrides, err := forceCheck(body.Overrides)
+		if err != nil {
+			d.respondLaunchError(w, r, templateID, err)
+			return
+		}
+		body.Overrides = overrides
 	}
 
 	cfg := launch.Config{Overrides: launch.Fields(body.Overrides), Answers: body.Answers}
@@ -352,7 +377,8 @@ func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) 
 	// Prompted credential inputs stay out of cfg deliberately: cfg is what
 	// gets recorded, and these must never be. See LaunchTemplate's own doc
 	// comment for why that is a signature rather than a rule.
-	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg, credtype.PromptedInputs(body.Credentials))
+	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg, credtype.PromptedInputs(body.Credentials),
+		MayRunForReal(identity.HasScope(auth.ScopeRunbookExecute)))
 	if err != nil {
 		d.respondLaunchError(w, r, templateID, err)
 		return
@@ -455,7 +481,7 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case errors.Is(err, launch.ErrNotFound):
 		RespondError(w, r, http.StatusNotFound, "template not found")
-	case errors.Is(err, launch.ErrSurveyAnswer):
+	case errors.Is(err, launch.ErrSurveyAnswer), errors.Is(err, launch.ErrMode):
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
@@ -492,7 +518,11 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 // launch cannot report a credential failure: an unresolvable credential
 // fails the job during fan-out, visible on the job record, not as a
 // non-202 from this call.
-func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config, prompted credtype.PromptedInputs) (string, []launch.IgnoredField, error) {
+func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config, prompted credtype.PromptedInputs, opts ...LaunchOption) (string, []launch.IgnoredField, error) {
+	var o launchOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	if d.templates == nil {
 		return "", nil, fmt.Errorf("launching by template is not wired on this controller")
 	}
@@ -541,7 +571,7 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	// organization edge; before Phase 21 a dispatch named a free-text
 	// group, which has no tenant to inherit, so Job.organization_id had
 	// existed since Phase 14 with nothing ever writing it.
-	jobID := uuid.New().String()
+	jobID := newJobID()
 	job := &dispatch.Job{
 		JobID:          jobID,
 		RunbookID:      resolved.Definition,
@@ -563,6 +593,9 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 		// row; see internal/ent/schema/job.go's own credential_ids field for
 		// what is deliberately not recorded beside them.
 		CredentialIDs: resolved.CredentialIDs,
+		// Whether a check of this job may run an external program's Check:
+		// only when its launcher may run it for real (MayRunForReal).
+		ExternalChecks: o.mayRunForReal,
 	}
 	if err := d.jobs.Create(ctx, job); err != nil {
 		return "", ignored, fmt.Errorf("create job %s: %w", jobID, err)
@@ -672,7 +705,9 @@ func (d *Dispatcher) Relaunch(ctx context.Context, actor, jobID string) (string,
 	// values were never stored. Any credential needing one was already
 	// refused above, so this nil is the whole of the prompted set rather
 	// than a value that was dropped.
-	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg, nil)
+	// The relaunch route requires runbook:execute, so its caller may run
+	// the template for real.
+	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg, nil, MayRunForReal(true))
 }
 
 // refuseUnrepeatableCredentials refuses a relaunch of a template bound to a
@@ -806,74 +841,19 @@ func (d *Dispatcher) publishRequested(ctx context.Context, actor, jobID string, 
 	return nil
 }
 
-// LaunchScheduled launches templateID on behalf of a schedule, optionally
-// reusing a saved launch configuration, and returns the new job's id.
+// newJobID mints a job id: a UUIDv7, so ids sort by creation time.
 //
-// It satisfies schedule.Launcher, which is how internal/schedule reaches
-// the dispatch plane without importing internal/api: the scheduler declares
-// the one-method port it needs and this is the adapter. A scheduled run
-// therefore goes through the identical path a person clicking Launch goes
-// through -- template resolution, credential binding, job creation,
-// JetStream publication, the activity stream -- rather than a parallel one
-// that could drift.
-//
-// It is a sibling of Relaunch rather than a wrapper over it, because the
-// two answer different questions: Relaunch asks "run what that job ran",
-// which starts from a Job, and this asks "run what this schedule says",
-// which starts from a Template. They share the refusal below for the same
-// reason, and reach LaunchTemplate by the same call.
-//
-// actor is supplied by the caller rather than derived here, and is
-// schedule.ScheduleActor's "scheduler:<id>" string. That is deliberate and
-// is what internal/access's audited store asks for: it refuses an
-// unattributed write outright, and its doc comment prescribes exactly this
-// shape for an unattended run -- a constant actor supplied visibly at the
-// composition root, naming which schedule so a reader can get from an
-// unexpected job back to its cause.
-func (d *Dispatcher) LaunchScheduled(ctx context.Context, actor string, templateID, savedConfigID int) (string, error) {
-	if d.templates == nil {
-		return "", fmt.Errorf("launching by template is not wired on this controller")
+// GET /jobs lists newest first by ordering on the job id and uses the id as
+// its keyset cursor, which holds only for time-ordered ids. The schema's own
+// default is a v7 for exactly that reason, but a launch mints its id itself,
+// before saving, because the same id is the job.requested event's
+// idempotency key; it minted a random v4, so a template launch landed
+// anywhere in the list. NewV7 fails only when the system's entropy source
+// does, and then a v4 is still a valid, unique id, merely an unordered one,
+// the same fallback the schema and device ids take.
+func newJobID() string {
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
 	}
-
-	tmpl, err := d.templates.Get(ctx, templateID)
-	if err != nil {
-		return "", fmt.Errorf("resolve template %d: %w", templateID, err)
-	}
-
-	// A credential whose type prompts for an input at launch cannot be run
-	// on a schedule, the same refusal Relaunch makes and for a stronger
-	// version of the same reason: a prompted input is never stored, so
-	// there is nobody to ask and nothing to replay. Refusing here, at save
-	// time's mirror, is what stops a schedule that could only ever fail.
-	if err := d.refuseUnrepeatableCredentials(ctx, tmpl); err != nil {
-		return "", err
-	}
-
-	var cfg launch.Config
-	if savedConfigID != 0 {
-		stored, err := d.savedConfigFor(ctx, templateID, savedConfigID)
-		if err != nil {
-			return "", err
-		}
-
-		// A stored survey password is not replayed, which is the same
-		// refusal configFor makes for a relaunch and which matters MORE
-		// here, not less. There the value would be reused once, by a
-		// person who chose to press the button; here it would be reused
-		// unattended, on every occurrence, indefinitely, under no
-		// individual's decision at all.
-		for _, name := range tmpl.Survey.SecretVariables() {
-			if _, answered := stored.Answers[name]; answered {
-				return "", fmt.Errorf(
-					"%w: its saved configuration answers %q, which this platform will not replay on a schedule",
-					ErrNotRelaunchable, name)
-			}
-		}
-		cfg = stored.Config()
-	}
-
-	// No prompted credential inputs, and there cannot be any: every
-	// credential that would need one was refused above.
-	jobID, _, err := d.LaunchTemplate(ctx, actor, templateID, cfg, nil)
-	return jobID, err
+	return uuid.New().String()
 }

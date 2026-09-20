@@ -21,6 +21,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check makes only the read a real run makes first (CheckCreateBucket).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes:      "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog.",
@@ -28,6 +30,7 @@ func init() {
 			Doc: createBucketDoc(),
 		},
 		Invoke: CreateBucket,
+		Check:  CheckCreateBucket,
 	})
 }
 
@@ -60,6 +63,17 @@ func createBucketDoc() collection.Doc {
 
 // CreateBucket implements "cloud.aws.s3.create_bucket".
 func CreateBucket(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return createBucket(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCreateBucket is "cloud.aws.s3.create_bucket"'s check: it reads the bucket with HeadBucket and says whether CreateBucket would
+// create the bucket, sending no call that changes anything.
+func CheckCreateBucket(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return createBucket(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// createBucket is CreateBucket's and CheckCreateBucket's one body; mode says which.
+func createBucket(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "cloud.aws.s3.create_bucket"
 
 	bucket, err := sdk.RequiredStringParam(params, paramBucket)
@@ -75,6 +89,10 @@ func CreateBucket(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	before, err := client.BucketExists(ctx, bucket)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		return predictState(rc, fqcn, bucket, before, !before)
 	}
 
 	changed := false

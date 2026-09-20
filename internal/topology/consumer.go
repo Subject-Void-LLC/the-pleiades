@@ -64,6 +64,18 @@ func DispatchConsumerConfig() jetstream.ConsumerConfig {
 	return SubscribeConsumerConfig(DispatchDurableName, DispatchSubjectAll())
 }
 
+// CheckConsumerConfig returns the durable consumer every check-capable
+// Runner replica shares for check dispatches. It obeys the rule above by
+// construction: its filter, CheckSubjectAll, and DispatchSubjectAll share
+// no subject, so exactly one of the two consumers matches any dispatch.
+// That disjointness is also the whole of check mode's safety across a
+// rolling upgrade: a Runner that predates check mode only ever creates
+// DispatchConsumerConfig, so a check waits for a Runner that knows what
+// one is, instead of reaching one that would run it for real.
+func CheckConsumerConfig() jetstream.ConsumerConfig {
+	return SubscribeConsumerConfig(CheckDurableName, CheckSubjectAll())
+}
+
 // LogViewerConsumerConfig returns an ephemeral, non-acknowledging consumer
 // scoped to one job's log subject. It is deliberately not a durable,
 // shared-group consumer: PLAN.md Section 26.4 names live log viewing as the

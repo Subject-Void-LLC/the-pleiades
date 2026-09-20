@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
@@ -244,6 +245,25 @@ func (_u *ProjectUpdate) AddSyncRuns(v ...*SyncRun) *ProjectUpdate {
 	return _u.AddSyncRunIDs(ids...)
 }
 
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_u *ProjectUpdate) SetLaunchableID(id int) *ProjectUpdate {
+	_u.mutation.SetLaunchableID(id)
+	return _u
+}
+
+// SetNillableLaunchableID sets the "launchable" edge to the Launchable entity by ID if the given value is not nil.
+func (_u *ProjectUpdate) SetNillableLaunchableID(id *int) *ProjectUpdate {
+	if id != nil {
+		_u = _u.SetLaunchableID(*id)
+	}
+	return _u
+}
+
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_u *ProjectUpdate) SetLaunchable(v *Launchable) *ProjectUpdate {
+	return _u.SetLaunchableID(v.ID)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdate) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -301,6 +321,12 @@ func (_u *ProjectUpdate) RemoveSyncRuns(v ...*SyncRun) *ProjectUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSyncRunIDs(ids...)
+}
+
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (_u *ProjectUpdate) ClearLaunchable() *ProjectUpdate {
+	_u.mutation.ClearLaunchable()
+	return _u
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -588,6 +614,35 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.LaunchableCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   project.LaunchableTable,
+			Columns: []string{project.LaunchableColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LaunchableIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   project.LaunchableTable,
+			Columns: []string{project.LaunchableColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{project.Label}
@@ -820,6 +875,25 @@ func (_u *ProjectUpdateOne) AddSyncRuns(v ...*SyncRun) *ProjectUpdateOne {
 	return _u.AddSyncRunIDs(ids...)
 }
 
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_u *ProjectUpdateOne) SetLaunchableID(id int) *ProjectUpdateOne {
+	_u.mutation.SetLaunchableID(id)
+	return _u
+}
+
+// SetNillableLaunchableID sets the "launchable" edge to the Launchable entity by ID if the given value is not nil.
+func (_u *ProjectUpdateOne) SetNillableLaunchableID(id *int) *ProjectUpdateOne {
+	if id != nil {
+		_u = _u.SetLaunchableID(*id)
+	}
+	return _u
+}
+
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_u *ProjectUpdateOne) SetLaunchable(v *Launchable) *ProjectUpdateOne {
+	return _u.SetLaunchableID(v.ID)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdateOne) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -877,6 +951,12 @@ func (_u *ProjectUpdateOne) RemoveSyncRuns(v ...*SyncRun) *ProjectUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSyncRunIDs(ids...)
+}
+
+// ClearLaunchable clears the "launchable" edge to the Launchable entity.
+func (_u *ProjectUpdateOne) ClearLaunchable() *ProjectUpdateOne {
+	_u.mutation.ClearLaunchable()
+	return _u
 }
 
 // Where appends a list predicates to the ProjectUpdate builder.
@@ -1187,6 +1267,35 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LaunchableCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   project.LaunchableTable,
+			Columns: []string{project.LaunchableColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LaunchableIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   project.LaunchableTable,
+			Columns: []string{project.LaunchableColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

@@ -43,7 +43,7 @@ func runInjecting(t *testing.T, payload wire.DispatchPayload) (legacy.ContainerS
 	orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte(realPlaybookOutput), ExitCode: 0}}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
-	err := adapter.Execute(context.Background(), payload)
+	_, err := adapter.Execute(context.Background(), payload)
 	return orch.lastSpec, err
 }
 

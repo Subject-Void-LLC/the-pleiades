@@ -59,6 +59,16 @@ const (
 	// ScopeRunbookExecute grants the right to dispatch a Runbook against a
 	// target. This is api.Dispatcher's own required scope.
 	ScopeRunbookExecute Scope = "runbook:execute"
+	// ScopeRunbookCheck grants the right to run a template as a check:
+	// every task asked what it would change, and nothing changed. It is
+	// strictly less than ScopeRunbookExecute, which implies it
+	// (Identity.HasScope), so a team can be granted drift checks without
+	// being granted changes. A check still connects to devices with their
+	// real credentials and reads them; what it cannot do is write. For the
+	// same reason, a check launched without ScopeRunbookExecute never runs
+	// an external Collection program's Check, which nothing has proven
+	// only reads: those tasks are reported unchecked.
+	ScopeRunbookCheck Scope = "runbook:check"
 	// ScopeJobRead grants the right to read a job's status and stream its
 	// logs. This is api.LogStreamer's own required scope; unlike the
 	// other three, no phase before this one ever checked it.

@@ -3,14 +3,21 @@
 //
 // # Why go-git rather than shelling out
 //
-// The controller image carries no git binary, go-git honours a
-// context.Context so a hung fetch is cancellable, and, decisively, there is
-// no argument-injection surface. A repository URL is operator-supplied
-// data, and `git clone <url>` with a url beginning "--upload-pack=" runs an
-// arbitrary program. Passing that same string as a struct field cannot.
+// go-git honours a context.Context so a hung fetch is cancellable and,
+// decisively, there is no argument-injection surface. A repository URL is
+// operator-supplied data, and `git clone <url>` with a url beginning
+// "--upload-pack=" runs an arbitrary program. Passing that same string as a
+// struct field cannot.
 //
 // The cost is real and worth stating: no submodules, and a large repository
 // costs more memory than the C implementation would.
+//
+// This used to claim that the controller image carries no git binary, as
+// though go-git needed none. The first half is true and the conclusion is not:
+// go-git's own FILE transport shells out to git-upload-pack, so a local source
+// works on a developer's machine and fails in the image. Which is one of the
+// reasons a local source is refused unless a deployment says otherwise; see
+// source.go.
 package project
 
 import (
@@ -60,12 +67,22 @@ type GitSyncer struct {
 	// checkout of the same tree produce a working directory that matches
 	// no commit, which is worse than either sync losing.
 	locks sync.Map
+
+	// policy is which sources this deployment will fetch from. The zero
+	// value refuses everything but https and ssh, so a syncer nobody
+	// configured is the careful one rather than the permissive one.
+	policy SourcePolicy
 }
 
 // NewGitSyncer returns a syncer rooted at dir, resolving credentials
-// through auth. A nil auth clones only public repositories.
-func NewGitSyncer(dir string, auth AuthResolver) *GitSyncer {
-	return &GitSyncer{root: dir, auth: auth}
+// through auth, fetching only from sources policy admits. A nil auth clones
+// only public repositories.
+//
+// The policy is a value rather than an option because every caller has to make
+// the decision: an option would let one be composed without it, and the
+// composition that forgot would be the one that fetches from anywhere.
+func NewGitSyncer(dir string, auth AuthResolver, policy SourcePolicy) *GitSyncer {
+	return &GitSyncer{root: dir, auth: auth, policy: policy}
 }
 
 // lockFor returns the mutex guarding one project's working tree.
@@ -89,6 +106,24 @@ func (s *GitSyncer) pathFor(p Project) string {
 func (s *GitSyncer) Sync(ctx context.Context, p Project, progress io.Writer) (Result, error) {
 	if !p.Syncable() {
 		return Result{}, ErrNotSyncable
+	}
+
+	// Checked here as well as at the write, and this is the check that
+	// matters: a row can predate the rule, and after the fetch below started
+	// dialing the project's own URL this is the last point before a
+	// connection. It happens before the lock and before any directory is
+	// made, so a source this deployment will not fetch from leaves nothing
+	// behind on disk.
+	//
+	// Recorded as a failed sync rather than returned as an error, because
+	// that is how every other refusal a sync makes is reported and it is what
+	// puts the reason on the project's page.
+	if err := s.policy.AdmitsSource(p.SCMURL); err != nil {
+		return Result{
+			Status: SyncFailed,
+			Err:    scrubURL(err.Error(), p.SCMURL),
+			At:     time.Now().UTC(),
+		}, nil
 	}
 
 	lock := s.lockFor(p.ID)
@@ -151,7 +186,72 @@ func (s *GitSyncer) open(ctx context.Context, dir string, p Project, auth Auth, 
 		}
 		return s.clone(ctx, dir, p, auth, progress)
 	}
+
+	// A checkout of a DIFFERENT repository cannot be fetched into: an
+	// unrelated history has no common ancestor, so a fetch reports a
+	// non-fast-forward and the project could never sync again. That is what
+	// repointing a project at another address produces, which is an ordinary
+	// thing for somebody to do (a typo, a repository that moved, a fork), so
+	// it is answered with a fresh checkout rather than with a failure nobody
+	// can clear from the interface.
+	if !remoteMatches(repo, p.SCMURL) {
+		return s.replace(ctx, dir, p, auth, progress)
+	}
 	return repo, s.fetch(ctx, repo, p, auth, progress)
+}
+
+// remoteMatches reports whether the checkout already points at url.
+//
+// The FIRST configured URL is the one compared, not any of them, because that
+// is the one a fetch uses. A remote carrying several would otherwise report a
+// match on the strength of one this sync is not going to dial.
+//
+// A checkout with no origin at all counts as not matching: that is debris from
+// an interrupted clone rather than a repository this can fetch into, and
+// replacing it is the same answer the unreadable case above gets.
+func remoteMatches(repo *gogit.Repository, url string) bool {
+	remote, err := repo.Remote(gogit.DefaultRemoteName)
+	if err != nil {
+		return false
+	}
+	configured := remote.Config().URLs
+	return len(configured) > 0 && configured[0] == url
+}
+
+// replace checks out a repository beside the current tree and swaps it in only
+// once the clone has succeeded.
+//
+// The order is the whole point. Removing the tree first and then cloning would
+// leave a project with NO checkout whenever the new address is wrong, and a
+// project with no checkout is one whose every template stops resolving
+// (internal/project's playbook source requires both a path and a succeeded
+// sync). Cloning first costs one extra tree's worth of disk for the length of
+// one sync and keeps the last good checkout serving until there is a better
+// one.
+func (s *GitSyncer) replace(ctx context.Context, dir string, p Project, auth Auth, progress io.Writer) (*gogit.Repository, error) {
+	staging := dir + ".incoming"
+
+	// Debris from an interrupted swap, which is this package's own working
+	// area and nobody else's data.
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, fmt.Errorf("clearing a stale staging directory: %w", err)
+	}
+
+	if _, err := s.clone(ctx, staging, p, auth, progress); err != nil {
+		// The old tree is untouched, so the project keeps serving whatever it
+		// last synced while somebody fixes the address.
+		_ = os.RemoveAll(staging)
+		return nil, err
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		_ = os.RemoveAll(staging)
+		return nil, fmt.Errorf("clearing the previous checkout: %w", err)
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		return nil, fmt.Errorf("installing the new checkout: %w", err)
+	}
+	return gogit.PlainOpen(dir)
 }
 
 // clone makes the first checkout.
@@ -182,10 +282,23 @@ func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project
 	if err != nil {
 		return err
 	}
+	// RemoteURL states the address to dial rather than letting go-git read one
+	// out of the checkout's .git/config, which is where this defect lived:
+	// without it a fetch used whatever the FIRST clone had configured, so
+	// editing a project's address changed nothing about what was fetched, ever
+	// (FAILURE_PATTERNS.md #271).
+	//
+	// What makes an edit take effect is the mismatch check in open, which
+	// replaces a checkout of a different repository outright, because an
+	// unrelated history cannot be fast-forwarded into. This is the narrower
+	// guarantee beside it: the address dialed is the one this platform
+	// validated, by being passed, rather than by being inferred from a file on
+	// disk and trusted to still agree.
 	if err := repo.FetchContext(ctx, &gogit.FetchOptions{
-		Auth:     method,
-		Force:    true,
-		Progress: progress,
+		RemoteURL: p.SCMURL,
+		Auth:      method,
+		Force:     true,
+		Progress:  progress,
 	}); err != nil && !isUpToDate(err) {
 		return err
 	}
@@ -194,7 +307,7 @@ func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project
 	if err != nil {
 		return err
 	}
-	pull := &gogit.PullOptions{Auth: method, Progress: progress}
+	pull := &gogit.PullOptions{RemoteURL: p.SCMURL, Auth: method, Progress: progress}
 	if p.SCMBranch != "" {
 		pull.ReferenceName = plumbing.NewBranchReferenceName(p.SCMBranch)
 	}

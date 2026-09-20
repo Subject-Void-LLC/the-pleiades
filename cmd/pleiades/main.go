@@ -32,6 +32,7 @@ var commands = map[string]commandFunc{
 	"import":         runImport,
 	"inventory":      runInventory,
 	"doc":            runDoc,
+	"collection":     runCollection,
 	"version":        runVersion,
 }
 
@@ -77,9 +78,20 @@ func run(args []string) int {
 			return 2
 		}
 		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		var coded exitCoder
+		if errors.As(err, &coded) {
+			return coded.ExitCode()
+		}
 		return 1
 	}
 	return 0
+}
+
+// exitCoder is an error that carries the status the command ends with,
+// for an outcome that is neither a success (0), a failure (1) nor a usage
+// error (2). The one today is an incomplete check (exitIncomplete).
+type exitCoder interface {
+	ExitCode() int
 }
 
 func printUsage() {

@@ -344,6 +344,17 @@ func lineRecordDiff(rc sdk.RunbookContext, before lineFile, afterInfo remotefile
 	})
 }
 
+// linePredictDiff records the diff a check predicts for an edit that
+// would write content: the file replaced with that text and given back
+// the mode, owner and group it had (what lineWrite does), its size the
+// text's, and its modification time the device's to decide.
+func linePredictDiff(rc sdk.RunbookContext, before lineFile, content string) error {
+	kept := remotefile.Attributes{Mode: before.info.Mode, Owner: before.info.Owner, Group: before.info.Group}
+	after := remotefile.PredictWrite(kept, before.info, int64(len(content))).Map()
+	after[lineDiffContent] = content
+	return sdk.RecordDiff(rc, sdk.Diff{Before: lineState(before.info, before.content), After: after})
+}
+
 // lineRecordInverse writes the instruction that undoes this run: a
 // file.copy putting the whole prior text back, with the mode, owner and
 // group the file had.

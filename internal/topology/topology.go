@@ -52,8 +52,16 @@ const (
 	// the whole subject, with no trailing dot and nothing after it; see
 	// DispatchSubject for what the token buys and what it does not.
 	dispatchSubjectPrefix = "pleiades.jobs.dispatch."
-	logSubjectPrefix      = "pleiades.jobs.logs."
-	resultSubjectPrefix   = "pleiades.jobs.results."
+	// checkSubjectPrefix carries dispatches that must only ever be
+	// checked (Phase 46's Walk-tier check mode). It is a prefix of its own,
+	// and not a field on a dispatch, for one reason: a Runner built before
+	// check mode existed ignores a field it does not know, and would run a
+	// check for real. Such a Runner's consumer filters dispatchSubjectPrefix
+	// only, so it never receives anything published here. See
+	// CheckConsumerConfig.
+	checkSubjectPrefix  = "pleiades.jobs.check."
+	logSubjectPrefix    = "pleiades.jobs.logs."
+	resultSubjectPrefix = "pleiades.jobs.results."
 	// journalSubjectPrefix carries the run journal a Runner produces
 	// while executing a dispatch (Phase 40). It sits beside the log and
 	// result prefixes rather than under either, because it is neither:
@@ -82,6 +90,12 @@ const (
 	// one Runner processes a given dispatch, no matter how many replicas
 	// are running.
 	DispatchDurableName = "runner-agent"
+
+	// CheckDurableName is the durable consumer every Runner replica that
+	// can run checks shares for check dispatches (checkSubjectPrefix), the
+	// same consumer-group semantics as DispatchDurableName over a disjoint
+	// subject prefix.
+	CheckDurableName = "runner-check"
 
 	// MaxDeliverDefault is the default redelivery ceiling before a message
 	// is dead-lettered. Shared by consumer configuration and the DLQ
@@ -224,6 +238,21 @@ func DispatchSubject(deviceID string) string {
 // escaped the package whose whole job is owning them.
 func DispatchSubjectAll() string {
 	return dispatchSubjectPrefix + ">"
+}
+
+// CheckSubject returns the subject a check of deviceID is published to:
+// the same device token as DispatchSubject, under checkSubjectPrefix. A
+// Runner takes anything arriving here as a check whatever the payload
+// says (routing.CheckOnly), and a Runner that predates check mode never
+// receives it, so a check can never be run for real by either.
+func CheckSubject(deviceID string) string {
+	return checkSubjectPrefix + SubjectToken(deviceID)
+}
+
+// CheckSubjectAll returns the wildcard matching every device's check
+// subject, which is what the shared check consumer filters on.
+func CheckSubjectAll() string {
+	return checkSubjectPrefix + ">"
 }
 
 // LogSubject returns the subject a given job's execution log lines publish

@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmsvc"
 )
 
 func init() {
@@ -21,6 +22,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the service before it acts, so a check can predict
+			// through the same code (CheckRestart).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "A restart's effect is the interruption itself, and there is no instruction that un-interrupts " +
@@ -32,6 +36,7 @@ func init() {
 			Doc: restartDoc(),
 		},
 		Invoke: Restart,
+		Check:  CheckRestart,
 	})
 }
 
@@ -59,12 +64,30 @@ func restartDoc() collection.Doc {
 // inverse is nil for the reason the manifest states: no instruction
 // reverses an interruption. The diff is still recorded by runServiceOp,
 // so a rollback reaching this task can see what the service's state was.
-func Restart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runServiceOp(ctx, rc, device, params, serviceOp{
+// restartOp is svc.windows.restart's operation, shared by Restart and CheckRestart so the
+// method and its check cannot disagree about it. A function rather than a
+// variable, so it reads the service functions (startFunc and the rest) when
+// it is called, which is what lets a test replace them.
+func restartOp() serviceOp {
+	return serviceOp{
 		fqcn:            "svc.windows.restart",
 		converged:       nil,
 		apply:           restartFunc,
 		refusesDisabled: true,
 		inverse:         nil,
-	})
+		predict: func(s winrmsvc.State) winrmsvc.State {
+			s.Status = "Running"
+			return s
+		},
+	}
+}
+
+func Restart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, restartOp(), collection.ModeExecute)
+}
+
+// CheckRestart is svc.windows.restart's check: the same Get-Service read, refusals
+// and decision as Restart, then a prediction (Status Running) instead of the change.
+func CheckRestart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, restartOp(), collection.ModeCheck)
 }

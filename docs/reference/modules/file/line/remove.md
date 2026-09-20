@@ -15,6 +15,7 @@ Makes sure no line matching a pattern remains in a text file, which is ansible.b
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -91,6 +91,12 @@ var fields = []view.Field{
 		InList: true, BadgeClass: kindBadge,
 	},
 	{
+		Name: "mode", Label: "MODE", Kind: view.KindBadge,
+		Help: "execute: a real run. check: every task was asked what it would change and nothing was changed, " +
+			"so this job's changed counts describe what a real run would have done.",
+		InList: true, BadgeClass: modeBadge,
+	},
+	{
 		Name: "state", Label: "STATE", Kind: view.KindBadge,
 		InList: true, BadgeClass: stateBadge,
 	},
@@ -116,6 +122,21 @@ func kindBadge(kind string) string {
 		return d.BadgeClass
 	}
 	return "badge-neutral"
+}
+
+// modeBadge marks a check apart from a real run, so a list of jobs never
+// shows a check that "completed" looking like a change that was made. A
+// record whose mode could not be read (dispatch.Job.ModeLabel) reads as
+// failed, which is what fan-out made of it.
+func modeBadge(mode string) string {
+	switch mode {
+	case "check":
+		return "badge-skipped"
+	case "unreadable":
+		return "badge-failed"
+	default:
+		return "badge-neutral"
+	}
 }
 
 // stateBadge maps a job's lifecycle state onto the closed set of badge
@@ -294,6 +315,7 @@ func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, ent
 				"runbook":    j.RunbookID,
 				"template":   j.TemplateName,
 				"kind":       j.Kind,
+				"mode":       j.ModeLabel(),
 				"state":      j.State,
 				"dispatched": strconv.Itoa(j.DispatchedCount),
 				"skipped":    strconv.Itoa(j.SkippedCount),

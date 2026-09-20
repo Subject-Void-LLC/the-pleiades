@@ -432,6 +432,10 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	resolved := resolveFQCN(task.FQCN)
 	entry.FQCN = resolved.Name
 	entry.FQCNUnresolved = resolved.Unresolved
+	if n.Provider != nil {
+		entry.ProviderProgram = n.Provider.Program
+		entry.ProviderDigest = n.Provider.Digest
+	}
 
 	// Param key names only, against this method's own Doc.Params. No
 	// declaration can ever admit a param VALUE: file.copy's content is a
@@ -637,6 +641,24 @@ func (r *run) projectLevel(outs [][]NodeResult) ([]JournalEntry, error) {
 // configured, masking handler; adding a WithLogger option to Executor is
 // a separate decision this phase does not need to make.
 func (r *run) recordLevel(ctx context.Context, levelIndex int, outs [][]NodeResult) {
+	// A check-mode run is never journaled. The journal is the record of
+	// what was done to a device, and a check did nothing: an entry saying
+	// "changed" for a change that was only predicted is a false history,
+	// and one a rollback engine would read as work to undo. Only
+	// collection.ModeExecute writes; an unknown mode, which ran nothing
+	// (see WithMode), writes nothing either.
+	if r.mode != collection.ModeExecute {
+		return
+	}
+	// For the same reason, a real run leaves out every node whose task
+	// carries check_mode: that task was checked, not run.
+	outs = slices.DeleteFunc(slices.Clone(outs), func(node []NodeResult) bool {
+		return len(node) > 0 && r.modeFor(r.dag.Nodes[node[0].NodeID]) != collection.ModeExecute
+	})
+	if len(outs) == 0 {
+		return
+	}
+
 	entries, projectErr := r.projectLevel(outs)
 
 	if projectErr != nil {

@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks rpm before it acts, so a check can predict through the same code (CheckUpgrade).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "Downgrading a package is not something dnf reliably supports once the previous build has " +
@@ -30,6 +32,7 @@ func init() {
 			Doc: upgradeDoc(),
 		},
 		Invoke: Upgrade,
+		Check:  CheckUpgrade,
 	})
 }
 
@@ -63,6 +66,16 @@ func upgradeDoc() collection.Doc {
 // a newer build exists and upgrading only when it says so, so a package
 // already current sends nothing beyond the check itself.
 func Upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return upgrade(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckUpgrade is pkg.dnf.upgrade's check: the same rpm read, the same dnf check-update read and the same change decision as Upgrade, through the one body both share, then a prediction instead of dnf. The build an upgrade would install is dnf's to choose, so the prediction leaves the version out.
+func CheckUpgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return upgrade(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// upgrade is Upgrade's and CheckUpgrade's one body; mode says which.
+func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.dnf.upgrade"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -79,6 +92,22 @@ func Upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryRPM(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		available := !before.installed
+		if before.installed {
+			if available, err = hasUpdate(ctx, conn, name); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+		if !available {
+			return collection.Result{}, recordState(rc, name, before, before)
+		}
+		if err := recordPrediction(rc, name, before, true, ""); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	if !before.installed {

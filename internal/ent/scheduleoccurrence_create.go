@@ -111,6 +111,20 @@ func (_c *ScheduleOccurrenceCreate) SetNillableJobID(v *string) *ScheduleOccurre
 	return _c
 }
 
+// SetUnifiedJobType sets the "unified_job_type" field.
+func (_c *ScheduleOccurrenceCreate) SetUnifiedJobType(v string) *ScheduleOccurrenceCreate {
+	_c.mutation.SetUnifiedJobType(v)
+	return _c
+}
+
+// SetNillableUnifiedJobType sets the "unified_job_type" field if the given value is not nil.
+func (_c *ScheduleOccurrenceCreate) SetNillableUnifiedJobType(v *string) *ScheduleOccurrenceCreate {
+	if v != nil {
+		_c.SetUnifiedJobType(*v)
+	}
+	return _c
+}
+
 // SetScheduleID sets the "schedule" edge to the Schedule entity by ID.
 func (_c *ScheduleOccurrenceCreate) SetScheduleID(id int) *ScheduleOccurrenceCreate {
 	_c.mutation.SetScheduleID(id)
@@ -197,6 +211,11 @@ func (_c *ScheduleOccurrenceCreate) check() error {
 	if _, ok := _c.mutation.SuppressedCount(); !ok {
 		return &ValidationError{Name: "suppressed_count", err: errors.New(`ent: missing required field "ScheduleOccurrence.suppressed_count"`)}
 	}
+	if v, ok := _c.mutation.UnifiedJobType(); ok {
+		if err := scheduleoccurrence.UnifiedJobTypeValidator(v); err != nil {
+			return &ValidationError{Name: "unified_job_type", err: fmt.Errorf(`ent: validator failed for field "ScheduleOccurrence.unified_job_type": %w`, err)}
+		}
+	}
 	if len(_c.mutation.ScheduleIDs()) == 0 {
 		return &ValidationError{Name: "schedule", err: errors.New(`ent: missing required edge "ScheduleOccurrence.schedule"`)}
 	}
@@ -253,6 +272,10 @@ func (_c *ScheduleOccurrenceCreate) createSpec() (*ScheduleOccurrence, *sqlgraph
 	if value, ok := _c.mutation.JobID(); ok {
 		_spec.SetField(scheduleoccurrence.FieldJobID, field.TypeString, value)
 		_node.JobID = value
+	}
+	if value, ok := _c.mutation.UnifiedJobType(); ok {
+		_spec.SetField(scheduleoccurrence.FieldUnifiedJobType, field.TypeString, value)
+		_node.UnifiedJobType = value
 	}
 	if nodes := _c.mutation.ScheduleIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

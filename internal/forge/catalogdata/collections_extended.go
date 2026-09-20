@@ -97,7 +97,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Mounts a filesystem on the target, and optionally persists it to fstab.",
-			Description: "Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift.",
+			Description: "Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift. A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options out of its prediction, since the kernel rewrites them.",
 			Params: []collection.Param{
 				{Name: "path", Type: "string", Required: true, Description: "The mountpoint to mount onto."},
 				{Name: "src", Type: "string", Required: true, Description: "The device, share or filesystem source to mount."},
@@ -152,7 +152,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Enables a Windows optional feature or role via DISM, including its required parent features.",
-			Description: "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable.",
+			Description: "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable. A check reads the feature and sends nothing; when the feature would change, its diff leaves out the state the feature would end in and reboot_required, since DISM decides between the finished and pending states only when it runs.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."},
 			},
@@ -175,7 +175,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Disables a Windows optional feature or role via DISM.",
-			Description: "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone.",
+			Description: "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone. A check reads the feature and sends nothing; when the feature would change, its diff leaves out the state the feature would end in and reboot_required, since DISM decides between the finished and pending states only when it runs.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."},
 			},
@@ -197,7 +197,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Creates an archive (tar or tar.gz) from files on the target.",
-			Description: "Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it.",
+			Description: "Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it. A check reads what a real run reads and runs no tar. A src, or the directory the archive would go in, that is missing when a check runs makes the call unchecked rather than failed, since an earlier task in the same run may be what creates it.",
 			Params: []collection.Param{
 				{Name: "path", Type: "string", Required: true, Description: "The archive file to create."},
 				{Name: "src", Type: "list", Required: true, Description: "The paths on the target to include, at least one."},
@@ -223,7 +223,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Extracts an archive (tar or tar.gz) on the target.",
-			Description: "Extracts src into dest, where src is an archive already present on the target -- this is community.general.unarchive with remote_src implied true always; nothing in this platform can transfer a file from wherever a runbook runs to the target (file.copy explicitly refuses that too), so a src living anywhere else is out of scope. Compression is auto-detected by tar itself, so there is no format parameter here the way archive.create has one. Idempotency is opt-in: naming creates skips extraction when that path is already there, and naming none means every run extracts again, the same honesty exec.command already has for a command with no built-in idempotency of its own.",
+			Description: "Extracts src into dest, where src is an archive already present on the target -- this is community.general.unarchive with remote_src implied true always; nothing in this platform can transfer a file from wherever a runbook runs to the target (file.copy explicitly refuses that too), so a src living anywhere else is out of scope. Compression is auto-detected by tar itself, so there is no format parameter here the way archive.create has one. Idempotency is opt-in: naming creates skips extraction when that path is already there, and naming none means every run extracts again, the same honesty exec.command already has for a command with no built-in idempotency of its own. A check reads what a real run reads and extracts nothing. A src missing when a check runs, or a dest that is there but is not a directory, makes the call unchecked rather than failed, since an earlier task in the same run may be what fixes it.",
 			Params: []collection.Param{
 				{Name: "src", Type: "string", Required: true, Description: "The archive on the target to extract. Never a path on the machine running this task."},
 				{Name: "dest", Type: "string", Required: true, Description: "The directory to extract into, created if it does not exist."},
@@ -302,7 +302,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Removes a Docker container from the target.",
-			Description: "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device.",
+			Description: "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The container to remove."},
 				{Name: "force", Type: "bool", Default: "false", Description: "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."},
@@ -356,7 +356,7 @@ var extendedCollections = []collectionscaffold.Config{
 				"a matching instance's configuration against what was requested. An instance already present under " +
 				"that name is left exactly as it is, regardless of whether its image or instance type match; this " +
 				"method never recreates. The target device is the AWS account/region context itself " +
-				"(an aws_account inventory item), not a device this task reaches over any transport.",
+				"(an aws_account inventory item), not a device this task reaches over any transport. A check looks the name up and, when nothing matches, predicts a launch without sending RunInstances, not even as a dry run; it leaves the instance ID and state out, since AWS assigns both.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The Name tag to find or create an instance under."},
 				{Name: "image_id", Type: "string", Required: true, Description: "The AMI id to launch from. Ignored when an instance already exists under name."},
@@ -439,7 +439,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Summary: "Deletes an S3 bucket via the AWS API.",
 			Description: "Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty " +
 				"bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the " +
-				"safety rail, not an error this method routes around.",
+				"safety rail, not an error this method routes around. A check reads the bucket and whether it holds anything, deleting nothing; one that holds objects makes the call unchecked rather than failed, since an earlier task in the same run may be what empties it.",
 			Params: []collection.Param{
 				{Name: "bucket", Type: "string", Required: true, Description: "The bucket name to delete."},
 			},

@@ -23,6 +23,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the service before it acts, so a check can predict
+			// through the same code (CheckStart).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that started a stopped service emits an svc.windows.stop naming it. A run that found it " +
@@ -33,6 +36,7 @@ func init() {
 			Doc: startDoc(),
 		},
 		Invoke: Start,
+		Check:  CheckStart,
 	})
 }
 
@@ -61,8 +65,12 @@ func startDoc() collection.Doc {
 // no change. "StartPending" deliberately does not count as running: a
 // service part-way through starting has not started, and treating it as
 // done would let this report success for one that goes on to fail.
-func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runServiceOp(ctx, rc, device, params, serviceOp{
+// startOp is svc.windows.start's operation, shared by Start and CheckStart so the
+// method and its check cannot disagree about it. A function rather than a
+// variable, so it reads the service functions (startFunc and the rest) when
+// it is called, which is what lets a test replace them.
+func startOp() serviceOp {
+	return serviceOp{
 		fqcn:            "svc.windows.start",
 		converged:       winrmsvc.State.Running,
 		apply:           startFunc,
@@ -78,5 +86,19 @@ func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 					"while it was running.", name),
 			}, true
 		},
-	})
+		predict: func(s winrmsvc.State) winrmsvc.State {
+			s.Status = "Running"
+			return s
+		},
+	}
+}
+
+func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, startOp(), collection.ModeExecute)
+}
+
+// CheckStart is svc.windows.start's check: the same Get-Service read, refusals
+// and decision as Start, then a prediction (Status Running) instead of the change.
+func CheckStart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, startOp(), collection.ModeCheck)
 }

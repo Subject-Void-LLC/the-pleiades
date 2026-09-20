@@ -15,6 +15,7 @@ Dials the device's SSHTransportCapable host and port, authenticates with the cre
 | Capabilities | `SSHTransportCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Returns

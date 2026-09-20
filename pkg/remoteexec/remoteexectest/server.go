@@ -86,6 +86,19 @@ type Options struct {
 	// Both default when empty.
 	Username string
 	Password string
+
+	// Netconf, when set, makes this server answer a "netconf" subsystem
+	// request by speaking RFC 6241, for the methods that configure a
+	// device that way rather than over a terminal. See netconf_device.go.
+	Netconf *NetconfDevice
+
+	// Device, when set, makes this server answer a shell request with a
+	// scripted CLI instead of declining it, for the methods that open an
+	// interactive session rather than running a command. See device.go
+	// for what such a script is and is not evidence of. Exec sessions are
+	// unaffected: a server with a Device still runs commands through a
+	// real shell.
+	Device *Device
 }
 
 // Limit returns a SessionLimit for n, so a caller can write
@@ -116,6 +129,31 @@ type Server struct {
 	listener net.Listener
 	serving  *sync.WaitGroup
 	closed   sync.Once
+	log      *commandLog
+	device   *Device
+	netconf  *NetconfDevice
+}
+
+// commandLog is every command the server was asked to run, in order.
+type commandLog struct {
+	mu       sync.Mutex
+	commands []string
+}
+
+// add records one command.
+func (l *commandLog) add(command string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.commands = append(l.commands, command)
+}
+
+// Commands returns every command the server has been asked to run, in
+// the order they arrived. A check's test reads it to prove what the check
+// sent the device, rather than trusting the method's own account.
+func (s *Server) Commands() []string {
+	s.log.mu.Lock()
+	defer s.log.mu.Unlock()
+	return append([]string(nil), s.log.commands...)
 }
 
 // Addr returns the "host:port" a known_hosts entry and a dialer both
@@ -189,6 +227,9 @@ func Start(opts Options) (*Server, error) {
 		Password: password,
 		listener: listener,
 		serving:  serving,
+		log:      &commandLog{},
+		device:   opts.Device,
+		netconf:  opts.Netconf,
 	}
 
 	go func() {
@@ -200,7 +241,7 @@ func Start(opts Options) (*Server, error) {
 			serving.Add(1)
 			go func() {
 				defer serving.Done()
-				serveConn(conn, config, &remaining)
+				serveConn(conn, config, &remaining, srv.log, srv.device, srv.netconf)
 			}()
 		}
 	}()
@@ -220,7 +261,7 @@ func (s *Server) Secrets() map[string]string {
 // Errors are dropped rather than reported. The listener closing at
 // cleanup is the ordinary way this ends, and this runs on a background
 // goroutine that may outlive the test's own failure reporting.
-func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64) {
+func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, log *commandLog, device *Device, netconf *NetconfDevice) {
 	defer func() { _ = conn.Close() }()
 
 	serverConn, chans, reqs, err := cryptossh.NewServerConn(conn, config)
@@ -247,7 +288,15 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64) 
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
-				serveSession(channel, requests)
+				if netconf != nil {
+					serveNetconfSubsystem(channel, requests, log, netconf)
+					return
+				}
+				if device != nil {
+					serveDeviceSession(channel, requests, log, device)
+					return
+				}
+				serveSession(channel, requests, log)
 			}()
 
 		case "direct-tcpip":
@@ -334,7 +383,7 @@ func forwardDirectTCPIP(channel cryptossh.Channel, conn net.Conn) {
 
 // serveSession answers one exec request by running the command through
 // /bin/sh, exactly as a real sshd hands it to the account's login shell.
-func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request) {
+func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request, log *commandLog) {
 	defer func() { _ = channel.Close() }()
 
 	for req := range requests {
@@ -349,6 +398,7 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request)
 		}
 
 		command := decodeExecPayload(req.Payload)
+		log.add(command)
 
 		// Running the command through a real shell is the entire point of
 		// this harness: a stand-in that pattern-matched on the command

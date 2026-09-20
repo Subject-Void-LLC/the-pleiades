@@ -8240,3 +8240,264 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 **Fix.** `printablePath` replaces the same characters with a 4096 character limit, and every path in a message uses it.
 
 **Lesson.** A length cap is a decision about one kind of text. Applied to text whose whole value is being complete, it removes the reason to print it.
+
+## 247. An ownership change cleared a setgid bit the task asked for, and the run reported success
+
+**Symptom.** Found while writing check-mode predictions for `pkg/remotefile`, and reproduced on a real shell: a task asking a regular file that already carried mode 2755 to change group AND stay 2755 left 0755 behind and reported success. The diff's after half read back 0755, so nothing lied outright, but the task claimed to have converged a path it had just moved away from what was asked.
+
+**Root cause.** `remotefile.Apply` sends chown/chgrp first and chmod last, and decided whether to chmod by comparing the requested mode with the mode found BEFORE anything ran. Linux clears setuid and setgid on anything but a directory when its owner or group changes. The requested mode compared equal to the pre-change mode, so no chmod was sent, and the kernel's clearing stood.
+
+**Fix.** When the ownership changed and the requested mode carries setuid or setgid, the chmod is sent whatever the comparison said. The run has already changed something, so the extra chmod never turns a converged run into a changed one. `TestPrediction_MatchesWhatApplyDoes` pins it against a real file.
+
+**Lesson.** A comparison made before a multi-step change is a comparison with a state the first step may already have moved. When one step has a side effect on what a later step compares, compare against the state after the side effect, or send the later step unconditionally.
+
+## 248. GNU chmod keeps a directory's setuid and setgid bits for a four-digit mode, so "0755" never cleared them
+
+**Symptom.** Found by the same work as 247: a task asking a directory carrying 2755 to be 0755 sent `chmod 0755`, exited 0, read back 2755, reported changed, and would do the same on every run forever.
+
+**Root cause.** GNU coreutils chmod PRESERVES a directory's setuid and setgid bits when given a numeric mode of four digits or fewer. Its documentation names the five-digit form (`00755`) as the way to say exactly these bits. BusyBox, toybox and the BSD chmod read the whole string as one octal number, so the five-digit form means the same thing there.
+
+**Fix.** `remotefile.Apply` sends the requested mode as five digits (`chmodArgument`). Every method built on Apply (file.directory, file.permissions, file.copy, file.touch, file.attributes, file.line.*, file.block.*, fs.*) is covered by the one change, and their suites pass unchanged.
+
+**Lesson.** A command's numeric argument can carry a policy the number does not show. When a tool's documentation says "to clear X, write it this way", a convergence check built on the other way converges on nothing.
+
+## 249. Validation refused a check of a simulate-locked device that the engine was built to allow
+
+**Symptom.** Found by the check-mode Release Gate (`TestCLI_CheckModeChangesNothing`), after the engine's own unit test had passed: `pleiades run --mode check` against a simulate-locked device stopped at "validation failed, not executing", naming the lifecycle rule.
+
+**Root cause.** The lifecycle exception for check mode was added where the executor admits devices (`runNode`) and not where `pleiades run` first validates the plan (`validate.LifecycleRule`), which refused every non-active target regardless of mode. The engine test built its Executor directly and never called Validate, so it could not see the second gate.
+
+**Fix.** The exception has one definition, `engine.LifecycleAdmitsIn(mode, device)`, called by both the executor and `validate.LifecycleRule`, which now reads `WorldView.Mode` (zero value strict). `TestLifecycleRule_CheckModeAdmitsOnlySimulateLocked` covers the rule in both modes.
+
+**Lesson.** A check enforced at plan time and again at run time is two gates, and an exception added to one is refused by the other. Define the exception once and have both gates ask it, and test the path that goes through both.
+
+## 250. The plan said nothing ever sets simulate-locked; two sync plugins set it on every device they discover
+
+**Symptom.** IMPLEMENTATION.md (Part XI and Phase 46) states `pkg/inventory`'s `StateSimulateLocked` is a reserved state "nothing in the codebase ever sets or reads", and Phase 46 offered deleting it as one of two options.
+
+**Root cause.** The claim was true when written and went stale: `internal/inventory/plugins/aws` and `internal/inventory/plugins/catalystcenter` default every newly discovered device to simulate-locked, exactly as PLAN.md Section 9 intends ("newly onboarded devices default to simulate-locked until admin promotes"). Deleting the state on the plan's word would have silently changed what those plugins' devices are allowed to do.
+
+**Fix.** Phase 46's first slice uses the state: a check reaches a simulate-locked device, and a real run naming one is refused at validation. The plan text is corrected beside the Phase 46 entry.
+
+**Lesson.** A plan's "nothing uses X" is a claim about the code on the day it was written. Verify it against the code before acting on it, above all before deleting X.
+
+## 251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
+
+**Symptom.** `internal/loader` (capture.go, doc.go), `pkg/external`'s package doc and docs/11 all said that reducing an external program's environment to a short allowlist kept the master key and the broker's credentials from reaching it. A probe disproved it: a parent with `PLEIADES_MASTER_KEY` set, which then removed the variable from its own copy, started a child with an empty environment, and the child printed the key by reading `/proc/$PPID/environ`.
+
+**Root cause.** `/proc/<pid>/environ` exposes a process's starting environment block, and any process of the same user that passes the kernel's read-level ptrace check can open it. Yama's `ptrace_scope=1` (this host's setting) restricts attaching, not reading. `os.Unsetenv` changes only the Go runtime's copy, never that block. The allowlist decides what a child inherits; it was never isolation, and the comment claiming otherwise was written without trying to cross the boundary.
+
+**Fix.** Built the same day, as Phase 45's confinement decision (`internal/loader/confine*.go`). Before the first program starts, Load marks the process non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`, which the probe showed turns the read into "Permission denied"), and every run is confined with Landlock to its own directory, system files, the known_hosts file, a private TMPDIR and operator grants (never one reaching a credential store or containing the home directory). Loading is refused where Landlock is absent. `TestConfinement_AProgramReachesOnlyWhatItWasHanded` has a real program try the master key, `credentials.yaml`, an SSH key, `/proc/<parent>/environ` and `/proc/<parent>/mem`; each is denied, and the unconfined control reaches them. Each guard was mutation-checked.
+
+**Lesson.** An environment allowlist controls what a child is handed, not what it can reach. Before calling anything a boundary, try to cross it as the thing it is meant to stop.
+
+## 252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
+
+**Symptom.** Found while listing edge cases for Phase 46's runbook-mode decision, and confirmed with a probe test against `parseWorkflowYAML`: a runbook with top-level `check_mode: true` parses with no error and then executes normally. The same key on a task or a block is refused, but with a message about module-as-key syntax that never says the key is unsupported.
+
+**Root cause.** The runbook's top-level map is decoded by yaml.v3's non-strict `Decode`, which drops keys it does not know. Only task maps pass through `normalizeTaskNode`'s reserved-key check. So an Ansible author's "change nothing" survives parsing and means nothing, and the plan's description of the built behavior ("no key") was wrong for the runbook level.
+
+**Fix.** Built the same day. `engine.RunbookKeys` lists the accepted top-level keys, and `checkRunbookKeys` refuses any other one on the YAML and JSON paths, naming it and suggesting the nearest (`chek_mode` gets "did you mean check_mode?"). A test keeps the list equal to `WorkflowDef`'s struct tags, and `tools/gendocs` checks the documented keys against it. `check_mode` itself is now honored at runbook, block and task level (`engine.CheckModeFlag`), with `false` and templates refused. All 14 runbook files in the repository, and every package that builds runbooks, still pass. `TestRunbookKeys_UnknownTopLevelKeyRefused` is the regression test, mutation-checked.
+
+**Lesson.** A permissive decoder turns every unsupported safety keyword into a silent no-op. A key that narrows what a run may do must be honored or refused, never dropped.
+
+## 253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
+
+**Symptom.** Found by analysis, not observed. `engine.LifecycleAdmitsIn` admits a simulate-locked device whenever the run is a check, and an external program may declare `SupportsCheck`. Its Check then runs with the device's credential against a device nobody has approved for changes. The engine refuses a check result carrying an `inverse` stat, but it cannot see a write that records none.
+
+**Root cause.** Two features built on the same branch, each sound alone. Admitting simulate-locked devices to a check assumes every Check is read-only, which is proven for the nine built-in methods (each tested against its real run) and for nothing else. External Collections made Check third-party code.
+
+**Fix.** Built the same day. `collection.Descriptor.Provider` names the external program behind a method, set only by the loader when it registers the method (a description carries a name and a manifest, and extra fields claiming otherwise are ignored, as `TestLoad_TheLoaderSetsTheProvider` proves). The engine's check step (`checkAction`) reports an external method's check against a simulate-locked device as unchecked, naming the lock and the program, and never runs it. The CLI and the Runner share that step. `TestCLI_AnExternalCheckNeverReachesASimulateLockedDevice` uses a real program whose Check deliberately writes, against a real sshd: nothing lands on the locked device, the write does land on an active device (the control), and a built-in check still reaches the locked device. The guard and the loader's assignment were each mutation-checked.
+
+**Lesson.** When two features meet, re-check what each assumes about the other's inputs. "A Check never writes" was proven per method, so it holds only for the methods someone proved it for.
+
+## 254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+
+**Symptom.** While building confinement for external Collections, `TestConfinement_AProgramReachesOnlyWhatItWasHanded` showed a confined program able to signal its parent, although a direct probe showed the same ruleset refusing a signal to PID 1 and a read of `/etc/hostname`. It passed a second time. A loop of forty starts then passed with the fix removed, so the defect was intermittent, which is how it would have shipped.
+
+**Root cause.** Landlock restricts one thread, and a child inherits the restriction of the thread that started it. The loader restricts a goroutine that has called `runtime.LockOSThread` and never unlocks it, so the thread dies with the goroutine. The scheduler can run that goroutine on the process's main thread, which cannot exit, so Go parks it for ever instead. The main thread is also the thread group leader, the task a signal to the process's ID is checked against. With the leader inside the program's own Landlock domain, signal scoping allowed the program to signal Pleiades, and a SIGKILL would have killed the whole process.
+
+**Fix.** `confineAndStart` checks `gettid() == getpid()`. On the main thread it keeps that thread locked, so the goroutine it starts cannot be scheduled there, and hands the work to that goroutine. `TestConfinement_NeverOnTheMainThread` is deterministic: it re-runs the test binary with its main goroutine pinned to the main thread by an `init` (`runtime.LockOSThread`), starts a confined program from there, and asserts the signal is refused. With the check removed it fails every time.
+
+**Lesson.** When a kernel restriction is per thread and Go picks the thread, check which thread you got, above all the main thread, which never exits. An intermittent security test is a real defect showing on some runs, so pin the condition down until the test fails deterministically without the fix.
+
+## 255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
+
+**Symptom.** `engine.CheckModeFlag.UnmarshalYAML`, written to refuse `check_mode: false`, compiled cleanly, and `TestCheckModeKey_Spellings` showed `false`, `no` and `off` all accepted without error, and `yes` refused with a generic yaml.v3 "cannot unmarshal" message instead of the hook's own.
+
+**Root cause.** The file imported `gopkg.in/yaml.v3`, while the engine decodes with `go.yaml.in/yaml/v3`, the same library under its newer module path. The two are separate modules with separate `yaml.Node` types and separate `Unmarshaler` interfaces, so a method taking one module's `*yaml.Node` does not implement the other's interface, and the decoder fell back to decoding a bool into the flag's underlying type. `gopkg.in/yaml.v3` was already in `go.mod` as an indirect dependency, so the wrong import resolved with no warning.
+
+**Fix.** The import is `go.yaml.in/yaml/v3`. `internal/archtest`'s `TestOneYAMLModule` now fails for any package, or any package's tests, importing `gopkg.in/yaml.v3` or `gopkg.in/yaml.v2`, and it was mutation-checked by putting the wrong import back.
+
+**Lesson.** A custom unmarshal hook is only real if the decoder calls it, and a decoder calls only the interface of its own module. When a library has moved module paths, check which one the decoder uses before writing a hook, and test that the hook's own refusal fires rather than only that the good case decodes.
+
+## 256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
+
+**Symptom.** While writing `internal/termsafe`, the package that escapes terminal-controlling characters, its own tests failed: the expected strings, written in the source as backslash escapes for U+202E, U+2066 and U+2069 inside raw string literals, compared as the real characters. A scan found real U+202E, U+2066, U+2069 and U+009B characters in `termsafe.go`'s package comment and in `termsafe_test.go`: exactly the invisible "Trojan Source" characters the package exists to catch, now in source code where a reviewer's editor would render them as nothing, or reorder the text around them.
+
+**Root cause.** The agent's file-writing and shell tools decode JSON-style escapes (a backslash, "u" and four hex digits) in their input before writing or running it. Escapes meant to reach the file as text arrived as the characters themselves. The shell tool refused one command outright for containing such characters, which is how the mechanism was confirmed. Nothing in the repository checked source files for them.
+
+**Fix.** The characters were replaced with escape text, written through code points computed at run time so no escape passed through the tool. A scan of all 2,414 tracked and untracked text files found no others. `internal/archtest`'s `TestNoInvisibleControlCharactersInGoSource` now fails for any Go file holding a control character (other than tab and newline) or a bidirectional override, and was proven by planting one.
+
+**Lesson.** When a tool writes files for you, an escape sequence in what you hand it may not survive as text. Write byte escapes (`\xNN`) or build the characters in code, and keep a mechanical check for invisible characters in source, since a reader's eyes cannot find them.
+
+## 257. An external program's own text reached the terminal raw, including at the approval prompt
+
+**Symptom.** Found by Phase 45's hardening audit. Three paths printed a third party's text unescaped: `pleiades collection approve` printed the program's description (method names, summary, reversibility notes) before anything validated it; a method's own error message became the task's "FAILED:" line; and `pleiades run --verbose` printed stat values. A program could put an escape sequence, a carriage return, a newline or a bidirectional override in that text and redraw what the operator sees, for example a fake method list, or a fake "approved" line under the prompt that decides whether the program may run. Error messages that quote a program's stderr were already safe (`%q`).
+
+**Root cause.** The loader validated a description's name and structure, and treated its text as data. Nothing distinguished text shown to a person from text a program controls, and a terminal acts on some characters instead of showing them.
+
+**Fix.** `internal/termsafe` defines the characters a terminal acts on and escapes them visibly (never drops them). The loader refuses any description string holding one (every string in the manifest, found by walking it, so later fields are covered), escapes a program's own error onto one line, and refuses a stat name holding a newline, tab or control character. The approval list refuses such an account name. The CLI escapes node errors, reasons, stat values, metadata and everything the approve prompt shows. Tests: `TestHardening_*` in `internal/loader` and `TestCLI_CollectionApproveEscapesTheProgramsText` through the real binary, each mutation-checked, plus `FuzzEscape`, `FuzzDecodeResponse` and `FuzzParseApprovals`.
+
+**Lesson.** Text from a program you did not write is input, even when it is only going to be printed. Validate it where it can be refused, escape it where it must be shown, and test the output a person reads, not only the data structure behind it.
+
+
+## 258. A new NATS subject and consumer shipped without their mesh identity grants
+
+**Symptom.** Found while building Phase 46's Walk-tier check mode, after its real-NATS gate had passed. Checks go to their own subject (`pleiades.jobs.check.<device>`) through their own durable (`runner-check`), but `internal/meshid`'s `ControllerGrant` and `FleetRunnerGrant` listed only the dispatch subject and the `runner-agent` consumer. Under a minted identity, the Controller's publish of a check is denied with no reply and surfaces as a context deadline, so every checked device is recorded as failed; the Runner is denied creating its check consumer at startup and, because either loop failing is fatal, exits. No test failed, because the gate ran on an unauthenticated broker and the grant tables only pin the entries somebody thought to list.
+
+**Root cause.** A grant is a deny-by-default list kept in a different package from the code that decides which subjects exist. Adding a subject in `internal/topology` and a consumer in `cmd/runner` changes what each process does on the wire, and nothing ties that change back to the grant. The same shape as #207: the grant, the grant test and the feature are each written from one person's picture of the traffic.
+
+**Fix.** Both grants carry the check subject, the check consumer's create, info, pull and ack operations, and the check dead-letter subject; the grant tables pin them; and `TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity` now has the minted Runner create, probe and pull the check consumer, the minted Controller publish a check, and a widened check consumer refused, against a real operator-mode broker. Removing the Controller's entry fails that gate with the deadline it would produce in production.
+
+**Lesson.** Any new subject, stream or durable is also a grant change, on every process that touches it. Extend the real-broker enforcement gate with the new traffic in the same change; a grant table written beside the grant proves only that the two agree.
+
+## 259. A package-level struct literal froze a test seam at init, and a test dialed a real WinRM endpoint
+
+**Symptom.** Found while giving `svc.windows.*` their checks. The five operations had been built inline in each method; hoisting them to package-level values (`var startOp = serviceOp{..., run: startFunc}`) made the unit tests that swap `startFunc` for a fake hang for sixty seconds each and fail with a WinRM dial timeout. Nothing about the failure named the refactor: the tests had not changed, the code compiled, and the swapped seam was plainly assigned before the call.
+
+**Root cause.** A package-level `var` initialized from a composite literal copies the function values it names when the package initializes. The literal held the real `startFunc` from before any test ran, so a test assigning a fake to `startFunc` changed a variable nothing read any more. The method called the real WinRM client, which dialed the fixture's address and waited out its timeout.
+
+**Fix.** Each operation is a function returning the literal (`func startOp() serviceOp`), called where it is used, so the seam is read at call time, after a test has swapped it. The tests passed again in under a second.
+
+**Lesson.** A test seam held in a package variable must be read when it is used, never captured by another package-level value. Hoisting a literal that names a seam out of a function body changes when the seam is read; check every function variable a hoisted literal names before hoisting it, and treat a test that suddenly hangs on a real dial as a seam read too early.
+
+## 260. A synced project's playbook escaped its tree through a symlinked directory
+
+**Symptom.** Found 2026-09-19 while correcting a stale test citation in the plan. `internal/project`'s playbook source joined a template's `<project id>/<path>` onto the checkout, compared the cleaned path against the checkout root, and refused a final component that was not an ordinary file. A checkout keeps a repository's symlinks, so a committed `lib -> /` passed the lexical check for `lib/etc/...`, the final `Lstat` followed the symlinked directory and found an ordinary file, and the Controller read a file outside the project and dispatched it as a playbook. `TestPlaybookSource_RefusesAPathThroughASymlinkedDirectory` reproduced it with a real symlink.
+
+**Root cause.** A containment check made on the path's text, then a read that resolves the path through the filesystem. The two answer different questions whenever a component is a symlink, and a repository's committers are not necessarily the Controller's administrators, so the symlink is attacker-reachable content.
+
+**Fix.** The file is opened through an `os.Root` over the checkout, which resolves every component inside the root, refuses any that leaves it (an absolute symlink included), and opens the file in the same `openat` walk, so nothing can be swapped between a check and the read. A relative symlink that stays inside the tree still works, as a repository's own layout expects.
+
+**Lesson.** Never check a path lexically and then hand the same string to the filesystem. Where the tree can hold content somebody else wrote, open through `os.Root` (or `openat2` with `RESOLVE_BENEATH`), so the check and the resolution are one operation.
+
+## 261. A device's state or tags update answered 200 and stored nothing
+
+**Symptom.** Found 2026-09-19 while documenting how a device leaves quarantine, and reproduced through the real handler, the real ent repository and the real factory: `PATCH /inventory/devices/{name}` with `{"state": "active"}` answered 200, returned the old state, and changed nothing in the database. Tags were dropped the same way. It was the only way to promote a device, so no device could be promoted through the API.
+
+**Root cause.** The handler rebuilt the item with the new state already set, at the version it was loaded at. Both repositories' `Save` treat an item whose version never moved as having nothing to write, a sound optimization that property changes satisfy by bumping the version through `AddInfo`. Nothing bumped it for state or tags, and the handler's own tests used a stub repository that recorded any `Save` call, so the no-op was invisible.
+
+**Fix.** `record.Base` gained `ChangeState` and `ChangeTags`, which bump the version and record a revision (field `state` or `tags`, with the old and new values), as `AddInfo` does for a property; setting what a device already has records nothing. The handler rebuilds the item as loaded and applies the change through them. `TestDeviceUpdate_AStateOrTagsOnlyChangeIsStored` runs the real handler against a real ent repository and reads the device back.
+
+**Lesson.** A write path that ends in an optimization like "unchanged version means nothing to save" must be tested against the real repository, not a stub that records the call. The stub proved `Save` was called; only the database could say whether anything was stored.
+
+## 262. A re-sync reverted an operator's promotion, with no revision saying so
+
+**Symptom.** Found 2026-09-19 alongside 261. A read-only source lands a device `simulate-locked`; once an operator promoted it to `active`, the next sync that brought any upstream property change put it back to `simulate-locked`, and the audit trail showed only the property change.
+
+**Root cause.** `syncplugin.updateDevice` rebuilt an existing device with the classification's `State`, which is the state a source gives a device it adds, not a statement about a device that already exists. The rebuilt state rode along with the property revisions, so no revision recorded it.
+
+**Fix.** An update keeps the stored state; only a newly added device takes the classification's. `TestReconcile_KeepsAnOperatorsPromotion` lands, promotes, changes a property upstream and re-syncs.
+
+**Lesson.** A field that means "where this starts" must not be re-applied on update. When one write path carries both an automated source's view and an operator's decision, name which fields belong to which, and let the automated path touch only its own.
+
+## 263. A read-only sync hid the one list an operator previewing it needed
+
+**Symptom.** Found 2026-09-19 while documenting quarantine. `pleiades inventory sync --read-only` printed its summary and returned whenever anything would be added or updated, so the "devices needing review" list, with each quarantined record's reason, printed only when nothing would change. A quarantined record is never stored, so that list is the only place its reason appears.
+
+**Root cause.** An early `return` after the read-only summary line, written when the two summaries were the only difference between the modes.
+
+**Fix.** Both modes print their summary and then the same review list. `TestRunInventorySync_ReadOnlyStillListsWhatNeedsReview` syncs a quarantinable NX-OS device beside an addable IOS-XE one.
+
+**Lesson.** A preview must show at least what the real run would; an early return in a report function is worth reading twice for what it skips.
+
+## 264. Template launches minted unordered job ids under a list that orders by id
+
+**Symptom.** Found 2026-09-19 while documenting dispatch. `GET /jobs` lists newest first by ordering on the job id and pages with it as a keyset cursor, and its description promises UUIDv7 ids for exactly that, but `LaunchTemplate` minted `uuid.New()`, a random v4, so a template launch landed anywhere in the list and paging order was arbitrary.
+
+**Root cause.** The job schema defaults to a v7, but a launch mints its id itself, before saving, because the id is also the `job.requested` event's idempotency key, and that mint predated the ordering requirement.
+
+**Fix.** `api.newJobID` mints a v7 (falling back to a v4 only on an entropy failure, as the schema and device ids do), and `TestLaunchTemplate_JobIDsAreTimeOrdered` checks each launch's id is version 7 and sorts after the one before.
+
+**Lesson.** When a column's default carries a property something else depends on, every code path that sets the column explicitly must keep it. Grep for the explicit setters, not just the default.
+
+## 265. One unresolvable entry failed a whole static_yaml sync
+
+**Symptom.** Found 2026-09-19 while documenting quarantine. `static_yaml` resolved every entry's `classify` path inside `Discover`, and returned the first resolution error, so one entry with a malformed or unmatched path made `pleiades inventory sync` fail for every host in the file. The plugin contract requires a record it cannot place to be quarantined with a reason, never returned as an error, and the plugin's own `Classify` comment said such an entry is quarantined.
+
+**Root cause.** The type is resolved early, in `Discover`, because the file is the classification; the error path was written as a validation of the whole file rather than as the per-record outcome the contract names.
+
+**Fix.** `Discover` records an entry it cannot resolve with no type and keeps the reason by host name; `Classify` quarantines it with that reason. `TestSync_AnUnresolvableClassifyPathIsQuarantinedNotFatal` covers a malformed path and a well-formed one matching no rule, beside a typed host that still syncs.
+
+**Lesson.** When a contract names the per-record outcome for bad input, check every stage that touches a record, not only the stage the contract names: an earlier stage can turn the same bad input into a whole-run failure.
+
+## 266. SQLite migrations never really turned foreign keys off
+
+**Symptom.** Found 2026-09-19 while planning Phase 21's C1 seam, and confirmed by a probe. Every SQLite migration that rebuilds a table opens with `PRAGMA foreign_keys = off`, and SQLite has no `ALTER TABLE ADD CONSTRAINT`, so a rebuild is how any foreign-key change is made there. With enforcement still on, the rebuild's `DROP TABLE` performs an implicit `DELETE FROM`, which fires the children's `ON DELETE` actions. Upgrading a populated database through `0022_add_projects.sql` (rebuilds `templates`) therefore deleted every authored survey question and saved launch configuration, silently, and failed outright for a deployment holding any schedule, since `schedules` points at `templates` with NO ACTION. `0030_add_job_external_checks.sql` (rebuilds `jobs`) failed for any deployment holding a `job_task`, so the Controller would not start after the upgrade.
+
+**Root cause.** `applyOne` ran each migration script inside `db.BeginTx`. That pragma is a documented no-op inside a transaction, and SQLite reports no error when it declines to honor it: the statement succeeds and the setting does not change. The pragma is also per connection, so setting it on the pool would have landed on whichever connection answered. No test had ever migrated a database that held rows, which is the one condition under which any of this is visible.
+
+**Fix.** `applyOne` now takes one connection out of the pool (`db.Conn`), sets `PRAGMA foreign_keys = off` on it BEFORE opening the transaction, and **reads the setting back**, failing the migration if it did not take. The transaction runs on that same connection. Before committing, `PRAGMA foreign_key_check` runs inside the transaction and any reported row refuses the migration, so suspending enforcement cannot leave a row pointing at nothing. Enforcement is restored on the way out, and if restoring fails the connection is discarded (`driver.ErrBadConn`) rather than returned to a pool where it would serve application queries. Postgres keeps its existing path: it alters a constraint in place inside transactional DDL, so it needs neither half. `internal/ent/migrate/upgrade_internal_test.go` builds a database at the version before each migration, puts real rows in it, and then applies it: authored children survive 0022, a scheduled template and a job with tasks both upgrade, enforcement reads on afterward and refuses a dangling child, and a crafted migration that orphans a row is refused and left unrecorded. With the fix disabled, the first three fail exactly as described above.
+
+**Lesson.** A pragma written inside a migration file is not a pragma the migration runs under. Anything whose scope is the connection or the transaction has to be set by the code that owns the connection, and read back, because the failure mode of a declined session setting is silence. And a migration test that only ever migrates an empty database proves the DDL parses, not that an upgrade is safe.
+
+## 267. A project that had ever synced could not be deleted
+
+**Symptom.** Found 2026-09-19 while planning Phase 21's C1 seam. `DELETE /projects/{id}` answered an opaque 500 for any project with sync history, which is every project anybody had used. A project that had never synced deleted fine, so the failure looked intermittent and tracked nothing a reader would connect to it.
+
+**Root cause.** `sync_runs` referenced `projects` with ON DELETE NO ACTION, because the SyncRun schema declared the edge with no cascade annotation, while `project.entStore.Delete` deleted only the project row and mapped no constraint error. The SyncRun schema's own edge comment said the opposite of what the schema did: "deleting the project takes its history with it, which is the same lifetime the checkout has." Nothing tested a delete after a sync.
+
+**Fix.** The cascade is declared on the owning side (`Project.sync_runs`, `entsql.OnDelete(entsql.Cascade)`), regenerated, and carried into both dialects' migrations (`sqlite/0031`, `postgres/0028`). `TestDelete_TakesTheSyncHistoryWithIt` syncs a project, deletes it, and asserts both the project and its history are gone; `TestApply_TheSyncRunRebuildKeepsTheHistory` proves the same cascade lands on an upgraded database that already held history.
+
+**Lesson.** A comment that states a lifetime is a claim about a foreign key, and it is worth checking against the generated schema rather than trusting: the schema and the sentence beside it disagreed here for three phases. Any entity with children needs one test that deletes a parent which HAS children, since the childless case passes either way.
+
+## 268. Writing a schedule needed no permission to launch what it launches
+
+**Symptom.** Found 2026-09-19 while planning Phase 21's C1 seam, and reasoned from the code rather than observed in the wild. `POST /schedules` required `schedule:write` and nothing else. The store checked only that the schedule's organization matched its template's. Firing went through `Dispatcher.LaunchScheduled` with `MayRunForReal(true)`. So a token holding `schedule:write` without `runbook:execute` could arrange for any template in any organization to run for real, repeatedly, unattended, and the run would be attributed to the scheduler rather than to whoever arranged it.
+
+**Root cause.** `auth/scopes.go` presents `schedule:write` as a separately grantable privilege, on the good argument that authoring what a template does, running it once, and deciding when it runs are three different decisions. Its own comment even says this is "the larger grant" than executing once. What was missing is the consequence: a larger grant must not be a way around a smaller one. Nothing on the write path asked whether the caller could launch the thing they were scheduling, because before Phase 21's seam there was nothing in the code that knew what "the thing" was in general terms, only a template id.
+
+**Fix.** Each launchable type declares the scope needed to launch it (`launchable.Descriptor.LaunchScope`: `runbook:execute` for a job template, `project:write` for a project). One predicate, `launchable.Reach.Admits`, is used by the schedule store at the write and by the UI picker when it decides what to offer, so a person is never shown a choice that would be refused on submit. `TestSchedules_WritingOneNeedsPermissionToLaunchWhatItLaunches` and `TestSchedules_EachTypeNeedsItsOwnScope` prove it over real HTTP against a real store; with the scope check disabled both get a 201 instead of a 403.
+
+**Lesson.** When a scope is split out because it is a different decision, write down which way the implication runs and enforce it. "Deciding that something runs forever is a bigger decision than deciding it runs once" is only true if the bigger one also requires the smaller one; otherwise it is a smaller one with extra reach. The general form: any mechanism that causes work to happen later has to check the permission to do that work now.
+
+## 269. Editing a schedule silently dropped its saved configuration
+
+**Symptom.** Found 2026-09-19 while reading the schedules view for the launchable rebind. The Schedules edit form renders no control for the saved launch configuration, so a submission never carries one; `Bind` therefore left `SavedConfigID` zero, and the store reads zero as "run the target's own defaults" and clears the column. Renaming a schedule, or changing its recurrence, silently discarded the overrides every one of its runs had been using. Nothing said so, and the next run simply did something different.
+
+**Root cause.** A field the form does not render is still a field the binder writes. The store's absent-means-clear rule is right for an API caller sending an explicit null and wrong for a form that never had the value to send.
+
+**Fix.** The view's writer carries `SavedConfigID` forward from the stored schedule when the target has not changed. Changing what a schedule launches while it holds a configuration is refused with a message naming the control, because that is the one case where carrying it forward would be wrong: the overrides belong to the previous target. `TestSchedulesForm_*` cover the picker, and the carry-forward is asserted in the view's own suite.
+
+**Lesson.** For every field a form does not render, decide explicitly whether the binder should carry it forward or clear it, and write the decision down beside the binder. "Absent" from a form and "absent" from an API body mean different things, and a store that cannot tell them apart will do the wrong one silently.
+
+## 270. A refusal gave advice that does not work
+
+**Symptom.** Found 2026-09-19. Deleting a template a schedule uses answers 409 with "delete or disable the schedule first". Disabling a schedule does not release its reference, so following the instruction produced the same 409. The same advice was in docs/09.
+
+**Root cause.** The message was written from the intent (a disabled schedule will not fire) rather than from the mechanism (the foreign key does not care whether it is enabled).
+
+**Fix.** Both now say to delete the schedule or point it at something else, which is what actually unblocks the delete.
+
+**Lesson.** An error message is a claim about the system and deserves the same check as a doc sentence: follow your own instruction once before shipping it. Advice that does not work costs more than no advice, because it spends somebody's trust as well as their time.
+
+## 271. A fetch ignored the project's own URL, so repointing one changed nothing
+
+**Symptom.** Found 2026-09-20 while adding a source allowlist. `GitSyncer.fetch` passed go-git no remote, so the fetch and the pull used the URL stored in the checkout's own `.git/config`, which is the one the FIRST clone used. Editing a project's address therefore changed nothing about what was fetched, for as long as the checkout existed, and the sync reported success while serving the old repository. The address the platform validated was also not the address it dialed, which is what made this a security problem as well as a correctness one: any check on `scm_url` could be bypassed by a checkout that already existed.
+
+**Root cause.** `FetchOptions` and `PullOptions` both carry a `RemoteURL`, and neither was set. With it absent go-git reads the remote out of the repository's config, which is the right default for a git client and the wrong one for a platform that owns the checkout and holds the address somewhere else.
+
+**Fix.** Two parts, because one alone is not enough. `RemoteURL: p.SCMURL` on both options states the address rather than letting it be inferred. And `open` now compares the checkout's first configured remote URL with the project's, replacing the checkout outright when they differ: an unrelated history cannot be fast-forwarded into, so a repointed project would otherwise fail with "non-fast-forward update" forever, with nothing an operator could clear from the interface. The replacement clones into a sibling directory and swaps it in only once the clone has succeeded, so a wrong new address leaves the last good checkout serving (`TestGitSyncer_AFailedRepointKeepsTheLastGoodCheckout`); removing first would take every template on that project down until somebody typed a working address. `TestGitSyncer_FetchesFromTheProjectsCurrentURL` fails before the fix.
+
+**Lesson.** When a platform owns a working copy of something and also stores the address it came from, the two can disagree, and the library's default is usually to believe the working copy. Pass the value you hold rather than trusting what is on disk to still match it, and when they do disagree, decide deliberately which one wins.
+
+## 272. Nothing constrained where a project's source came from
+
+**Symptom.** Found 2026-09-19 while building Phase 21's launchable seam, reported to the user and fixed on 2026-09-20. The only check on a project's URL anywhere was that a git project's URL is not empty. go-git's default registry serves http, https, ssh, git and file, a string with no scheme at all is a LOCAL PATH absolutized against the Controller's working directory, and `user@host:path` is ssh. So anybody holding `project:write` could point the Controller at a repository on its own disk or anywhere on its network, and the content of a clone is code this platform then runs against managed devices.
+
+**Root cause.** The URL was treated as an address to be resolved by the library rather than as operator-supplied input to be judged. Nothing in the write path or the sync path asked what protocol it named.
+
+**Fix.** `internal/project/source.go`: an allowlist of the protocols go-git will dial, defaulting to https and ssh, with two separate opt-ins (insecure transports, local paths) because they are two different threats. The protocol is decided by asking go-git itself (`transport.NewEndpoint`) rather than by a second parser that could disagree with the code that dials. Enforced at the store, which is the one place the column is written, and again at the sync, because a row can predate the rule. A password in the URL is refused at the write only, since an existing row carrying one would otherwise become permanently unsyncable with no migration.
+
+**Lesson, and the honest scope.** Three things this does NOT do, all worth stating because each is easy to assume: it is not a host allowlist (anything shaped like `host:path` is a valid ssh address, so an allowed protocol still reaches any resolvable host), redirects are followed without being re-checked, and refusing local paths is defense in depth rather than a patch for something exploitable in the shipped image, since go-git's file transport shells out to a git binary the image does not carry. The general rule: when a library accepts a string and decides for itself what kind of address it is, the set of things it will accept is the real attack surface, and it is always wider than the examples in the documentation.

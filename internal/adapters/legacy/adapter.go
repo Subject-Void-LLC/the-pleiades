@@ -3,6 +3,7 @@ package legacy
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"log/slog"
 	"time"
 
@@ -101,22 +102,31 @@ func NewAdapter(bus event.Bus, playbooks PlaybookSource, orchestrator ContainerO
 // many hosts" shape is a real mismatch this method deliberately does not
 // solve; PLAN.md Section 30.3 names it as Phase 24's (Dependency Manager
 // & Capacity Admission) open problem.
-func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	// A playbook is never run as a check: ansible-playbook --check still
+	// runs a task marked check_mode: false for real, and reports a module
+	// with no check support as skipped, as if it passed. Launch resolution
+	// already refuses a check of a playbook; this is the Runner-side
+	// backstop, before anything starts.
+	if payload.Mode != "" && payload.Mode != string(collection.ModeExecute) {
+		return wire.Outcome{}, fmt.Errorf("refusing to run playbook %q in mode %q: an Ansible playbook cannot be run as a check, only for real", payload.RunbookID, payload.Mode)
+	}
+
 	started := wire.JobEvent{Status: "started", Host: payload.DeviceHost, Task: "playbook:" + payload.RunbookID}
 	started.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	started.EventData.Message = fmt.Sprintf("started ansible playbook %q on %s", payload.RunbookID, payload.DeviceName)
 	if err := a.publish(ctx, payload.JobID, started); err != nil {
-		return fmt.Errorf("failed to publish started event: %w", err)
+		return wire.Outcome{}, fmt.Errorf("failed to publish started event: %w", err)
 	}
 
 	playbook, err := a.playbooks.Get(ctx, payload.RunbookID)
 	if err != nil {
-		return fmt.Errorf("failed to resolve playbook %q: %w", payload.RunbookID, err)
+		return wire.Outcome{}, fmt.Errorf("failed to resolve playbook %q: %w", payload.RunbookID, err)
 	}
 
 	inventory, err := BuildInventoryJSON(payload)
 	if err != nil {
-		return fmt.Errorf("failed to build inventory for %s: %w", payload.DeviceName, err)
+		return wire.Outcome{}, fmt.Errorf("failed to build inventory for %s: %w", payload.DeviceName, err)
 	}
 
 	files := []ContainerFile{
@@ -140,18 +150,18 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 
 	credentialFiles, err := injectedFiles(injected)
 	if err != nil {
-		return fmt.Errorf("failed to prepare injected credential files for %s: %w", payload.DeviceName, err)
+		return wire.Outcome{}, fmt.Errorf("failed to prepare injected credential files for %s: %w", payload.DeviceName, err)
 	}
 	files = append(files, credentialFiles...)
 
 	secretEnv, err := injectedEnv(injected)
 	if err != nil {
-		return fmt.Errorf("failed to prepare the injected environment for %s: %w", payload.DeviceName, err)
+		return wire.Outcome{}, fmt.Errorf("failed to prepare the injected environment for %s: %w", payload.DeviceName, err)
 	}
 
 	extraVars, err := mergeExtraVars(payload.ExtraVars, injected)
 	if err != nil {
-		return fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
+		return wire.Outcome{}, fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
 	}
 
 	// Extra variables reach ansible-playbook as a FILE, always, never on
@@ -160,7 +170,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	if len(extraVars) > 0 {
 		encoded, err := encodeExtraVars(extraVars)
 		if err != nil {
-			return fmt.Errorf("failed to encode extra vars for %s: %w", payload.DeviceName, err)
+			return wire.Outcome{}, fmt.Errorf("failed to encode extra vars for %s: %w", payload.DeviceName, err)
 		}
 		files = append(files, ContainerFile{Content: encoded, ContainerPath: extraVarsContainerPath, Mode: 0o600})
 	}
@@ -207,7 +217,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		slog.String("job_id", payload.JobID), slog.String("device", payload.DeviceName), slog.String("image", a.image))
 	result, err := a.orchestrator.Run(runCtx, spec)
 	if err != nil {
-		return fmt.Errorf("failed to run ansible-playbook container: %w", err)
+		return wire.Outcome{}, fmt.Errorf("failed to run ansible-playbook container: %w", err)
 	}
 
 	// Every value worth masking out of the captured Ansible output: what
@@ -223,7 +233,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	for _, evt := range ParseStdout(result.Output, time.Now()) {
 		evt.EventData.Message = redact.Text(secrets, evt.EventData.Message)
 		if err := a.publish(ctx, payload.JobID, evt); err != nil {
-			return fmt.Errorf("failed to publish parsed event: %w", err)
+			return wire.Outcome{}, fmt.Errorf("failed to publish parsed event: %w", err)
 		}
 		if evt.Task == "task.completed" {
 			status, message = evt.Status, evt.EventData.Message
@@ -242,14 +252,14 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		completed.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		completed.EventData.Message = redact.Text(secrets, message)
 		if err := a.publish(ctx, payload.JobID, completed); err != nil {
-			return fmt.Errorf("failed to publish completion event: %w", err)
+			return wire.Outcome{}, fmt.Errorf("failed to publish completion event: %w", err)
 		}
 	}
 
 	if status == "failed" {
-		return fmt.Errorf("execution failed: %s", message)
+		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
 	}
-	return nil
+	return wire.Outcome{}, nil
 }
 
 // secretValues flattens payload.Secrets' own values into the []string

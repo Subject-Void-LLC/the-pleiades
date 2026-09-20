@@ -113,6 +113,11 @@ func (Organization) Edges() []ent.Edge {
 		// not happen.
 		edge.To("schedules", Schedule.Type),
 
+		// Every launchable thing in this tenant, of every type. It is the
+		// edge a picker filters on, and what lets a consumer check tenancy
+		// without knowing which sort of object it is holding.
+		edge.To("launchables", Launchable.Type),
+
 		// The credential types this tenant defined. A MANAGED type has no
 		// organization at all (the edge is optional on the other side), so
 		// this holds only the custom ones somebody here wrote. Not

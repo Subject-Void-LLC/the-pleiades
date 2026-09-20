@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
@@ -49,7 +50,23 @@ import (
 // device, and it is passed rather than recomputed so a ten-thousand-device
 // fan-out renders its credentials once.
 func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, injected credtype.Artifact, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
-	if ok, reason := engine.LifecycleAdmits(device); !ok {
+	mode, err := job.Mode()
+	if err != nil {
+		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
+			DeviceID:   string(device.ID()),
+			DeviceName: device.Name(),
+			Outcome:    OutcomeFailed,
+			Reason:     err.Error(),
+		}); recErr != nil {
+			return "", fmt.Errorf("failed to record failure for device %s on job %s: %w", device.ID(), job.JobID, recErr)
+		}
+		return OutcomeFailed, nil
+	}
+
+	// A check admits a simulate-locked device, which is what such a
+	// device is for, and a real run never does (engine.LifecycleAdmitsIn,
+	// the one rule the CLI, validation and the engine share).
+	if ok, reason := engine.LifecycleAdmitsIn(mode, device); !ok {
 		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
 			DeviceName: device.Name(),
@@ -101,13 +118,17 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		// Empty for a job that names no template, which the Runner
 		// resolves to the native kind: the adapter such a dispatch was
 		// always going to reach.
-		Kind:          job.Kind,
-		DeviceID:      string(device.ID()),
-		DeviceName:    device.Name(),
-		DeviceHost:    host,
-		Interruptible: prepared.Interruptible,
-		Capabilities:  device.Capabilities(),
-		Tags:          tagStrings(device.Tags()),
+		Kind: job.Kind,
+		// Carried from the job, where the launch recorded whether its
+		// launcher may run it for real; the Runner reads nothing else to
+		// decide whether a check may run an external program's Check.
+		ExternalChecks: job.ExternalChecks,
+		DeviceID:       string(device.ID()),
+		DeviceName:     device.Name(),
+		DeviceHost:     host,
+		Interruptible:  prepared.Interruptible,
+		Capabilities:   device.Capabilities(),
+		Tags:           tagStrings(device.Tags()),
 		// Fields and ExtraVars are job's own resolved launch.Fields/
 		// ExtraVars (AWX_PARITY_ROADMAP.md Section 3b.1's second wire hop:
 		// the first hop stamped them onto job itself, at LaunchTemplate).
@@ -120,6 +141,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		// per-device ones.
 		Fields:    map[string]any(job.Fields),
 		ExtraVars: job.ExtraVars,
+		Mode:      string(mode),
 	}
 	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
 		payload.SSHPort = sshCapable.SSHPort()
@@ -213,7 +235,14 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// The device's own id is what scopes this subject, and it is the same
 	// value the idempotency key above is built from rather than a second
 	// spelling of it.
-	if err := w.bus.Publish(pubCtx, topology.DispatchSubject(string(device.ID())), *dispatchEvt); err != nil {
+	//
+	// A check goes to its own subject (topology.CheckSubject), which only a
+	// Runner that knows what a check is ever consumes.
+	subject := topology.DispatchSubject(string(device.ID()))
+	if mode == collection.ModeCheck {
+		subject = topology.CheckSubject(string(device.ID()))
+	}
+	if err := w.bus.Publish(pubCtx, subject, *dispatchEvt); err != nil {
 		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
 			DeviceName: device.Name(),

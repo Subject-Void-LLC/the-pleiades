@@ -110,7 +110,7 @@ func TestAuth_ShapesAreDistinguished(t *testing.T) {
 func TestGitSyncer_ResolvesTheProjectsCredential(t *testing.T) {
 	origin, _ := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
 	auth := &stubAuth{}
-	syncer := project.NewGitSyncer(t.TempDir(), auth)
+	syncer := project.NewGitSyncer(t.TempDir(), auth, allowLocal)
 
 	p := project.Project{
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
@@ -129,7 +129,7 @@ func TestGitSyncer_ResolvesTheProjectsCredential(t *testing.T) {
 func TestGitSyncer_APublicProjectAsksForNoCredential(t *testing.T) {
 	origin, _ := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
 	auth := &stubAuth{}
-	syncer := project.NewGitSyncer(t.TempDir(), auth)
+	syncer := project.NewGitSyncer(t.TempDir(), auth, allowLocal)
 
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
 	if _, err := syncer.Sync(t.Context(), p, nil); err != nil {
@@ -162,7 +162,7 @@ func TestGitSyncer_AnEncryptedKeyNeedsItsPassphrase(t *testing.T) {
 		{"an unencrypted key needs none", project.Auth{PrivateKey: newPlainKey(t)}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			syncer := project.NewGitSyncer(t.TempDir(), &stubAuth{auth: tc.auth})
+			syncer := project.NewGitSyncer(t.TempDir(), &stubAuth{auth: tc.auth}, allowLocal)
 			p := project.Project{
 				ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 				SCMURL: origin, CredentialID: 1,
@@ -207,7 +207,7 @@ func TestGitSyncer_AnEncryptedKeyNeedsItsPassphrase(t *testing.T) {
 func TestGitSyncer_AResolverFailureIsRecordedWithoutDetail(t *testing.T) {
 	origin, _ := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
 	auth := &stubAuth{err: errFakeResolver}
-	syncer := project.NewGitSyncer(t.TempDir(), auth)
+	syncer := project.NewGitSyncer(t.TempDir(), auth, allowLocal)
 
 	p := project.Project{
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,

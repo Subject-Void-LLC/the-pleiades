@@ -10,10 +10,10 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // Schedule is the model entity for the Schedule schema.
@@ -50,9 +50,9 @@ type Schedule struct {
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the ScheduleQuery when eager-loading is set.
 	Edges                  ScheduleEdges `json:"edges"`
+	launchable_schedules   *int
 	organization_schedules *int
 	schedule_saved_config  *int
-	template_schedules     *int
 	selectValues           sql.SelectValues
 }
 
@@ -60,8 +60,8 @@ type Schedule struct {
 type ScheduleEdges struct {
 	// Organization holds the value of the organization edge.
 	Organization *Organization `json:"organization,omitempty"`
-	// Template holds the value of the template edge.
-	Template *Template `json:"template,omitempty"`
+	// Launchable holds the value of the launchable edge.
+	Launchable *Launchable `json:"launchable,omitempty"`
 	// SavedConfig holds the value of the saved_config edge.
 	SavedConfig *SavedLaunchConfig `json:"saved_config,omitempty"`
 	// Occurrences holds the value of the occurrences edge.
@@ -82,15 +82,15 @@ func (e ScheduleEdges) OrganizationOrErr() (*Organization, error) {
 	return nil, &NotLoadedError{edge: "organization"}
 }
 
-// TemplateOrErr returns the Template value or an error if the edge
+// LaunchableOrErr returns the Launchable value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
-func (e ScheduleEdges) TemplateOrErr() (*Template, error) {
-	if e.Template != nil {
-		return e.Template, nil
+func (e ScheduleEdges) LaunchableOrErr() (*Launchable, error) {
+	if e.Launchable != nil {
+		return e.Launchable, nil
 	} else if e.loadedTypes[1] {
-		return nil, &NotFoundError{label: template.Label}
+		return nil, &NotFoundError{label: launchable.Label}
 	}
-	return nil, &NotLoadedError{edge: "template"}
+	return nil, &NotLoadedError{edge: "launchable"}
 }
 
 // SavedConfigOrErr returns the SavedConfig value or an error if the edge
@@ -128,11 +128,11 @@ func (*Schedule) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullString)
 		case schedule.FieldCreatedAt, schedule.FieldUpdatedAt, schedule.FieldDtstart, schedule.FieldDtend, schedule.FieldNextRun, schedule.FieldLastFired:
 			values[i] = new(sql.NullTime)
-		case schedule.ForeignKeys[0]: // organization_schedules
+		case schedule.ForeignKeys[0]: // launchable_schedules
 			values[i] = new(sql.NullInt64)
-		case schedule.ForeignKeys[1]: // schedule_saved_config
+		case schedule.ForeignKeys[1]: // organization_schedules
 			values[i] = new(sql.NullInt64)
-		case schedule.ForeignKeys[2]: // template_schedules
+		case schedule.ForeignKeys[2]: // schedule_saved_config
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -240,24 +240,24 @@ func (_m *Schedule) assignValues(columns []string, values []any) error {
 			}
 		case schedule.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field launchable_schedules", value)
+			} else if value.Valid {
+				_m.launchable_schedules = new(int)
+				*_m.launchable_schedules = int(value.Int64)
+			}
+		case schedule.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field organization_schedules", value)
 			} else if value.Valid {
 				_m.organization_schedules = new(int)
 				*_m.organization_schedules = int(value.Int64)
 			}
-		case schedule.ForeignKeys[1]:
+		case schedule.ForeignKeys[2]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field schedule_saved_config", value)
 			} else if value.Valid {
 				_m.schedule_saved_config = new(int)
 				*_m.schedule_saved_config = int(value.Int64)
-			}
-		case schedule.ForeignKeys[2]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field template_schedules", value)
-			} else if value.Valid {
-				_m.template_schedules = new(int)
-				*_m.template_schedules = int(value.Int64)
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -277,9 +277,9 @@ func (_m *Schedule) QueryOrganization() *OrganizationQuery {
 	return NewScheduleClient(_m.config).QueryOrganization(_m)
 }
 
-// QueryTemplate queries the "template" edge of the Schedule entity.
-func (_m *Schedule) QueryTemplate() *TemplateQuery {
-	return NewScheduleClient(_m.config).QueryTemplate(_m)
+// QueryLaunchable queries the "launchable" edge of the Schedule entity.
+func (_m *Schedule) QueryLaunchable() *LaunchableQuery {
+	return NewScheduleClient(_m.config).QueryLaunchable(_m)
 }
 
 // QuerySavedConfig queries the "saved_config" edge of the Schedule entity.

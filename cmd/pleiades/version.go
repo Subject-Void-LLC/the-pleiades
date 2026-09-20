@@ -3,13 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 )
 
-// version is overridden at build time with -ldflags "-X main.version=...".
-// "dev" until a real release process exists to set it: nothing has
-// shipped a tagged release yet (see pkg/collection.Doc.SinceVersion's own
-// doc comment, which notes the same thing from the module-catalog side).
-var version = "dev"
+// version is this build's version, from internal/buildinfo: the release
+// version a release build is stamped with, or 0.0.0-dev+<commit> for a
+// development build. The Runner reports the same value, and both hand it
+// to the external Collection loader, so the CLI and a Runner cannot
+// disagree about whether a program's engine version constraint is met.
+var version = buildinfo.Version()
 
 // runVersion prints the pleiades version and exits.
 func runVersion(args []string) error {

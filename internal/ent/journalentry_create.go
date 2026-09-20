@@ -148,6 +148,34 @@ func (_c *JournalEntryCreate) SetNillableFqcnUnresolved(v *bool) *JournalEntryCr
 	return _c
 }
 
+// SetProviderProgram sets the "provider_program" field.
+func (_c *JournalEntryCreate) SetProviderProgram(v string) *JournalEntryCreate {
+	_c.mutation.SetProviderProgram(v)
+	return _c
+}
+
+// SetNillableProviderProgram sets the "provider_program" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableProviderProgram(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetProviderProgram(*v)
+	}
+	return _c
+}
+
+// SetProviderDigest sets the "provider_digest" field.
+func (_c *JournalEntryCreate) SetProviderDigest(v string) *JournalEntryCreate {
+	_c.mutation.SetProviderDigest(v)
+	return _c
+}
+
+// SetNillableProviderDigest sets the "provider_digest" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableProviderDigest(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetProviderDigest(*v)
+	}
+	return _c
+}
+
 // SetTaskName sets the "task_name" field.
 func (_c *JournalEntryCreate) SetTaskName(v string) *JournalEntryCreate {
 	_c.mutation.SetTaskName(v)
@@ -623,6 +651,14 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.FqcnUnresolved(); ok {
 		_spec.SetField(journalentry.FieldFqcnUnresolved, field.TypeBool, value)
 		_node.FqcnUnresolved = value
+	}
+	if value, ok := _c.mutation.ProviderProgram(); ok {
+		_spec.SetField(journalentry.FieldProviderProgram, field.TypeString, value)
+		_node.ProviderProgram = value
+	}
+	if value, ok := _c.mutation.ProviderDigest(); ok {
+		_spec.SetField(journalentry.FieldProviderDigest, field.TypeString, value)
+		_node.ProviderDigest = value
 	}
 	if value, ok := _c.mutation.TaskName(); ok {
 		_spec.SetField(journalentry.FieldTaskName, field.TypeString, value)

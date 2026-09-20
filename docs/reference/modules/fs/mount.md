@@ -6,7 +6,7 @@ status: beta
 
 Mounts a filesystem on the target, and optionally persists it to fstab.
 
-Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift.
+Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift. A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options out of its prediction, since the kernel rewrites them.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Makes sure path is mounted from src, creating the mount if it is not already the
 | Capabilities | `LinuxCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

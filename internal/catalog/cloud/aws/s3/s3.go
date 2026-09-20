@@ -14,7 +14,12 @@
 // pkg/awscloud.Client.DeleteBucket itself.
 package s3
 
-import "github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+import (
+	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+)
 
 // paramBucket is amazon.aws.s3_bucket's own name for the bucket a task
 // acts on.
@@ -34,4 +39,19 @@ func recordState(rc sdk.RunbookContext, bucket string, before, after bool) error
 		Before: map[string]any{"exists": before},
 		After:  map[string]any{"exists": after},
 	})
+}
+
+// predictState is a check's report for a bucket found as before: the
+// same bucket stat and diff a real run records, with the bucket's
+// existence flipped when a real run would change it, and nothing undone,
+// since nothing was done.
+func predictState(rc sdk.RunbookContext, fqcn, bucket string, before, changed bool) (collection.Result, error) {
+	after := before
+	if changed {
+		after = !before
+	}
+	if err := recordState(rc, bucket, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: changed}, nil
 }

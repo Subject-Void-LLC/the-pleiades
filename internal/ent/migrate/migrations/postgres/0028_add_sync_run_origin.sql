@@ -1,0 +1,1 @@
+ALTER TABLE "sync_runs" DROP CONSTRAINT "sync_runs_projects_sync_runs", ALTER COLUMN "finished_at" DROP NOT NULL, ADD COLUMN "actor" character varying NULL, ADD CONSTRAINT "sync_runs_projects_sync_runs" FOREIGN KEY ("project_sync_runs") REFERENCES "projects" ("id") ON DELETE CASCADE;

@@ -110,16 +110,33 @@ func (ScheduleOccurrence) Fields() []ent.Field {
 		// would make truncation indistinguishable from completeness.
 		field.Int("suppressed_count").Default(0).Immutable(),
 
-		// job_id is the Job this occurrence created, set only when the
-		// outcome is fired. It is the opaque Job.job_id string rather than
-		// an edge, matching how Job itself denormalises the things it
-		// refers to: an occurrence is a historical record and must stay
-		// readable after whatever it points at is gone.
+		// job_id is the run this occurrence started, set only when the
+		// outcome is fired. It is an opaque string rather than an edge,
+		// matching how Job itself denormalises the things it refers to: an
+		// occurrence is a historical record and must stay readable after
+		// whatever it points at is gone.
+		//
+		// "job" here means AWX's unified job, not only a Job row: for a
+		// fired job template it is that Job's own job_id, and for a fired
+		// project sync it is the sync attempt's id. unified_job_type below
+		// says which, since the two are looked up in different places.
 		//
 		// Written on the transition out of "claimed", not at insert: the
-		// job does not exist yet at the moment the claim is taken, which
+		// run does not exist yet at the moment the claim is taken, which
 		// is precisely the ordering that makes the claim safe.
 		field.String("job_id").Optional(),
+
+		// What sort of run job_id names: internal/launchable's
+		// UnifiedJobType, AWX's own vocabulary ("job", "project_update").
+		//
+		// A plain optional string, for the same two reasons type is one on
+		// Launchable: the vocabulary is an open registry, and a row written
+		// before this column existed has nothing to say here. Empty
+		// alongside a job_id means a job, which is the only thing a
+		// schedule could fire before this column existed.
+		field.String("unified_job_type").
+			Optional().
+			MaxLen(64),
 	}
 }
 

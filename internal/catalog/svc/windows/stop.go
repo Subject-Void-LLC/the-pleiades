@@ -23,6 +23,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the service before it acts, so a check can predict
+			// through the same code (CheckStop).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that stopped a running service emits an svc.windows.start naming it. A run that found it " +
@@ -33,6 +36,7 @@ func init() {
 			Doc: stopDoc(),
 		},
 		Invoke: Stop,
+		Check:  CheckStop,
 	})
 }
 
@@ -60,8 +64,12 @@ func stopDoc() collection.Doc {
 // A Disabled service is NOT refused here, unlike start: a Disabled
 // service cannot be running, so asking to stop it is already satisfied
 // and refusing would fail a task whose goal is met.
-func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runServiceOp(ctx, rc, device, params, serviceOp{
+// stopOp is svc.windows.stop's operation, shared by Stop and CheckStop so the
+// method and its check cannot disagree about it. A function rather than a
+// variable, so it reads the service functions (startFunc and the rest) when
+// it is called, which is what lets a test replace them.
+func stopOp() serviceOp {
+	return serviceOp{
 		fqcn:      "svc.windows.stop",
 		converged: func(s winrmsvc.State) bool { return !s.Running() },
 		apply:     stopFunc,
@@ -73,5 +81,19 @@ func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 					"missed while it was down.", name),
 			}, true
 		},
-	})
+		predict: func(s winrmsvc.State) winrmsvc.State {
+			s.Status = "Stopped"
+			return s
+		},
+	}
+}
+
+func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, stopOp(), collection.ModeExecute)
+}
+
+// CheckStop is svc.windows.stop's check: the same Get-Service read, refusals
+// and decision as Stop, then a prediction (Status Stopped) instead of the change.
+func CheckStop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runServiceOp(ctx, rc, device, params, stopOp(), collection.ModeCheck)
 }

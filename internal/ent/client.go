@@ -29,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -79,6 +80,8 @@ type Client struct {
 	JobTask *JobTaskClient
 	// JournalEntry is the client for interacting with the JournalEntry builders.
 	JournalEntry *JournalEntryClient
+	// Launchable is the client for interacting with the Launchable builders.
+	Launchable *LaunchableClient
 	// LocalCredential is the client for interacting with the LocalCredential builders.
 	LocalCredential *LocalCredentialClient
 	// MeshSigningKey is the client for interacting with the MeshSigningKey builders.
@@ -134,6 +137,7 @@ func (c *Client) init() {
 	c.Job = NewJobClient(c.config)
 	c.JobTask = NewJobTaskClient(c.config)
 	c.JournalEntry = NewJournalEntryClient(c.config)
+	c.Launchable = NewLaunchableClient(c.config)
 	c.LocalCredential = NewLocalCredentialClient(c.config)
 	c.MeshSigningKey = NewMeshSigningKeyClient(c.config)
 	c.Organization = NewOrganizationClient(c.config)
@@ -255,6 +259,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Job:                   NewJobClient(cfg),
 		JobTask:               NewJobTaskClient(cfg),
 		JournalEntry:          NewJournalEntryClient(cfg),
+		Launchable:            NewLaunchableClient(cfg),
 		LocalCredential:       NewLocalCredentialClient(cfg),
 		MeshSigningKey:        NewMeshSigningKeyClient(cfg),
 		Organization:          NewOrganizationClient(cfg),
@@ -303,6 +308,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Job:                   NewJobClient(cfg),
 		JobTask:               NewJobTaskClient(cfg),
 		JournalEntry:          NewJournalEntryClient(cfg),
+		Launchable:            NewLaunchableClient(cfg),
 		LocalCredential:       NewLocalCredentialClient(cfg),
 		MeshSigningKey:        NewMeshSigningKeyClient(cfg),
 		Organization:          NewOrganizationClient(cfg),
@@ -349,10 +355,10 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
-		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
-		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
-		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
-		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
+		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
+		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
+		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
+		c.Session, c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -364,10 +370,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
-		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
-		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
-		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
-		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
+		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
+		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
+		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
+		c.Session, c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -404,6 +410,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.JobTask.mutate(ctx, m)
 	case *JournalEntryMutation:
 		return c.JournalEntry.mutate(ctx, m)
+	case *LaunchableMutation:
+		return c.Launchable.mutate(ctx, m)
 	case *LocalCredentialMutation:
 		return c.LocalCredential.mutate(ctx, m)
 	case *MeshSigningKeyMutation:
@@ -2797,6 +2805,203 @@ func (c *JournalEntryClient) mutate(ctx context.Context, m *JournalEntryMutation
 	}
 }
 
+// LaunchableClient is a client for the Launchable schema.
+type LaunchableClient struct {
+	config
+}
+
+// NewLaunchableClient returns a client for the Launchable from the given config.
+func NewLaunchableClient(c config) *LaunchableClient {
+	return &LaunchableClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `launchable.Hooks(f(g(h())))`.
+func (c *LaunchableClient) Use(hooks ...Hook) {
+	c.hooks.Launchable = append(c.hooks.Launchable, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `launchable.Intercept(f(g(h())))`.
+func (c *LaunchableClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Launchable = append(c.inters.Launchable, interceptors...)
+}
+
+// Create returns a builder for creating a Launchable entity.
+func (c *LaunchableClient) Create() *LaunchableCreate {
+	mutation := newLaunchableMutation(c.config, OpCreate)
+	return &LaunchableCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Launchable entities.
+func (c *LaunchableClient) CreateBulk(builders ...*LaunchableCreate) *LaunchableCreateBulk {
+	return &LaunchableCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *LaunchableClient) MapCreateBulk(slice any, setFunc func(*LaunchableCreate, int)) *LaunchableCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &LaunchableCreateBulk{err: fmt.Errorf("calling to LaunchableClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*LaunchableCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &LaunchableCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Launchable.
+func (c *LaunchableClient) Update() *LaunchableUpdate {
+	mutation := newLaunchableMutation(c.config, OpUpdate)
+	return &LaunchableUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *LaunchableClient) UpdateOne(_m *Launchable) *LaunchableUpdateOne {
+	mutation := newLaunchableMutation(c.config, OpUpdateOne, withLaunchable(_m))
+	return &LaunchableUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *LaunchableClient) UpdateOneID(id int) *LaunchableUpdateOne {
+	mutation := newLaunchableMutation(c.config, OpUpdateOne, withLaunchableID(id))
+	return &LaunchableUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Launchable.
+func (c *LaunchableClient) Delete() *LaunchableDelete {
+	mutation := newLaunchableMutation(c.config, OpDelete)
+	return &LaunchableDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *LaunchableClient) DeleteOne(_m *Launchable) *LaunchableDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *LaunchableClient) DeleteOneID(id int) *LaunchableDeleteOne {
+	builder := c.Delete().Where(launchable.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &LaunchableDeleteOne{builder}
+}
+
+// Query returns a query builder for Launchable.
+func (c *LaunchableClient) Query() *LaunchableQuery {
+	return &LaunchableQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeLaunchable},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Launchable entity by its id.
+func (c *LaunchableClient) Get(ctx context.Context, id int) (*Launchable, error) {
+	return c.Query().Where(launchable.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *LaunchableClient) GetX(ctx context.Context, id int) *Launchable {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryOrganization queries the organization edge of a Launchable.
+func (c *LaunchableClient) QueryOrganization(_m *Launchable) *OrganizationQuery {
+	query := (&OrganizationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(launchable.Table, launchable.FieldID, id),
+			sqlgraph.To(organization.Table, organization.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, launchable.OrganizationTable, launchable.OrganizationColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTemplate queries the template edge of a Launchable.
+func (c *LaunchableClient) QueryTemplate(_m *Launchable) *TemplateQuery {
+	query := (&TemplateClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(launchable.Table, launchable.FieldID, id),
+			sqlgraph.To(template.Table, template.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, launchable.TemplateTable, launchable.TemplateColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryProject queries the project edge of a Launchable.
+func (c *LaunchableClient) QueryProject(_m *Launchable) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(launchable.Table, launchable.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, launchable.ProjectTable, launchable.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySchedules queries the schedules edge of a Launchable.
+func (c *LaunchableClient) QuerySchedules(_m *Launchable) *ScheduleQuery {
+	query := (&ScheduleClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(launchable.Table, launchable.FieldID, id),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, launchable.SchedulesTable, launchable.SchedulesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *LaunchableClient) Hooks() []Hook {
+	return c.hooks.Launchable
+}
+
+// Interceptors returns the client interceptors.
+func (c *LaunchableClient) Interceptors() []Interceptor {
+	return c.inters.Launchable
+}
+
+func (c *LaunchableClient) mutate(ctx context.Context, m *LaunchableMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&LaunchableCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&LaunchableUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&LaunchableUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&LaunchableDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Launchable mutation op: %q", m.Op())
+	}
+}
+
 // LocalCredentialClient is a client for the LocalCredential schema.
 type LocalCredentialClient struct {
 	config
@@ -3267,6 +3472,22 @@ func (c *OrganizationClient) QuerySchedules(_m *Organization) *ScheduleQuery {
 	return query
 }
 
+// QueryLaunchables queries the launchables edge of a Organization.
+func (c *OrganizationClient) QueryLaunchables(_m *Organization) *LaunchableQuery {
+	query := (&LaunchableClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, id),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.LaunchablesTable, organization.LaunchablesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryCredentialTypes queries the credential_types edge of a Organization.
 func (c *OrganizationClient) QueryCredentialTypes(_m *Organization) *CredentialTypeQuery {
 	query := (&CredentialTypeClient{config: c.config}).Query()
@@ -3537,6 +3758,22 @@ func (c *ProjectClient) QuerySyncRuns(_m *Project) *SyncRunQuery {
 			sqlgraph.From(project.Table, project.FieldID, id),
 			sqlgraph.To(syncrun.Table, syncrun.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.SyncRunsTable, project.SyncRunsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryLaunchable queries the launchable edge of a Project.
+func (c *ProjectClient) QueryLaunchable(_m *Project) *LaunchableQuery {
+	query := (&LaunchableClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, id),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, project.LaunchableTable, project.LaunchableColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -4140,15 +4377,15 @@ func (c *ScheduleClient) QueryOrganization(_m *Schedule) *OrganizationQuery {
 	return query
 }
 
-// QueryTemplate queries the template edge of a Schedule.
-func (c *ScheduleClient) QueryTemplate(_m *Schedule) *TemplateQuery {
-	query := (&TemplateClient{config: c.config}).Query()
+// QueryLaunchable queries the launchable edge of a Schedule.
+func (c *ScheduleClient) QueryLaunchable(_m *Schedule) *LaunchableQuery {
+	query := (&LaunchableClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := _m.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(schedule.Table, schedule.FieldID, id),
-			sqlgraph.To(template.Table, template.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, schedule.TemplateTable, schedule.TemplateColumn),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, schedule.LaunchableTable, schedule.LaunchableColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -5194,15 +5431,15 @@ func (c *TemplateClient) QueryCredentials(_m *Template) *CredentialQuery {
 	return query
 }
 
-// QuerySchedules queries the schedules edge of a Template.
-func (c *TemplateClient) QuerySchedules(_m *Template) *ScheduleQuery {
-	query := (&ScheduleClient{config: c.config}).Query()
+// QueryLaunchable queries the launchable edge of a Template.
+func (c *TemplateClient) QueryLaunchable(_m *Template) *LaunchableQuery {
+	query := (&LaunchableClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := _m.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(template.Table, template.FieldID, id),
-			sqlgraph.To(schedule.Table, schedule.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, template.SchedulesTable, template.SchedulesColumn),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, template.LaunchableTable, template.LaunchableColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -5405,15 +5642,17 @@ type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
 		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
-		JournalEntry, LocalCredential, MeshSigningKey, Organization, Project, Revision,
-		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
-		SurveyQuestion, SyncRun, Team, Template, User []ent.Hook
+		JournalEntry, Launchable, LocalCredential, MeshSigningKey, Organization,
+		Project, Revision, RoleBinding, SavedLaunchConfig, Schedule,
+		ScheduleOccurrence, Session, SurveyQuestion, SyncRun, Team, Template,
+		User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
 		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
-		JournalEntry, LocalCredential, MeshSigningKey, Organization, Project, Revision,
-		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
-		SurveyQuestion, SyncRun, Team, Template, User []ent.Interceptor
+		JournalEntry, Launchable, LocalCredential, MeshSigningKey, Organization,
+		Project, Revision, RoleBinding, SavedLaunchConfig, Schedule,
+		ScheduleOccurrence, Session, SurveyQuestion, SyncRun, Team, Template,
+		User []ent.Interceptor
 	}
 )

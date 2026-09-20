@@ -15,6 +15,7 @@ Makes sure a service is set to start at boot, without caring which init system t
 | Capabilities | `ServiceManagerCapable` |
 | Transports | - |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

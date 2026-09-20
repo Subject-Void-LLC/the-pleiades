@@ -27,6 +27,7 @@ package projects
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -223,6 +224,12 @@ func asFault(err error) error {
 	}
 	if strings.Contains(err.Error(), project.ErrExists.Error()) {
 		return view.FieldFault{Field: "name", Message: "A project with this name already exists in this organization."}
+	}
+	// A refused source, or a password in the URL: both are about the address
+	// somebody typed, so both land on that control carrying the store's own
+	// message, which names what is accepted and what would change it.
+	if errors.Is(err, project.ErrSourceRefused) || errors.Is(err, project.ErrSourceSecretInURL) {
+		return view.FieldFault{Field: "scm_url", Message: err.Error()}
 	}
 	return err
 }

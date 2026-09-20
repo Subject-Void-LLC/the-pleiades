@@ -86,7 +86,11 @@ type featureOp struct {
 // Reading before writing, and refusing a feature name DISM has never
 // heard of rather than reporting it disabled, are the same reasoning
 // internal/catalog/svc/windows's own runServiceOp documents.
-func runFeatureOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op featureOp) (collection.Result, error) {
+//
+// mode is collection.ModeCheck for a check: the same read, the same
+// refusal and the same convergence decision, and then nothing is sent
+// (predictFeature).
+func runFeatureOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op featureOp, mode collection.Mode) (collection.Result, error) {
 	name, err := sdk.RequiredStringParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
@@ -104,6 +108,10 @@ func runFeatureOp(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	if !before.Exists {
 		return collection.Result{}, fmt.Errorf("%s: DISM on device %q does not recognize a feature called %q: check the name",
 			op.fqcn, device.Name(), name)
+	}
+
+	if mode == collection.ModeCheck {
+		return predictFeature(rc, op, name, before)
 	}
 
 	changed := false
@@ -146,6 +154,31 @@ func runFeatureOp(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 		}
 	}
 
+	return collection.Result{Changed: changed}, nil
+}
+
+// predictFeature is a check's answer for a feature found as before:
+// whether a real run would send its verb, the diff it would record, and
+// nothing sent.
+//
+// When the feature would change, the diff's after half leaves out the
+// state. A real run reads it back rather than assuming it, because DISM
+// leaves a feature that needs a restart Enable Pending or Disable Pending
+// rather than Enabled or Disabled, and only running the change says which.
+// reboot_required is left out for the same reason. Nothing is undone by a
+// check, so no inverse is recorded.
+func predictFeature(rc sdk.RunbookContext, op featureOp, name string, before winrmdism.FeatureState) (collection.Result, error) {
+	changed := op.converged == nil || !op.converged(before)
+	after := before.Map()
+	if changed {
+		delete(after, "state")
+	}
+	if err := rc.SetStat(statName, name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+	}
 	return collection.Result{Changed: changed}, nil
 }
 

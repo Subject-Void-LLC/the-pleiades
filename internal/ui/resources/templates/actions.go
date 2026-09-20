@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -95,7 +96,8 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 			// resolve-record-persist-publish would have two orderings to
 			// keep in agreement, and the one that drifts is always the one
 			// with fewer readers.
-			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, prompted)
+			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, prompted,
+				api.MayRunForReal(identity.HasScope(auth.ScopeRunbookExecute)))
 			switch {
 			case errors.Is(err, launch.ErrNotFound):
 				return "", view.FieldErrors{"": {"That template no longer exists. Reload the list."}}, nil
@@ -107,6 +109,11 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 				return "", view.FieldErrors{"": {fieldMessage(err)}}, nil
 			case errors.Is(err, launch.ErrUnknownKind):
 				return "", view.FieldErrors{"": {"This controller cannot run that kind of template."}}, nil
+			case errors.Is(err, launch.ErrMode):
+				// Beside the mode control: a check turned back into a real
+				// run, or a check of a kind that cannot run as one, refused
+				// rather than launched as something else.
+				return "", view.FieldErrors{launch.ModeField: {fieldMessage(err)}}, nil
 			case err != nil:
 				return "", nil, err
 			}
@@ -144,7 +151,9 @@ func launchFields(ctx context.Context, tmpl launch.Template, creds credentials, 
 
 	var out []view.Field
 	for _, spec := range d.Fields {
-		if !tmpl.Promptable(spec.Name) {
+		// The mode is offered whether or not the template opened it: a
+		// check can always be asked for (launch.ModeField).
+		if !tmpl.Promptable(spec.Name) && spec.Name != launch.ModeField {
 			continue
 		}
 		out = append(out, fieldFor(spec, tmpl.Defaults))
@@ -225,6 +234,9 @@ func fieldFor(spec launch.FieldSpec, defaults launch.Fields) view.Field {
 		// spaces and commas.
 		f.Kind = view.KindLongText
 		f.Help += " One key=value per line."
+	case launch.TypeChoice:
+		f.Kind = view.KindSelect
+		f.Options = choiceOptions(spec.Choices)
 	default:
 		f.Kind = view.KindText
 	}
@@ -372,7 +384,7 @@ func bindLaunch(tmpl launch.Template, v view.Values) (launch.Config, view.FieldE
 	}
 
 	for _, spec := range d.Fields {
-		if !tmpl.Promptable(spec.Name) {
+		if !tmpl.Promptable(spec.Name) && spec.Name != launch.ModeField {
 			continue
 		}
 		raw := strings.TrimSpace(v.Get(spec.Name))

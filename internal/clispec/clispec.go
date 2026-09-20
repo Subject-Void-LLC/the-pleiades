@@ -129,12 +129,16 @@ var Root = Command{
 			Synopsis:   "build, validate, and run a runbook",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "mode", Type: "string", Default: "execute", Doc: "execute applies changes; check reports what each task would change and changes nothing"},
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each task's own output (stdout, exit status, diffs), not just whether it changed"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
+				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed"},
 			},
 			Examples: []string{
 				"pleiades run runbooks/site.yaml",
 				"pleiades run runbooks/site.yaml --verbose",
+				"pleiades run runbooks/site.yaml --mode check --verbose",
+				"pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command",
 			},
 		},
 		{
@@ -163,6 +167,39 @@ var Root = Command{
 					Name:     "plugins",
 					Synopsis: "list the available inventory sync plugins",
 					Examples: []string{"pleiades inventory plugins"},
+				},
+			},
+		},
+		{
+			Name:     "collection",
+			Synopsis: "approve, revoke and list the external Collection builds allowed to run (see 'pleiades collection --help')",
+			Subcommands: []Command{
+				{
+					Name:       "approve",
+					Positional: "<program>",
+					Synopsis:   "approve a build of a program in PLEIADES_COLLECTIONS_DIR, after showing what it says it provides",
+					Flags: []Flag{
+						{Name: "digest", Type: "string", Default: "", Doc: "approve this build (sha256:<hex>) without inspecting the program, for an image build or a rolling upgrade"},
+						{Name: "yes", Type: "bool", Default: "false", Doc: "approve without asking, after still showing what the program provides"},
+					},
+					Examples: []string{
+						"pleiades collection approve note",
+						"pleiades collection approve note --digest sha256:<64 hex digits>",
+					},
+				},
+				{
+					Name:       "revoke",
+					Positional: "<program>",
+					Synopsis:   "withdraw a program's approvals, so it stops running from its next call",
+					Flags: []Flag{
+						{Name: "digest", Type: "string", Default: "", Doc: "withdraw only this build's approval (default: every build of the program)"},
+					},
+					Examples: []string{"pleiades collection revoke note"},
+				},
+				{
+					Name:     "list",
+					Synopsis: "list every approved build, who approved it and when",
+					Examples: []string{"pleiades collection list"},
 				},
 			},
 		},
@@ -248,6 +285,16 @@ var Root = Command{
 						{Name: "nav-order", Type: "int", Default: "70", Doc: "sidebar position; built-in views use 10 through 60"},
 					},
 					Examples: []string{"pleiades forge new-view access-reviews --title \"Access Reviews\" --summary \"Who approved what, and when.\""},
+				},
+				{
+					Name:       "new-external",
+					Positional: "<namespace.method>",
+					Synopsis:   "generate a buildable external Collection program providing one method",
+					Flags: []Flag{
+						{Name: "dir", Type: "string", Default: "", Doc: "directory to write the program into (default: the method name with its dots as hyphens)"},
+						{Name: "no-go-mod", Type: "bool", Default: "false", Doc: "write no go.mod, so the program joins the Go module around it instead of being a module of its own"},
+					},
+					Examples: []string{"pleiades forge new-external acme.motd.read"},
 				},
 				{
 					Name:       "new-filter",

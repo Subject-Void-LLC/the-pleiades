@@ -6,7 +6,7 @@ status: beta
 
 Runs one command directly, with no shell involved.
 
-Runs a single command on the target over SSH and reports its exit status, stdout and stderr. No shell interprets the command: a semicolon, pipe or dollar sign in an argument is passed through as text, so this cannot chain commands, expand a variable or redirect output. Use exec.shell when those are what you want. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like, and a run they short-circuit reports no change.
+Runs a single command on the target over SSH and reports its exit status, stdout and stderr. No shell interprets the command: a semicolon, pipe or dollar sign in an argument is passed through as text, so this cannot chain commands, expand a variable or redirect output. Use exec.shell when those are what you want. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like, and a run they short-circuit reports no change. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the command would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Runs a single command on the target over SSH and reports its exit status, stdout
 | Capabilities | `CommandExecCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

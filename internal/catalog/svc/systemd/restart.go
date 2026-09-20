@@ -28,9 +28,13 @@ func init() {
 					"see that the unit was running before and after and decide for itself, but this method emits no " +
 					"instruction because none would be true.",
 			},
-			Doc: restartDoc(),
+			// A check reads the unit's state and reports the restart a real
+			// run would send, without sending it. See CheckRestart.
+			SupportsCheck: true,
+			Doc:           restartDoc(),
 		},
 		Invoke: Restart,
+		Check:  CheckRestart,
 	})
 }
 
@@ -59,11 +63,29 @@ func restartDoc() collection.Doc {
 // reverses an interruption. The diff is still recorded by runUnitOp, so a
 // rollback reaching this task can see what the unit's state was.
 func Restart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runUnitOp(ctx, rc, device, params, unitOp{
-		fqcn:          "svc.systemd.restart",
-		converged:     nil,
-		apply:         remotesvc.Restart,
-		refusesMasked: true,
-		inverse:       nil,
-	})
+	return runUnitOp(ctx, rc, device, params, restartOp, collection.ModeExecute)
+}
+
+// restartOp is what makes svc.systemd.restart different from its
+// siblings, shared by Restart and CheckRestart.
+var restartOp = unitOp{
+	fqcn:          "svc.systemd.restart",
+	converged:     nil,
+	apply:         remotesvc.Restart,
+	predict:       predictActiveState(activeStateActive),
+	refusesMasked: true,
+	inverse:       nil,
+}
+
+// CheckRestart is "svc.systemd.restart" in check mode: it reads the unit
+// and reports the restart a real run would send, sending nothing.
+//
+// It always predicts a change, because Restart always makes one: a
+// restart is never converged, so a dry run that said "nothing to do" for
+// a running unit would be describing a different method. The predicted
+// after half is the unit with ActiveState "active", which is what
+// systemctl restart leaves a unit that starts cleanly. A masked or
+// unknown unit is refused exactly as Restart refuses it.
+func CheckRestart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runUnitOp(ctx, rc, device, params, restartOp, collection.ModeCheck)
 }

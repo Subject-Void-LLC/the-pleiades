@@ -4677,3 +4677,74 @@ fuzz target exists to send is invalid UTF-8, and a rune-level transform repairs 
 **The incident.** Phase 83 concluded that a compose service with `build:` would never pull its image. A thirty-second probe on the installed Compose showed it pulls first and builds only when the pull fails, from a Docker Hub namespace a third party owns (FAILURE_PATTERNS 241).
 
 **The rule.** When a security property depends on what a tool does with a setting, build the smallest state where the unwanted behavior would occur (no local image, a missing file, an unset variable) and watch it. Record the measurement next to the setting, and pin it with a test that reads the setting.
+
+## 199. An exception to a gate that is enforced twice must be defined once, and both enforcers must ask it
+
+**The incident.** Check mode lets a simulate-locked device be checked. The exception was written into the executor's admission, unit-tested there, and passed. The first real `pleiades run --mode check` against such a device stopped at plan-time validation, whose lifecycle rule knew nothing about modes (FAILURE_PATTERNS 249). The engine's test built its Executor directly, so the plan-time gate never ran under it.
+
+**The rule.** When a rule is enforced at plan time and again at run time (defense in depth, as this codebase does for capabilities and lifecycle), an exception to it is a third thing both enforcers must consult: put it in one exported function and have both call it (`engine.LifecycleAdmitsIn`). Then prove it with a test that goes through BOTH gates, which in practice means the real command, not either gate alone.
+
+## 200. On a small development machine, parallelism is a resource to budget, not free throughput
+
+**The incident.** On 2026-09-18 four workflow agents were launched at once, each building and running `go test -race` over large packages of this repository, one of them deliberately flooding tens of megabytes of process output, alongside the lead's own test run. The WSL virtual machine (7.8 GiB at the time, with VS Code, gopls, Pylance and three Claude sessions already resident) ran out of memory and swap, reached a load average of 43, and had to be rebooted. The agents' partial work survived on disk; none of it had been reviewed, and all of it had to be checked afterwards.
+
+**The rule.** Before fanning out work that builds or tests this repository, check the machine (`free -h`, what else is resident) and budget for it: at most one build-heavy agent at a time here, Go commands capped (`GOMAXPROCS=4`, `-p 2`, `-p 1` for `-race`), one package at a time, and read-only agents only when parallelism is wanted. A fan-out that kills the machine loses more time than any serial run, and it takes the user's editor down with it.
+
+## 201. Settle a decision by its edge cases, checked against the code, never by its options alone
+
+**The incident.** On 2026-09-18 fifteen design decisions for check mode and external Collections each had options, pros, cons and a recommendation. The user asked for edge cases first, then the secure answer that gives the most functionality. Checking each edge case against the code, with probes rather than reading, changed four of the fifteen answers and found three defects the earlier recommendations would have shipped. A same-user child reads its parent's environment from `/proc`, which defeated the recommended environment-variable key (FAILURE_PATTERNS 251). A runbook-level `check_mode: true` was silently ignored, where the plan said no key existed (252). Check mode admitted third-party Checks to simulate-locked devices (253). Launch resolution ignores a malformed field value, where refusing it was needed for mode, since ignoring it falls back to a real run.
+
+**The rule.** A pros-and-cons list compares options on their stated merits; the edge cases are where an option actually fails. For each decision, list the concrete inputs that stress it (a typo, an older peer, a lock, a same-user process, a stray key), check each against the real code or a probe, and only then choose. The user's rule for choosing is the secure answer that keeps the most functionality, and it usually has a better answer than any option first listed.
+
+## 202. Check the bytes a tool wrote, not the text you gave it
+
+**The incident.** On 2026-09-18 an agent writing `internal/termsafe`, a package that escapes invisible terminal-controlling characters, typed their escape forms into its file-writing tool. The tool decoded them, and real bidirectional overrides landed in the package's own comment and tests (FAILURE_PATTERNS 256). The code compiled; only a test comparing expected strings noticed, and only because the expectations happened to be written as escapes.
+
+**The rule.** A tool between you and the file can transform what you send. When exact bytes matter (escapes, control characters, anything a reader cannot see), write them in a form the tool passes through untouched, then look at the bytes that landed (`cat -A`, a scan) rather than at the text you sent. Back it with a mechanical check, since the failure is invisible by construction.
+
+
+## 203. Run the commit gate's rules on a branch before calling it ready, not only at commit time
+
+**The incident.** On 2026-09-18, a branch of work spanning three sessions reached a handoff with seventy new Go files (sources and tests alike) that had no doc comment above their package clause. `tools/commitgate` refuses exactly that for every file a commit adds, so the planned commits would all have been refused the first time the user ran `git commit`, far from the sessions that wrote the files. Nothing earlier noticed: the build, vet, gofmt, gosec, docs-lint and every test pass without a file comment, and the tests of the tracked files around them predate the rule and have none, so copying their shape reproduced the gap.
+
+**The rule.** The commit gate is a gate on the branch too. Before calling a branch of uncommitted work ready, check its new files against what the gate enforces on added files (a doc comment above the package clause, gofmt, no em dash in an added line), since that is the one check that runs only at commit time. A small parser over `git ls-files -o` (go/parser, `ParseComments|PackageClauseOnly`, `Doc == nil`) answers it in a second without staging anything.
+
+## 204. When a yes-or-no about a method starts to depend on its arguments, put the per-call answer beside the flag
+
+**The incident.** On 2026-09-19, `exec.command` gained a check for calls guarded by `creates` or `removes`. Its manifest's `SupportsCheck` had to become true for any guarded call to be checked, and at once `pleiades validate` accepted `check_mode: true` on an unguarded `exec.command`, a call that can only ever be reported unchecked, which is exactly what the `check_mode` key promises not to do. The CLI key gate caught it, because it expected the old refusal. A method-level boolean cannot say "some calls": whichever way it is set, it is wrong for some of them.
+
+**The rule.** When an answer about a method starts to depend on the call, add the per-call answer next to the flag rather than bending the flag: a function of the call's own inputs, which every plan-time consumer asks, and which the run-time code calls too, so the two cannot drift (`Descriptor.CheckCall`, used by `engine.Checkable` and called by the method's own `Check`). Keep the flag for what it can still say truthfully ("supports check at all"), and let generated documentation say "for some calls" when the function is present.
+
+## 205. Check whether an environment variable is set without ever printing its value
+
+**The incident.** On 2026-09-19, a shell test meant to report whether `LOCALSTACK_AUTH_TOKEN` was set used `${VAR:+set}${VAR:-unset}`. When the variable is set, the second expansion is its value, so the command printed "set" followed by the token, and a `cut` trimmed only its tail. Part of a real credential reached the session's output.
+
+**The rule.** To learn whether a secret-bearing variable is set, use an expansion that cannot yield the value: `[ -n "${VAR:-}" ] && echo set || echo unset`, or `${VAR:+set}` alone. Never pair `:+` with `:-` on a secret, and never pipe a secret's expansion through `cut` or `sed` expecting it to be removed. If a value does leak, say so to the user and recommend rotating it.
+
+## 206. Close a documentation gate by writing from the code, because that is where the defects are
+
+**The incident.** On 2026-09-19, closing the "easy" documentation gates of early phases, the gate for inventory classification and quarantine was written by reading the code rather than the existing docs. The code contradicted the docs in three places and, in following it, three defects surfaced that no test had caught: a device update that answered 200 and stored nothing (so no device could be promoted), a re-sync that silently reverted a promotion, and a read-only sync that hid the only list naming quarantined records. The dispatch gate, written the same way, found job ids that broke the list's ordering and a runner behavior (a failed run re-runs up to five times) the docs described the opposite of. Correcting stale test citations in the plan found a symlink escape in project playbooks.
+
+**The rule.** A documentation gate is closed by describing what the code does, with each claim checked against the code, and every surprising claim proven by running it before it is written down. A statement that cannot be proven is either a bug to fix first or a limit to state, never prose copied forward from an older page. Treat "easy" bookkeeping (a stale citation, an unticked gate) as a reason to look, not as a checkbox.
+
+## 207. A session setting written inside a migration file is not a setting the migration runs under
+
+**The incident.** On 2026-09-19, planning the launchable seam meant adding a migration that rebuilds `schedules`. Reading how rebuilds were applied showed that `PRAGMA foreign_keys = off`, which opens every SQLite migration that rebuilds a table, had never once taken effect: the applier ran each script inside a transaction, where that pragma is a documented no-op, and SQLite declines it in silence. Thirty migrations had been written against a guarantee they never had. A populated database upgrading through migration 0022 lost every authored survey question and saved launch configuration, and one holding a schedule or a job task could not upgrade at all. Nothing caught it because every migration test started from an empty database, where a table rebuild cannot hurt anybody (FAILURE_PATTERNS.md #266).
+
+**The rule.** When behavior depends on a setting whose scope is a connection or a transaction, set it in the code that owns the connection, before the transaction opens, and read it back: the failure mode of a declined session setting is silence, not an error. Never trust a pragma, `SET`, or timeout written in a data file to apply to the statements around it. And a test for a schema migration must start from a database that holds rows, because an empty one exercises the DDL and nothing else.
+
+## 208. One registry, one question: check what a key actually decides before treating it as the abstraction
+
+**The incident.** On 2026-09-19, Phase 21's last open item was "rebind schedules, workflow nodes and notification policies to Launchable". Phase 23 had already recorded schedules as done on the strength of `launch.Kind` being an open registry: a schedule attached to a Template, a Template carried its kind, so "one edge covers every launchable kind". Every word of that was true and it answered the wrong question. A Kind says which ENGINE runs a definition, native runbook or sandboxed ansible-playbook. What a schedule has to name is which OBJECT to run, and a project sync is not a Template of any kind, so a project could not be scheduled at all and nothing in the design said why not. The roadmap had recorded the distinction as two axes a year earlier (`.SPECIFICATION/AWX_PARITY_ROADMAP.md` section 1.1) and the code had quietly conflated them anyway, including in an interface named for both that no production code ever consumed.
+
+**The rule.** Before treating a registry as the abstraction its consumers bind to, write down the question its key answers, in one sentence, and check it against what each consumer actually needs to ask. Two questions that happen to have the same answer today (every launchable was a template) will separate later, and the registry will be the thing in the way. The tell is an interface or key named for a category rather than for a question: "kind", "type", "mode". Name it for the question ("which engine", "what sort of object") and a consumer that needs the other one becomes obvious immediately rather than after a phase has closed on it.
+
+**The corollary, from the same session.** An abstraction with no consumer is not evidence of anything. `launch.Launchable` existed, satisfied one type and was consumed by nothing, which is how it stayed wrong through three phases that all cited it.
+
+## 209. Ask the library how it will read an input, rather than writing a second parser to guess
+
+**The incident.** On 2026-09-20, adding an allowlist for the addresses a project may be fetched from, the obvious implementation was to parse the URL with `net/url` and check the scheme. That would have been wrong in three ways at once, and go-git's own parser says so: a string with no scheme is not an error but a LOCAL PATH, absolutized against the process's working directory; `git@github.com:org/repo.git` is ssh with no scheme in sight; and `srv:secrets-repo` is also ssh, with `srv` as the host. A `net/url` check would have called the first two something else and the third a relative path, and the validator would have been confidently disagreeing with the code that dials. The implementation instead calls `transport.NewEndpoint`, the same function the transport layer calls, and allowlists the protocol it reports.
+
+**The rule.** When validating an input that a library will later interpret, validate by asking that library what it will make of it. A second parser is a second opinion, and the two only have to differ once for the check to be decorative. This is the same failure shape as a validator that reimplements a grammar, and this repository has recorded it twice before under other names.
+
+**The corollary.** Having asked, write down what the answer was, because it is usually surprising. The test table for this validator exists as much to record that a bare path is local and that anything with a colon is a host as it does to check the allowlist: the next person to touch the rule needs that more than they need the rule.

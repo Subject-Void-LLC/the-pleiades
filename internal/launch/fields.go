@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,6 +175,13 @@ func normalize(spec FieldSpec, value any) (any, error) {
 			return nil, fmt.Errorf("%w: %q must be a set of key and value pairs", ErrInvalidField, spec.Name)
 		}
 		return cloneMap(m), nil
+
+	case TypeChoice:
+		s, ok := value.(string)
+		if !ok || !slices.Contains(spec.Choices, s) {
+			return nil, fmt.Errorf("%w: %q must be one of %s, got %v", ErrInvalidField, spec.Name, strings.Join(spec.Choices, ", "), value)
+		}
+		return s, nil
 
 	default:
 		return nil, fmt.Errorf("%w: %q declares unknown type %q", ErrInvalidField, spec.Name, spec.Type)

@@ -3,6 +3,7 @@
 package migrate
 
 import (
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/dialect/sql/schema"
 	"entgo.io/ent/schema/field"
 )
@@ -391,6 +392,7 @@ var (
 		{Name: "fields", Type: field.TypeJSON, Nullable: true},
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 		{Name: "credential_ids", Type: field.TypeJSON, Nullable: true},
+		{Name: "external_checks", Type: field.TypeBool, Default: false},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{
@@ -417,6 +419,7 @@ var (
 		{Name: "result", Type: field.TypeEnum, Nullable: true, Enums: []string{"succeeded", "failed"}},
 		{Name: "result_reason", Type: field.TypeString, Nullable: true},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+		{Name: "unchecked", Type: field.TypeInt, Default: 0},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -427,7 +430,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[10]},
+				Columns:    []*schema.Column{JobTasksColumns[11]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -436,7 +439,7 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[10]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[11]},
 			},
 		},
 	}
@@ -455,6 +458,8 @@ var (
 		{Name: "dag_version", Type: field.TypeString, Nullable: true},
 		{Name: "fqcn", Type: field.TypeString, Nullable: true},
 		{Name: "fqcn_unresolved", Type: field.TypeBool, Default: false},
+		{Name: "provider_program", Type: field.TypeString, Nullable: true},
+		{Name: "provider_digest", Type: field.TypeString, Nullable: true},
 		{Name: "task_name", Type: field.TypeString, Nullable: true},
 		{Name: "register", Type: field.TypeString, Nullable: true},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
@@ -489,6 +494,50 @@ var (
 				Name:    "journalentry_job_id_device_id_attempt_sequence",
 				Unique:  false,
 				Columns: []*schema.Column{JournalEntriesColumns[3], JournalEntriesColumns[4], JournalEntriesColumns[5], JournalEntriesColumns[8]},
+			},
+		},
+	}
+	// LaunchablesColumns holds the columns for the "launchables" table.
+	LaunchablesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "type", Type: field.TypeString, Size: 64},
+		{Name: "name", Type: field.TypeString, Size: 253},
+		{Name: "organization_launchables", Type: field.TypeInt},
+		{Name: "project_launchable", Type: field.TypeInt, Unique: true, Nullable: true},
+		{Name: "template_launchable", Type: field.TypeInt, Unique: true, Nullable: true},
+	}
+	// LaunchablesTable holds the schema information for the "launchables" table.
+	LaunchablesTable = &schema.Table{
+		Name:       "launchables",
+		Columns:    LaunchablesColumns,
+		PrimaryKey: []*schema.Column{LaunchablesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "launchables_organizations_launchables",
+				Columns:    []*schema.Column{LaunchablesColumns[5]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "launchables_projects_launchable",
+				Columns:    []*schema.Column{LaunchablesColumns[6]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "launchables_templates_launchable",
+				Columns:    []*schema.Column{LaunchablesColumns[7]},
+				RefColumns: []*schema.Column{TemplatesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "launchable_type_name_organization_launchables",
+				Unique:  false,
+				Columns: []*schema.Column{LaunchablesColumns[3], LaunchablesColumns[4], LaunchablesColumns[5]},
 			},
 		},
 	}
@@ -729,9 +778,9 @@ var (
 		{Name: "dtend", Type: field.TypeTime, Nullable: true},
 		{Name: "next_run", Type: field.TypeTime, Nullable: true},
 		{Name: "last_fired", Type: field.TypeTime, Nullable: true},
+		{Name: "launchable_schedules", Type: field.TypeInt},
 		{Name: "organization_schedules", Type: field.TypeInt},
 		{Name: "schedule_saved_config", Type: field.TypeInt, Nullable: true},
-		{Name: "template_schedules", Type: field.TypeInt},
 	}
 	// SchedulesTable holds the schema information for the "schedules" table.
 	SchedulesTable = &schema.Table{
@@ -740,29 +789,29 @@ var (
 		PrimaryKey: []*schema.Column{SchedulesColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "schedules_organizations_schedules",
+				Symbol:     "schedules_launchables_schedules",
 				Columns:    []*schema.Column{SchedulesColumns[14]},
+				RefColumns: []*schema.Column{LaunchablesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "schedules_organizations_schedules",
+				Columns:    []*schema.Column{SchedulesColumns[15]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "schedules_saved_launch_configs_saved_config",
-				Columns:    []*schema.Column{SchedulesColumns[15]},
+				Columns:    []*schema.Column{SchedulesColumns[16]},
 				RefColumns: []*schema.Column{SavedLaunchConfigsColumns[0]},
 				OnDelete:   schema.SetNull,
-			},
-			{
-				Symbol:     "schedules_templates_schedules",
-				Columns:    []*schema.Column{SchedulesColumns[16]},
-				RefColumns: []*schema.Column{TemplatesColumns[0]},
-				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "schedule_name_organization_schedules",
 				Unique:  true,
-				Columns: []*schema.Column{SchedulesColumns[4], SchedulesColumns[14]},
+				Columns: []*schema.Column{SchedulesColumns[4], SchedulesColumns[15]},
 			},
 			{
 				Name:    "schedule_enabled_next_run_schedule_id",
@@ -781,6 +830,7 @@ var (
 		{Name: "reason", Type: field.TypeString, Nullable: true},
 		{Name: "suppressed_count", Type: field.TypeInt, Default: 0},
 		{Name: "job_id", Type: field.TypeString, Nullable: true},
+		{Name: "unified_job_type", Type: field.TypeString, Nullable: true, Size: 64},
 		{Name: "schedule_occurrences", Type: field.TypeInt},
 	}
 	// ScheduleOccurrencesTable holds the schema information for the "schedule_occurrences" table.
@@ -791,7 +841,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "schedule_occurrences_schedules_occurrences",
-				Columns:    []*schema.Column{ScheduleOccurrencesColumns[8]},
+				Columns:    []*schema.Column{ScheduleOccurrencesColumns[9]},
 				RefColumns: []*schema.Column{SchedulesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -800,12 +850,12 @@ var (
 			{
 				Name:    "scheduleoccurrence_occurrence_at_schedule_occurrences",
 				Unique:  true,
-				Columns: []*schema.Column{ScheduleOccurrencesColumns[3], ScheduleOccurrencesColumns[8]},
+				Columns: []*schema.Column{ScheduleOccurrencesColumns[3], ScheduleOccurrencesColumns[9]},
 			},
 			{
 				Name:    "scheduleoccurrence_schedule_occurrences",
 				Unique:  false,
-				Columns: []*schema.Column{ScheduleOccurrencesColumns[8]},
+				Columns: []*schema.Column{ScheduleOccurrencesColumns[9]},
 			},
 		},
 	}
@@ -895,11 +945,12 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
-		{Name: "status", Type: field.TypeEnum, Enums: []string{"succeeded", "failed"}},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"running", "succeeded", "failed"}},
+		{Name: "actor", Type: field.TypeString, Nullable: true, Size: 255},
 		{Name: "revision", Type: field.TypeString, Size: 64, Default: ""},
 		{Name: "error", Type: field.TypeString, Size: 2048, Default: ""},
 		{Name: "started_at", Type: field.TypeTime},
-		{Name: "finished_at", Type: field.TypeTime},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "project_sync_runs", Type: field.TypeInt},
 	}
 	// SyncRunsTable holds the schema information for the "sync_runs" table.
@@ -910,16 +961,16 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "sync_runs_projects_sync_runs",
-				Columns:    []*schema.Column{SyncRunsColumns[8]},
+				Columns:    []*schema.Column{SyncRunsColumns[9]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "syncrun_started_at_project_sync_runs",
 				Unique:  false,
-				Columns: []*schema.Column{SyncRunsColumns[6], SyncRunsColumns[8]},
+				Columns: []*schema.Column{SyncRunsColumns[7], SyncRunsColumns[9]},
 			},
 		},
 	}
@@ -1183,6 +1234,7 @@ var (
 		JobsTable,
 		JobTasksTable,
 		JournalEntriesTable,
+		LaunchablesTable,
 		LocalCredentialsTable,
 		MeshSigningKeysTable,
 		OrganizationsTable,
@@ -1221,15 +1273,22 @@ func init() {
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
 	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
+	LaunchablesTable.ForeignKeys[0].RefTable = OrganizationsTable
+	LaunchablesTable.ForeignKeys[1].RefTable = ProjectsTable
+	LaunchablesTable.ForeignKeys[2].RefTable = TemplatesTable
+	LaunchablesTable.Annotation = &entsql.Annotation{}
+	LaunchablesTable.Annotation.Checks = map[string]string{
+		"launchable_exactly_one_target": "((CASE WHEN template_launchable IS NULL THEN 0 ELSE 1 END) + (CASE WHEN project_launchable IS NULL THEN 0 ELSE 1 END)) = 1",
+	}
 	LocalCredentialsTable.ForeignKeys[0].RefTable = UsersTable
 	ProjectsTable.ForeignKeys[0].RefTable = CredentialsTable
 	ProjectsTable.ForeignKeys[1].RefTable = OrganizationsTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
 	SavedLaunchConfigsTable.ForeignKeys[0].RefTable = TemplatesTable
-	SchedulesTable.ForeignKeys[0].RefTable = OrganizationsTable
-	SchedulesTable.ForeignKeys[1].RefTable = SavedLaunchConfigsTable
-	SchedulesTable.ForeignKeys[2].RefTable = TemplatesTable
+	SchedulesTable.ForeignKeys[0].RefTable = LaunchablesTable
+	SchedulesTable.ForeignKeys[1].RefTable = OrganizationsTable
+	SchedulesTable.ForeignKeys[2].RefTable = SavedLaunchConfigsTable
 	ScheduleOccurrencesTable.ForeignKeys[0].RefTable = SchedulesTable
 	SurveyQuestionsTable.ForeignKeys[0].RefTable = TemplatesTable
 	SyncRunsTable.ForeignKeys[0].RefTable = ProjectsTable

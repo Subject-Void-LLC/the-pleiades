@@ -113,6 +113,27 @@ func failureDetail(result remoteexec.Result) string {
 	return "no output"
 }
 
+// recordPrediction is recordState for a check: name, and the diff from
+// before to what the change would leave. version is what would be
+// installed when it is known (a version the task names, or nothing when
+// the package would be removed); an empty version on an install means
+// dnf would choose it, and it is left out of both the stat and the diff
+// rather than guessed, since asking dnf which build it would pick can
+// refresh its metadata cache on the device.
+func recordPrediction(rc sdk.RunbookContext, name string, before state, installed bool, version string) error {
+	if err := rc.SetStat(statName, name); err != nil {
+		return err
+	}
+	after := map[string]any{"installed": installed}
+	if !installed || version != "" {
+		after["version"] = version
+		if err := rc.SetStat(statVersion, version); err != nil {
+			return err
+		}
+	}
+	return sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after})
+}
+
 // recordState writes name, the version left installed, and the
 // before/after diff, the three things every method in this namespace
 // reports regardless of which one ran.

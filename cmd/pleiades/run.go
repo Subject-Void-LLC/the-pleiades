@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -15,11 +16,13 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
 	telnettransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
@@ -42,6 +45,13 @@ import (
 // every other fqcn (starting with "noop") still falls through to
 // engine.NewBuiltinActionExecutor unchanged, exactly the seam action.go's
 // own doc comment named this phase as filling.
+//
+// --mode check turns the run into a dry run (PLAN.md Section 34's check
+// mode): every task that can say what it would change does so without
+// changing anything, every task that cannot is named as unchecked, no
+// journal is written, and the command ends non-zero if anything went
+// unchecked. engine.WithMode carries the mode; see internal/engine's
+// check.go for the rules it enforces.
 func runRunbook(args []string) error {
 	// splitPositional rather than fs.Arg(0), for the same reason
 	// add-host and the forge subcommands use it: Go's flag package stops
@@ -51,14 +61,42 @@ func runRunbook(args []string) error {
 	// runbook path is the thing a person types first.
 	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--verbose] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--verbose] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
+	modeFlag := fs.String("mode", string(collection.ModeExecute), "execute applies changes; check reports what each task would change and changes nothing")
 	verbose := fs.Bool("verbose", false, "print each task's own output (stdout, exit status, diffs), not just whether it changed")
+	// allowUnchecked names methods whose tasks may go unchecked without
+	// making the check incomplete: they are still listed, so a pipeline
+	// accepts exactly the gaps it named and a new one still stops it.
+	allowUnchecked := map[string]bool{}
+	fs.Func("allow-unchecked", "a method whose tasks may go unchecked without making the check incomplete (repeatable)", func(v string) error {
+		if v == "" {
+			return errors.New("needs a method name")
+		}
+		allowUnchecked[v] = true
+		return nil
+	})
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
 	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+
+	// Parsed before anything is loaded, so a misspelled mode costs nothing
+	// and, above all, is never treated as execute. ParseMode refuses any
+	// value outside the closed set rather than defaulting.
+	mode, err := collection.ParseMode(*modeFlag)
+	if err != nil {
+		return fmt.Errorf("--mode: %w", err)
+	}
+
+	// External Collections register before anything reads the registry:
+	// loadWorld and validate.Validate both look methods up, and a method
+	// from an external program has to be known to them exactly as a
+	// built-in one is.
+	if _, err := loadExternalCollections(context.Background(), *dir); err != nil {
 		return err
 	}
 
@@ -66,8 +104,14 @@ func runRunbook(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A runbook carrying check_mode makes the whole run a check, whatever
+	// --mode said: the key can only narrow (engine.TaskMode). Settled
+	// here, before the journal is opened and the plan printed, so the
+	// command behaves exactly as it would for --mode check.
+	mode = engine.TaskMode(mode, dag, nil)
+	checking := mode == collection.ModeCheck
 
-	world := validate.WorldView{Items: items, DAG: dag}
+	world := validate.WorldView{Items: items, DAG: dag, Mode: mode}
 	report := validate.Validate(world)
 	if report.HasErrors() {
 		fmt.Print(report.String())
@@ -93,14 +137,25 @@ func runRunbook(args []string) error {
 	// read-only project directory produced a run that announced itself
 	// and then abandoned the attempt. Nothing had actually been executed
 	// either way, but the output said otherwise.
+	//
+	// A check opens no journal at all. It changes nothing, so it has
+	// nothing to record, and the engine refuses to journal a check
+	// regardless (engine.WithMode); not opening the store means a check
+	// also works in a project directory this user cannot write, which is
+	// a reasonable place to ask "what would this do" from.
 	var sink engine.Journal
-	store, err := journal.NewFileStore(*dir)
-	if err != nil {
-		return fmt.Errorf("failed to open the run journal: %w", err)
+	if !checking {
+		store, err := journal.NewFileStore(*dir)
+		if err != nil {
+			return fmt.Errorf("failed to open the run journal: %w", err)
+		}
+		sink = store
 	}
-	sink = store
 
 	fmt.Printf("plan for %s (%d nodes, %d inventory hosts loaded):\n", runbook, len(dag.Nodes), len(items))
+	if checking {
+		fmt.Println("mode: check (tasks report what they would change; nothing on any device is changed)")
+	}
 
 	// ServiceEffecting and blast radius are runbook-level, native-only
 	// summary facts (see engine.Metadata's doc comment), so they are
@@ -136,7 +191,11 @@ func runRunbook(args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("executing:")
+	if checking {
+		fmt.Println("checking:")
+	} else {
+		fmt.Println("executing:")
+	}
 
 	// A CLI subcommand has no cancellation surface of its own yet, so a
 	// fresh background context is used here rather than threading one
@@ -224,6 +283,11 @@ func runRunbook(args []string) error {
 		engine.NewInProcessWorkflowContext(),
 		0,
 		engine.WithJournal(sink),
+		engine.WithMode(mode),
+		// This command's user may run every loaded program for real, so a
+		// check may run their checks too (the simulate-lock rule still
+		// keeps them off a device being onboarded).
+		engine.WithExternalChecks(true),
 	)
 
 	result, err := executor.Run(ctx, dag)
@@ -231,12 +295,28 @@ func runRunbook(args []string) error {
 		return fmt.Errorf("execution aborted: %w", err)
 	}
 
+	// unchecked counts the tasks a check could not answer for. They are
+	// named one by one below and counted again at the end, because a check
+	// that silently passed over them would report a clean result for a
+	// plan it never looked at.
+	unchecked := 0
+	var allowed []string
 	for _, node := range result.Nodes {
 		label := node.NodeID
 		if node.Device != "" {
 			label = fmt.Sprintf("%s [%s]", node.NodeID, node.Device)
 		}
 		switch {
+		case node.Unchecked:
+			note := ""
+			if task := dag.Nodes[node.NodeID]; task != nil && allowUnchecked[task.FQCN] {
+				allowed = append(allowed, label)
+				note = " [allowed by --allow-unchecked]"
+			} else {
+				unchecked++
+			}
+			fmt.Printf("  %s: COULD NOT CHECK (%s)%s\n", label, termsafe.Escape(redact.Text(result.Secrets, node.SkipReason)), note)
+			continue
 		case node.Err != nil:
 			// Masked through result.Secrets: a later task's failure can
 			// echo a value an earlier register_mask/secret_mask task
@@ -245,13 +325,21 @@ func runRunbook(args []string) error {
 			// prints, Run has already returned the complete secret set,
 			// not just whatever publish's own best-effort, in-flight
 			// masking knew about when that node's own event went out.
-			fmt.Printf("  %s: FAILED: %v\n", label, redact.Text(result.Secrets, node.Err.Error()))
+			fmt.Printf("  %s: FAILED: %v\n", label, termsafe.Escape(redact.Text(result.Secrets, node.Err.Error())))
 		case node.Skipped:
-			fmt.Printf("  %s: skipped (%s)\n", label, node.SkipReason)
+			fmt.Printf("  %s: skipped (%s)\n", label, termsafe.Escape(node.SkipReason))
+		case node.Changed && (checking || node.Checked):
+			fmt.Printf("  %s: would change\n", label)
 		case node.Changed:
 			fmt.Printf("  %s: changed\n", label)
+		case node.Checked && !checking:
+			// check_mode on this task in a real run: it was asked, not run.
+			fmt.Printf("  %s: ok (checked only)\n", label)
 		default:
 			fmt.Printf("  %s: ok\n", label)
+		}
+		if *verbose && node.Provider != nil {
+			fmt.Printf("    provided by: %s (%s)\n", termsafe.EscapeLine(node.Provider.Program), node.Provider.Digest)
 		}
 		if *verbose && node.Err == nil && !node.Skipped {
 			printNodeStats(node.Stats, result.Secrets)
@@ -265,10 +353,37 @@ func runRunbook(args []string) error {
 	}
 
 	if result.HasErrors() {
+		if checking {
+			return fmt.Errorf("check failed")
+		}
 		return fmt.Errorf("execution failed")
 	}
 
+	if checking {
+		fmt.Println()
+		// A check that could not cover every task ends non-zero. A dry run
+		// used as a gate (a pipeline step before a real run) must not read
+		// as a pass when part of the plan was never checked; the tasks were
+		// named above, so the fix is visible without rerunning anything.
+		if unchecked > 0 {
+			return &incompleteError{msg: fmt.Sprintf("check incomplete: %d task(s) could not be checked, so this check does not cover them (nothing was changed)", unchecked)}
+		}
+		if len(allowed) > 0 {
+			fmt.Printf("check complete: nothing was changed (not checked, as --allow-unchecked allows: %s)\n", strings.Join(allowed, ", "))
+			return nil
+		}
+		fmt.Println("check complete: nothing was changed")
+		return nil
+	}
+
 	fmt.Println()
+	// Validation refuses check_mode on a task that cannot be checked, so
+	// this is the backstop for a runbook that reached the engine another
+	// way: a task its author wanted only checked was neither checked nor
+	// run, and the run must not read as complete.
+	if unchecked > 0 {
+		return &incompleteError{msg: fmt.Sprintf("run incomplete: %d task(s) marked check_mode could not be checked, and were not run either", unchecked)}
+	}
 	fmt.Println("run complete")
 	return nil
 }
@@ -316,8 +431,8 @@ func printMetadata(metadata map[string]interface{}, secrets []string) {
 				prefix = fmt.Sprintf("    [%s] ", deviceID)
 			}
 			for _, k := range keys {
-				value := redact.Text(secrets, fmt.Sprintf("%v", stats[k]))
-				fmt.Printf("%s%s: %s\n", prefix, k, value)
+				value := termsafe.EscapeLine(redact.Text(secrets, fmt.Sprintf("%v", stats[k])))
+				fmt.Printf("%s%s: %s\n", prefix, termsafe.EscapeLine(k), value)
 			}
 		}
 	}
@@ -352,15 +467,19 @@ func printNodeStats(stats map[string]interface{}, secrets []string) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		value := redact.Text(secrets, fmt.Sprintf("%v", stats[k]))
+		// A value is a device's or a program's output, so anything in it a
+		// terminal would act on is shown escaped (termsafe); lines stay
+		// lines.
+		value := termsafe.Escape(redact.Text(secrets, fmt.Sprintf("%v", stats[k])))
+		name := termsafe.EscapeLine(k)
 		if value == "" {
 			continue
 		}
 		if !strings.Contains(value, "\n") {
-			fmt.Printf("    %s: %s\n", k, value)
+			fmt.Printf("    %s: %s\n", name, value)
 			continue
 		}
-		fmt.Printf("    %s:\n", k)
+		fmt.Printf("    %s:\n", name)
 		for _, line := range strings.Split(strings.TrimRight(value, "\n"), "\n") {
 			fmt.Printf("      %s\n", line)
 		}
@@ -406,3 +525,20 @@ func printTaskList(tasks []engine.Task, depth int) {
 		}
 	}
 }
+
+// exitIncomplete is the status of a check that failed nothing but left
+// tasks unchecked, and of a real run whose check_mode tasks could not be
+// checked. It is neither success (0), since part of the plan was never
+// looked at, nor failure (1), so a pipeline can tell the two apart and
+// accept one without hiding the other.
+const exitIncomplete = 3
+
+// incompleteError is the error an incomplete run ends with, carrying
+// exitIncomplete.
+type incompleteError struct{ msg string }
+
+// Error implements error.
+func (e *incompleteError) Error() string { return e.msg }
+
+// ExitCode implements exitCoder.
+func (e *incompleteError) ExitCode() int { return exitIncomplete }

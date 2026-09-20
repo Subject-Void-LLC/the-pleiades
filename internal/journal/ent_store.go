@@ -105,6 +105,8 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetDagVersion(entry.DAGVersion).
 		SetFqcn(entry.FQCN).
 		SetFqcnUnresolved(entry.FQCNUnresolved).
+		SetProviderProgram(entry.ProviderProgram).
+		SetProviderDigest(entry.ProviderDigest).
 		SetTaskName(entry.TaskName).
 		SetRegister(entry.Register).
 		SetOutcome(outcome).
@@ -259,6 +261,8 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		DAGVersion:                  row.DagVersion,
 		FQCN:                        row.Fqcn,
 		FQCNUnresolved:              row.FqcnUnresolved,
+		ProviderProgram:             row.ProviderProgram,
+		ProviderDigest:              row.ProviderDigest,
 		TaskName:                    row.TaskName,
 		Register:                    row.Register,
 		StartedAt:                   row.StartedAt,

@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
@@ -66,8 +67,8 @@ type TemplateEdges struct {
 	SavedConfigs []*SavedLaunchConfig `json:"saved_configs,omitempty"`
 	// Credentials holds the value of the credentials edge.
 	Credentials []*Credential `json:"credentials,omitempty"`
-	// Schedules holds the value of the schedules edge.
-	Schedules []*Schedule `json:"schedules,omitempty"`
+	// Launchable holds the value of the launchable edge.
+	Launchable *Launchable `json:"launchable,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [7]bool
@@ -133,13 +134,15 @@ func (e TemplateEdges) CredentialsOrErr() ([]*Credential, error) {
 	return nil, &NotLoadedError{edge: "credentials"}
 }
 
-// SchedulesOrErr returns the Schedules value or an error if the edge
-// was not loaded in eager-loading.
-func (e TemplateEdges) SchedulesOrErr() ([]*Schedule, error) {
-	if e.loadedTypes[6] {
-		return e.Schedules, nil
+// LaunchableOrErr returns the Launchable value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e TemplateEdges) LaunchableOrErr() (*Launchable, error) {
+	if e.Launchable != nil {
+		return e.Launchable, nil
+	} else if e.loadedTypes[6] {
+		return nil, &NotFoundError{label: launchable.Label}
 	}
-	return nil, &NotLoadedError{edge: "schedules"}
+	return nil, &NotLoadedError{edge: "launchable"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -320,9 +323,9 @@ func (_m *Template) QueryCredentials() *CredentialQuery {
 	return NewTemplateClient(_m.config).QueryCredentials(_m)
 }
 
-// QuerySchedules queries the "schedules" edge of the Template entity.
-func (_m *Template) QuerySchedules() *ScheduleQuery {
-	return NewTemplateClient(_m.config).QuerySchedules(_m)
+// QueryLaunchable queries the "launchable" edge of the Template entity.
+func (_m *Template) QueryLaunchable() *LaunchableQuery {
+	return NewTemplateClient(_m.config).QueryLaunchable(_m)
 }
 
 // Update returns a builder for updating this Template.

@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
@@ -327,6 +328,21 @@ func (_u *OrganizationUpdate) AddSchedules(v ...*Schedule) *OrganizationUpdate {
 	return _u.AddScheduleIDs(ids...)
 }
 
+// AddLaunchableIDs adds the "launchables" edge to the Launchable entity by IDs.
+func (_u *OrganizationUpdate) AddLaunchableIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddLaunchableIDs(ids...)
+	return _u
+}
+
+// AddLaunchables adds the "launchables" edges to the Launchable entity.
+func (_u *OrganizationUpdate) AddLaunchables(v ...*Launchable) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddLaunchableIDs(ids...)
+}
+
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
 func (_u *OrganizationUpdate) AddCredentialTypeIDs(ids ...int) *OrganizationUpdate {
 	_u.mutation.AddCredentialTypeIDs(ids...)
@@ -510,6 +526,27 @@ func (_u *OrganizationUpdate) RemoveSchedules(v ...*Schedule) *OrganizationUpdat
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveScheduleIDs(ids...)
+}
+
+// ClearLaunchables clears all "launchables" edges to the Launchable entity.
+func (_u *OrganizationUpdate) ClearLaunchables() *OrganizationUpdate {
+	_u.mutation.ClearLaunchables()
+	return _u
+}
+
+// RemoveLaunchableIDs removes the "launchables" edge to Launchable entities by IDs.
+func (_u *OrganizationUpdate) RemoveLaunchableIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveLaunchableIDs(ids...)
+	return _u
+}
+
+// RemoveLaunchables removes "launchables" edges to Launchable entities.
+func (_u *OrganizationUpdate) RemoveLaunchables(v ...*Launchable) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveLaunchableIDs(ids...)
 }
 
 // ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
@@ -956,6 +993,51 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LaunchablesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedLaunchablesIDs(); len(nodes) > 0 && !_u.mutation.LaunchablesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LaunchablesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -1497,6 +1579,21 @@ func (_u *OrganizationUpdateOne) AddSchedules(v ...*Schedule) *OrganizationUpdat
 	return _u.AddScheduleIDs(ids...)
 }
 
+// AddLaunchableIDs adds the "launchables" edge to the Launchable entity by IDs.
+func (_u *OrganizationUpdateOne) AddLaunchableIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddLaunchableIDs(ids...)
+	return _u
+}
+
+// AddLaunchables adds the "launchables" edges to the Launchable entity.
+func (_u *OrganizationUpdateOne) AddLaunchables(v ...*Launchable) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddLaunchableIDs(ids...)
+}
+
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
 func (_u *OrganizationUpdateOne) AddCredentialTypeIDs(ids ...int) *OrganizationUpdateOne {
 	_u.mutation.AddCredentialTypeIDs(ids...)
@@ -1680,6 +1777,27 @@ func (_u *OrganizationUpdateOne) RemoveSchedules(v ...*Schedule) *OrganizationUp
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveScheduleIDs(ids...)
+}
+
+// ClearLaunchables clears all "launchables" edges to the Launchable entity.
+func (_u *OrganizationUpdateOne) ClearLaunchables() *OrganizationUpdateOne {
+	_u.mutation.ClearLaunchables()
+	return _u
+}
+
+// RemoveLaunchableIDs removes the "launchables" edge to Launchable entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveLaunchableIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveLaunchableIDs(ids...)
+	return _u
+}
+
+// RemoveLaunchables removes "launchables" edges to Launchable entities.
+func (_u *OrganizationUpdateOne) RemoveLaunchables(v ...*Launchable) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveLaunchableIDs(ids...)
 }
 
 // ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
@@ -2156,6 +2274,51 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LaunchablesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedLaunchablesIDs(); len(nodes) > 0 && !_u.mutation.LaunchablesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LaunchablesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

@@ -328,6 +328,48 @@ func failureDetail(result remoteexec.Result) string {
 // recordState writes the account name and the before/after diff, the
 // two things every method in this namespace reports regardless of
 // which one ran.
+// predictAccount is what useradd or usermod would leave, for a check,
+// without running either. For an account that exists it is the account
+// with every requested attribute applied (converge decides which differ;
+// the group is resolved to its gid the way usermod resolves it). For a
+// new one it is only what the task names: a uid, gid, home or shell the
+// task leaves out is the system's to assign, so it is left out rather
+// than guessed.
+func predictAccount(ctx context.Context, conn *remoteexec.Conn, current account, d desired) (map[string]any, error) {
+	after := map[string]any{"exists": true}
+	if current.exists {
+		after = current.Map()
+	}
+	if d.uid != nil {
+		after["uid"] = *d.uid
+	}
+	if d.group != nil {
+		gid, err := resolveGroupGID(ctx, conn, *d.group)
+		if err != nil {
+			return nil, err
+		}
+		after["gid"] = gid
+	}
+	if d.shell != nil {
+		after["shell"] = *d.shell
+	}
+	if d.home != nil {
+		after["home"] = *d.home
+	}
+	if d.comment != nil {
+		after["comment"] = *d.comment
+	}
+	return after, nil
+}
+
+// recordPrediction is recordState for a check, with a predicted after.
+func recordPrediction(rc sdk.RunbookContext, name string, before account, after map[string]any) error {
+	if err := rc.SetStat(statName, name); err != nil {
+		return err
+	}
+	return sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after})
+}
+
 func recordState(rc sdk.RunbookContext, name string, before, after account) error {
 	if err := rc.SetStat(statName, name); err != nil {
 		return err

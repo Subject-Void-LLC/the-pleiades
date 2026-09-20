@@ -42,6 +42,10 @@ type JournalEntry struct {
 	Fqcn string `json:"fqcn,omitempty"`
 	// FqcnUnresolved holds the value of the "fqcn_unresolved" field.
 	FqcnUnresolved bool `json:"fqcn_unresolved,omitempty"`
+	// ProviderProgram holds the value of the "provider_program" field.
+	ProviderProgram string `json:"provider_program,omitempty"`
+	// ProviderDigest holds the value of the "provider_digest" field.
+	ProviderDigest string `json:"provider_digest,omitempty"`
 	// TaskName holds the value of the "task_name" field.
 	TaskName string `json:"task_name,omitempty"`
 	// Register holds the value of the "register" field.
@@ -92,7 +96,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -188,6 +192,18 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field fqcn_unresolved", values[i])
 			} else if value.Valid {
 				_m.FqcnUnresolved = value.Bool
+			}
+		case journalentry.FieldProviderProgram:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field provider_program", values[i])
+			} else if value.Valid {
+				_m.ProviderProgram = value.String
+			}
+		case journalentry.FieldProviderDigest:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field provider_digest", values[i])
+			} else if value.Valid {
+				_m.ProviderDigest = value.String
 			}
 		case journalentry.FieldTaskName:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -374,6 +390,12 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("fqcn_unresolved=")
 	builder.WriteString(fmt.Sprintf("%v", _m.FqcnUnresolved))
+	builder.WriteString(", ")
+	builder.WriteString("provider_program=")
+	builder.WriteString(_m.ProviderProgram)
+	builder.WriteString(", ")
+	builder.WriteString("provider_digest=")
+	builder.WriteString(_m.ProviderDigest)
 	builder.WriteString(", ")
 	builder.WriteString("task_name=")
 	builder.WriteString(_m.TaskName)

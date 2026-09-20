@@ -1,0 +1,10 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_jobs` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `job_id` text NOT NULL, `runbook_id` text NOT NULL, `group_name` text NOT NULL, `inventory_id` integer NULL, `template_id` integer NULL, `template_name` text NULL, `launch_config_id` integer NULL, `kind` text NULL, `actor` text NOT NULL, `organization_id` integer NULL, `state` text NOT NULL DEFAULT ('pending'), `dispatched_count` integer NOT NULL DEFAULT (0), `skipped_count` integer NOT NULL DEFAULT (0), `failed_count` integer NOT NULL DEFAULT (0), `failure_reason` text NULL, `canceled_at` datetime NULL, `canceled_by` text NULL, `fence` integer NOT NULL DEFAULT (0), `fields` json NULL, `extra_vars` json NULL, `credential_ids` json NULL, `external_checks` bool NOT NULL DEFAULT (false));
+INSERT INTO `new_jobs` (`id`, `created_at`, `updated_at`, `job_id`, `runbook_id`, `group_name`, `inventory_id`, `template_id`, `template_name`, `launch_config_id`, `kind`, `actor`, `organization_id`, `state`, `dispatched_count`, `skipped_count`, `failed_count`, `failure_reason`, `canceled_at`, `canceled_by`, `fence`, `fields`, `extra_vars`, `credential_ids`) SELECT `id`, `created_at`, `updated_at`, `job_id`, `runbook_id`, `group_name`, `inventory_id`, `template_id`, `template_name`, `launch_config_id`, `kind`, `actor`, `organization_id`, `state`, `dispatched_count`, `skipped_count`, `failed_count`, `failure_reason`, `canceled_at`, `canceled_by`, `fence`, `fields`, `extra_vars`, `credential_ids` FROM `jobs`;
+DROP TABLE `jobs`;
+ALTER TABLE `new_jobs` RENAME TO `jobs`;
+CREATE UNIQUE INDEX `jobs_job_id_key` ON `jobs` (`job_id`);
+CREATE INDEX `job_template_id` ON `jobs` (`template_id`);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;

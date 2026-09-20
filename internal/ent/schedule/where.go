@@ -763,21 +763,21 @@ func HasOrganizationWith(preds ...predicate.Organization) predicate.Schedule {
 	})
 }
 
-// HasTemplate applies the HasEdge predicate on the "template" edge.
-func HasTemplate() predicate.Schedule {
+// HasLaunchable applies the HasEdge predicate on the "launchable" edge.
+func HasLaunchable() predicate.Schedule {
 	return predicate.Schedule(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, TemplateTable, TemplateColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, LaunchableTable, LaunchableColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
 }
 
-// HasTemplateWith applies the HasEdge predicate on the "template" edge with a given conditions (other predicates).
-func HasTemplateWith(preds ...predicate.Template) predicate.Schedule {
+// HasLaunchableWith applies the HasEdge predicate on the "launchable" edge with a given conditions (other predicates).
+func HasLaunchableWith(preds ...predicate.Launchable) predicate.Schedule {
 	return predicate.Schedule(func(s *sql.Selector) {
-		step := newTemplateStep()
+		step := newLaunchableStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

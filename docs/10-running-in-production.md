@@ -55,6 +55,13 @@ docker build -f Dockerfile.controller --build-arg VCS_REF="$VCS_REF" -t pleiades
 docker build -f Dockerfile.runner     --build-arg VCS_REF="$VCS_REF" -t pleiades/runner:dev .
 ```
 
+`VCS_REF` is the commit, and it reaches both the image's labels and the binaries,
+which report themselves as `0.0.0-dev+<commit>` (`docker run --rm pleiades/runner:dev
+/app/runner version`). A release is built the same way with `--build-arg VERSION=<release>` as
+well; the binaries then report that release, and the Runner refuses an external
+Collection program that states it needs a newer one. A `VERSION` that is not a release
+number is ignored, so a build argument left at its default cannot pass for one.
+
 `pleiades/controller:dev` and `pleiades/runner:dev` are the names the chart asks
 for by default, and they are exactly what `docker compose build` produces, so a
 locally built or side-loaded image is found with no extra flags. Push them to
@@ -473,6 +480,14 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
 
+That is true of one command. It is not yet true of a whole run on the Controller: a
+dispatched run that fails, for any reason including one failed task, is delivered to a
+Runner again, up to five deliveries in all, and each delivery runs the definition from
+the start. See [the dispatch section of Control plane and
+API](09-control-plane-and-api.md#what-a-runner-does-with-a-dispatch) before relying on a
+definition that is not safe to repeat. This is planned to become a stated policy that is
+off by default.
+
 ### Every task execution is recorded in a run journal
 
 Every node a run executes leaves a durable record: what ran, against which device,
@@ -536,6 +551,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 |---|---|
 | `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
 | `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
+| `provider_program`, `provider_digest` | For a method an external Collection program provides, that program's path and the SHA-256 digest it ran as. Both are empty for a method built into Pleiades. |
 | `dag_id` | The runbook's own `id:`, as written. |
 | `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
 | `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
@@ -798,6 +814,47 @@ by name, before anything runs; the Crawl-tier executor and the Walk-tier dispatc
 both re-check the same rule at their own layer as well, so a device is never
 executed against by a path that happened to skip validation.
 
+The one exception is a check. A `simulate-locked` device, the state a read-only sync
+source gives every device it adds, accepts a check and nothing else, on both tiers and by
+the same rule, so a device nobody has approved for changes can be asked what a run would
+change before anyone promotes it. A check from an external Collection program is still
+refused there, because nothing has proven that the program only reads. A `quarantined`
+device accepts nothing, not even a check.
+
+### How a device gets its state
+
+A device's lifecycle state is set once when the device is added, and after that only by
+an operator.
+
+- **Added by a sync.** `pleiades inventory sync` reads an upstream source through a sync
+  plugin, which classifies each record onto a device type and a set of capabilities.
+  Where a new device lands depends on the source. A read-only source, which today is
+  `catalyst_center` and `aws`, lands every device it adds as `simulate-locked`, so it can
+  be checked but not changed until someone promotes it. `static_yaml` lands its entries as
+  `active`. The **Read-only** column of the [sync plugin reference](reference/plugins.md)
+  says which a source is.
+- **Quarantined, and not added.** A record a plugin cannot place is quarantined with a
+  reason, and it is **not** added to the inventory, since a device needs a type to exist.
+  For example, `catalyst_center` quarantines a device whose software type is neither IOS
+  nor IOS-XE, `aws` quarantines an instance whose platform has no classification rule,
+  and `static_yaml` quarantines an entry whose `classify` path does not resolve, while the
+  rest of the file still syncs. The sync's own report is the only place this shows: it lists each such record
+  under "devices needing review", with its reason, including on a `--read-only` preview.
+  Fix the source or wait for a plugin that can place the record; there is nothing in the
+  inventory to promote.
+- **Added through the API or the web UI.** A device created there is `active`.
+- **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
+  such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`,
+  which operators and admins hold. Each change is recorded as a revision in the device's
+  history, and setting the state a device already has records nothing. An operator can
+  also quarantine a device this way, which stops it taking any work. No command-line
+  command or web UI control changes a state yet.
+- **A later sync keeps it.** A sync updates a device's properties from its source, never
+  its state, so a device promoted to `active` stays `active` however often its source is
+  synced.
+- **Retirement.** `DELETE /api/v1/inventory/devices/{name}` moves a device to `archived`,
+  recording that too, rather than deleting it or its history.
+
 ### Locking
 
 **The Crawl-tier CLI's locking is in-process only. Two `pleiades run` invocations do
@@ -838,16 +895,68 @@ other.
 
 ### Safety versus dry-run
 
-`pleiades validate` is the closest thing to a dry-run today: it loads the inventory
-and runbook, runs every registered validation rule (lifecycle
-gating, collection reachability, conditional compilation, and more), and reports every finding without
-executing anything. Capability matching is the one rule that barely runs: it covers
-only the two legacy action names `ssh_exec` and `ios_backup`, never a catalog FQCN,
-so `validate` passes a task pointed at a device that cannot run it. See
-[Start here](01-start-here.md#implementation-status). There is no separate `--dry-run` or `--check` flag on `run`
-itself, and no mechanism yet that reports *what would change* without actually
-changing it (Ansible's `--check` mode has no Pleiades equivalent). `pleiades run`
-always validates first and refuses to execute if validation reports any error.
+`pleiades validate` checks a runbook without touching a device: it loads the inventory
+and runbook, runs every registered validation rule (lifecycle gating, collection
+reachability, conditional compilation, and more), and reports every finding. Capability
+matching is the one rule that barely runs: it covers only the two legacy action names
+`ssh_exec` and `ios_backup`, never a catalog FQCN, so `validate` passes a task pointed at
+a device that cannot run it. See [Start here](01-start-here.md#implementation-status).
+`pleiades run` always validates first and refuses to execute if validation reports any
+error.
+
+A check goes further: it connects, reads each device, and reports what each task would
+change, changing nothing. On the command line that is `pleiades run --mode check` (see
+[Get started](02-get-started.md)). On the Controller it is a template's check route,
+`POST /api/v1/templates/{id}/check`, which takes the launch route's body, or a launch
+whose `mode` field says `check`. A check asked for at any level wins without the
+template having to open its mode field, since it can only make a run change less; a
+request that would turn a check back into a real run is refused, and so is a check of an
+Ansible playbook template, which cannot be run as one. A job records its mode, and the
+API's job responses and the Jobs page show it, so a check that completed is never read as
+a change that was made. Relaunching a check makes another check.
+
+What a check promises, on either tier: nothing on a device is changed, no run journal is
+written and no undo instruction is recorded, and every result it reports carries
+`predicted: true`, so a stored or forwarded result cannot pass for one that happened. A
+condition is answered wherever the tasks a check could not answer do not decide it, and a
+task whose condition they do decide is named as unchecked too. A device still being
+approved for changes (`simulate-locked`) accepts a check and nothing else, and only from a
+method built into Pleiades. On the command line a check ends with status 0 when every task was
+checked, 3 when some were not and nothing failed, and 1 when anything failed, so a
+pipeline can gate on it; `--allow-unchecked <method>` accepts named gaps on purpose.
+
+A script should use the check route rather than the launch route's `mode` field. A
+Controller older than check mode answers the check route with 404, but it has no mode
+field, so it would run a launch asking for a check for real, listing `mode` among the
+response's `ignored_fields`.
+
+Only methods that declare check support can be checked; every other task is named as
+unchecked rather than run. A finished check job says whether it covered everything:
+the job's `check_complete` is true only when every device it targeted was checked,
+successfully, with no task left unchecked, and its `unchecked` count, and each device's,
+say how many tasks were not. A device skipped as not active, or whose check failed,
+leaves the check incomplete, since it was not looked at. Each device's result reason
+also says "check incomplete: N task(s) could not be checked", which a Controller older
+than the count still shows.
+
+The check route needs `runbook:check`, which `runbook:execute` implies, so a token can be
+minted for drift checks alone: it may check any template it could otherwise launch and
+may not launch one for real. No built-in role holds `runbook:check` without
+`runbook:execute`, so a check-only principal is a token issued with exactly that scope.
+A check still connects to devices with their real credentials and reads them. What a
+check-only caller's check never does is run an external Collection program's check,
+which nothing has proven only reads: those tasks are reported unchecked, and the check
+is incomplete. Relaunching a job still needs `runbook:execute`; a check-only caller runs
+the check again through the check route.
+
+**Upgrading Runners.** A check travels to Runners on its own subject,
+`pleiades.jobs.check.<device>`, through its own durable consumer, `runner-check`, which a
+Runner creates when it starts. A Runner built before check mode existed never reads that
+subject, so during a rolling upgrade a check waits for an upgraded Runner rather than
+being run for real by an older one. It waits as long as the stream keeps messages (see
+[One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)),
+exactly as a real run waits when no Runner is up at all. Nothing needs configuring; if
+checks sit waiting, look for Runners that have not been upgraded.
 
 ## Security and credentials
 
@@ -1073,6 +1182,48 @@ A runbook may already pipe any text answer to a shell with no flag at all.
 
 Binary content is refused unconditionally, whatever the gates say: an answer must
 be valid UTF-8 with no NUL byte and no byte-order mark, and at most 32 KiB.
+
+### Where a project's source may come from
+
+A project names a repository, a sync clones it, and a template then runs what was
+cloned against managed devices. That last clause is why the address is constrained:
+the content of a clone is code, so how it arrived decides whether the code is the
+code somebody wrote.
+
+By default a project is fetched over **https or ssh** only. Three things are
+refused, each with its own opt-in on the **Controller**, unset meaning refuse:
+
+- `PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE` admits plain `http` and the git daemon
+  protocol (`git://`). Neither proves what sent the code or stops it being changed
+  in transit, and `http` additionally puts a bound credential's password on the
+  wire. Set it only where the network between the Controller and the mirror is one
+  you would run unauthenticated automation across.
+- `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
+  is a repository on the Controller's own disk. Note that a URL with no scheme at
+  all is a local path, so this also covers `/srv/repos/x` and `../x`.
+- A password in the URL (`https://user:token@host/repo`) is refused outright, with
+  no toggle. `scm_url` is an ordinary column while a credential is encrypted, so the
+  two are not equivalent places to put a secret. An existing project that already
+  carries one keeps syncing; it is refused the next time somebody saves that
+  project, which is the moment there is somewhere better to put it.
+
+Both toggles are read once at startup and logged as a warning on every start when
+either is on, so an operator reading a boot log sees what a deployment permits. A
+refusal is answered at the write, where somebody can fix it, and again at the sync,
+because a row can predate the rule or the toggle can be taken away.
+
+Three limits worth knowing, none of which this mechanism claims to cover:
+
+- **It is not a host allowlist.** git reads anything shaped like `host:path` as an
+  ssh address, so an allowed protocol still reaches any host the Controller can
+  resolve. Restricting that is a network question, not a URL one.
+- **Redirects are followed.** An allowed `https` address can redirect elsewhere,
+  including to plain http, without passing the check again.
+- **git over ssh does not use this platform's `known_hosts`.** A clone verifies
+  against the library's own default rather than the file `PLEIADES_KNOWN_HOSTS`
+  names, and the shipped image carries no such file, so an ssh project needs one
+  mounted before it can verify a host at all. In the image as shipped, https is the
+  only source that works without further setup.
 
 ### Credential storage
 

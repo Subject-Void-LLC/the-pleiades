@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -557,5 +559,40 @@ func TestAgent_FlushWAL_RetriesOnNextIdleTick(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("Pending() = %+v, want empty once the retried flush's own Acknowledge has run", pending)
+	}
+}
+
+// incompleteCheckAdapter finishes a check that could not answer for two
+// of its tasks.
+type incompleteCheckAdapter struct{}
+
+func (incompleteCheckAdapter) Execute(context.Context, wire.DispatchPayload) (wire.Outcome, error) {
+	return wire.Outcome{Unchecked: 2}, nil
+}
+
+// TestAgent_ReportResult_AnIncompleteCheckSaysSo proves a check that could
+// not answer for every task is reported as completed (it did not fail)
+// with its unchecked count, and with a reason saying so, which a
+// Controller that predates the count still records and shows. The
+// message is acknowledged like any finished run.
+func TestAgent_ReportResult_AnIncompleteCheckSaysSo(t *testing.T) {
+	bus := event.NewInProcessBus()
+	defer bus.Close()
+	received := subscribeResultEntries(t, bus, testJobID)
+
+	msg := &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-check"))}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, incompleteCheckAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
+		runner.WithResultWAL(nil, bus))
+
+	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+
+	select {
+	case entry := <-received:
+		if entry.Outcome != "completed" || entry.Unchecked != 2 || !strings.Contains(entry.Reason, "check incomplete: 2 task(s) could not be checked") {
+			t.Errorf("entry = %+v, want completed, unchecked 2, and a reason saying so", entry)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no result entry was published")
 	}
 }

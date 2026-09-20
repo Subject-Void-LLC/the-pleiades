@@ -41,6 +41,10 @@ type resultPayload struct {
 	// place the two meet.
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason"`
+
+	// Unchecked is how many tasks a check could not check on the device
+	// (ResultEntry.Unchecked), absent from a Runner that predates it.
+	Unchecked int `json:"unchecked,omitempty"`
 }
 
 // ResultConsumer folds published per-device outcomes back onto their job.
@@ -116,13 +120,24 @@ func (c *ResultConsumer) Handle(evt event.Event) error {
 			slog.String("error", err.Error()))
 		return nil
 	}
+	if payload.Unchecked < 0 {
+		// Not a count, so the message is malformed, and like an unknown
+		// outcome it will never become valid: retrying it would park it at
+		// the head of the consumer group.
+		c.logger.Error("dropping a job result with a negative unchecked count",
+			slog.String("event", evt.ID),
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID),
+			slog.Int("unchecked", payload.Unchecked))
+		return nil
+	}
 
 	// A fresh context rather than one carried from the caller:
 	// event.Bus.Subscribe hands over a decoded Event and no context, and
 	// these writes must not inherit a deadline nobody set for them.
 	ctx := context.Background()
 
-	complete, err := c.store.RecordResult(ctx, payload.JobID, payload.DeviceID, result, payload.Reason)
+	complete, err := c.store.RecordResult(ctx, payload.JobID, payload.DeviceID, result, payload.Reason, payload.Unchecked)
 	switch {
 	case errors.Is(err, ErrJobNotFound):
 		c.logger.Warn("dropping a job result for a job or device this controller has no dispatched task for",

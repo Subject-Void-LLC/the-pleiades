@@ -15,6 +15,7 @@ Makes sure path is not mounted, unmounting it if it is. This is close to ansible
 | Capabilities | `LinuxCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

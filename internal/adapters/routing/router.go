@@ -35,7 +35,7 @@ import (
 // so that this package does not depend on the Agent it is composed into.
 // Both concrete adapters already satisfy it.
 type Executor interface {
-	Execute(ctx context.Context, payload wire.DispatchPayload) error
+	Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error)
 }
 
 // ErrNoAdapter is returned when a payload names a kind this process cannot
@@ -97,12 +97,12 @@ func New(adapters map[string]Executor) *Router {
 // adversarial gate, is that no consumer branches on kind: a switch here
 // would need a case per kind, which is the closed-enum cost the open
 // registry exists to avoid.
-func (r *Router) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (r *Router) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	kind := Resolve(payload.Kind)
 
 	adapter, ok := r.byKind[kind]
 	if !ok {
-		return fmt.Errorf("%w: %q (this runner can run %s)", ErrNoAdapter, kind, r.describe())
+		return wire.Outcome{}, fmt.Errorf("%w: %q (this runner can run %s)", ErrNoAdapter, kind, r.describe())
 	}
 	return adapter.Execute(ctx, payload)
 }

@@ -12,12 +12,12 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // ScheduleQuery is the builder for querying Schedule entities.
@@ -28,7 +28,7 @@ type ScheduleQuery struct {
 	inters           []Interceptor
 	predicates       []predicate.Schedule
 	withOrganization *OrganizationQuery
-	withTemplate     *TemplateQuery
+	withLaunchable   *LaunchableQuery
 	withSavedConfig  *SavedLaunchConfigQuery
 	withOccurrences  *ScheduleOccurrenceQuery
 	withFKs          bool
@@ -90,9 +90,9 @@ func (_q *ScheduleQuery) QueryOrganization() *OrganizationQuery {
 	return query
 }
 
-// QueryTemplate chains the current query on the "template" edge.
-func (_q *ScheduleQuery) QueryTemplate() *TemplateQuery {
-	query := (&TemplateClient{config: _q.config}).Query()
+// QueryLaunchable chains the current query on the "launchable" edge.
+func (_q *ScheduleQuery) QueryLaunchable() *LaunchableQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := _q.prepareQuery(ctx); err != nil {
 			return nil, err
@@ -103,8 +103,8 @@ func (_q *ScheduleQuery) QueryTemplate() *TemplateQuery {
 		}
 		step := sqlgraph.NewStep(
 			sqlgraph.From(schedule.Table, schedule.FieldID, selector),
-			sqlgraph.To(template.Table, template.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, schedule.TemplateTable, schedule.TemplateColumn),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, schedule.LaunchableTable, schedule.LaunchableColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -349,7 +349,7 @@ func (_q *ScheduleQuery) Clone() *ScheduleQuery {
 		inters:           append([]Interceptor{}, _q.inters...),
 		predicates:       append([]predicate.Schedule{}, _q.predicates...),
 		withOrganization: _q.withOrganization.Clone(),
-		withTemplate:     _q.withTemplate.Clone(),
+		withLaunchable:   _q.withLaunchable.Clone(),
 		withSavedConfig:  _q.withSavedConfig.Clone(),
 		withOccurrences:  _q.withOccurrences.Clone(),
 		// clone intermediate query.
@@ -369,14 +369,14 @@ func (_q *ScheduleQuery) WithOrganization(opts ...func(*OrganizationQuery)) *Sch
 	return _q
 }
 
-// WithTemplate tells the query-builder to eager-load the nodes that are connected to
-// the "template" edge. The optional arguments are used to configure the query builder of the edge.
-func (_q *ScheduleQuery) WithTemplate(opts ...func(*TemplateQuery)) *ScheduleQuery {
-	query := (&TemplateClient{config: _q.config}).Query()
+// WithLaunchable tells the query-builder to eager-load the nodes that are connected to
+// the "launchable" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ScheduleQuery) WithLaunchable(opts ...func(*LaunchableQuery)) *ScheduleQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	_q.withTemplate = query
+	_q.withLaunchable = query
 	return _q
 }
 
@@ -483,12 +483,12 @@ func (_q *ScheduleQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Sch
 		_spec       = _q.querySpec()
 		loadedTypes = [4]bool{
 			_q.withOrganization != nil,
-			_q.withTemplate != nil,
+			_q.withLaunchable != nil,
 			_q.withSavedConfig != nil,
 			_q.withOccurrences != nil,
 		}
 	)
-	if _q.withOrganization != nil || _q.withTemplate != nil || _q.withSavedConfig != nil {
+	if _q.withOrganization != nil || _q.withLaunchable != nil || _q.withSavedConfig != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -518,9 +518,9 @@ func (_q *ScheduleQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Sch
 			return nil, err
 		}
 	}
-	if query := _q.withTemplate; query != nil {
-		if err := _q.loadTemplate(ctx, query, nodes, nil,
-			func(n *Schedule, e *Template) { n.Edges.Template = e }); err != nil {
+	if query := _q.withLaunchable; query != nil {
+		if err := _q.loadLaunchable(ctx, query, nodes, nil,
+			func(n *Schedule, e *Launchable) { n.Edges.Launchable = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -572,14 +572,14 @@ func (_q *ScheduleQuery) loadOrganization(ctx context.Context, query *Organizati
 	}
 	return nil
 }
-func (_q *ScheduleQuery) loadTemplate(ctx context.Context, query *TemplateQuery, nodes []*Schedule, init func(*Schedule), assign func(*Schedule, *Template)) error {
+func (_q *ScheduleQuery) loadLaunchable(ctx context.Context, query *LaunchableQuery, nodes []*Schedule, init func(*Schedule), assign func(*Schedule, *Launchable)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Schedule)
 	for i := range nodes {
-		if nodes[i].template_schedules == nil {
+		if nodes[i].launchable_schedules == nil {
 			continue
 		}
-		fk := *nodes[i].template_schedules
+		fk := *nodes[i].launchable_schedules
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -588,7 +588,7 @@ func (_q *ScheduleQuery) loadTemplate(ctx context.Context, query *TemplateQuery,
 	if len(ids) == 0 {
 		return nil
 	}
-	query.Where(template.IDIn(ids...))
+	query.Where(launchable.IDIn(ids...))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
@@ -596,7 +596,7 @@ func (_q *ScheduleQuery) loadTemplate(ctx context.Context, query *TemplateQuery,
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "template_schedules" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "launchable_schedules" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)

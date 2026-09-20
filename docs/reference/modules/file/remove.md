@@ -15,6 +15,7 @@ Ensures nothing exists at a path, which is ansible.builtin.file with state=absen
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

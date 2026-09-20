@@ -130,9 +130,12 @@ lsp:
 #   pre-commit   tools/commitgate over the staged content (well under a
 #                second: no build, no tests, index only)
 #   commit-msg   tools/commitgate over the commit message
-#   pre-push     push-gate, everything `make ci` runs with
-#                test-race/test-integration swapped for tools/testgate's
-#                more tolerant equivalents (see push-gate's own comment)
+#   pre-push     tools/gatereceipt verify, which reads back the receipt
+#                `make push-gate` or `make ci` left behind. It does NOT
+#                run the gate: git opens its connection to the remote
+#                before calling the hook, so a twenty minute suite in here
+#                kills the push with SIGPIPE and no output at all (see
+#                .githooks/pre-push's own comment, and gatereceipt's)
 #
 # so a rule AGENTS.md states lands at the moment it is broken rather than
 # three commits later, and a failing gate lands here instead of on a
@@ -143,7 +146,7 @@ lsp:
 # what it does and how to skip it.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' runs .githooks/pre-push (make push-gate); skip a single one with --no-verify"
+	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' now checks the receipt that 'make push-gate' or 'make ci' wrote (it does NOT run the gate); skip a single one with --no-verify"
 
 # commitgate runs the commit-time gate by hand, against whatever is
 # staged right now. The pre-commit hook runs exactly this, so it is the
@@ -269,7 +272,7 @@ test:
 # provisions real containers.
 #
 # `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
-# development host, and DOCKER_DEPENDENT_PACKAGES below names 24
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 26
 # packages. So the default asks one Docker daemon to build, start, port
 # map and health check the containers of twenty packages simultaneously,
 # on top of a Ryuk reaper per package. Two consecutive full `make ci`
@@ -355,6 +358,8 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/backup \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
@@ -600,9 +605,32 @@ helm-lint:
 # (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
 # can run something more forgiving of known local flakiness without this
 # target becoming any less strict.
+# GATE_START_COMMIT and GATE_START_CLEAN are where the gate began, read
+# HERE, while make is still parsing this file, and handed to
+# tools/gatereceipt twenty minutes later when it writes the receipt.
+#
+# They exist because the receipt used to name HEAD as it was when that LAST
+# recipe line ran. A commit made while the gate was running therefore
+# collected a receipt for a tree nothing had examined, and no check at the
+# end could catch it: committing leaves the tree clean, so the dirty-tree
+# refusal saw a tidy repository and wrote the receipt. That was
+# demonstrated on this repository deliberately, and it is easy to hit by
+# accident, since a twenty minute gate is exactly when a developer goes and
+# tidies a doc. gatereceipt refuses to write a receipt if either value has
+# changed by the time the gate ends.
+#
+# Computed only when a gate is one of the goals, so an ordinary `make
+# build` does not pay for two git calls; gatereceipt refuses an empty value
+# rather than assuming anything, so a gate reached some other way says so
+# instead of certifying a commit nobody looked at.
+ifneq ($(filter ci push-gate,$(MAKECMDGOALS)),)
+GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
+GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
+endif
+
 ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
-	@go run ./tools/gatereceipt write --target ci
+	@go run ./tools/gatereceipt write --target ci --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # ci-remote is the subset .github/workflows/ci.yml runs: every check that
 # is cheap, deterministic and needs no infrastructure. It is `ci` minus
@@ -676,7 +704,7 @@ push-gate-coverage:
 # through, and re-run, before a push reaches that real gate.
 push-gate: build devtools vet fmt tidy-check push-gate-race test-repeat push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
-	@go run ./tools/gatereceipt write --target push-gate
+	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # templ-gen regenerates the view layer's templates. templ emits a
 # _templ.go beside every .templ, and both are committed.
@@ -780,6 +808,21 @@ down:
 # "backups" as the name of a Docker volume rather than a directory.
 BACKUP_DIR ?= backups
 
+# BACKUP_DIR_CREATE makes BACKUP_DIR at mode 0700 only when it is missing,
+# and leaves one that exists exactly as it is. `install -d -m 700` alone
+# also changes the mode of a directory that exists, so it stopped every
+# target that used it on a directory this user does not own (one an earlier
+# compose run had Docker create as root failed with "cannot change
+# permissions"), and quietly took group access away from one an operator
+# had shared on purpose.
+BACKUP_DIR_CREATE = test -d "$(BACKUP_DIR)" || install -d -m 700 "$(BACKUP_DIR)"
+
+# BACKUP_DIR_WRITABLE stops a target that writes to BACKUP_DIR before any
+# container starts, when this user cannot write there. The container runs
+# as this user (SETUP_USER), or as a root that rootless Docker maps back to
+# this user, so the answer here is the container's answer too.
+BACKUP_DIR_WRITABLE = test -w "$(BACKUP_DIR)" || { echo "make $@: this user cannot write to $(BACKUP_DIR), and $@ writes there. Give it back with: sudo chown $$(id -u):$$(id -g) $(BACKUP_DIR), or name another directory with BACKUP_DIR=<dir>." >&2; exit 1; }
+
 # backup writes a backup of the stack's database to BACKUP_DIR, in the
 # compose stack's one-shot backup service (see docker-compose.yml for why
 # it has its own image). It works whether the stack is running or not:
@@ -790,7 +833,8 @@ BACKUP_DIR ?= backups
 # key's short fingerprint, and restoring it needs both; see the production
 # guide's backup section for where to keep each.
 backup: setup-env-check
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
+	@$(BACKUP_DIR_WRITABLE)
 	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build -T --user "$$($(SETUP_USER))" backup \
 	  backup --dir /setup --backups /backups
 
@@ -816,7 +860,8 @@ RESTORE_FLAGS ?=
 restore: setup-env-check
 	@test -n "$(BACKUP)" || { echo "make restore: name the backup to restore: make restore BACKUP=$(BACKUP_DIR)/<file>.dump" >&2; exit 2; }
 	@test -f "$(BACKUP)" || { echo "make restore: there is no file $(BACKUP)" >&2; exit 2; }
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
+	@$(BACKUP_DIR_WRITABLE)
 	@docker compose stop controller runner >/dev/null 2>&1 || true
 	@status=0; \
 	PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" PLEIADES_RESTORE_DIR="$(abspath $(dir $(BACKUP)))" \
@@ -847,7 +892,7 @@ restore: setup-env-check
 DECOM_FLAGS ?=
 
 decom:
-	@install -d -m 700 "$(BACKUP_DIR)"
+	@$(BACKUP_DIR_CREATE)
 	@PLEIADES_BACKUP_DIR="$(abspath $(BACKUP_DIR))" docker compose run --rm --build --no-deps --user "$$($(SETUP_USER))" backup \
 	  decommission --dir /setup --backups /backups $(DECOM_FLAGS)
 	docker compose --profile setup --profile backup down --volumes --remove-orphans

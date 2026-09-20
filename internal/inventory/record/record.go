@@ -261,6 +261,94 @@ func (b *Base) History() []inventory.Revision {
 	return append([]inventory.Revision(nil), b.history...)
 }
 
-func (b *Base) State() inventory.LifecycleState { return b.state }
+func (b *Base) State() inventory.LifecycleState {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.state
+}
+
+// The Revision.Field names a lifecycle transition and a tag change record
+// under. Named once so every writer and every reader of the audit trail
+// agree on the spelling; internal/inventory's retirement records under
+// RevisionFieldState too.
+const (
+	RevisionFieldState = "state"
+	RevisionFieldTags  = "tags"
+)
+
+// ChangeState moves the device to state and reports whether that changed
+// anything. A change bumps the version and records a revision under
+// RevisionFieldState holding the old and new state names, exactly as
+// AddInfo does for a property, so a repository's optimistic-concurrency
+// write sees a change to store and the audit trail says who moved a device
+// out of quarantine and when. Setting the state a device already has
+// records nothing.
+func (b *Base) ChangeState(state inventory.LifecycleState) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if state == b.state {
+		return false
+	}
+	old := b.state
+	b.state = state
+	b.version++
+	b.history = append(b.history, inventory.Revision{
+		Version:   b.version,
+		ChangedAt: time.Now().UTC(),
+		Field:     RevisionFieldState,
+		OldValue:  old.String(),
+		NewValue:  state.String(),
+	})
+	return true
+}
+
+// ChangeTags replaces the device's tags and reports whether that changed
+// anything, recording a revision under RevisionFieldTags as ChangeState
+// does. Tags are compared as a set, so the same tags in another order
+// change nothing and record nothing.
+func (b *Base) ChangeTags(tags []inventory.Tag) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if sameTagSet(b.tags, tags) {
+		return false
+	}
+	old := tagStrings(b.tags)
+	b.tags = append([]inventory.Tag(nil), tags...)
+	b.version++
+	b.history = append(b.history, inventory.Revision{
+		Version:   b.version,
+		ChangedAt: time.Now().UTC(),
+		Field:     RevisionFieldTags,
+		OldValue:  old,
+		NewValue:  tagStrings(tags),
+	})
+	return true
+}
+
+// sameTagSet reports whether a and b hold the same tags, in any order.
+func sameTagSet(a, b []inventory.Tag) bool {
+	count := make(map[inventory.Tag]int, len(a))
+	for _, t := range a {
+		count[t]++
+	}
+	for _, t := range b {
+		count[t]--
+	}
+	for _, n := range count {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// tagStrings renders tags as the plain strings a revision stores.
+func tagStrings(tags []inventory.Tag) []string {
+	out := make([]string, len(tags))
+	for i, t := range tags {
+		out[i] = string(t)
+	}
+	return out
+}
 
 func (b *Base) Source() inventory.SourceAuthority { return b.source }

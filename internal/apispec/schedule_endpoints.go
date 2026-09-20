@@ -53,21 +53,29 @@ var scheduleSchema = map[string]any{
 		"next_run": stringSchema("The next occurrence, RFC 3339 in UTC. Absent when there are no further occurrences."),
 		"next_run_local": stringSchema("The same instant in the schedule's own zone, which is the reading an " +
 			"operator recognises. Both are returned because either alone is ambiguous to somebody."),
-		"last_fired":    stringSchema("The occurrence time of the most recent firing, RFC 3339 in UTC."),
-		"template":      map[string]any{"type": "integer", "description": "The template this launches."},
-		"template_name": stringSchema("That template's name, carried so a list does not render a bare foreign key."),
-		"saved_config":  map[string]any{"type": "integer", "description": "The saved launch configuration this runs with, if any."},
-		"organization":  map[string]any{"type": "integer", "description": "The tenancy boundary, derived from the template and never submitted."},
-		"created_at":    stringSchema("RFC 3339."),
-		"updated_at":    stringSchema("RFC 3339."),
-		"_links":        linksSchema(),
+		"last_fired": stringSchema("The occurrence time of the most recent firing, RFC 3339 in UTC."),
+		"unified_job_template": map[string]any{
+			"type": "integer",
+			"description": "What this launches: the id of a job template, or of a project whose run is a sync. " +
+				"One id space across every sort of launchable thing, so a schedule needs to know nothing about " +
+				"which sort it points at.",
+		},
+		"unified_job_template_name": stringSchema("That thing's name, carried so a list does not render a bare " +
+			"foreign key."),
+		"unified_job_template_type": stringSchema("What sort of thing it is: job_template, or project. Not to be " +
+			"confused with unified_job_type on an occurrence, which says what sort of RUN was started."),
+		"saved_config": map[string]any{"type": "integer", "description": "The saved launch configuration this runs with, if any."},
+		"organization": map[string]any{"type": "integer", "description": "The tenancy boundary, derived from what the schedule launches and never submitted."},
+		"created_at":   stringSchema("RFC 3339."),
+		"updated_at":   stringSchema("RFC 3339."),
+		"_links":       linksSchema(),
 	},
 }
 
 // scheduleWriteSchema is what a create or update accepts.
 var scheduleWriteSchema = map[string]any{
 	"type":     "object",
-	"required": []any{"name", "template", "rrule", "dtstart"},
+	"required": []any{"name", "unified_job_template", "rrule", "dtstart"},
 	"properties": map[string]any{
 		"name":        stringSchema("Unique within the organization the template belongs to."),
 		"description": stringSchema("What this schedule is for."),
@@ -79,11 +87,28 @@ var scheduleWriteSchema = map[string]any{
 			"description": "EXRULE recurrences and EXDATE instants. An unprefixed line is read as an EXRULE, " +
 				"which is the shape a rule copied out of AWX has.",
 		},
-		"timezone":     stringSchema("An IANA zone name. Defaults to UTC. Must be one GET /zoneinfo lists."),
-		"dtstart":      stringSchema("RFC 3339. The recurrence anchor."),
-		"dtend":        stringSchema("RFC 3339. Omit for an open-ended schedule."),
-		"template":     map[string]any{"type": "integer", "description": "The template to launch. Its organization becomes the schedule's."},
-		"saved_config": map[string]any{"type": "integer", "description": "A saved launch configuration belonging to that same template."},
+		"timezone": stringSchema("An IANA zone name. Defaults to UTC. Must be one GET /zoneinfo lists."),
+		"dtstart":  stringSchema("RFC 3339. The recurrence anchor."),
+		"dtend":    stringSchema("RFC 3339. Omit for an open-ended schedule."),
+		"unified_job_template": map[string]any{
+			"type": "integer",
+			"description": "What to launch: the id of a job template, or of a project whose run is a sync. Its " +
+				"organization becomes the schedule's. Launching it requires the scope that sort of thing " +
+				"declares (runbook:execute for a job template, project:write for a project), so writing a " +
+				"schedule is never a way around the permission to run what it launches.",
+		},
+		"template": map[string]any{
+			"type": "integer",
+			"description": "Deprecated: the id of a TEMPLATE, resolved to its unified_job_template. Accepted " +
+				"because it is what this API took before anything but a template could be scheduled. Sending " +
+				"both fields naming different things is refused rather than resolved one way.",
+			"deprecated": true,
+		},
+		"saved_config": map[string]any{
+			"type": "integer",
+			"description": "A saved launch configuration belonging to that same template. Refused for a sort of " +
+				"launchable that takes no launch-time overrides, such as a project sync.",
+		},
 	},
 }
 
@@ -97,13 +122,18 @@ var occurrenceSchema = map[string]any{
 			"right to run this occurrence and stopped before recording what happened; it is shown rather than " +
 			"hidden because only an operator can decide whether to re-run it."),
 		"reason": stringSchema("Why a skipped occurrence did not run: missed_window, missed_window_truncated, " +
-			"or launch_failed."),
+			"launch_failed, or already_running when what it launches was still running from an earlier " +
+			"occurrence."),
 		"suppressed_count": map[string]any{
 			"type": "integer",
 			"description": "How many further occurrences a truncated row stands for. Non-zero only when a " +
 				"backlog was too large to record one row each.",
 		},
-		"job": stringSchema("The job this occurrence launched, for a fired one."),
+		"job": stringSchema("What this occurrence started, for a fired one, in the vocabulary of whatever it " +
+			"launched: a job's own id, or a project sync attempt's. AWX calls both a unified job, which is why " +
+			"one field carries either."),
+		"unified_job_type": stringSchema("Which sort of run the job field names: job, or project_update. They " +
+			"are looked up in different places, so a reader needs this to resolve the id."),
 	},
 }
 
@@ -158,7 +188,7 @@ var CreateSchedule = Endpoint{
 	Scope:   auth.ScopeScheduleWrite,
 	Rel:     auth.RelCreate,
 	Summary: "Create a schedule",
-	Description: "Saves a recurrence against a template. The organization is derived from that template and " +
+	Description: "Saves a recurrence against something launchable. The organization is derived from that thing and " +
 		"cannot be submitted. The recurrence is validated here, not at run time: a rule outside the supported " +
 		"set, naming an unknown zone, or naming a date that never occurs is refused at the write, because a " +
 		"schedule that can never fire is indistinguishable from one that simply has not fired yet.",
@@ -167,8 +197,8 @@ var CreateSchedule = Endpoint{
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created schedule.", Schema: scheduleSchema},
 		{Status: http.StatusBadRequest, Description: "The body is malformed, the recurrence is not supported, the zone is unknown, or the recurrence names no real instant.", Schema: errorSchema("")},
-		{Status: http.StatusForbidden, Description: "The named template belongs to another organization.", Schema: errorSchema("")},
-		{Status: http.StatusNotFound, Description: "No template with that id.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The caller may not launch what the schedule names, or it belongs to another organization.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "Nothing launchable with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A schedule with that name already exists in that organization.", Schema: errorSchema("")},
 	},
 }

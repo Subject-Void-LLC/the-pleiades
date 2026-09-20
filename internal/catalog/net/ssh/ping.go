@@ -87,6 +87,8 @@ func init() {
 				Reversible: false,
 				Notes:      "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false.",
 			},
+			// Read-only (Ping), so a check runs it for real.
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
 				Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
@@ -99,6 +101,10 @@ func init() {
 			},
 		},
 		Invoke: Ping,
+		// Ping itself, since it only reads: the one command it sends is
+		// echo with a quoted argument, which cannot redirect, so a check
+		// proves reachability exactly as a real run does.
+		Check: Ping,
 	})
 }
 

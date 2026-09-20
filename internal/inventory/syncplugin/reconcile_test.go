@@ -185,6 +185,58 @@ func TestReconcile_DoesNotDeleteLocalProperties(t *testing.T) {
 	}
 }
 
+// TestReconcile_KeepsAnOperatorsPromotion is the regression test for a
+// re-sync undoing an operator's decision. A read-only source lands every
+// device simulate-locked, an operator promotes one to active, and the next
+// sync that brought any upstream property change used to rebuild the device
+// with the plugin's landing state again, silently and with no revision
+// saying so. Lifecycle state after a device exists is the operator's, so an
+// update keeps the stored state; the updated property is the control that
+// the sync did write.
+func TestReconcile_KeepsAnOperatorsPromotion(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	p := &scriptedPlugin{
+		records: []record.Record{hostRecord("web1", map[string]inventory.PropertyValue{"host": "10.0.0.1"})},
+		classify: func(record.Record) (syncplugin.Classification, error) {
+			return syncplugin.Classification{Type: "linux_server", State: inventory.StateSimulateLocked}, nil
+		},
+	}
+	reconcile(t, p, repo)
+
+	item, err := repo.GetByName(ctx, "web1")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if item.State() != inventory.StateSimulateLocked {
+		t.Fatalf("the source landed web1 as %s, want simulate-locked", item.State())
+	}
+	promotable, ok := item.(interface {
+		ChangeState(inventory.LifecycleState) bool
+	})
+	if !ok || !promotable.ChangeState(inventory.StateActive) {
+		t.Fatal("could not promote web1")
+	}
+	if err := repo.Save(ctx, item); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	p.records[0].Properties["host"] = "10.0.0.2"
+	if got := reconcile(t, p, repo).Count(syncplugin.OutcomeUpdated); got != 1 {
+		t.Fatalf("the re-sync updated %d device(s), want 1", got)
+	}
+	reloaded, err := repo.GetByName(ctx, "web1")
+	if err != nil {
+		t.Fatalf("GetByName after re-sync: %v", err)
+	}
+	if host, _ := reloaded.Properties().String("host"); host != "10.0.0.2" {
+		t.Fatalf("host = %q, so the re-sync wrote nothing and this test proves nothing", host)
+	}
+	if reloaded.State() != inventory.StateActive {
+		t.Errorf("the re-sync put the promoted device back to %s", reloaded.State())
+	}
+}
+
 // TestReconcile_QuarantineIsReportedNotPersisted proves an unclassifiable
 // device is reported with its reason and does not reach storage. It cannot
 // be persisted because building an item requires a device type and no

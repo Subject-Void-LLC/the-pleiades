@@ -42,6 +42,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the file and computes the edit before it writes, so
+			// a check can predict through the same code (CheckSet).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "The strongest undo in the file namespace, and the markers are why: they delimit on the device the exact region this run " +
@@ -55,6 +58,7 @@ func init() {
 			Doc: setDoc(),
 		},
 		Invoke: Set,
+		Check:  CheckSet,
 	})
 }
 
@@ -124,6 +128,20 @@ type setInput struct {
 // that was in it is gone, and the forward run is the only thing that was
 // ever in a position to keep it.
 func Set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return set(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckSet is the check of this method: the same reads, refusals and
+// change decision as Set, through the one body both share, then a
+// prediction instead of the write. The predicted region is what reading
+// the file back would find (blockPredict), and the stats are the ones a
+// real run records from it.
+func CheckSet(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return set(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// set is Set's and CheckSet's one body; mode says which.
+func set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = blockFQCNSet
 
 	req, err := setRequest(params)
@@ -158,6 +176,12 @@ func Set(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if changed {
 		lines, trailing, added := blockWith(before, req.markers, req.body)
 		addedNewline = added
+		if mode == collection.ModeCheck {
+			if err := blockCheckAnswer(rc, req.path, before, lines, trailing, req.markers); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			return collection.Result{Changed: true}, nil
+		}
 		if err := remotefile.Write(ctx, conn, req.path, []byte(blockJoin(lines, trailing))); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}

@@ -77,6 +77,9 @@ func init() {
 					"makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an " +
 					"observation from a task that was never recorded.",
 			},
+			// Only reads, and still not checkable: see NoCheckReason.
+			NoCheckReason: "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out " +
+				"its timeout and fail where the real run succeeds",
 			Doc: searchDoc(),
 		},
 		Invoke: Search,

@@ -162,6 +162,99 @@ Run it again and it reports `ok` again, both times, because the runbook now says
 explicitly. This is the whole of `ssh_exec`'s change-detection story today: an author
 states it, the engine does not infer it.
 
+### 8. See what a run would change first
+
+`--mode check` is a dry run. Each task whose method can say what it would change does
+so and changes nothing; each task that cannot is named, and the command then ends
+non-zero so a check never reads as a pass it did not earn. No run journal is written.
+
+```yaml
+# runbooks/site.yaml
+id: site
+hosts: web1
+tasks:
+  - name: Make the release directory
+    file.directory:
+      path: /tmp/app/releases
+      mode: "0750"
+  - name: Record the build
+    exec.command:
+      cmd: /bin/sh -c "date > /tmp/app/built-at"
+```
+
+```console
+$ pleiades run runbooks/site.yaml --mode check --verbose
+plan for runbooks/site.yaml (2 nodes, 1 inventory hosts loaded):
+mode: check (tasks report what they would change; nothing on any device is changed)
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  Make the release directory
+  Record the build
+
+checking:
+  tasks[0] [d255cc19-1d72-47c0-8fa1-b0ab2572a3bc]: would change
+    diff: map[after:map[exists:true kind:directory mode:0750] before:map[exists:false kind:absent] predicted:true]
+    path: /tmp/app/releases
+    predicted: true
+  tasks[1] [d255cc19-1d72-47c0-8fa1-b0ab2572a3bc]: COULD NOT CHECK (exec.command cannot be checked: what a command changes cannot be known without running it; a creates or removes guard would say what its having run looks like, and a check would read that)
+
+pleiades: check incomplete: 1 task(s) could not be checked, so this check does not cover them (nothing was changed)
+```
+
+A check ends with status 0 when every task was checked, 3 when some could not be
+checked and nothing failed, and 1 when anything failed, even if something was also
+unchecked, so a pipeline can accept an incomplete check without hiding a failure. To
+accept particular gaps on purpose, name their method: `--allow-unchecked exec.command`
+(repeatable) still lists those tasks, but a check whose only gaps are theirs ends with
+0, and any other method left unchecked still ends it with 3.
+
+Every result a check produces says `predicted: true`, and so does its diff, so a result
+that is only a prediction cannot be mistaken for one that happened, wherever it is read
+later: a later task's condition, or a stored result.
+
+The first task read the device and predicted exactly what it would do; its diff's
+`after` half leaves out the owner and group, because a new directory gets those from
+the device and a prediction does not guess. The second task runs an arbitrary command,
+and what a command would change cannot be known without running it, so it is named
+rather than guessed. Give it a `creates` or `removes` guard and it can be checked: the
+check reads the guard's path and reports whether the command would run, running
+nothing. After a real run, the same check reports `tasks[0]: ok`. Which methods can be
+checked, and for a few of them which calls, is on each one's page in the
+[module catalog](reference/modules/index.md), under "Check mode".
+
+A runbook can ask for this itself, with Ansible's own key. `check_mode: true` at the top
+of a runbook makes every run of it a check, whatever `--mode` says. On a task, or on a
+block (which covers its `rescue` and `always` tasks too), it checks just those tasks in
+an otherwise real run: they report `would change` or `ok (checked only)`, and they are
+left out of the run journal.
+
+```yaml
+  - name: Make the release directory
+    check_mode: true
+    file.directory:
+      path: /tmp/app/releases
+      mode: "0750"
+```
+
+Three things are refused when the runbook is validated. `check_mode: false` would run
+a task for real during a check, which is the one thing a check promises not to do, so it
+is not accepted anywhere. `check_mode: true` on a task that could only ever be named
+unchecked is refused too, naming why: a method with no check, an `exec.command` or
+`exec.shell` with neither `creates` nor `removes`, or an `http.request` in a method other
+than GET, HEAD, OPTIONS or TRACE. And a task that runs for real may not base its `when`
+on a checked task's registered result, because that result is only a prediction of what
+the checked task would have done.
+
+A condition in a check is answered wherever it can be. A task that could not be checked
+registers nothing, so a later `when` reading its result has no answer, and that task is
+named as unchecked too. But a condition the rest of it settles is answered anyway: a
+`when_or` list with another member that holds is checked whatever the unchecked task
+would have registered, and a `when` list with a member that is false is skipped, just as
+a real run would skip it. A condition that is simply wrong, such as one reading a
+register no earlier task registers, fails the check the way it would fail a real run.
+
 ## Quickstart: Walk tier
 
 **Status: real infrastructure, real execution.** Everything below is captured from a

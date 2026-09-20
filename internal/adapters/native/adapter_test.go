@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -117,7 +118,7 @@ func TestAdapter_Execute_NoopReportsChanged(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
@@ -143,7 +144,7 @@ func TestAdapter_Execute_NoopWithNoChangedParamReportsOK(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
@@ -180,7 +181,7 @@ func TestAdapter_Execute_ExtraVarsReachWhenCEL(t *testing.T) {
 			t.Fatalf("NewAdapter: %v", err)
 		}
 		payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1", ExtraVars: extraVars}
-		if err := adapter.Execute(context.Background(), payload); err != nil {
+		if _, err := adapter.Execute(context.Background(), payload); err != nil {
 			t.Fatalf("Execute() returned unexpected error: %v", err)
 		}
 		return bus.lastJobEvent(t)
@@ -211,7 +212,7 @@ func TestAdapter_Execute_UnregisteredFQCNFails(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(context.Background(), payload)
+	_, err = adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("Execute() = nil error, want an error (pkg.apt.install is StatusDeclared, not implemented)")
 	}
@@ -231,7 +232,7 @@ func TestAdapter_Execute_UnknownRunbookReturnsError(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "does-not-exist", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(context.Background(), payload)
+	_, err = adapter.Execute(context.Background(), payload)
 	if !errors.Is(err, runbook.ErrNotFound) {
 		t.Fatalf("Execute() error = %v, want errors.Is(err, runbook.ErrNotFound)", err)
 	}
@@ -252,7 +253,7 @@ func TestAdapter_Execute_PropagatesPublishFailure(t *testing.T) {
 	}
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err == nil {
+	if _, err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("Execute() = nil error, want a propagated publish error (\"stop discarding publish errors\")")
 	}
 }
@@ -269,7 +270,7 @@ func TestAdapter_Execute_AlreadyCanceledContextReturnsPromptly(t *testing.T) {
 	cancel()
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
-	err = adapter.Execute(ctx, payload)
+	_, err = adapter.Execute(ctx, payload)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute() error = %v, want errors.Is(err, context.Canceled)", err)
 	}
@@ -295,5 +296,50 @@ func TestSummarize_MasksSecretsInFailureMessages(t *testing.T) {
 	}
 	if strings.Contains(message, "hunter2") {
 		t.Errorf("message %q leaks the raw secret %q", message, "hunter2")
+	}
+}
+
+// TestAdapter_Execute_RefusesAModeItDoesNotKnow covers the one unsafe guess
+// Execute refuses to make: a dispatch whose mode is neither a run nor a
+// check is refused before anything is published or run, rather than read
+// as a real run.
+func TestAdapter_Execute_RefusesAModeItDoesNotKnow(t *testing.T) {
+	bus := &mockBus{}
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    fqcn: noop\n")
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1", Mode: "rehearse"}
+	if _, err := adapter.Execute(context.Background(), payload); err == nil || !strings.Contains(err.Error(), `refusing dispatch of runbook "pb-1"`) {
+		t.Fatalf("Execute() error = %v, want the dispatch refused", err)
+	}
+	if got := bus.logEvents("job-1"); len(got) != 0 {
+		t.Errorf("published %d job log events for a refused dispatch, want none", len(got))
+	}
+}
+
+// TestAdapter_Execute_RefusesUnsupportedInjectionAtRunTime proves the
+// run-time backstop is wired into Execute, not only written:
+// refuseUnsupportedInjection's own test calls it directly, and a dispatch
+// carrying an environment variable this path cannot inject must fail
+// before any task runs rather than run with part of its credential
+// missing.
+func TestAdapter_Execute_RefusesUnsupportedInjectionAtRunTime(t *testing.T) {
+	bus := &mockBus{}
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    fqcn: noop\n")
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	payload := wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
+		Injected: &wire.Injected{Env: map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE"}},
+	}
+	if _, err := adapter.Execute(context.Background(), payload); !errors.Is(err, routing.ErrUnsupportedInjection) {
+		t.Fatalf("Execute() error = %v, want routing.ErrUnsupportedInjection", err)
+	}
+	if got := bus.logEvents("job-1"); len(got) != 1 {
+		t.Errorf("published %d job log events, want 1 (started only): no task may run", len(got))
 	}
 }

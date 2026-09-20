@@ -102,6 +102,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the path and its checksum before it writes, so a
+			// check can predict through the same code (CheckCopy).
+			SupportsCheck: true,
 			// True, and the Notes carry the half that is NOT restored. The
 			// run decides which inverse it actually emits: a created file
 			// undoes to a removal, an existing one undoes to its former
@@ -119,6 +122,7 @@ func init() {
 			Doc: copyDoc(),
 		},
 		Invoke: Copy,
+		Check:  CheckCopy,
 	})
 }
 
@@ -198,6 +202,23 @@ func copyDoc() collection.Doc {
 // the device, never the request echoed back. A method that recorded what
 // it asked for would report a converged file it had failed to change.
 func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return copyFile(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCopy is file.copy's check: the same reads (the stat and the
+// device-side checksum) and the same refusals as Copy, through the one
+// body both share, then a prediction instead of the write. It predicts a
+// change exactly when a real run would make one (different bytes, or a
+// named attribute that differs), and a diff whose After half is what the
+// write and the attribute pass would leave (remotefile.PredictWrite or
+// PredictApply) with the content's checksum, which is known before
+// anything is sent.
+func CheckCopy(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return copyFile(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// copyFile is Copy's and CheckCopy's one body; mode says which.
+func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.copy"
 
 	req, err := copyParseRequest(params)
@@ -243,6 +264,9 @@ func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 
 	wrote := found != wanted
+	if mode == collection.ModeCheck {
+		return copyCheck(rc, req, before, found, wanted, wrote)
+	}
 	if wrote {
 		if err := remotefile.Write(ctx, conn, req.dest, []byte(req.content)); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -304,6 +328,42 @@ func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	return collection.Result{Changed: changed}, nil
+}
+
+// copyCheck records what a real run from before would do, without doing
+// it: the change decision Copy makes (different bytes, or a named
+// attribute that differs), the diff with its predicted After half, and
+// every stat a real run records whose value is known before anything is
+// sent. No undo instruction: nothing was done.
+func copyCheck(rc sdk.RunbookContext, req copyRequest, before remotefile.Info, found, wanted string, wrote bool) (collection.Result, error) {
+	const fqcn = "file.copy"
+	changed := wrote || copyAttributesDiffer(req.attrs, before)
+
+	predicted := copyState(before, found)
+	if changed {
+		effective := copyEffective(req.attrs, before)
+		if wrote {
+			predicted = remotefile.PredictWrite(effective, before, int64(len(req.content))).Map()
+		} else {
+			predicted = remotefile.PredictApply(effective, before).Map()
+		}
+		predicted[copyStatChecksum] = wanted
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: copyState(before, found), After: predicted}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	stats := map[string]any{copyParamDest: req.dest, copyStatChecksum: wanted}
+	for _, key := range []string{copyParamMode, copyParamOwner, copyParamGroup, copyStatSize} {
+		if value, known := predicted[key]; known {
+			stats[key] = value
+		}
+	}
+	for key, value := range stats {
+		if err := rc.SetStat(key, value); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
 	return collection.Result{Changed: changed}, nil
 }
 

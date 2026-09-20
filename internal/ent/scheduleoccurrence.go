@@ -32,6 +32,8 @@ type ScheduleOccurrence struct {
 	SuppressedCount int `json:"suppressed_count,omitempty"`
 	// JobID holds the value of the "job_id" field.
 	JobID string `json:"job_id,omitempty"`
+	// UnifiedJobType holds the value of the "unified_job_type" field.
+	UnifiedJobType string `json:"unified_job_type,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the ScheduleOccurrenceQuery when eager-loading is set.
 	Edges                ScheduleOccurrenceEdges `json:"edges"`
@@ -66,7 +68,7 @@ func (*ScheduleOccurrence) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case scheduleoccurrence.FieldID, scheduleoccurrence.FieldSuppressedCount:
 			values[i] = new(sql.NullInt64)
-		case scheduleoccurrence.FieldOutcome, scheduleoccurrence.FieldReason, scheduleoccurrence.FieldJobID:
+		case scheduleoccurrence.FieldOutcome, scheduleoccurrence.FieldReason, scheduleoccurrence.FieldJobID, scheduleoccurrence.FieldUnifiedJobType:
 			values[i] = new(sql.NullString)
 		case scheduleoccurrence.FieldCreatedAt, scheduleoccurrence.FieldUpdatedAt, scheduleoccurrence.FieldOccurrenceAt:
 			values[i] = new(sql.NullTime)
@@ -134,6 +136,12 @@ func (_m *ScheduleOccurrence) assignValues(columns []string, values []any) error
 				return fmt.Errorf("unexpected type %T for field job_id", values[i])
 			} else if value.Valid {
 				_m.JobID = value.String
+			}
+		case scheduleoccurrence.FieldUnifiedJobType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field unified_job_type", values[i])
+			} else if value.Valid {
+				_m.UnifiedJobType = value.String
 			}
 		case scheduleoccurrence.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -203,6 +211,9 @@ func (_m *ScheduleOccurrence) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("job_id=")
 	builder.WriteString(_m.JobID)
+	builder.WriteString(", ")
+	builder.WriteString("unified_job_type=")
+	builder.WriteString(_m.UnifiedJobType)
 	builder.WriteByte(')')
 	return builder.String()
 }

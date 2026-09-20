@@ -19,6 +19,7 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
@@ -33,7 +34,10 @@ const sectionLimit = 200
 // is *project.Runner in a real controller; the actions hold the interface so
 // a test can drive the buttons without a real clone.
 type syncEnqueuer interface {
-	Enqueue(ctx context.Context, id int) error
+	// Enqueue starts a clone and returns the id of the attempt it started,
+	// which this view has no use for: the page it lands on reads the badge.
+	// The actor is who asked, taken from the request's identity.
+	Enqueue(ctx context.Context, id int, actor string) (int, error)
 
 	// Cancel stops this project's running clone, reporting whether there
 	// was one to stop.
@@ -84,7 +88,16 @@ func syncAction(enqueue syncEnqueuer) view.RecordAction {
 				return "", errs, project.ErrNotFound
 			}
 
-			switch err := enqueue.Enqueue(ctx, numeric); {
+			// The actor comes from the request's identity, never from the
+			// submission: a caller who could name it could forge the audit
+			// trail it exists to be. This is the same rule the template
+			// launch action follows.
+			identity, ok := api.IdentityFromContext(ctx)
+			if !ok || identity == nil || identity.Subject == "" {
+				return "", errs, errors.New("no identity on the request context")
+			}
+
+			switch _, err := enqueue.Enqueue(ctx, numeric, identity.Subject); {
 			case err == nil, errors.Is(err, project.ErrSyncInProgress):
 				// Started, or one is already running: either way the page
 				// this lands on shows a running badge, which is the answer

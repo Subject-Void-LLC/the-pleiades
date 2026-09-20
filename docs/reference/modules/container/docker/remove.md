@@ -6,7 +6,7 @@ status: beta
 
 Removes a Docker container from the target.
 
-Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device.
+Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Makes sure a container named name does not exist, removing it if present. Contai
 | Capabilities | `DockerCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

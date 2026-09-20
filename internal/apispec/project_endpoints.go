@@ -1,20 +1,15 @@
 // This file declares the project endpoints.
 //
-// # These are not mounted, and that is deliberate rather than unfinished
+// They are mounted: they appear in the Endpoints table in apispec.go, they
+// generate OpenAPI operations, internal/api holds their handlers and
+// cmd/controller registers them.
 //
-// They are absent from the Endpoints table below-file in apispec.go, so
-// they generate no OpenAPI operation and claim no HTTP surface. What they
-// exist for is the UI: view.Ops takes an *Endpoint per operation and reads
-// its Scope and Rel to decide which affordances a person's token permits,
-// so a view cannot be gated at all without one. internal/ui holds its
-// domain ports directly and never dials the API, so the Projects view is
-// fully functional with no route mounted anywhere.
-//
-// Adding them to Endpoints is what makes the REST surface real, and that is
-// a separate change with a handler in internal/api and a registration in
-// cmd/controller beside it. Listing them there first would publish an
-// OpenAPI document describing routes that answer 404, which is the exact
-// silent-drift failure CLAUDE.md warns about for the spec-to-router gap.
+// This header used to say the opposite, at length, and the claim outlived its
+// truth by several phases. It was accurate when the endpoints existed only so
+// the UI could gate its own controls (view.Ops takes an *Endpoint per operation
+// and reads its Scope and Rel to decide which affordances a token permits, and
+// internal/ui holds its domain ports directly rather than dialing the API), and
+// it stayed in place when the routes were added. Corrected 2026-09-19.
 package apispec
 
 import (
@@ -32,12 +27,16 @@ var projectSchema = map[string]any{
 		"description":  stringSchema("What is in this repository."),
 		"organization": map[string]any{"type": "integer", "description": "The tenancy boundary this project belongs to."},
 		"scm_type":     stringSchema("How the content is reached. Only \"git\" is implemented."),
-		"scm_url":      stringSchema("The repository to clone."),
-		"scm_branch":   stringSchema("The branch, tag or commit to check out. Empty means the remote's own default."),
-		"credential":   map[string]any{"type": "integer", "description": "The credential the clone authenticates as, absent for a public repository."},
-		"revision":     stringSchema("The commit the working tree is at. Empty until a sync has succeeded once."),
-		"sync_status":  stringSchema("One of never, pending, running, succeeded or failed."),
-		"sync_error":   stringSchema("Why the last sync failed, with credential material already stripped."),
+		"scm_url": stringSchema("The repository to clone. Fetched over https or ssh; plain http, the git " +
+			"daemon protocol and paths on the server's own disk are refused unless the deployment has " +
+			"opted into them, because what a sync produces is code this platform then runs on managed " +
+			"devices. A password in the URL is refused: give the project a credential instead, which is " +
+			"stored encrypted."),
+		"scm_branch":  stringSchema("The branch, tag or commit to check out. Empty means the remote's own default."),
+		"credential":  map[string]any{"type": "integer", "description": "The credential the clone authenticates as, absent for a public repository."},
+		"revision":    stringSchema("The commit the working tree is at. Empty until a sync has succeeded once."),
+		"sync_status": stringSchema("One of never, pending, running, succeeded or failed."),
+		"sync_error":  stringSchema("Why the last sync failed, with credential material already stripped."),
 		"last_synced_at": map[string]any{
 			"type": "string", "format": "date-time",
 			"description": "When the last sync ran, absent if none has.",
@@ -98,7 +97,7 @@ var CreateProject = Endpoint{
 	Summary: "Create a project",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, or a git project carries no URL.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
 	Description: "Registers a source repository. Nothing is fetched until a sync runs.",
@@ -114,7 +113,7 @@ var UpdateProject = Endpoint{
 	Summary: "Update a project",
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, or a git project carries no URL.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},

@@ -47,6 +47,8 @@ const (
 	EdgeTemplates = "templates"
 	// EdgeSyncRuns holds the string denoting the sync_runs edge name in mutations.
 	EdgeSyncRuns = "sync_runs"
+	// EdgeLaunchable holds the string denoting the launchable edge name in mutations.
+	EdgeLaunchable = "launchable"
 	// Table holds the table name of the project in the database.
 	Table = "projects"
 	// OrganizationTable is the table that holds the organization relation/edge.
@@ -77,6 +79,13 @@ const (
 	SyncRunsInverseTable = "sync_runs"
 	// SyncRunsColumn is the table column denoting the sync_runs relation/edge.
 	SyncRunsColumn = "project_sync_runs"
+	// LaunchableTable is the table that holds the launchable relation/edge.
+	LaunchableTable = "launchables"
+	// LaunchableInverseTable is the table name for the Launchable entity.
+	// It exists in this package in order to avoid circular dependency with the "launchable" package.
+	LaunchableInverseTable = "launchables"
+	// LaunchableColumn is the table column denoting the launchable relation/edge.
+	LaunchableColumn = "project_launchable"
 )
 
 // Columns holds all SQL columns for project fields.
@@ -318,6 +327,13 @@ func BySyncRuns(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newSyncRunsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByLaunchableField orders the results by launchable field.
+func ByLaunchableField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newLaunchableStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -344,5 +360,12 @@ func newSyncRunsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SyncRunsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, SyncRunsTable, SyncRunsColumn),
+	)
+}
+func newLaunchableStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(LaunchableInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, LaunchableTable, LaunchableColumn),
 	)
 }

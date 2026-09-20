@@ -43,6 +43,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -179,4 +180,22 @@ func recordState(rc sdk.RunbookContext, name string, before, after containerStat
 		return err
 	}
 	return sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after.Map()})
+}
+
+// predictState is a check's report for a container found as before: the
+// same name stat and diff a real run records, with predicted as the after
+// half when a real run would change something, and nothing undone, since
+// nothing was done.
+func predictState(rc sdk.RunbookContext, fqcn, name string, before containerState, changed bool, predicted map[string]any) (collection.Result, error) {
+	after := before.Map()
+	if changed {
+		after = predicted
+	}
+	if err := rc.SetStat(statName, name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: changed}, nil
 }

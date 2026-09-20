@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks rpm before it acts, so a check can predict through the same code (CheckInstall).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: installDoc(),
 		},
 		Invoke: Install,
+		Check:  CheckInstall,
 	})
 }
 
@@ -70,6 +73,16 @@ func installDoc() collection.Doc {
 // match, in which case dnf is asked to install that exact
 // name-version, which upgrades or downgrades it as needed.
 func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return install(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckInstall is pkg.dnf.install's check: the same rpm read and change decision as Install, through the one body both share, then a prediction instead of dnf (recordPrediction).
+func CheckInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return install(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// install is Install's and CheckInstall's one body; mode says which.
+func install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.dnf.install"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -87,6 +100,16 @@ func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryRPM(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		if before.installed && (version == "" || before.version == version) {
+			return collection.Result{}, recordState(rc, name, before, before)
+		}
+		if err := recordPrediction(rc, name, before, true, version); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	changed := false

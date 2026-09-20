@@ -181,6 +181,21 @@ func NewTransportActionExecutor(bindings map[string]TransportBinding, credential
 	return &transportActionExecutor{bindings: bindings, credentials: credentials, inventory: inventoryRepo, fallback: fallback}
 }
 
+// Check implements CheckExecutor. Every fqcn this executor owns sends a
+// command to a device and reports what came back, and what an arbitrary
+// command would change cannot be known without running it, so each one
+// is reported as unchecked rather than guessed at. Anything this executor
+// does not own is handed on, exactly as Execute hands it on.
+func (e *transportActionExecutor) Check(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
+	if _, ok := e.bindings[task.FQCN]; !ok {
+		return checkThrough(ctx, e.fallback, task, device)
+	}
+	return ActionResult{}, &UncheckedError{
+		FQCN:   task.FQCN,
+		Reason: "it sends a command to the device, and what a command would change cannot be known without running it",
+	}
+}
+
 // Execute implements ActionExecutor.
 func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
 	binding, ok := e.bindings[task.FQCN]

@@ -56,6 +56,7 @@ func taskSchema() map[string]any {
 			"fqcn":          map[string]any{"type": "string", "description": "The action this task performs: an engine keyword or a namespaced Collection method."},
 			"params":        map[string]any{"type": "object", "description": "Arguments passed to fqcn. Never templated."},
 			"register":      map[string]any{"type": "string", "description": "Name to store this task's result under."},
+			"check_mode":    checkModeSchema("Run this task (and, on a block, its block, rescue and always tasks) in check mode, even in a real run. Only true; false is refused."),
 			"when":          stringOrList("Ansible-compatible conditional, ANDed if a list."),
 			"when_or":       stringOrList("Conditional, ORed if a list. No Ansible equivalent."),
 			"when_cel":      map[string]any{"type": "string", "description": "One raw CEL expression."},
@@ -95,10 +96,14 @@ func generateRunbookSchema(outDir string) error {
 		"description": "The native Pleiades automation format. Not an Ansible playbook: a top-level YAML list is rejected.",
 		"type":        "object",
 		"required":    []any{"id", "tasks"},
+		// The parser refuses any other top-level key (engine.RunbookKeys).
+		"additionalProperties": false,
 		"properties": map[string]any{
-			"id":    map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
-			"hosts": map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
-			"type":  map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
+			"id":         map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
+			"name":       map[string]any{"type": "string", "description": "The runbook's human title."},
+			"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
+			"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
+			"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
 			"metadata": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -115,6 +120,18 @@ func generateRunbookSchema(outDir string) error {
 	}
 
 	return writeSchema(outDir, "runbook.schema.json", schema)
+}
+
+// checkModeSchema is the JSON Schema for engine.CheckModeFlag: true, or
+// one of Ansible's string spellings of it, in any case.
+func checkModeSchema(description string) map[string]any {
+	return map[string]any{
+		"description": description,
+		"oneOf": []any{
+			map[string]any{"const": true},
+			map[string]any{"type": "string", "pattern": "^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|[Yy]|[Tt])$"},
+		},
+	}
 }
 
 // checkRunbookSchemaComplete proves taskSchema's own property keys and

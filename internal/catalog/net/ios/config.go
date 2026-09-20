@@ -59,6 +59,8 @@ func init() {
 				Reversible: false,
 				Notes:      "IOS's \"no <line>\" negation convention does not reliably invert every configuration statement (a route-map or ACL entry, for instance), so this platform does not assert an inverse it cannot guarantee. Set backup: true to capture the prior running-config for a human-directed rollback.",
 			},
+			NoCheckReason: "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS " +
+				"offers no way to ask without applying it",
 			Doc: configDoc(),
 		},
 		Invoke: Config,

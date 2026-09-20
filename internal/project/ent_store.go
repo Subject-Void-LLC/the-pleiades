@@ -8,12 +8,15 @@ package project
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	entlaunchable "github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	entproject "github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	entsyncrun "github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
 
 // historyLimit bounds a sync history read when a caller names no limit.
@@ -25,14 +28,73 @@ const historyLimit = 50
 const defaultPageSize = 100
 
 // entStore is the ent-backed Store.
-type entStore struct{ client *ent.Client }
+type entStore struct {
+	client *ent.Client
 
-// NewEntStore returns a Store over the given client.
-func NewEntStore(client *ent.Client) Store { return &entStore{client: client} }
+	// policy is which sources a project may be pointed at. It lives here
+	// rather than in the handlers because this store is the only thing that
+	// writes the column: the API, the UI, every test and any future importer
+	// all pass through Create and Update, so one check here is a check they
+	// all get. The zero value refuses all but https and ssh.
+	policy SourcePolicy
+}
+
+// NewEntStore returns a Store over the given client, accepting only the
+// sources policy admits.
+func NewEntStore(client *ent.Client, policy SourcePolicy) Store {
+	return &entStore{client: client, policy: policy}
+}
+
+// checkSource refuses a source this deployment will not fetch from, and a URL
+// carrying a password.
+//
+// Only a git project is checked, because only a git project is ever dialed.
+// The predicate itself deliberately does not look at the type (see
+// source.go), so the day the archive type ships its URL gets the same
+// treatment by moving this one condition.
+func (s *entStore) checkSource(p Project) error {
+	if p.SCMType != SCMGit {
+		return nil
+	}
+	if err := s.policy.AdmitsSource(p.SCMURL); err != nil {
+		return err
+	}
+	if HasEmbeddedSecret(p.SCMURL) {
+		// Refused at the write only. See ErrSourceSecretInURL for why an
+		// existing row that already carries one keeps working.
+		return fmt.Errorf("%w: give the credential to this project instead, where it is encrypted", ErrSourceSecretInURL)
+	}
+	return nil
+}
 
 // Create stores a new project.
 func (s *entStore) Create(ctx context.Context, p Project) (Project, error) {
-	create := s.client.Project.Create().
+	// Refused before anything is written, so a source this deployment will
+	// not fetch from never becomes a row somebody has to find later.
+	if err := s.checkSource(p); err != nil {
+		return Project{}, err
+	}
+
+	// The project and the launchable row standing for it are written
+	// together. That row is what a schedule points at, so a project created
+	// without one could never be scheduled, and a crash between two separate
+	// writes would leave exactly that with nothing to explain it.
+	//
+	// The transaction is opened before the builder, deliberately: a builder
+	// made from the client writes outside the transaction it appears to be
+	// inside, which is the shape that looks atomic in a diff and is not.
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return Project{}, fmt.Errorf("project: opening a transaction to create %q: %w", p.Name, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	create := tx.Project.Create().
 		SetName(p.Name).
 		SetDescription(p.Description).
 		SetScmType(entproject.ScmType(p.SCMType)).
@@ -50,6 +112,21 @@ func (s *entStore) Create(ctx context.Context, p Project) (Project, error) {
 		}
 		return Project{}, fmt.Errorf("project: creating %q: %w", p.Name, err)
 	}
+
+	if err := tx.Launchable.Create().
+		SetType(launchable.TypeProject).
+		SetName(row.Name).
+		SetOrganizationID(p.OrganizationID).
+		SetProjectID(row.ID).
+		Exec(ctx); err != nil {
+		return Project{}, fmt.Errorf("project: recording %d as launchable: %w", row.ID, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Project{}, fmt.Errorf("project: committing %q: %w", p.Name, err)
+	}
+	committed = true
+
 	return s.Get(ctx, row.ID)
 }
 
@@ -59,6 +136,9 @@ func (s *entStore) Get(ctx context.Context, id int) (Project, error) {
 		Where(entproject.IDEQ(id)).
 		WithOrganization().
 		WithCredential().
+		// The launchable row standing for this project, so a caller holding a
+		// Project can name it to a schedule without a second query.
+		WithLaunchable().
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -79,6 +159,7 @@ func (s *entStore) List(ctx context.Context, q Query) ([]Project, error) {
 	query := s.client.Project.Query().
 		WithOrganization().
 		WithCredential().
+		WithLaunchable().
 		Order(ent.Asc(entproject.FieldID)).
 		Limit(limit)
 	if q.OrganizationID > 0 {
@@ -107,7 +188,28 @@ func (s *entStore) List(ctx context.Context, q Query) ([]Project, error) {
 // not put a stale revision back, and a sync finishing must not revert a
 // rename.
 func (s *entStore) Update(ctx context.Context, p Project) error {
-	update := s.client.Project.UpdateOneID(p.ID).
+	// Checked on every edit, not only at create: an edit can repoint a
+	// project at another source, and a row stored before this rule existed is
+	// corrected the first time somebody saves it.
+	if err := s.checkSource(p); err != nil {
+		return err
+	}
+
+	// One transaction, because the launchable row carries a copy of the name:
+	// a rename that reached only one of the two would leave a schedule picker
+	// offering a name this project no longer has.
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("project: opening a transaction to update %d: %w", p.ID, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	update := tx.Project.UpdateOneID(p.ID).
 		SetName(p.Name).
 		SetDescription(p.Description).
 		SetScmType(entproject.ScmType(p.SCMType)).
@@ -129,7 +231,36 @@ func (s *entStore) Update(ctx context.Context, p Project) error {
 			return fmt.Errorf("project: updating %d: %w", p.ID, err)
 		}
 	}
+
+	if _, err := tx.Launchable.Update().
+		Where(entlaunchable.HasProjectWith(entproject.IDEQ(p.ID))).
+		SetName(p.Name).
+		Save(ctx); err != nil {
+		return fmt.Errorf("project: renaming the launchable row for %d: %w", p.ID, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("project: committing the update of %d: %w", p.ID, err)
+	}
+	committed = true
 	return nil
+}
+
+// ByLaunchable returns the project a launchable row stands for.
+func (s *entStore) ByLaunchable(ctx context.Context, launchableID int) (Project, error) {
+	row, err := s.client.Project.Query().
+		Where(entproject.HasLaunchableWith(entlaunchable.IDEQ(launchableID))).
+		WithOrganization().
+		WithCredential().
+		WithLaunchable().
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return Project{}, ErrNotFound
+		}
+		return Project{}, fmt.Errorf("project: loading the project for launchable %d: %w", launchableID, err)
+	}
+	return hydrate(row), nil
 }
 
 // Delete removes a project.
@@ -141,6 +272,16 @@ func (s *entStore) Delete(ctx context.Context, id int) error {
 	if err := s.client.Project.DeleteOneID(id).Exec(ctx); err != nil {
 		if ent.IsNotFound(err) {
 			return ErrNotFound
+		}
+		if ent.IsConstraintError(err) {
+			// The sync history cascades and so does the launchable row, so
+			// the only key that can refuse is a schedule's into that row.
+			// Reported as in use rather than as a storage failure, because it
+			// is a decision somebody has to make (the schedule) rather than a
+			// fault: deleting a project out from under a schedule would stop
+			// automation somebody relies on, and the deletion is the moment
+			// to say so.
+			return fmt.Errorf("%w: project %d is scheduled", ErrInUse, id)
 		}
 		return fmt.Errorf("project: deleting %d: %w", id, err)
 	}
@@ -184,7 +325,9 @@ func (s *entStore) RecordSync(ctx context.Context, id int, result Result) error 
 	return nil
 }
 
-// recordHistory appends one completed attempt to a project's history.
+// recordHistory writes one finished attempt into a project's history:
+// finishing the row the claim opened, or appending a new one when there was
+// no claim.
 //
 // A run with no start time recorded falls back to the finish, which is what
 // a caller that bypassed the runner produces: a zero start would otherwise
@@ -200,6 +343,31 @@ func (s *entStore) recordHistory(ctx context.Context, id int, result Result) err
 	if finished.IsZero() {
 		finished = time.Now()
 	}
+
+	if result.RunID > 0 {
+		// The attempt already has a row, opened when it was claimed. It is
+		// addressed by id AND by project, so a mismatched pair (a stale
+		// claim, a caller passing somebody else's run) closes nothing
+		// rather than stamping an outcome onto another project's history.
+		n, err := s.client.SyncRun.Update().
+			Where(
+				entsyncrun.IDEQ(result.RunID),
+				entsyncrun.HasProjectWith(entproject.IDEQ(id)),
+			).
+			SetStatus(entsyncrun.Status(result.Status)).
+			SetRevision(result.Revision).
+			SetError(result.Err).
+			SetFinishedAt(finished).
+			Save(ctx)
+		if err != nil {
+			return fmt.Errorf("project: finishing sync history row %d for %d: %w", result.RunID, id, err)
+		}
+		if n == 0 {
+			return fmt.Errorf("project: sync history row %d does not belong to project %d", result.RunID, id)
+		}
+		return nil
+	}
+
 	started := result.StartedAt
 	if started.IsZero() {
 		started = finished
@@ -236,14 +404,20 @@ func (s *entStore) ListSyncRuns(ctx context.Context, projectID, limit int) ([]Sy
 
 	out := make([]SyncRun, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, SyncRun{
-			ID:         row.ID,
-			Status:     SyncStatus(row.Status),
-			Revision:   row.Revision,
-			Err:        row.Error,
-			StartedAt:  row.StartedAt,
-			FinishedAt: row.FinishedAt,
-		})
+		run := SyncRun{
+			ID:        row.ID,
+			Status:    SyncStatus(row.Status),
+			Revision:  row.Revision,
+			Actor:     row.Actor,
+			Err:       row.Error,
+			StartedAt: row.StartedAt,
+		}
+		// A null finish is an attempt still running, which the domain reads
+		// as the zero time (see SyncRun.Running).
+		if row.FinishedAt != nil {
+			run.FinishedAt = *row.FinishedAt
+		}
+		out = append(out, run)
 	}
 	return out, nil
 }
@@ -258,16 +432,34 @@ func (s *entStore) ListSyncRuns(ctx context.Context, projectID, limit int) ([]Sy
 // starting a second one. Syncability is checked first so an unfetchable
 // project is refused synchronously, on the control that caused it, instead
 // of being claimed and failed in the background where nobody is looking.
-func (s *entStore) BeginSync(ctx context.Context, id int) (Project, error) {
-	p, err := s.Get(ctx, id)
-	if err != nil {
-		return Project{}, err
-	}
-	if !p.Syncable() {
-		return Project{}, ErrNotSyncable
+// The claim and the history row it opens are written in one transaction, so
+// there is no window in which a project reads running with no attempt to
+// point at, or an attempt exists that no clone will ever finish.
+func (s *entStore) BeginSync(ctx context.Context, id int, actor string) (Claim, error) {
+	if strings.TrimSpace(actor) == "" {
+		return Claim{}, ErrNoActor
 	}
 
-	n, err := s.client.Project.Update().
+	p, err := s.Get(ctx, id)
+	if err != nil {
+		return Claim{}, err
+	}
+	if !p.Syncable() {
+		return Claim{}, ErrNotSyncable
+	}
+
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return Claim{}, fmt.Errorf("project: opening a transaction to claim a sync for %d: %w", id, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	n, err := tx.Project.Update().
 		Where(
 			entproject.IDEQ(id),
 			entproject.SyncStatusNEQ(entproject.SyncStatus(SyncRunning)),
@@ -276,15 +468,31 @@ func (s *entStore) BeginSync(ctx context.Context, id int) (Project, error) {
 		SetSyncError("").
 		Save(ctx)
 	if err != nil {
-		return Project{}, fmt.Errorf("project: claiming a sync for %d: %w", id, err)
+		return Claim{}, fmt.Errorf("project: claiming a sync for %d: %w", id, err)
 	}
 	if n == 0 {
-		return Project{}, ErrSyncInProgress
+		return Claim{}, ErrSyncInProgress
 	}
+
+	started := time.Now()
+	run, err := tx.SyncRun.Create().
+		SetStatus(entsyncrun.Status(SyncRunning)).
+		SetActor(actor).
+		SetStartedAt(started).
+		SetProjectID(id).
+		Save(ctx)
+	if err != nil {
+		return Claim{}, fmt.Errorf("project: opening a sync history row for %d: %w", id, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Claim{}, fmt.Errorf("project: committing the claim of a sync for %d: %w", id, err)
+	}
+	committed = true
 
 	p.SyncStatus = SyncRunning
 	p.SyncError = ""
-	return p, nil
+	return Claim{Project: p, RunID: run.ID, StartedAt: started}, nil
 }
 
 // ResetInterruptedSyncs clears syncs a process restart left mid-flight,
@@ -299,13 +507,32 @@ func (s *entStore) BeginSync(ctx context.Context, id int) (Project, error) {
 // RecordSync writes the real outcome, which addresses the row by id rather
 // than by a status it must still hold.
 func (s *entStore) ResetInterruptedSyncs(ctx context.Context) (int, error) {
+	const reason = "The sync was interrupted by a restart. Sync again to retry."
+
 	n, err := s.client.Project.Update().
 		Where(entproject.SyncStatusEQ(entproject.SyncStatus(SyncRunning))).
 		SetSyncStatus(entproject.SyncStatus(SyncFailed)).
-		SetSyncError("The sync was interrupted by a restart. Sync again to retry.").
+		SetSyncError(reason).
 		Save(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("project: resetting interrupted syncs: %w", err)
+	}
+
+	// The history rows those claims opened are stranded the same way and for
+	// the same reason, so they are failed in the same sweep. Without this a
+	// history would show an attempt still cloning weeks after the process
+	// that started it died, and Took would keep counting up.
+	//
+	// Addressed by status rather than by project, so a row whose project
+	// somebody has since re-synced is not missed: the project's own status
+	// would no longer be running, while the abandoned row still is.
+	if _, err := s.client.SyncRun.Update().
+		Where(entsyncrun.StatusEQ(entsyncrun.Status(SyncRunning))).
+		SetStatus(entsyncrun.Status(SyncFailed)).
+		SetError(reason).
+		SetFinishedAt(time.Now()).
+		Save(ctx); err != nil {
+		return 0, fmt.Errorf("project: failing interrupted sync history rows: %w", err)
 	}
 	return n, nil
 }
@@ -334,6 +561,9 @@ func hydrate(row *ent.Project) Project {
 	}
 	if cred := row.Edges.Credential; cred != nil {
 		p.CredentialID = cred.ID
+	}
+	if l := row.Edges.Launchable; l != nil {
+		p.LaunchableID = l.ID
 	}
 	return p
 }

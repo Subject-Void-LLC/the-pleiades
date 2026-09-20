@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
@@ -38,6 +39,7 @@ type OrganizationQuery struct {
 	withInventories     *InventoryQuery
 	withTemplates       *TemplateQuery
 	withSchedules       *ScheduleQuery
+	withLaunchables     *LaunchableQuery
 	withCredentialTypes *CredentialTypeQuery
 	withCredentials     *CredentialQuery
 	withProjects        *ProjectQuery
@@ -182,6 +184,28 @@ func (_q *OrganizationQuery) QuerySchedules() *ScheduleQuery {
 			sqlgraph.From(organization.Table, organization.FieldID, selector),
 			sqlgraph.To(schedule.Table, schedule.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, organization.SchedulesTable, organization.SchedulesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryLaunchables chains the current query on the "launchables" edge.
+func (_q *OrganizationQuery) QueryLaunchables() *LaunchableQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.LaunchablesTable, organization.LaunchablesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -496,6 +520,7 @@ func (_q *OrganizationQuery) Clone() *OrganizationQuery {
 		withInventories:     _q.withInventories.Clone(),
 		withTemplates:       _q.withTemplates.Clone(),
 		withSchedules:       _q.withSchedules.Clone(),
+		withLaunchables:     _q.withLaunchables.Clone(),
 		withCredentialTypes: _q.withCredentialTypes.Clone(),
 		withCredentials:     _q.withCredentials.Clone(),
 		withProjects:        _q.withProjects.Clone(),
@@ -559,6 +584,17 @@ func (_q *OrganizationQuery) WithSchedules(opts ...func(*ScheduleQuery)) *Organi
 		opt(query)
 	}
 	_q.withSchedules = query
+	return _q
+}
+
+// WithLaunchables tells the query-builder to eager-load the nodes that are connected to
+// the "launchables" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithLaunchables(opts ...func(*LaunchableQuery)) *OrganizationQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withLaunchables = query
 	return _q
 }
 
@@ -695,12 +731,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Organization{}
 		_spec       = _q.querySpec()
-		loadedTypes = [10]bool{
+		loadedTypes = [11]bool{
 			_q.withDevices != nil,
 			_q.withTeams != nil,
 			_q.withInventories != nil,
 			_q.withTemplates != nil,
 			_q.withSchedules != nil,
+			_q.withLaunchables != nil,
 			_q.withCredentialTypes != nil,
 			_q.withCredentials != nil,
 			_q.withProjects != nil,
@@ -758,6 +795,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		if err := _q.loadSchedules(ctx, query, nodes,
 			func(n *Organization) { n.Edges.Schedules = []*Schedule{} },
 			func(n *Organization, e *Schedule) { n.Edges.Schedules = append(n.Edges.Schedules, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withLaunchables; query != nil {
+		if err := _q.loadLaunchables(ctx, query, nodes,
+			func(n *Organization) { n.Edges.Launchables = []*Launchable{} },
+			func(n *Organization, e *Launchable) { n.Edges.Launchables = append(n.Edges.Launchables, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -949,6 +993,37 @@ func (_q *OrganizationQuery) loadSchedules(ctx context.Context, query *ScheduleQ
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "organization_schedules" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadLaunchables(ctx context.Context, query *LaunchableQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *Launchable)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Launchable(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.LaunchablesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_launchables
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_launchables" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_launchables" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

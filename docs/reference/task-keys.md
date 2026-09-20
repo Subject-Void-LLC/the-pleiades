@@ -11,6 +11,8 @@ Every key a runbook author can write. The key list itself is generated from the 
 | Key | Description |
 | --- | --- |
 | `id` | The runbook's own identifier. Required. Restricted to `[A-Za-z0-9_-]`, since it is embedded into a NATS subject. |
+| `name` | The runbook's human title, like an Ansible play's `name`. Optional: a listing shows `id` when it is empty. |
+| `check_mode` | Ansible's `check_mode`. `true` (or `yes`/`on`) makes the whole run a check, exactly as `pleiades run --mode check` does. `false` is refused. Any top-level key not on this page is refused too, naming it, rather than silently ignored. |
 | `hosts` | Default target for every task that does not set its own. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. |
 | `type` | Runbook-type discriminator. `native` (the default) or the empty string; `ansible` is reserved and non-actionable today. |
 | `metadata` | Runbook-level metadata. `service_effecting` marks a run as affecting live service, as opposed to purely read-only or diagnostic; blast radius itself is always computed, never authored. `interruptible` (default true when omitted) marks whether a Runner that loses its heartbeat with the Controller may safely self-abort this runbook before the Controller's own lock TTL expires; set it `false` for a task that must finish once started. |
@@ -26,6 +28,7 @@ Every key a runbook author can write. The key list itself is generated from the 
 | `fqcn` | The action this task performs: a bare engine keyword (`noop`) or a namespaced Collection method (`pkg.apt.install`). |
 | `params` | Arbitrary map passed to the action named by `fqcn`. Never templated: a literal value, with no `{{ }}` rendering of any kind. |
 | `register` | Names this task's result so a later task's `when_cel` can read it as `stat.<name>[<deviceID>].<field>`. |
+| `check_mode` | Ansible's `check_mode`. `true` (or `yes`/`on`) runs this task in check mode even in a real run: its method's check runs instead of the real call, its result is a prediction printed as "would change", and it is not journaled. On a `block` it covers the block's own tasks and its `rescue` and `always` tasks; on an `import_tasks` task, every imported task. `false`, or anything that could turn out false such as a template, is refused, because it would run a task for real inside a check. Validation refuses it on an action that cannot be checked, and refuses a task that runs for real whose condition reads a checked task's registered result. |
 | `when` | Ansible-compatible conditional: one boolean expression, or a list of them ANDed together. Any of the three condition keys may call a registered [filter](filters/index.md) as part of the expression. |
 | `when_or` | Like `when`, but a list is ORed instead of ANDed. Has no Ansible equivalent. |
 | `when_cel` | One raw CEL expression, for a condition `when`/`when_or` cannot express. Exactly one of `when`/`when_or`/`when_cel` may be set. See the [filter reference](filters/index.md) for the functions callable from here, beyond CEL's own operators. |

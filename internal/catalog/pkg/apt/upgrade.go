@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks dpkg before it acts, so a check can predict through the same code (CheckUpgrade).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "Downgrading a package is not something apt-get reliably supports once the previous version " +
@@ -31,6 +33,7 @@ func init() {
 			Doc: upgradeDoc(),
 		},
 		Invoke: Upgrade,
+		Check:  CheckUpgrade,
 	})
 }
 
@@ -66,6 +69,16 @@ func upgradeDoc() collection.Doc {
 // only when they differ, so a package already at the newest version
 // sends nothing.
 func Upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return upgrade(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckUpgrade is pkg.apt.upgrade's check: the same dpkg and apt-cache reads and change decision as Upgrade, through the one body both share, then a prediction (the candidate version) instead of apt-get.
+func CheckUpgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return upgrade(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// upgrade is Upgrade's and CheckUpgrade's one body; mode says which.
+func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.apt.upgrade"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -82,6 +95,27 @@ func Upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryDpkg(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		predicted := before
+		if !before.installed {
+			if predicted, err = predictInstall(ctx, conn, name, ""); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		} else {
+			candidate, err := queryCandidate(ctx, conn, name)
+			if err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			if candidate != "" && candidate != before.version {
+				predicted = state{installed: true, version: candidate}
+			}
+		}
+		if err := recordState(rc, name, before, predicted); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: predicted != before}, nil
 	}
 
 	if !before.installed {

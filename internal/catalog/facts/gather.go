@@ -99,8 +99,14 @@ func init() {
 					"on the device, and so has nothing an undo could restore.",
 			},
 			Doc: gatherDoc(),
+			// Every command it sends is a fixed uname or cat (gatherProbes),
+			// so a check runs it for real: reading is all a real run does.
+			SupportsCheck: true,
 		},
 		Invoke: Gather,
+		// Gather itself, since it only reads: its check answers with what
+		// is on the device now, which is exactly what a real run would.
+		Check: Gather,
 	})
 }
 

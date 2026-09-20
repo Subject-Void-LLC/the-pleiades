@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,37 +69,67 @@ type harness struct {
 	rc     *svcContext
 	device inventory.InventoryItem
 	record string
+
+	// stateDir holds the fake unit's three state strings, one file each,
+	// which is what lets a test read back what the unit looks like after
+	// a call rather than trusting what the method recorded about it.
+	stateDir string
 }
+
+// The fake systemctl keeps the unit's state in files and a successful
+// verb changes it the way systemd would: start and restart leave it
+// active, stop leaves it inactive, enable and disable set the boot-time
+// state. That is what makes a real run's read-back a reading of what its
+// own verb did, and so what lets a check's predicted after half be
+// compared against the after half a real run records from the same
+// starting state. The model is only as faithful as these five lines;
+// proving it against real systemd is the container Release Gate's job,
+// as the header above says.
+//
+// Every path travels by environment rather than being interpolated:
+// t.TempDir derives its path from the test name, and a test named after
+// a hostile unit could otherwise get a path the shell re-expands.
+const fakeSystemctl = `#!/bin/sh
+for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
+printf -- '---\n' >> "$FAKE_RECORD"
+if [ "$1" = "show" ]; then
+  printf 'LoadState=%s\n' "$(cat "$FAKE_STATE/load")"
+  printf 'ActiveState=%s\n' "$(cat "$FAKE_STATE/active")"
+  printf 'UnitFileState=%s\n' "$(cat "$FAKE_STATE/unitfile")"
+  exit 0
+fi
+status="${FAKE_EXIT:-0}"
+if [ "$status" != 0 ]; then exit "$status"; fi
+case "$1" in
+  start|restart) printf 'active' > "$FAKE_STATE/active" ;;
+  stop) printf 'inactive' > "$FAKE_STATE/active" ;;
+  enable) printf 'enabled' > "$FAKE_STATE/unitfile" ;;
+  disable) printf 'disabled' > "$FAKE_STATE/unitfile" ;;
+esac
+exit 0
+`
 
 func newHarness(t *testing.T, state systemdState) *harness {
 	t.Helper()
 
 	dir := t.TempDir()
 	record := filepath.Join(dir, "invocations")
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o700); err != nil {
+		t.Fatalf("creating the fake unit's state directory: %v", err)
+	}
+	for name, value := range map[string]string{"load": state.load, "active": state.active, "unitfile": state.unitFile} {
+		if err := os.WriteFile(filepath.Join(stateDir, name), []byte(value), 0o600); err != nil {
+			t.Fatalf("writing the fake unit's %s state: %v", name, err)
+		}
+	}
 
-	// The record path travels by environment rather than being
-	// interpolated: t.TempDir derives its path from the test name, and a
-	// test named after a hostile unit could otherwise get a path the
-	// shell re-expands.
-	script := `#!/bin/sh
-for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
-printf -- '---\n' >> "$FAKE_RECORD"
-if [ "$1" = "show" ]; then
-  printf 'LoadState=%s\n' "$FAKE_LOAD"
-  printf 'ActiveState=%s\n' "$FAKE_ACTIVE"
-  printf 'UnitFileState=%s\n' "$FAKE_UNITFILE"
-  exit 0
-fi
-exit "${FAKE_EXIT:-0}"
-`
-	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(fakeSystemctl), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
 		t.Fatalf("writing the fake systemctl: %v", err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
-	t.Setenv("FAKE_LOAD", state.load)
-	t.Setenv("FAKE_ACTIVE", state.active)
-	t.Setenv("FAKE_UNITFILE", state.unitFile)
+	t.Setenv("FAKE_STATE", stateDir)
 
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
@@ -107,10 +138,25 @@ exit "${FAKE_EXIT:-0}"
 	t.Cleanup(srv.Close)
 
 	return &harness{
-		rc:     &svcContext{secrets: srv.Secrets(), stats: map[string]any{}},
-		device: &svcTarget{Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameSystemd}}, host: srv.Host, port: srv.Port},
-		record: record,
+		rc:       &svcContext{secrets: srv.Secrets(), stats: map[string]any{}},
+		device:   &svcTarget{Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameSystemd}}, host: srv.Host, port: srv.Port},
+		record:   record,
+		stateDir: stateDir,
 	}
+}
+
+// state reads the fake unit's state back from its files, which is what
+// the unit looks like on the "device" right now.
+func (h *harness) state(t *testing.T) systemdState {
+	t.Helper()
+	read := func(name string) string {
+		data, err := os.ReadFile(filepath.Join(h.stateDir, name)) // #nosec G304 -- path built by this test
+		if err != nil {
+			t.Fatalf("reading the fake unit's %s state: %v", name, err)
+		}
+		return string(data)
+	}
+	return systemdState{load: read("load"), active: read("active"), unitFile: read("unitfile")}
 }
 
 func (h *harness) params(unit string) map[string]any {
@@ -120,6 +166,20 @@ func (h *harness) params(unit string) map[string]any {
 // verbs returns the systemctl verb of every non-show invocation, which is
 // what proves a converged run sent nothing.
 func (h *harness) verbs(t *testing.T) []string {
+	t.Helper()
+	var verbs []string
+	for _, verb := range h.invocations(t) {
+		if verb != "show" {
+			verbs = append(verbs, verb)
+		}
+	}
+	return verbs
+}
+
+// invocations returns the verb of every systemctl invocation in order,
+// reads included, which is what proves a check read the unit once and
+// did not read it back.
+func (h *harness) invocations(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(h.record) // #nosec G304 -- path built by this test
 	if err != nil {
@@ -137,9 +197,7 @@ func (h *harness) verbs(t *testing.T) []string {
 		}
 		if first {
 			first = false
-			if line != "show" {
-				verbs = append(verbs, line)
-			}
+			verbs = append(verbs, line)
 		}
 	}
 	return verbs
@@ -193,7 +251,225 @@ func TestAllSixAreImplemented(t *testing.T) {
 			if !desc.Manifest.Reversibility.Reversible && desc.Manifest.Reversibility.Notes == "" {
 				t.Error("declares itself not reversible with no reason")
 			}
+			// Every method in this namespace can say what it would change
+			// without changing it, and the declaration has a function
+			// behind it. Register already refuses the two disagreeing;
+			// this pins that the answer is yes rather than no.
+			if !desc.Manifest.SupportsCheck {
+				t.Error("SupportsCheck = false, want true: every svc.systemd method has a check")
+			}
+			if desc.Check == nil {
+				t.Error("Check is nil, so a check run would report this method as uncheckable")
+			}
 		})
+	}
+}
+
+// ---------- check mode ----------
+
+// methodFor returns the function the engine would call for fqcn in mode,
+// looked up through the registry and collection.Descriptor.MethodFor
+// exactly as the dispatcher looks it up. Going through the registry
+// rather than calling CheckStart directly is what proves the REGISTRATION
+// hands a check the check function, not only that the function exists.
+func methodFor(t *testing.T, fqcn string, mode collection.Mode) collection.Method {
+	t.Helper()
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		t.Fatalf("%s is not registered", fqcn)
+	}
+	method, err := desc.MethodFor(mode)
+	if err != nil {
+		t.Fatalf("%s in mode %s: %v", fqcn, mode, err)
+	}
+	return method
+}
+
+// diffHalves reads back the diff a call recorded.
+func diffHalves(t *testing.T, h *harness) (before, after map[string]any) {
+	t.Helper()
+	d, ok := h.rc.stats[sdk.StatDiff].(map[string]any)
+	if !ok {
+		t.Fatalf("no diff recorded, got %#v", h.rc.stats[sdk.StatDiff])
+	}
+	before, _ = d[sdk.DiffBefore].(map[string]any)
+	after, _ = d[sdk.DiffAfter].(map[string]any)
+	return before, after
+}
+
+// TestCheckPredictsWhatARealRunDoes is the check-mode contract for every
+// unit-shaped method, in two halves run from the same starting state.
+//
+// The check half proves the check changed nothing: it read the unit once,
+// sent no verb, left the fake unit's state exactly as it found it, and
+// recorded no inverse. The control half then runs the REAL method from
+// that same starting state, and the check's answer has to match it: the
+// same Changed, the same before, and a predicted after equal to the after
+// the real run read back from the device once its verb had landed. A
+// check that predicted from a different rule than the real run acts on
+// would fail the second half even if it passed the first.
+func TestCheckPredictsWhatARealRunDoes(t *testing.T) {
+	tests := []struct {
+		name        string
+		fqcn        string
+		state       systemdState
+		wantChanged bool
+	}{
+		{name: "start, stopped", fqcn: "svc.systemd.start", state: stoppedDisabled, wantChanged: true},
+		{name: "start, already running", fqcn: "svc.systemd.start", state: runningEnabled, wantChanged: false},
+		{name: "stop, running", fqcn: "svc.systemd.stop", state: runningEnabled, wantChanged: true},
+		{name: "stop, already stopped", fqcn: "svc.systemd.stop", state: stoppedDisabled, wantChanged: false},
+		{name: "stop, masked", fqcn: "svc.systemd.stop", state: masked, wantChanged: false},
+		{name: "restart, running", fqcn: "svc.systemd.restart", state: runningEnabled, wantChanged: true},
+		{name: "restart, stopped", fqcn: "svc.systemd.restart", state: stoppedDisabled, wantChanged: true},
+		{name: "enable, disabled", fqcn: "svc.systemd.enable", state: runningDisabled, wantChanged: true},
+		{name: "enable, already enabled", fqcn: "svc.systemd.enable", state: stoppedEnabled, wantChanged: false},
+		{name: "enable, enabled-runtime", fqcn: "svc.systemd.enable", state: runtimeEnabled, wantChanged: false},
+		{name: "disable, enabled", fqcn: "svc.systemd.disable", state: runningEnabled, wantChanged: true},
+		{name: "disable, already disabled", fqcn: "svc.systemd.disable", state: runningDisabled, wantChanged: false},
+		{name: "disable, masked", fqcn: "svc.systemd.disable", state: masked, wantChanged: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The check.
+			h := newHarness(t, tt.state)
+			checked, err := methodFor(t, tt.fqcn, collection.ModeCheck)(context.Background(), h.rc, h.device, h.params("nginx"))
+			if err != nil {
+				t.Fatalf("check: %v", err)
+			}
+			if checked.Changed != tt.wantChanged {
+				t.Errorf("check Changed = %v, want %v", checked.Changed, tt.wantChanged)
+			}
+			if got := h.invocations(t); strings.Join(got, ",") != "show" {
+				t.Errorf("systemctl invocations = %v, want exactly one show: a check reads once and sends nothing", got)
+			}
+			if got := h.state(t); got != tt.state {
+				t.Errorf("the unit is %+v after the check, want it untouched at %+v", got, tt.state)
+			}
+			if _, recorded := h.rc.stats[sdk.StatInverse]; recorded {
+				t.Error("a check recorded an inverse, but it changed nothing there is to undo")
+			}
+			if got := h.rc.stats["name"]; got != "nginx" {
+				t.Errorf("stat name = %v, want nginx", got)
+			}
+			checkBefore, checkAfter := diffHalves(t, h)
+
+			// The control: the real method, from the same starting state.
+			c := newHarness(t, tt.state)
+			real, err := methodFor(t, tt.fqcn, collection.ModeExecute)(context.Background(), c.rc, c.device, c.params("nginx"))
+			if err != nil {
+				t.Fatalf("real run: %v", err)
+			}
+			if real.Changed != checked.Changed {
+				t.Errorf("the check predicted Changed = %v, but the real run reported %v", checked.Changed, real.Changed)
+			}
+			// The control has to have actually done something when it
+			// reported a change, or its after half proves nothing.
+			if real.Changed && len(c.verbs(t)) == 0 {
+				t.Fatal("the real run reported a change and sent no verb, so it cannot serve as the control")
+			}
+			realBefore, realAfter := diffHalves(t, c)
+			if !reflect.DeepEqual(checkBefore, realBefore) {
+				t.Errorf("the check recorded before %v, the real run %v", checkBefore, realBefore)
+			}
+			if !reflect.DeepEqual(checkAfter, realAfter) {
+				t.Errorf("the check predicted after %v, but the real run left %v", checkAfter, realAfter)
+			}
+		})
+	}
+}
+
+// TestCheckRefusesWhatARealRunRefuses proves a check fails on exactly the
+// units a real run refuses, with the same message, and before sending
+// anything. A dry run that predicted "would start" for a typo'd or masked
+// unit would be a clean report for a plan that fails.
+func TestCheckRefusesWhatARealRunRefuses(t *testing.T) {
+	tests := []struct {
+		fqcn  string
+		state systemdState
+	}{
+		{fqcn: "svc.systemd.start", state: absent},
+		{fqcn: "svc.systemd.stop", state: absent},
+		{fqcn: "svc.systemd.restart", state: absent},
+		{fqcn: "svc.systemd.enable", state: absent},
+		{fqcn: "svc.systemd.disable", state: absent},
+		{fqcn: "svc.systemd.start", state: masked},
+		{fqcn: "svc.systemd.restart", state: masked},
+		{fqcn: "svc.systemd.enable", state: masked},
+		{fqcn: "svc.systemd.enable", state: static},
+		{fqcn: "svc.systemd.disable", state: static},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fqcn+" on "+tt.state.load+"/"+tt.state.unitFile, func(t *testing.T) {
+			h := newHarness(t, tt.state)
+			_, checkErr := methodFor(t, tt.fqcn, collection.ModeCheck)(context.Background(), h.rc, h.device, h.params("nginx"))
+			if checkErr == nil {
+				t.Fatal("the check predicted success for a unit a real run refuses")
+			}
+			if verbs := h.verbs(t); len(verbs) != 0 {
+				t.Errorf("systemctl verbs sent = %v, want none", verbs)
+			}
+
+			c := newHarness(t, tt.state)
+			_, realErr := methodFor(t, tt.fqcn, collection.ModeExecute)(context.Background(), c.rc, c.device, c.params("nginx"))
+			if realErr == nil {
+				t.Fatal("the real run did not refuse, so this case is not testing a refusal")
+			}
+			if checkErr.Error() != realErr.Error() {
+				t.Errorf("check refused with %q, the real run with %q: the same refusal must read the same", checkErr, realErr)
+			}
+		})
+	}
+}
+
+// TestCheckMissingNameIsRefused proves an authoring mistake fails a check
+// the same way it fails a real run.
+func TestCheckMissingNameIsRefused(t *testing.T) {
+	h := newHarness(t, runningEnabled)
+
+	_, err := methodFor(t, "svc.systemd.start", collection.ModeCheck)(context.Background(), h.rc, h.device,
+		map[string]any{"insecure_skip_host_key_verify": true})
+	if err == nil {
+		t.Fatal("expected a refusal when name is missing")
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error = %v, want it to name the missing parameter", err)
+	}
+	if got := h.invocations(t); len(got) != 0 {
+		t.Errorf("systemctl invocations = %v, want none: the refusal comes before anything is read", got)
+	}
+}
+
+// TestCheckDaemonReload covers the check of the one method that is not
+// unit-shaped. It predicts the change the real run always reports, sends
+// nothing, records nothing, and still connects: a dry run against a
+// device that cannot be reached fails rather than predicting a reload
+// that could never be sent.
+func TestCheckDaemonReload(t *testing.T) {
+	params := map[string]any{"insecure_skip_host_key_verify": true}
+	check := methodFor(t, "svc.systemd.daemon_reload", collection.ModeCheck)
+
+	h := newHarness(t, runningEnabled)
+	result, err := check(context.Background(), h.rc, h.device, params)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if !result.Changed {
+		t.Error("check Changed = false, but a real daemon_reload always reports a change")
+	}
+	if got := h.invocations(t); len(got) != 0 {
+		t.Errorf("systemctl invocations = %v, want none", got)
+	}
+	if len(h.rc.stats) != 0 {
+		t.Errorf("the check recorded %v, but a real daemon_reload records nothing", h.rc.stats)
+	}
+
+	// A device with no SSH transport at all: the connect is what fails.
+	unreachable := &inventorytest.Stub{StubName: "nowhere", Caps: []capability.Name{capability.NameSystemd}}
+	if _, err := check(context.Background(), h.rc, unreachable, params); err == nil {
+		t.Error("a check against an unreachable device predicted a reload rather than failing")
 	}
 }
 

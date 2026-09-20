@@ -596,7 +596,7 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 		},
 		Sections: []view.Section{
 			surveySection(store, dispatcher.AllowsProgramContent()),
-			schedulesSection(schedules),
+			schedulesSection(store, schedules),
 			accessSection(store, bindings),
 			notificationsSection(),
 			jobsSection(jobs),

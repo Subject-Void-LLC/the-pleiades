@@ -6,7 +6,7 @@ status: beta
 
 Saves a Cisco IOS device's running configuration to startup.
 
-Runs IOS's "write memory", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS "% ..." error rather than reporting a save that did not happen.
+Runs IOS's "write memory", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS "% ..." error rather than reporting a save that did not happen. A check opens the session a real run opens and predicts the change, since a save always reports one, without sending write memory.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Runs IOS's "write memory", copying running-config over startup-config so the cur
 | Capabilities | `CiscoIOSCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -123,6 +123,20 @@ func (_c *JobTaskCreate) SetNillableFinishedAt(v *time.Time) *JobTaskCreate {
 	return _c
 }
 
+// SetUnchecked sets the "unchecked" field.
+func (_c *JobTaskCreate) SetUnchecked(v int) *JobTaskCreate {
+	_c.mutation.SetUnchecked(v)
+	return _c
+}
+
+// SetNillableUnchecked sets the "unchecked" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableUnchecked(v *int) *JobTaskCreate {
+	if v != nil {
+		_c.SetUnchecked(*v)
+	}
+	return _c
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_c *JobTaskCreate) SetJobID(id int) *JobTaskCreate {
 	_c.mutation.SetJobID(id)
@@ -177,6 +191,10 @@ func (_c *JobTaskCreate) defaults() {
 		v := jobtask.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Unchecked(); !ok {
+		v := jobtask.DefaultUnchecked
+		_c.mutation.SetUnchecked(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -214,6 +232,14 @@ func (_c *JobTaskCreate) check() error {
 	if v, ok := _c.mutation.Result(); ok {
 		if err := jobtask.ResultValidator(v); err != nil {
 			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Unchecked(); !ok {
+		return &ValidationError{Name: "unchecked", err: errors.New(`ent: missing required field "JobTask.unchecked"`)}
+	}
+	if v, ok := _c.mutation.Unchecked(); ok {
+		if err := jobtask.UncheckedValidator(v); err != nil {
+			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
 		}
 	}
 	if len(_c.mutation.JobIDs()) == 0 {
@@ -280,6 +306,10 @@ func (_c *JobTaskCreate) createSpec() (*JobTask, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FinishedAt(); ok {
 		_spec.SetField(jobtask.FieldFinishedAt, field.TypeTime, value)
 		_node.FinishedAt = value
+	}
+	if value, ok := _c.mutation.Unchecked(); ok {
+		_spec.SetField(jobtask.FieldUnchecked, field.TypeInt, value)
+		_node.Unchecked = value
 	}
 	if nodes := _c.mutation.JobIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

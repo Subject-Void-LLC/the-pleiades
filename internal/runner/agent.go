@@ -23,7 +23,7 @@ import (
 // DeviceName field one of the two duplicates populated from the wrong
 // accessor) this move exists to make impossible to repeat.
 type ExecutionAdapter interface {
-	Execute(ctx context.Context, payload wire.DispatchPayload) error
+	Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error)
 }
 
 // Agent is the executor node that pulls jobs from NATS and runs them.

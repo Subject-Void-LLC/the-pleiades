@@ -180,6 +180,9 @@ func init() {
 					"exactly the state it would have been in had the task never run. There is nothing to undo, and an inverse that waited again " +
 					"would be work the forward run never did.",
 			},
+			// Only reads, and still not checkable: see NoCheckReason.
+			NoCheckReason: "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out " +
+				"its timeout and fail where the real run succeeds",
 			Doc: portDoc(),
 		},
 		Invoke: Port,

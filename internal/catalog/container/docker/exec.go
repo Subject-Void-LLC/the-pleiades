@@ -58,6 +58,8 @@ func init() {
 				Notes: "An arbitrary command's effect inside a container is unknown to this platform, the same " +
 					"reasoning exec.command and exec.shell already record for the identical shape over SSH.",
 			},
+			NoCheckReason: "a command run inside a container can change anything the container can reach, and what it " +
+				"changes is known only once it has run; this method has no creates or removes guard for a check to read",
 			Doc: execDoc(),
 		},
 		Invoke: Exec,

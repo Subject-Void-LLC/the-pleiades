@@ -74,6 +74,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the path before it writes, so a check can predict
+			// through the same code (CheckTouch).
+			SupportsCheck: true,
 			// True, but only in part, which is the honest answer here and
 			// the reason Notes says what it says. One thing this method
 			// changes on every single run, the modification time, cannot
@@ -91,6 +94,7 @@ func init() {
 			Doc: touchDoc(),
 		},
 		Invoke: Touch,
+		Check:  CheckTouch,
 	})
 }
 
@@ -170,6 +174,22 @@ func touchDoc() collection.Doc {
 // nothing at all. An inverse that removed the file in both cases would
 // delete something the run never created. See touchRecordInverse.
 func Touch(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return touch(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckTouch is file.touch's check: the same reads and the same refusals
+// as Touch, through the one body both share, then a prediction instead of
+// the write. A touch always changes the file (it moves the modification
+// time even when nothing else differs), so a check always predicts a
+// change, and its diff's After half is remotefile.PredictTouch: a new
+// empty file, or the existing one with the requested attributes and a
+// modification time only the device can decide.
+func CheckTouch(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return touch(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// touch is Touch's and CheckTouch's one body; mode says which.
+func touch(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.touch"
 
 	// Refused before connecting, so a runbook typo costs no round trip and
@@ -207,6 +227,18 @@ func Touch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, fmt.Errorf(
 			"%s: %s exists and is not a regular file (%s): refusing to touch it, since replacing whatever is there is not what this method does",
 			fqcn, path, before.Kind)
+	}
+
+	if mode == collection.ModeCheck {
+		// Everything a real run records except the undo instruction, which
+		// a check never records: nothing was done.
+		if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: remotefile.PredictTouch(want, before).Map()}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := recordTouch(rc, path, !before.Exists()); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	if err := remotefile.Touch(ctx, conn, path); err != nil {

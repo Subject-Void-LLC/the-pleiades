@@ -148,6 +148,10 @@ func (a Attributes) Empty() bool { return a.Mode == "" && a.Owner == "" && a.Gro
 // is what keeps a converged run from reporting a change. chmod and chown
 // both succeed on a no-op, so an unconditional apply is invisible on the
 // device and very visible in a run report that says changed forever.
+//
+// The comparison is Differs and its two helpers, the same functions a
+// check calls to predict what this would do (see predict.go), so a dry
+// run and a real run cannot reach different answers about the same path.
 func Apply(ctx context.Context, conn *remoteexec.Conn, filePath string, want Attributes, before Info) (bool, error) {
 	quoted := remoteexec.QuoteArg(filePath)
 	var changed bool
@@ -166,50 +170,57 @@ func Apply(ctx context.Context, conn *remoteexec.Conn, filePath string, want Att
 	// are unaffected, since the kernel skips the bit-clearing for them,
 	// which is why this was invisible in the directory method and visible
 	// in the ones that touch regular files.
-	switch {
-	case want.Owner != "" && want.Group != "":
-		// One chown for both, because two calls would leave the file owned
-		// by the new user and the old group if the second failed. The colon
-		// form is POSIX.
-		if want.Owner != before.Owner || want.Group != before.Group {
-			spec := want.Owner + ":" + want.Group
-			if err := run(ctx, conn, "chown "+remoteexec.QuoteArg(spec)+" "+quoted, "chown "+filePath); err != nil {
-				return changed, err
-			}
-			changed = true
+	ownershipChanged := ownershipDiffers(want, before)
+	if ownershipChanged {
+		cmd, what := ownershipCommand(want, quoted, filePath)
+		if err := run(ctx, conn, cmd, what); err != nil {
+			return changed, err
 		}
-	case want.Owner != "":
-		if want.Owner != before.Owner {
-			if err := run(ctx, conn, "chown "+remoteexec.QuoteArg(want.Owner)+" "+quoted, "chown "+filePath); err != nil {
-				return changed, err
-			}
-			changed = true
-		}
-	case want.Group != "":
-		if want.Group != before.Group {
-			if err := run(ctx, conn, "chgrp "+remoteexec.QuoteArg(want.Group)+" "+quoted, "chgrp "+filePath); err != nil {
-				return changed, err
-			}
-			changed = true
-		}
+		changed = true
 	}
 
 	// The mode is applied last, so a special bit survives the ownership
 	// change above.
 	//
-	// The comparison is against the mode found BEFORE any of this ran,
-	// which is correct even though a chown may have just cleared a bit:
-	// clearing it makes the device differ from what was requested, and the
-	// chmod below is what puts it back. Comparing against a re-read would
-	// reach the same conclusion at the cost of a round trip.
-	if want.Mode != "" && NormalizeMode(want.Mode) != before.Mode {
-		if err := run(ctx, conn, "chmod "+remoteexec.QuoteArg(want.Mode)+" "+quoted, "chmod "+filePath); err != nil {
+	// The comparison is against the mode found BEFORE any of this ran. On
+	// its own that misses one case, and an earlier version of this
+	// function missed it: a regular file already carrying the 2755 a task
+	// asks for, whose group the same task changes. The chgrp clears the
+	// setgid bit, the mode still compares equal to what was found, no
+	// chmod is sent, and the task reports success leaving 0755 behind
+	// (reproduced on a real shell, and pinned by a case of
+	// TestPrediction_MatchesWhatApplyDoes). So when the
+	// ownership changed and the requested mode carries a bit the change
+	// could have cleared, the mode is sent again whatever it compared as.
+	// The run has already changed something, so the extra chmod never
+	// turns a converged run into a changed one.
+	if want.Mode != "" && (modeDiffers(want, before) || (ownershipChanged && ownershipChangeClearsMode(before, want.Mode))) {
+		if err := run(ctx, conn, "chmod "+remoteexec.QuoteArg(chmodArgument(want.Mode))+" "+quoted, "chmod "+filePath); err != nil {
 			return changed, err
 		}
 		changed = true
 	}
 
 	return changed, nil
+}
+
+// ownershipCommand builds the one command that changes whichever of owner
+// and group want names, and the short description an error reports it by.
+//
+// Both named means one chown for both, because two calls would leave the
+// file owned by the new user and the old group if the second failed. The
+// colon form is POSIX. Only the owner named is a plain chown, and only the
+// group is chgrp. The caller has already decided a change is needed, so
+// want names at least one of them.
+func ownershipCommand(want Attributes, quotedPath, filePath string) (cmd, what string) {
+	switch {
+	case want.Owner != "" && want.Group != "":
+		return "chown " + remoteexec.QuoteArg(want.Owner+":"+want.Group) + " " + quotedPath, "chown " + filePath
+	case want.Owner != "":
+		return "chown " + remoteexec.QuoteArg(want.Owner) + " " + quotedPath, "chown " + filePath
+	default:
+		return "chgrp " + remoteexec.QuoteArg(want.Group) + " " + quotedPath, "chgrp " + filePath
+	}
 }
 
 // Remove deletes the path, recursively when it is a directory, and

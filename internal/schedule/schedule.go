@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule/rrule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule/zoneinfo"
 )
@@ -128,9 +129,18 @@ const (
 	// succeed. The schedule stays enabled: the next occurrence is a fresh
 	// attempt, because the usual cause is transient.
 	ReasonLaunchFailed = "launch_failed"
+
+	// ReasonAlreadyRunning is an occurrence whose target was already running
+	// when it fired: a project mid-sync. It is a skip rather than a failure,
+	// and the distinction is not cosmetic. A failure would be retried and
+	// would keep failing for as long as the run it collided with lasts, so a
+	// long sync would produce a string of failures; a skip advances the
+	// schedule and lets the next occurrence try, which is what somebody
+	// asking for an hourly sync actually wants.
+	ReasonAlreadyRunning = "already_running"
 )
 
-// Schedule is a recurrence attached to a template.
+// Schedule is a recurrence attached to something launchable.
 //
 // Times are UTC on this struct without exception, including DTStart, and
 // Timezone is what gives them meaning rather than what they are stored in.
@@ -147,9 +157,18 @@ type Schedule struct {
 	// OrganizationID is the tenancy boundary. Every read is filtered by it.
 	OrganizationID int
 
-	// TemplateID is what this launches. The template carries the kind, so
-	// this one field is how a schedule reaches every launchable kind.
-	TemplateID int
+	// LaunchableID is what this launches: a row in the launchables table,
+	// which stands for a job template, a project whose run is a sync, or any
+	// later sort of launchable thing (internal/launchable). One field, one
+	// foreign key, and no knowledge here of which sort it is.
+	LaunchableID int
+
+	// Launchable is that row's own facts, filled by the store on every read
+	// and ignored on a write: what it is called, what sort of thing it is and
+	// whose it is. It is here so a listing can render "nightly backup
+	// (Project sync)" without a second query per row, the same reason
+	// launch.Template carries its organization's name.
+	Launchable launchable.Target
 
 	// SavedConfigID is the saved launch-override bundle to run with, or
 	// zero for the template's own defaults.
@@ -196,8 +215,18 @@ type Occurrence struct {
 	Outcome         Outcome
 	Reason          string
 	SuppressedCount int
-	JobID           string
-	CreatedAt       time.Time
+
+	// JobID is what this occurrence started, in the vocabulary of whatever it
+	// launched: a job's own job id, or a project sync attempt's id. Empty
+	// unless the outcome is fired.
+	JobID string
+
+	// UnifiedJobType says which sort of run JobID names, since the two are
+	// looked up in different places. Empty on an occurrence recorded before
+	// anything but a job could be fired, which reads as a job.
+	UnifiedJobType launchable.UnifiedJobType
+
+	CreatedAt time.Time
 }
 
 // Location resolves the schedule's zone through the allowlist.
@@ -223,8 +252,8 @@ func (s Schedule) Validate() error {
 	if strings.TrimSpace(s.Name) == "" {
 		return FieldError{Field: "name", Message: "A schedule needs a name."}
 	}
-	if s.TemplateID == 0 {
-		return FieldError{Field: "template", Message: "Choose what this schedule runs."}
+	if s.LaunchableID == 0 {
+		return FieldError{Field: TargetField, Message: "Choose what this schedule runs."}
 	}
 	if s.DTStart.IsZero() {
 		return FieldError{Field: "dtstart", Message: "A schedule needs a start date and time."}
@@ -390,10 +419,17 @@ const AnyOrganization = 0
 type Store interface {
 	// Create persists a new schedule and returns it with its assigned ids
 	// and computed NextRun. It validates first and refuses an invalid one.
-	Create(ctx context.Context, s Schedule) (Schedule, error)
+	//
+	// reach is the writing caller's own: what they may launch, and in which
+	// organization. It is a parameter rather than something the store reads
+	// from a context because the check it drives is an authorization
+	// decision, and a store that derived it silently would be a store whose
+	// callers could not tell whether it had been made (see admit.go).
+	Create(ctx context.Context, s Schedule, reach launchable.Reach) (Schedule, error)
 
-	// Update replaces a schedule's mutable fields and recomputes NextRun.
-	Update(ctx context.Context, s Schedule) (Schedule, error)
+	// Update replaces a schedule's mutable fields and recomputes NextRun,
+	// re-admitting whatever it now points at under reach.
+	Update(ctx context.Context, s Schedule, reach launchable.Reach) (Schedule, error)
 
 	// Get returns one schedule by its opaque id, scoped to an
 	// organization. A schedule in another tenant reads as ErrNotFound
@@ -425,8 +461,10 @@ type Store interface {
 	// both read "unclaimed" would both proceed.
 	ClaimOccurrence(ctx context.Context, scheduleID string, occurrenceAt time.Time) (Occurrence, error)
 
-	// ResolveOccurrence records what happened to a claimed occurrence.
-	ResolveOccurrence(ctx context.Context, occurrenceID int, outcome Outcome, reason, jobID string) error
+	// ResolveOccurrence records what happened to a claimed occurrence: the
+	// outcome, a reason when it was skipped, and what it started when it
+	// fired.
+	ResolveOccurrence(ctx context.Context, occurrenceID int, outcome Outcome, reason string, launched launchable.Launched) error
 
 	// RecordSkip writes a skipped occurrence directly, for one that was
 	// never claimed because it was never going to run.

@@ -347,3 +347,34 @@ func TestHostKeyCallback_EnvironmentPathStillFailsClosed(t *testing.T) {
 		t.Errorf("error = %v, want it to name %q", err, missing)
 	}
 }
+
+// TestKnownHostsFile_MatchesWhatAConnectionUses proves KnownHostsFile gives
+// the same answer a connection with no explicit path resolves: the
+// environment variable when it is set, and the home directory's file when
+// it is not. internal/loader relies on the two never disagreeing.
+func TestKnownHostsFile_MatchesWhatAConnectionUses(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	t.Setenv(KnownHostsEnv, "")
+	got, err := KnownHostsFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".ssh", "known_hosts"); got != want {
+		t.Errorf("with %s unset, KnownHostsFile() = %q, want %q", KnownHostsEnv, got, want)
+	}
+
+	fromEnv := filepath.Join(t.TempDir(), "deployment_known_hosts")
+	t.Setenv(KnownHostsEnv, fromEnv)
+	got, err = KnownHostsFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fromEnv {
+		t.Errorf("with %s set, KnownHostsFile() = %q, want %q", KnownHostsEnv, got, fromEnv)
+	}
+	if resolved, _ := knownHostsPath(Options{}); resolved != got {
+		t.Errorf("KnownHostsFile() = %q but a connection with no explicit path resolves %q", got, resolved)
+	}
+}

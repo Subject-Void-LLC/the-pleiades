@@ -15,6 +15,7 @@ Makes sure a package is removed, without caring which package manager the device
 | Capabilities | `PackageManagerCapable` |
 | Transports | - |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

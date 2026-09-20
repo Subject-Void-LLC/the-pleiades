@@ -61,6 +61,8 @@ const (
 	FieldExtraVars = "extra_vars"
 	// FieldCredentialIds holds the string denoting the credential_ids field in the database.
 	FieldCredentialIds = "credential_ids"
+	// FieldExternalChecks holds the string denoting the external_checks field in the database.
+	FieldExternalChecks = "external_checks"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -100,6 +102,7 @@ var Columns = []string{
 	FieldFields,
 	FieldExtraVars,
 	FieldCredentialIds,
+	FieldExternalChecks,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -135,6 +138,8 @@ var (
 	DefaultFailedCount int
 	// DefaultFence holds the default value on creation for the "fence" field.
 	DefaultFence int64
+	// DefaultExternalChecks holds the default value on creation for the "external_checks" field.
+	DefaultExternalChecks bool
 )
 
 // State defines the type for the "state" enum field.
@@ -273,6 +278,11 @@ func ByCanceledBy(opts ...sql.OrderTermOption) OrderOption {
 // ByFence orders the results by the fence field.
 func ByFence(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFence, opts...).ToFunc()
+}
+
+// ByExternalChecks orders the results by the external_checks field.
+func ByExternalChecks(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldExternalChecks, opts...).ToFunc()
 }
 
 // ByTasksCount orders the results by tasks count.

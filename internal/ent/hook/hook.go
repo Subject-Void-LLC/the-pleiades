@@ -177,6 +177,18 @@ func (f JournalEntryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.JournalEntryMutation", m)
 }
 
+// The LaunchableFunc type is an adapter to allow the use of ordinary
+// function as Launchable mutator.
+type LaunchableFunc func(context.Context, *ent.LaunchableMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f LaunchableFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.LaunchableMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.LaunchableMutation", m)
+}
+
 // The LocalCredentialFunc type is an adapter to allow the use of ordinary
 // function as LocalCredential mutator.
 type LocalCredentialFunc func(context.Context, *ent.LocalCredentialMutation) (ent.Value, error)

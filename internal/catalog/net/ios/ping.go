@@ -35,6 +35,8 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Read-only: it sends one exec-mode ping, built from parameters refused if they hold whitespace, and never enters configuration mode, so a check runs it for real.
+			SupportsCheck: true,
 			// A ping sends ICMP echoes and reads the replies. It
 			// changes nothing on the device, so there is nothing an
 			// inverse could undo.
@@ -67,6 +69,8 @@ func init() {
 			},
 		},
 		Invoke: Ping,
+		// Ping itself, since it only reads.
+		Check: Ping,
 	})
 }
 

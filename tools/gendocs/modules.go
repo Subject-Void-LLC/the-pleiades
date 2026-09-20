@@ -43,7 +43,7 @@ func generateModules(outDir string) error {
 		ns := strings.SplitN(cfg.Name, ".", 2)[0]
 		byNamespace[ns] = append(byNamespace[ns], cfg.Name)
 
-		if err := writeModulePage(modulesDir, cfg.Name, desc.Manifest); err != nil {
+		if err := writeModulePage(modulesDir, cfg.Name, desc.Manifest, desc.CheckCall != nil); err != nil {
 			return err
 		}
 	}
@@ -63,7 +63,11 @@ func generateModules(outDir string) error {
 // there is no real behavior yet for Parameters, Returns, or Examples to
 // describe, and fabricating any of them would be exactly the kind of
 // aspirational documentation this whole generator exists to replace.
-func writeModulePage(modulesDir, fqcn string, m collection.Manifest) error {
+//
+// someCalls is true for a method whose check covers only some calls
+// (Descriptor.CheckCall), which the Attributes table says rather than a
+// flat "Supported".
+func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls bool) error {
 	segments := strings.Split(fqcn, ".")
 	dir := filepath.Join(append([]string{modulesDir}, segments[:len(segments)-1]...)...)
 	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- generated docs, not secret material
@@ -105,6 +109,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest) error {
 		{"Capabilities", quoteList(capNames)},
 		{"Transports", quoteList(m.SupportedTransports)},
 		{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
+		{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)},
 		{"Engine version", code(m.EngineVersion)},
 	}))
 	b.WriteString("\n")
@@ -206,6 +211,31 @@ func writeReversibility(b *strings.Builder, r collection.Reversibility) {
 	b.WriteString("Note that no rollback engine reads this yet. What exists today is the recording, " +
 		"which has to happen during the forward run because the values an undo needs are gone once the " +
 		"change is applied.\n\n")
+}
+
+// checkModeSupport renders a method's answer to `pleiades run --mode
+// check`. It says what happens either way rather than a bare yes or no,
+// because the "no" case has a consequence a reader planning a dry run
+// needs to know: the task is named as unchecked and the check ends
+// non-zero, rather than being skipped quietly. A method that can check
+// only some calls says so, since its description is where the reader
+// learns which.
+//
+// noCheckReason, a method's own account of why it cannot be checked, is
+// appended to the "no" answer when the method gives one.
+func checkModeSupport(supported, someCalls bool, noCheckReason string) string {
+	switch {
+	case supported && someCalls:
+		return "Supported for some calls, named in the description: those report what they would change " +
+			"and change nothing, a check run names any other as unchecked, and validation refuses " +
+			"check_mode on one"
+	case supported:
+		return "Supported: reports what it would change and changes nothing"
+	}
+	if noCheckReason != "" {
+		return "Not supported: a check run names this task as unchecked, since " + noCheckReason
+	}
+	return "Not supported: a check run names this task as unchecked"
 }
 
 func writeExamples(b *strings.Builder, doc collection.Doc) {

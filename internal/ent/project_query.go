@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
@@ -31,6 +32,7 @@ type ProjectQuery struct {
 	withCredential   *CredentialQuery
 	withTemplates    *TemplateQuery
 	withSyncRuns     *SyncRunQuery
+	withLaunchable   *LaunchableQuery
 	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -149,6 +151,28 @@ func (_q *ProjectQuery) QuerySyncRuns() *SyncRunQuery {
 			sqlgraph.From(project.Table, project.FieldID, selector),
 			sqlgraph.To(syncrun.Table, syncrun.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.SyncRunsTable, project.SyncRunsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryLaunchable chains the current query on the "launchable" edge.
+func (_q *ProjectQuery) QueryLaunchable() *LaunchableQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, selector),
+			sqlgraph.To(launchable.Table, launchable.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, project.LaunchableTable, project.LaunchableColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -352,6 +376,7 @@ func (_q *ProjectQuery) Clone() *ProjectQuery {
 		withCredential:   _q.withCredential.Clone(),
 		withTemplates:    _q.withTemplates.Clone(),
 		withSyncRuns:     _q.withSyncRuns.Clone(),
+		withLaunchable:   _q.withLaunchable.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -399,6 +424,17 @@ func (_q *ProjectQuery) WithSyncRuns(opts ...func(*SyncRunQuery)) *ProjectQuery 
 		opt(query)
 	}
 	_q.withSyncRuns = query
+	return _q
+}
+
+// WithLaunchable tells the query-builder to eager-load the nodes that are connected to
+// the "launchable" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithLaunchable(opts ...func(*LaunchableQuery)) *ProjectQuery {
+	query := (&LaunchableClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withLaunchable = query
 	return _q
 }
 
@@ -481,11 +517,12 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		nodes       = []*Project{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
 			_q.withOrganization != nil,
 			_q.withCredential != nil,
 			_q.withTemplates != nil,
 			_q.withSyncRuns != nil,
+			_q.withLaunchable != nil,
 		}
 	)
 	if _q.withOrganization != nil || _q.withCredential != nil {
@@ -535,6 +572,12 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		if err := _q.loadSyncRuns(ctx, query, nodes,
 			func(n *Project) { n.Edges.SyncRuns = []*SyncRun{} },
 			func(n *Project, e *SyncRun) { n.Edges.SyncRuns = append(n.Edges.SyncRuns, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withLaunchable; query != nil {
+		if err := _q.loadLaunchable(ctx, query, nodes, nil,
+			func(n *Project, e *Launchable) { n.Edges.Launchable = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -662,6 +705,34 @@ func (_q *ProjectQuery) loadSyncRuns(ctx context.Context, query *SyncRunQuery, n
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "project_sync_runs" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ProjectQuery) loadLaunchable(ctx context.Context, query *LaunchableQuery, nodes []*Project, init func(*Project), assign func(*Project, *Launchable)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Project)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	query.withFKs = true
+	query.Where(predicate.Launchable(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(project.LaunchableColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.project_launchable
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "project_launchable" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "project_launchable" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

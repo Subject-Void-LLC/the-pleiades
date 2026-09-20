@@ -13,9 +13,10 @@
       "reversible": true,
       "notes": "A run that created an absent archive emits a file.remove naming it, which is a real, restorable inverse for the archive itself. A run that found the archive already present emits nothing. What no inverse here can restore is whatever remove=true deleted once the archive was written: those source paths are gone, and the archive holding their bytes is exactly what the inverse would just have deleted."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Creates an archive (tar or tar.gz) from files on the target.",
-      "description": "Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it.",
+      "description": "Creates path as a tar archive of src, entirely from files already on the target -- this is community.general.archive without a zip option. Idempotency here is existence-only: a run finding path already there reports no change and reads none of src, the same way file.copy's checksum comparison decides on bytes rather than a name but simpler still, since this does not even open the archive to compare. remove, when true, deletes src once the archive has been written; the archive itself is not touched a second time to verify it. A check reads what a real run reads and runs no tar. A src, or the directory the archive would go in, that is missing when a check runs makes the call unchecked rather than failed, since an earlier task in the same run may be what creates it.",
       "params": [
         {
           "name": "path",
@@ -96,9 +97,10 @@
       "reversible": false,
       "notes": "Extracting an archive can create any number of files and directories under dest, and this method does not enumerate them as it goes. A safe inverse would have to delete exactly what was created and nothing dest already held, which needs that enumeration; without it, the only honest choices are refusing to record an inverse or recording one that might delete more than this run added. This method refuses, the same call pkg.upgrade makes for an installed build a repository may no longer offer."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Extracts an archive (tar or tar.gz) on the target.",
-      "description": "Extracts src into dest, where src is an archive already present on the target -- this is community.general.unarchive with remote_src implied true always; nothing in this platform can transfer a file from wherever a runbook runs to the target (file.copy explicitly refuses that too), so a src living anywhere else is out of scope. Compression is auto-detected by tar itself, so there is no format parameter here the way archive.create has one. Idempotency is opt-in: naming creates skips extraction when that path is already there, and naming none means every run extracts again, the same honesty exec.command already has for a command with no built-in idempotency of its own.",
+      "description": "Extracts src into dest, where src is an archive already present on the target -- this is community.general.unarchive with remote_src implied true always; nothing in this platform can transfer a file from wherever a runbook runs to the target (file.copy explicitly refuses that too), so a src living anywhere else is out of scope. Compression is auto-detected by tar itself, so there is no format parameter here the way archive.create has one. Idempotency is opt-in: naming creates skips extraction when that path is already there, and naming none means every run extracts again, the same honesty exec.command already has for a command with no built-in idempotency of its own. A check reads what a real run reads and extracts nothing. A src missing when a check runs, or a dest that is there but is not a directory, makes the call unchecked rather than failed, since an earlier task in the same run may be what fixes it.",
       "params": [
         {
           "name": "src",
@@ -170,9 +172,10 @@
       "reversible": true,
       "notes": "A run that launched a fresh instance (name did not already exist among non-terminated instances) emits a cloud.aws.ec2.terminate naming the launched instance_id. A run that found an existing match emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing instance's image or type against what was requested."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Launches an EC2 instance via the AWS API.",
-      "description": "Makes sure an instance tagged Name=name exists among the account/region's non-terminated instances, launching one from image_id if none does. This is a narrow slice of amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of a matching instance's configuration against what was requested. An instance already present under that name is left exactly as it is, regardless of whether its image or instance type match; this method never recreates. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport.",
+      "description": "Makes sure an instance tagged Name=name exists among the account/region's non-terminated instances, launching one from image_id if none does. This is a narrow slice of amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of a matching instance's configuration against what was requested. An instance already present under that name is left exactly as it is, regardless of whether its image or instance type match; this method never recreates. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport. A check looks the name up and, when nothing matches, predicts a launch without sending RunInstances, not even as a dry run; it leaves the instance ID and state out, since AWS assigns both.",
       "params": [
         {
           "name": "name",
@@ -235,6 +238,7 @@
       "reversible": false,
       "notes": "A terminated instance's storage (unless an EBS volume was explicitly detached beforehand, which this method does not do) and identity are gone; there is nothing a cloud.aws.ec2.create could restore."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Terminates an EC2 instance via the AWS API.",
       "description": "Terminates the instance named by instance_id. A no-op if AWS has no record of that id at all, or if it is already terminated. Unlike cloud.aws.ec2.create, this takes an exact instance_id rather than a Name-tag lookup: terminating by a fuzzy match is a worse default than requiring the exact resource for a destructive action.",
@@ -282,6 +286,7 @@
       "reversible": true,
       "notes": "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Creates an S3 bucket via the AWS API.",
       "description": "Makes sure bucket exists in the account/region, creating it if it does not. Idempotent on existence alone: this method has no bucket configuration surface (versioning, encryption, policy) to compare or converge, the same restraint every other narrowly-scoped method in this catalog applies against its own upstream's larger surface. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport.",
@@ -335,9 +340,10 @@
       "reversible": false,
       "notes": "Bucket names are globally unique across all of AWS, so a bucket this task just deleted may be claimed by an unrelated account before any inverse would run; there is no safe cloud.aws.s3.create_bucket to record."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Deletes an S3 bucket via the AWS API.",
-      "description": "Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the safety rail, not an error this method routes around.",
+      "description": "Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the safety rail, not an error this method routes around. A check reads the bucket and whether it holds anything, deleting nothing; one that holds objects makes the call unchecked rather than failed, since an earlier task in the same run may be what empties it.",
       "params": [
         {
           "name": "bucket",
@@ -385,6 +391,8 @@
       "reversible": false,
       "notes": "An arbitrary command's effect inside a container is unknown to this platform, the same reasoning exec.command and exec.shell already record for the identical shape over SSH."
     },
+    "supportsCheck": false,
+    "noCheckReason": "a command run inside a container can change anything the container can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read",
     "doc": {
       "summary": "Runs one command inside a running Docker container, reached directly through the daemon socket.",
       "description": "Runs cmd inside the container named name, through /bin/sh -c on the daemon's own exec endpoints (pkg/dockerexec), never over SSH. The container must already be running; this method does not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
@@ -458,9 +466,10 @@
       "reversible": false,
       "notes": "docker inspect exposes a removed container's image and some of its configuration before deletion, but reconstructing ports, volumes, env and restart policy from that output well enough for a real container.docker.run to recreate it is parsing this pass does not take on. A partial inverse that silently dropped that configuration would be worse than refusing to record one, the same call pkg.upgrade makes for a package version a repository may no longer offer."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a Docker container from the target.",
-      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device.",
+      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it.",
       "params": [
         {
           "name": "name",
@@ -527,6 +536,7 @@
       "reversible": true,
       "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Runs a Docker container on the target.",
       "description": "Makes sure a container named name is running, starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to.",
@@ -617,6 +627,7 @@
       "reversible": false,
       "notes": "This catalog declares no container.docker.start, and recording container.docker.run as this method's inverse would be dishonest: run's own idempotency means it would just no-op against the existing name rather than actually restart the container this stopped. The container's own state is still recorded under diff, so a rollback reaching this task can see it was running before and decide for itself, but this method emits no instruction because none would be true."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a running Docker container on the target.",
       "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device.",
@@ -674,9 +685,10 @@
       "reversible": false,
       "notes": "An arbitrary command's effect is unknown to this platform, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Runs one command directly, with no shell involved.",
-      "description": "Runs a single command on the target over SSH and reports its exit status, stdout and stderr. No shell interprets the command: a semicolon, pipe or dollar sign in an argument is passed through as text, so this cannot chain commands, expand a variable or redirect output. Use exec.shell when those are what you want. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like, and a run they short-circuit reports no change.",
+      "description": "Runs a single command on the target over SSH and reports its exit status, stdout and stderr. No shell interprets the command: a semicolon, pipe or dollar sign in an argument is passed through as text, so this cannot chain commands, expand a variable or redirect output. Use exec.shell when those are what you want. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like, and a run they short-circuit reports no change. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the command would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
       "params": [
         {
           "name": "cmd",
@@ -786,9 +798,10 @@
       "reversible": false,
       "notes": "A shell command's effect is unknown to this platform, and a pipeline or redirect can touch things the command line does not name, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Runs a command through the target's shell, so pipes and redirects work.",
-      "description": "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like.",
+      "description": "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the line would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
       "params": [
         {
           "name": "cmd",
@@ -899,6 +912,8 @@
       "reversible": false,
       "notes": "This platform cannot see what a script did, so it cannot say what would undo it. The same reasoning exec.command and exec.shell record: an arbitrary script's effect is opaque, and a guessed inverse is worse than none because a rollback would run it believing it was true. A task whose effect must be reversible should use a method that models the change it is making."
     },
+    "supportsCheck": false,
+    "noCheckReason": "a PowerShell or cmd script can change anything the account can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read",
     "doc": {
       "summary": "Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM.",
       "description": "Runs a script on a Windows host over WinRM, naming which interpreter runs it. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. Two shells are available and the task must pick one. powershell encodes the script UTF-16LE and base64 into powershell.exe -EncodedCommand, which is also what makes it safe: the base64 alphabet contains no cmd.exe metacharacter, so no script content can reach a shell as syntax. cmd runs the script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. Running a program directly with an argument vector nothing parses is refused rather than approximated, because the WS-Man option that would make it true is not settable from here. A script cannot be inspected, so this reports changed every time it runs.",
@@ -991,6 +1006,7 @@
       "reversible": false,
       "notes": "Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing on the device, and so has nothing an undo could restore."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Gathers baseline system facts from the target (OS, kernel, distribution).",
       "description": "Reads a small, fixed set of system facts over SSH and emits each one as a fact, so it is kept as drift data rather than as a value that expires at the end of the run. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
@@ -1087,6 +1103,7 @@
       "reversible": true,
       "notes": "Deleting text is usually the least reversible thing a method can do, and the markers are what make this the exception: they say exactly which lines belonged to the block, so the run that removes them captures the body and emits a file.block.set that writes it back. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so it cannot be sure which of several matching lines it took away. What this still does not restore: a block that was in the MIDDLE of a file comes back at the END, because file.block.set appends, and the emitted inverse says so in its own description when that applies. Nor does it restore a final newline added to a file that had none. A run that found no block emits nothing, because undoing a run that changed nothing means doing nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a marked, multi-line block of text from a file.",
       "description": "Takes away the region a file.block.set task left in a file, the two marker lines included, and leaves every other line alone. A file with no such markers is already in the state this asks for, so the task reports no change and writes nothing. The file must already exist, since a path that is not there is far more often a typo than a file whose block is missing; a symbolic link is refused, because writing the file back would replace the link with a regular file. Its mode, owner and group are put back after the rewrite. Markers that do not pair up (two end markers, or an end with no begin) are an error rather than a guess about which lines to delete, which matters more here than anywhere else in this namespace: the guess would be a deletion.",
@@ -1185,6 +1202,7 @@
       "reversible": true,
       "notes": "The strongest undo in the file namespace, and the markers are why: they delimit on the device the exact region this run replaced, so a run that changed a block emits an instruction restoring the previous body verbatim, and a run that added one emits a file.block.remove. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so a later edit can make that pattern match a different line and its undo cannot promise the text lands where it came from. What this still does not restore: anything outside the markers, the file's mode and owner (which this method never changes, and puts back after each rewrite), and a final newline added to a file that had none, which the emitted inverse says in its own description. A converged run emits nothing, because undoing a run that changed nothing means doing nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Ensures a marked, multi-line block of text is present in a file.",
       "description": "Keeps a region of a text file, delimited by a begin and an end marker line, exactly as the runbook declares it. The markers are what make this safe to run twice: the region carries its own boundaries on the device, so a later run replaces the text between them in place rather than appending a second copy below the first. A file with no such markers gets the block, with its markers, appended at the end. A file whose block already matches is not written at all. The file must already exist, since file.touch and file.copy are what create; a symbolic link is refused, because writing the file back would replace the link with a regular file. Its mode, owner and group are put back after every rewrite, so managing a block in a file that services read does not quietly make it private. Markers that do not pair up (two begin markers, or a begin with no end) are an error rather than a guess about where the block stops.",
@@ -1294,6 +1312,7 @@
       "reversible": true,
       "notes": "A run that created the file emits a file.remove that deletes it again, which is a complete undo. A run that OVERWROTE an existing file emits a file.permissions restoring the mode, owner and group it found, and the previous CONTENT is not restored by it: those bytes are not read before the write and are not journaled anywhere, so once the new content lands the old content is gone. The emitted instruction says so in its own description rather than leaving a rollback to discover it. A run that changed nothing emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Writes inline content to a file on the target, only when the bytes there differ.",
       "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. Only content is supported; src is refused rather than half-implemented, because src names a file beside the runbook on the controller while this method runs on the runner, which under the Walk tier is a per-task container that cannot see it. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
@@ -1423,6 +1442,7 @@
       "reversible": true,
       "notes": "A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a directory exists on the target, with the mode, owner and group the task asks for.",
       "description": "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and sets the mode, owner and group when the task names them. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
@@ -1503,6 +1523,7 @@
       "reversible": true,
       "notes": "A run that removed something emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because this can take several lines from several places and putting them back with file.line.set would pile them all at the end instead. That makes the record as large as the file. A run that found nothing to remove emits nothing, and so does a run against a file that was not there. The modification time is not restored, and file.copy itself is declared rather than implemented today."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Ensures no line matching a pattern remains in a file.",
       "description": "Makes sure no line matching a pattern remains in a text file, which is ansible.builtin.lineinfile with state: absent. The whole file is read, the surviving lines are worked out locally, and the file is written back only when the bytes really differ, so a run that finds nothing to remove sends no write at all. Every matching line goes, not only the first. A file that is not there is already in the wanted state, so the task reports no change instead of failing, which is what lets one runbook strip a setting from a fleet where not every host has the file. Three differences from Ansible are deliberate: setting both regexp and line is refused rather than silently preferring regexp, insertafter and insertbefore are refused rather than accepted and ignored, and a file that ends without a newline keeps ending without one. Patterns are Go's RE2, which has no backreferences and no lookaround; search_string, backup and validate are not implemented. Lines are split on the newline byte alone, so a file with Windows endings carries its carriage return as part of each line's text and a pattern meant to match one has to say so.",
@@ -1591,6 +1612,7 @@
       "reversible": true,
       "notes": "A run that changed the file emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because a line edit is not reliably undone by another line edit: a replacement has already thrown the old line away, and an anchored insert cannot be located again. That makes the record as large as the file. A converged run emits nothing, since undoing a change that was never made means doing nothing, and a run that fails partway emits nothing either. The modification time is not restored, and file.copy itself is declared rather than implemented today."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Ensures one line matching a pattern is present in a file, replacing or appending it.",
       "description": "Makes sure one line is present in a text file, which is ansible.builtin.lineinfile with state: present. The whole file is read, the new text is worked out locally, and the file is written back only when the bytes really differ, so a run that finds the line already in place sends no write at all. When regexp is set, the last line it matches is replaced; when it is not set, a line already exactly equal to line means the task is done. A line that has to be added goes at the end of the file unless insertafter or insertbefore names a pattern to place it against. The file has to exist already, since Ansible's create is not implemented, so file.touch or file.copy is what makes one. Two differences from Ansible are deliberate and worth knowing. A regexp that does not match the line being placed is refused, because such a task adds the line again on every single run and never settles. And a file that ends without a newline keeps ending without one, where Ansible would add it. Patterns are Go's RE2, which has no backreferences and no lookaround; backrefs, search_string, firstmatch, create, backup and validate are not implemented. Lines are split on the newline byte alone, so a file with Windows endings carries its carriage return as part of each line's text and a pattern meant to match one has to say so.",
@@ -1684,6 +1706,7 @@
       "reversible": true,
       "notes": "A run that changed something emits a file.permissions carrying the mode, owner and group the path had before, which restores it exactly. A converged run emits nothing, because undoing a change that was never made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before failing stays applied and has to be re-run rather than undone."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Sets a file's owner, group, and mode on the target.",
       "description": "Sets the mode, owner and group of a path that already exists, changing only the ones that differ from what the device reports. A path that is absent is a refusal rather than a create, since making a file exist is file.touch's job and making a directory exist is file.directory's; that keeps a typo in a path from silently producing an empty file. A symbolic link is refused too, because chmod and chown follow a link while a stat of the link reports the link itself, so such a task would change one path while comparing against another and could never report converged. At least one of mode, owner and group must be given: a task that asks for nothing is a runbook mistake, not a no-op.",
@@ -1783,6 +1806,7 @@
       "reversible": false,
       "notes": "What this removes is gone. The content is not journaled anywhere, not the bytes of a file, not the tree under a directory, not what a symbolic link pointed at, so nothing on this platform can put it back and no run of this method emits an inverse. The recorded diff still describes what was there, so a rollback can report precisely what it cannot restore, which is the honest answer. Emitting an inverse that recreated the path would be worse than emitting none: it would leave an empty file where a full one had been and call that a restore."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a file or directory from the target.",
       "description": "Ensures nothing exists at a path, which is ansible.builtin.file with state=absent. It reads the path first, so a path that is already gone reports no change and sends no removal command at all, and a symbolic link is removed as the link rather than followed to whatever it points at. It diverges from Ansible in exactly one place, deliberately: Ansible deletes a non-empty directory without being asked, and this refuses unless the task sets recurse, because a recursive delete is the most destructive thing in this namespace and should be readable in the runbook that asks for it. Nothing this method removes can be restored by this platform.",
@@ -1848,6 +1872,7 @@
       "reversible": true,
       "notes": "A run that created the link emits a file.remove naming it, which deletes the link and never what it points at. A run that found a link already there and repointed it emits a file.symlink pointing back at the target it had, because removing that link would delete something the run never created. A converged run emits nothing, since it sent no command at all."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory.",
       "description": "Makes path be a symbolic link pointing at src, which is ansible.builtin.file with state=link. It reads the path before it acts and only sends a command when the answer differs, so a run that finds the link already pointing at src reports no change and sends no ln at all. A link pointing somewhere else is repointed. A path with nothing at it gets a new link. Anything else already there, a regular file, a directory, a socket, is refused rather than replaced, because ln would delete it and this method could not put it back; Ansible's force parameter is deliberately not implemented for that reason. src does not have to exist, which is ln's own behavior: a link to a path that is not there yet is a dangling link, and creating one is a real change like any other.",
@@ -1917,6 +1942,7 @@
     "reversibility": {
       "reversible": false
     },
+    "supportsCheck": false,
     "doc": {
       "summary": "Renders a template and writes the result to the target."
     }
@@ -1935,6 +1961,7 @@
       "reversible": true,
       "notes": "A run that created the file emits a file.remove naming it. A run that found the file already there and also changed its mode, owner or group emits a file.permissions carrying the old ones, which is a partial undo: the modification time this method moves on every run is NOT restored, because no method in this catalog can set one. A run that found the file already there and only re-stamped it emits nothing at all, since the modification time is then the single thing that moved and nothing here can put it back."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Creates an empty file on the target, or updates its modification time.",
       "description": "Makes sure a regular file exists at a path, creating it empty when nothing is there and updating its modification time when it already is. This is ansible.builtin.file with state: touch, and it reports changed on every run for the same reason that module does: moving a modification time is a real change to the device, so a run that claimed otherwise would be wrong rather than tidy. The two kinds of change are told apart in the recorded diff, where a created file reads exists false then true and a re-stamped one reads true then true. Anything at the path that is not a regular file is refused rather than replaced.",
@@ -2024,9 +2051,10 @@
       "reversible": true,
       "notes": "A run that mounted an absent path emits an fs.unmount naming it, which also strips the fstab entry this run added, if any. A run that found the path already mounted and only added or updated its fstab entry emits no inverse: undoing that without also unmounting a mount this task did not create needs a capability this namespace does not expose. A run that found everything already as requested emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Mounts a filesystem on the target, and optionally persists it to fstab.",
-      "description": "Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift.",
+      "description": "Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift. A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options out of its prediction, since the kernel rewrites them.",
       "params": [
         {
           "name": "path",
@@ -2115,6 +2143,7 @@
       "reversible": true,
       "notes": "A run that unmounted a mounted path emits an fs.mount pinned to the exact src, fstype and opts this run captured before unmounting, which is a real, restorable inverse. If this run also removed the path's fstab entry, the inverse asks fs.mount to persist it again. A run that found the path already unmounted and only removed a stale fstab entry emits no inverse: undoing that without also mounting something this task did not mount needs a capability this namespace does not expose. A run that found everything already absent emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Unmounts a filesystem on the target, and optionally removes it from fstab.",
       "description": "Makes sure path is not mounted, unmounting it if it is. This is close to ansible.builtin.mount with state=unmounted, split so that removing the fstab entry (see the persist parameter) is independent of unmounting: either can happen without the other. Mount state is read from findmnt before anything is sent, so a path already unmounted reports no change from the unmount itself.",
@@ -2189,6 +2218,7 @@
       "reversible": true,
       "notes": "A run that allowed the permanent configuration, the runtime one, or both emits an fw.firewalld.deny naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already allowed emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Opens a port or service in firewalld.",
       "description": "Makes sure a port or service is allowed through firewalld in the given zone. This is close to community.general.firewalld with state=enabled, except permanent and immediate are decided independently rather than as one of firewalld's own permanent/runtime toggle: either can be true without the other. Both configurations are read before anything is sent, so a half already allowing the rule is left alone and reports no change from that half.",
@@ -2280,6 +2310,7 @@
       "reversible": true,
       "notes": "A run that removed the rule from the permanent configuration, the runtime one, or both emits an fw.firewalld.allow naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already denied emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Closes a port or service in firewalld.",
       "description": "Makes sure a port or service is not allowed through firewalld in the given zone. This is close to community.general.firewalld with state=disabled, except permanent and immediate are decided independently rather than as one of firewalld's own permanent/runtime toggle: either can be true without the other. Both configurations are read before anything is sent, so a half already denying the rule is left alone and reports no change from that half.",
@@ -2367,6 +2398,7 @@
       "reversible": false,
       "notes": "A reload applies the permanent configuration to the runtime one, and there is no instruction that un-applies it. Undoing whatever permanent rules were added or removed is the task that changed them, not this one."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Reloads firewalld to apply pending rule changes.",
       "description": "Runs firewall-cmd --reload, which applies the permanent configuration to the runtime one and is what makes an fw.firewalld.allow or fw.firewalld.deny run with permanent: true, immediate: false visible without a full firewalld restart. This is ansible.posix.firewalld's own no-op-detecting reload, except firewall-cmd exposes no way to ask whether a reload would have made any difference, so this always reports changed the same way svc.systemd.daemon_reload does for the identical reason.",
@@ -2398,9 +2430,10 @@
       "reversible": false,
       "notes": "One answer has to cover every verb, and no verb can produce an inverse. A read-only request (GET, HEAD, OPTIONS, TRACE) changed nothing, so there is nothing to undo. A writing request changed something inside a remote system this platform never observes: it cannot read what the state was before, cannot tell what the call altered, and cannot know which call would put it back, so any inverse would be a guess dressed as an instruction."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes an HTTP request and reports its status code and body.",
-      "description": "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file).",
+      "description": "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file). Only a request in a safe method (GET, HEAD, OPTIONS or TRACE) can be checked, and a check sends it for real, since reading is all it does. Any other method may change something on the server, so such a call is named as unchecked and sends nothing, and check_mode on one is refused when the runbook is validated.",
       "params": [
         {
           "name": "url",
@@ -2513,6 +2546,7 @@
       "reversible": true,
       "notes": "A run that created an absent group emits an identity.group.remove naming it. A run that found the group already present but converged its gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the group already at the requested gid emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a POSIX group exists on the target.",
       "description": "Makes sure a group is present on the target, creating it if absent. This is ansible.builtin.group with state=present. Group state is read from getent before anything is sent, so a group already present at the requested gid (or present with none requested) reports no change and no command reaches the device; a group present at a different gid than requested is converged with groupmod rather than recreated.",
@@ -2588,6 +2622,7 @@
       "reversible": true,
       "notes": "A run that converged the gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the gid already matching emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Changes the gid of an existing POSIX group on the target.",
       "description": "Converges an existing group's gid, refusing outright if the group does not exist rather than creating one (use identity.group.create for that). A POSIX group has no other mutable attribute this platform manages: renaming is not something groupmod supports and ansible.builtin.group does not offer it either, and membership is identity.user.*'s own concern. Group state is read from getent before anything is sent, so a gid already matching what was requested reports no change and no command reaches the device.",
@@ -2653,6 +2688,7 @@
       "reversible": true,
       "notes": "A run that removed a present group emits an identity.group.create pinned to the exact gid this run captured before removing it, which is a real, restorable inverse. A run that found the group already absent emits nothing. What the inverse cannot restore is any user's primary or supplementary membership in the group at the moment it was removed."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a POSIX group from the target.",
       "description": "Makes sure a group is absent from the target, removing it if present. This is ansible.builtin.group with state=absent. Group state is read from getent before anything is sent, so a group already absent reports no change and no command reaches the device. groupdel itself refuses to remove a group that is still any user's primary group; that refusal surfaces here as a plain task failure naming what groupdel said, not something this method works around.",
@@ -2712,6 +2748,7 @@
       "reversible": true,
       "notes": "A run that created an absent account emits an identity.user.remove naming it. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a POSIX user account exists on the target.",
       "description": "Makes sure a user account is present on the target, creating it if absent. This is ansible.builtin.user with state=present. Account state is read from getent before anything is sent, so an account already present with every requested attribute already matching reports no change and no command reaches the device; an account present with a different uid, group, shell, home or comment than requested is converged with usermod rather than recreated. Supplementary group membership and the account password are not managed by this method.",
@@ -2813,6 +2850,7 @@
       "reversible": true,
       "notes": "A run that converged one or more attributes emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found every requested attribute already matching emits nothing."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Changes attributes of an existing POSIX user account on the target.",
       "description": "Converges an existing account's uid, primary group, shell, home or comment to whichever of those the runbook names, refusing outright if the account does not exist rather than creating one (use identity.user.create for that). Account state is read from getent before anything is sent, so an attribute already matching what was requested is left alone, and a run that requests nothing different reports no change and no command reaches the device.",
@@ -2897,6 +2935,7 @@
       "reversible": true,
       "notes": "A run that removed a present account emits an identity.user.create pinned to the exact uid, group, shell, home and comment this run captured before removing it, which is a real, restorable inverse for the account's identity attributes. A run that found the account already absent emits nothing. What the inverse cannot restore is the account's password (never captured by this platform), or the home directory's contents once remove=true has asked userdel to delete them."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a POSIX user account from the target.",
       "description": "Makes sure a user account is absent from the target, removing it if present. This is ansible.builtin.user with state=absent. Account state is read from getent before anything is sent, so an account already absent reports no change and no command reaches the device.",
@@ -2964,6 +3003,7 @@
       "reversible": false,
       "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Gathers every device a Cisco Catalyst Center manages, as facts.",
       "description": "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",
@@ -3011,6 +3051,7 @@
       "reversible": false,
       "notes": "A read-only reachability check changes nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Reports which devices a Cisco Catalyst Center can currently reach and manage.",
       "description": "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",
@@ -3069,6 +3110,7 @@
       "reversible": false,
       "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Gathers a Cisco Catalyst Center's site hierarchy, as facts.",
       "description": "Reads every site the targeted Catalyst Center manages. Emits the full site_name_hierarchy for each site, not just its bare name, since two sites in different regions can share a bare name.",
@@ -3114,6 +3156,7 @@
       "reversible": false,
       "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Gathers the tags defined on a Cisco Catalyst Center, as facts.",
       "description": "Reads every tag the targeted Catalyst Center knows about, and separates the controller's own system tags (its internal bookkeeping) from operator-created ones, so a runbook grouping devices by operator intent does not have to filter system tags out itself.",
@@ -3156,6 +3199,8 @@
       "reversible": false,
       "notes": "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it."
     },
+    "supportsCheck": false,
+    "noCheckReason": "an arbitrary CLI line can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
     "doc": {
       "summary": "Runs one show/exec-mode command against a network device's CLI.",
       "description": "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
@@ -3207,6 +3252,8 @@
       "reversible": false,
       "notes": "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it."
     },
+    "supportsCheck": false,
+    "noCheckReason": "what a configuration line changes is decided by the device's own parser as it applies the line, and a CLI offers no way to ask without applying it",
     "doc": {
       "summary": "Applies configuration lines to a network device over its CLI.",
       "description": "Splits config into non-blank lines and sends each one through the same generic session net.cli.command uses, one line at a time, matched against the device's own declared cli_prompt property. It carries no vendor-specific configuration-mode knowledge of its own: it never enters or leaves a configuration mode on the caller's behalf, so a device that needs one (Cisco IOS's \"configure terminal\"/\"end\", for instance) must have those lines included in config itself. net.ios.config is the Cisco-specific sibling that does drive configuration mode, and is what a runbook targeting Cisco IOS should use instead. Reports changed every time every line reaches the device without error, the same convention net.cli.command and exec.command both establish: a CLI line's effect cannot be inspected, so this platform does not guess at one. Each line is bounded to 30 seconds for the same reason net.cli.command's own line is: a generic device has no known paging convention, so an unexpectedly long response can pause on a pager prompt this method cannot answer, and a bounded, clear error is preferable to an indefinite hang.",
@@ -3249,6 +3296,7 @@
     "reversibility": {
       "reversible": false
     },
+    "supportsCheck": false,
     "doc": {
       "summary": "Applies configuration to an Arista EOS device."
     }
@@ -3267,6 +3315,8 @@
       "reversible": false,
       "notes": "IOS's \"no <line>\" negation convention does not reliably invert every configuration statement (a route-map or ACL entry, for instance), so this platform does not assert an inverse it cannot guarantee. Set backup: true to capture the prior running-config for a human-directed rollback."
     },
+    "supportsCheck": false,
+    "noCheckReason": "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it",
     "doc": {
       "summary": "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup.",
       "description": "Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, configuration-mode and error conventions (verified directly against a real Cisco IOS XE device, not assumed), and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (a real IOS \"% ...\" error), still leaving configuration mode before returning that error. When backup is true, runs \"show running-config\" before applying anything and records it under the backup stat, giving an operator something to restore from by hand; this platform does not attempt an automatic rollback (see this method's own Reversibility notes for why). Reports changed whenever every line reaches the device without error: a configuration line's effect cannot be inspected before it runs, the same reasoning exec.command and net.cli.command both apply.",
@@ -3324,6 +3374,7 @@
       "reversible": false,
       "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Gathers structured facts from a Cisco IOS device over its CLI.",
       "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive PTY session over SSH using netcli.IOS's own paging and prompt conventions, runs the read-only show commands the requested subsets need, and emits what it parses through EmitFact rather than SetStat, the same choice facts.gather and net.catalyst.device_facts both make: a fact is long-lived drift data worth comparing across weeks, and a software version recorded as a stat answers nothing next month. Every parser in this method was written against output captured from a real Cisco IOS XE device rather than from documentation or memory. A field the device does not report is left out entirely rather than emitted as an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change. Two of cisco.ios.ios_facts's own subsets are deliberately absent rather than accepted and ignored: config, because net.ios.config's own backup parameter already captures a running-config and doing it twice invites two answers, and hardware, because the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
@@ -3422,6 +3473,7 @@
       "reversible": false,
       "notes": "A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Runs a ping from a Cisco IOS device and reports the result.",
       "description": "Answers a different question from net.ssh.ping, and the difference is the point: net.ssh.ping proves this platform can reach the device, while this method proves the DEVICE can reach somewhere else, which is the question that actually matters when a routing or ACL change is under review. Runs IOS's own ping from an interactive PTY session and parses its \"Success rate is N percent (rx/tx)\" line, including the trailing \"round-trip min/avg/max = a/b/c ms\" clause that IOS omits entirely when nothing came back. Nothing is changed on the device, so this always reports no change. Use state to turn the result into a gate: state present (the default) fails the task when every packet is lost, and state absent fails it when anything answers, so a runbook can assert reachability or its absence without a separate condition.",
@@ -3517,9 +3569,10 @@
       "reversible": false,
       "notes": "Saving overwrites startup-config with running-config, and the device keeps no copy of what startup-config held beforehand, so this platform cannot reconstruct an inverse. Capture the prior configuration first (net.ios.config's backup parameter) if a rollback target is needed."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Saves a Cisco IOS device's running configuration to startup.",
-      "description": "Runs IOS's \"write memory\", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS \"% ...\" error rather than reporting a save that did not happen.",
+      "description": "Runs IOS's \"write memory\", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS \"% ...\" error rather than reporting a save that did not happen. A check opens the session a real run opens and predicts the change, since a save always reports one, without sending write memory.",
       "params": [
         {
           "name": "insecure_skip_host_key_verify",
@@ -3560,6 +3613,7 @@
     "reversibility": {
       "reversible": false
     },
+    "supportsCheck": false,
     "doc": {
       "summary": "Applies configuration to a Juniper Junos device."
     }
@@ -3579,6 +3633,8 @@
       "reversible": false,
       "notes": "An edit-config merge has no reliable inverse: deleting what was added is not the same as restoring what was replaced, and this method cannot know which of the two a given element did. Set backup: true to capture the prior configuration for a human-directed rollback. Note that rollback-on-error, which this method requests whenever the device supports it, covers a DIFFERENT case: it undoes a partially applied edit that the device itself rejected, not one that succeeded and was later regretted."
     },
+    "supportsCheck": false,
+    "noCheckReason": "only applying the document says what the device makes of it: the running datastore has no staging area, and a check through the candidate datastore would stage the document on the device, which a check promises not to do",
     "doc": {
       "summary": "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
       "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the target datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
@@ -3671,6 +3727,7 @@
       "reversible": false,
       "notes": "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
       "description": "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
@@ -3706,6 +3763,7 @@
       "reversible": true,
       "notes": "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is installed via APT.",
       "description": "Makes sure a package is present on a Debian-family host, installing it if it is absent. This is ansible.builtin.apt with state=present. Installed state is read from dpkg before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version string, the same way apt-get install name=version does; leave it unset to mean whatever apt-get would install unpinned.",
@@ -3782,6 +3840,7 @@
       "reversible": true,
       "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a package via APT.",
       "description": "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
@@ -3849,6 +3908,7 @@
       "reversible": false,
       "notes": "Downgrading a package is not something apt-get reliably supports once the previous version has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here. This mirrors exec.command's own reasoning for why it cannot be undone: the platform does not control whether the information an undo would need still exists anywhere reachable."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is at its newest available version via APT.",
       "description": "Makes sure one named package is at the newest version APT knows about, upgrading it if a newer one is available. This is ansible.builtin.apt with state=latest for a single package, not apt-get upgrade or apt-get dist-upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest candidate version reports no change and no command reaches the device.",
@@ -3916,6 +3976,7 @@
       "reversible": true,
       "notes": "A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it already present, even at a different version than requested, emits nothing, for the same reason pkg.apt.install's inverse does not fire on a version change: the version already there before this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. What the inverse cannot restore is anything the package's scriptlets did beyond placing its own files."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is installed via DNF.",
       "description": "Makes sure a package is present on a Red Hat-family host, installing it if it is absent. This is ansible.builtin.dnf with state=present. Installed state is read from rpm before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version-release string, appended to the package name the way dnf's own name-version syntax expects (name-version, e.g. nginx-1.24.0); leave it unset to mean whatever dnf would install unpinned.",
@@ -3992,6 +4053,7 @@
       "reversible": true,
       "notes": "A run that removed a present package emits a pkg.dnf.install pinned to the exact version-release this run captured before removing it, which is a real, restorable inverse: reinstalling that build undoes exactly what this run did to the rpm database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own scriptlets did beyond deleting the package's files."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Removes a package via DNF.",
       "description": "Makes sure a package is absent from a Red Hat-family host, removing it if it is present. This is ansible.builtin.dnf with state=absent. Installed state is read from rpm before anything is sent, so a package that is already absent reports no change and no command reaches the device.",
@@ -4059,6 +4121,7 @@
       "reversible": false,
       "notes": "Downgrading a package is not something dnf reliably supports once the previous build has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here, for the same reason pkg.apt.upgrade cannot promise one."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is at its newest available version via DNF.",
       "description": "Makes sure one named package is at the newest version DNF knows about, upgrading it if a newer build is available. This is ansible.builtin.dnf with state=latest for a single package, not a full-system dnf upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest available build reports no change and no command reaches the device.",
@@ -4123,6 +4186,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on an APT host a run that installed an absent package emits a pkg.apt.remove and a run that found it already present emits nothing. The instruction names the concrete method rather than pkg.remove, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is present, whichever package manager the device runs.",
       "description": "Makes sure a package is installed, without caring which package manager the device uses. This is ansible.builtin.package with state=present: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.install and behaves exactly as that method does, including reporting no change when the package is already present at the requested version. Use the concrete method instead when a runbook is written for one platform and should say so.",
@@ -4192,6 +4256,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on an APT host a run that removed a present package emits a pkg.apt.install pinned to the version it captured before removing, and a run that found the package already absent emits nothing. The instruction names the concrete method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop rather than svc.stop."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a package is absent, whichever package manager the device runs.",
       "description": "Makes sure a package is removed, without caring which package manager the device uses. This is ansible.builtin.package with state=absent: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.remove and behaves exactly as that method does, including reporting no change when the package is already absent. Use the concrete method instead when a runbook is written for one platform and should say so.",
@@ -4261,6 +4326,7 @@
       "reversible": false,
       "notes": "Every concrete upgrade method this resolves to is itself irreversible: downgrading a package is not something apt or dnf reliably support once the previous version has left the local cache and the repository's own metadata, so no method in this namespace can promise a safe undo for it."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes sure the newest available version of a package is installed, whichever package manager the device runs.",
       "description": "Makes sure a package is at its newest available version, without caring which package manager the device uses. This is ansible.builtin.package with state=latest for one named package, not a full-system upgrade: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.upgrade and behaves exactly as that method does, including installing the package fresh when it is absent and reporting no change when it is already current. Use the concrete method instead when a runbook is written for one platform and should say so.",
@@ -4331,6 +4397,8 @@
       "reversible": false,
       "notes": "This method only observes: it opens a TCP connection from the device and reports whether it succeeded, so the device is in exactly the state it would have been in had the task never run. There is nothing to undo, and an inverse that waited again would be work the forward run never did."
     },
+    "supportsCheck": false,
+    "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits for a TCP port on the target to start (or stop) accepting connections.",
       "description": "Holds the runbook until a TCP port accepts a connection, or until it stops accepting one. The check runs ON THE DEVICE, over the SSH connection the task already holds, which is where Ansible's wait_for runs it and is the only place it answers the useful question: a service bound to 127.0.0.1 is invisible from the runner, and a firewall between the runner and the device would report on the path rather than on the service. Running there costs a prerequisite, stated rather than assumed: the device needs python3 or bash, checked once before polling starts and refused by name when neither is present. python3 is preferred because its exit status is this method's own to define; bash is the fallback because it needs no package installed, using its /dev/tcp redirection, and a bash built without that feature is detected and reported rather than mistaken for a closed port. nc is deliberately not used: its flags and exit statuses differ between the openbsd, traditional and busybox builds, so a wrong answer from it could not be told apart from a real one. Never reports changed: waiting observes, it does not act.",
@@ -4442,6 +4510,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that disabled an enabled service emits an svc.systemd.enable and a run that found it already disabled emits nothing. That concrete method also records what its own undo cannot preserve, such as a unit that was enabled only until the next reboot."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a service starting at boot, whichever service manager the device runs.",
       "description": "Makes sure a service is not set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=no: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service disabled by this task keeps running until svc.stop runs or the device reboots.",
@@ -4499,6 +4568,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that enabled a disabled service emits an svc.systemd.disable and a run that found it already enabled emits nothing. The undo restores the boot-time setting only, never stopping a service that is running."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes a service start at boot, whichever service manager the device runs.",
       "description": "Makes sure a service is set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=yes: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service enabled by this task is not running until svc.start runs or the device reboots.",
@@ -4556,6 +4626,7 @@
       "reversible": false,
       "notes": "A restart's effect is the interruption itself, and no instruction un-interrupts a service. Restarting a second time repeats this method rather than reversing it. The concrete method still records the service's state under diff, so a rollback reaching this task can see what was running and decide for itself."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Restarts a service, whichever service manager the device runs.",
       "description": "Restarts a service, starting it if it was not running. This is ansible.builtin.service with state=restarted: it resolves the device's service manager and hands the call to that manager's concrete method. It is the one method here that is never converged, since restarting a running service is the point rather than a no-op, so it always reports changed. That makes it the one most worth putting behind a when condition, so a service is only bounced when something it reads actually changed.",
@@ -4613,6 +4684,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that started a stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. The instruction names the concrete method rather than svc.stop, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Starts a service now, whichever service manager the device runs.",
       "description": "Makes sure a service is running right now, without caring which init system the device uses. This is ansible.builtin.service with state=started: it resolves the device's service manager and hands the call to that manager's concrete method, so on a Linux host it runs svc.systemd.start and behaves exactly as that method does, including reporting no change when the service is already running. Use the concrete method instead when a runbook is written for one platform and should say so.",
@@ -4671,6 +4743,7 @@
       "reversible": true,
       "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that stopped a running service emits an svc.systemd.start and a run that found it already stopped emits nothing. Starting it again restores the service, never what it missed while it was down."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a service now, whichever service manager the device runs.",
       "description": "Makes sure a service is not running right now, without caring which init system the device uses. This is ansible.builtin.service with state=stopped: it resolves the device's service manager and hands the call to that manager's concrete method. It stops the service now and leaves the boot-time setting alone, so a service stopped by this task starts again at the next reboot unless svc.disable is also run.",
@@ -4731,6 +4804,7 @@
       "reversible": false,
       "notes": "Re-reading unit files has no prior state to restore. What systemd held before the reload was a view of unit files that have since changed on disk, and nothing can ask it to go back to believing the old contents. Undoing whatever wrote those files is that task's inverse, not this one's."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes systemd re-read every unit file on disk.",
       "description": "Runs systemctl daemon-reload, which makes systemd pick up unit files that were written, changed or removed since it last read them. This is ansible.builtin.systemd with daemon_reload=yes on its own. It is the step that makes a unit file an earlier task wrote visible to systemd at all: without it, svc.systemd.start on a brand new unit fails with the unit not found, which reads as a broken unit file rather than as a stale view. It takes no unit name, because it is not about one unit, and it always reports changed: systemd exposes no way to ask whether a reload would have made any difference, so claiming otherwise would be a guess.",
@@ -4770,6 +4844,7 @@
       "reversible": true,
       "notes": "A run that disabled an enabled unit emits an svc.systemd.enable naming it. A run that found it already disabled emits nothing. One thing the undo does not preserve: a unit that was enabled-runtime, meaning enabled only until the next reboot, comes back as permanently enabled, because systemctl enable has no way to say \"only until reboot\" about a unit it is restoring."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a systemd unit starting at boot, without stopping it now.",
       "description": "Makes sure a systemd unit is not set to start at boot. This is ansible.builtin.systemd with enabled=no, and it leaves the running system alone: a unit disabled by this task keeps running until svc.systemd.stop runs or the device reboots. State is read before anything is sent, so a unit that is already disabled reports no change. A static unit is refused, since a unit with no [Install] section was never enabled and cannot be disabled.",
@@ -4830,6 +4905,7 @@
       "reversible": true,
       "notes": "A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it already enabled emits nothing. The undo restores the boot-time setting only; it never stops a unit that is running, because enabling never started one."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes a systemd unit start at boot, without starting it now.",
       "description": "Makes sure a systemd unit is set to start at boot. This is ansible.builtin.systemd with enabled=yes, and it is deliberately not also start: a unit enabled by this task is not running until svc.systemd.start runs or the device reboots. State is read before anything is sent, so a unit that is already enabled reports no change. A static unit is refused with that word named, because systemd's own failure for enabling one describes a missing symlink rather than the cause, which is that the unit has no [Install] section and is meant to be pulled in by another unit.",
@@ -4890,6 +4966,7 @@
       "reversible": false,
       "notes": "A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The unit's state is deliberately still recorded under diff, so a rollback reaching this task can see that the unit was running before and after and decide for itself, but this method emits no instruction because none would be true."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Restarts a systemd unit, starting it if it was not running.",
       "description": "Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, and like that module it starts a unit that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running unit is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A unit systemd does not know is refused, and a masked unit is refused with the mask named.",
@@ -4950,6 +5027,7 @@
       "reversible": true,
       "notes": "A run that started a stopped unit emits an svc.systemd.stop naming it. A run that found it already running emits nothing, since undoing it means doing nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the unit to where it was, not the system."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Starts a systemd unit now, without changing whether it starts at boot.",
       "description": "Makes sure a systemd unit is running right now. This is ansible.builtin.systemd with state=started, and it is deliberately not also enable: starting and enabling are separate in systemd and separate here, so a task that wants both says both. State is read before anything is sent, so a unit that is already running reports no change and no command reaches the device. A unit systemd does not know is refused rather than reported as started, and a masked unit is refused with the mask named, since systemd's own error for that case describes a symlink rather than the cause.",
@@ -5015,6 +5093,7 @@
       "reversible": true,
       "notes": "A run that stopped a running unit emits an svc.systemd.start naming it. A run that found it already stopped emits nothing. Starting it again returns the unit to running, but nothing can restore what the service missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a systemd unit now, without changing whether it starts at boot.",
       "description": "Makes sure a systemd unit is not running right now. This is ansible.builtin.systemd with state=stopped, and it leaves the boot-time setting alone: a unit stopped by this task still starts at the next reboot unless svc.systemd.disable is also run. State is read before anything is sent, so a unit that is already stopped reports no change. A unit systemd does not know is refused rather than reported as stopped, which matters more here than anywhere else in this namespace: systemctl answers \"inactive\" for a name that has never existed, so a method trusting it would report success for a typo.",
@@ -5079,6 +5158,7 @@
       "reversible": true,
       "notes": "A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a Windows service starting at boot, without stopping it now.",
       "description": "Makes sure a Windows service's start type is Disabled, refusing it from starting at all until this is undone. This is ansible.windows.win_service with start_mode=disabled, and it leaves the running system alone: a service disabled by this task keeps running until svc.windows.stop also runs or it is stopped some other way. State is read before anything is sent, so a service whose start type is already Disabled reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.enable targets: a service found Manual becomes Disabled, and running svc.windows.enable afterward would leave it Automatic rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
@@ -5137,6 +5217,7 @@
       "reversible": true,
       "notes": "A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming it. A run that found the start type already Automatic emits nothing. A run that changed a start type of Manual to Automatic emits no inverse at all, deliberately: this namespace's disable only sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never stops a service that is running, because enabling never started one."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes a Windows service start at boot, without starting it now.",
       "description": "Makes sure a Windows service's start type is Automatic. This is ansible.windows.win_service with start_mode=auto, and it is deliberately not also start: a service enabled by this task is not running until svc.windows.start runs or the device reboots. State is read before anything is sent, so a service whose start type is already Automatic reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.disable targets: a service found Manual becomes Automatic, and running svc.windows.disable afterward would leave it Disabled rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
@@ -5191,6 +5272,7 @@
       "reversible": false,
       "notes": "A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The service's state is still recorded under diff, so a rollback reaching this task can see the service was running before and after and decide for itself, but this method emits no instruction because none would be true."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Restarts a Windows service, starting it if it was not running.",
       "description": "Restarts a Windows service. This is ansible.windows.win_service with state=restarted, and like that module it starts a service that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running service is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A service the Service Control Manager does not know is refused, and a service whose start type is Disabled is refused with that named.",
@@ -5245,6 +5327,7 @@
       "reversible": true,
       "notes": "A run that started a stopped service emits an svc.windows.stop naming it. A run that found it already running emits nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the service to where it was, not the system."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Starts a Windows service now, without changing its start type.",
       "description": "Makes sure a Windows service is running right now. This is ansible.windows.win_service with state=started, and it is deliberately not also enable: starting and setting the start type are separate in the Service Control Manager and separate here, so a task that wants both says both. State is read before anything is sent, so a service that is already running reports no change and no command reaches the device. A service the Service Control Manager does not know is refused rather than reported as started, and a service whose start type is Disabled is refused with that named, since Windows itself refuses to start one and its own error describes a generic failure rather than the cause.",
@@ -5304,6 +5387,7 @@
       "reversible": true,
       "notes": "A run that stopped a running service emits an svc.windows.start naming it. A run that found it already stopped emits nothing. Starting it again returns the service to running, but nothing can restore what it missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Stops a Windows service now, without changing its start type.",
       "description": "Makes sure a Windows service is not running right now. This is ansible.windows.win_service with state=stopped, and it leaves the start type alone: a service stopped by this task still starts at the next reboot unless svc.windows.disable is also run. State is read before anything is sent, so a service that is already stopped reports no change. A service the Service Control Manager does not know is refused rather than reported as stopped, since a typo in the name should not read as success.",
@@ -5360,6 +5444,8 @@
       "reversible": false,
       "notes": "This method watches a path and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded."
     },
+    "supportsCheck": false,
+    "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits for a file path on the target to exist (or stop existing).",
       "description": "Polls a path on the device until it exists, or until it is gone when state is absent, and fails when the timeout runs out first. It changes nothing: state: absent waits for something else to remove the path, it does not remove it. Anything at the path counts as existing, including a directory and a symbolic link whose target is missing, since the link itself is a thing that is there; that differs from wait_for, which follows a link and calls a broken one absent. The delay is spent out of the timeout rather than added to it, matching wait_for, so delay must be shorter than timeout. A run that gives up returns an error, because a task that waited for something that never happened has failed.",
@@ -5461,6 +5547,8 @@
       "reversible": false,
       "notes": "This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded."
     },
+    "supportsCheck": false,
+    "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits for a pattern to appear in a file's contents on the target.",
       "description": "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.",
@@ -5588,9 +5676,10 @@
       "reversible": true,
       "notes": "A run that enabled a disabled feature emits a win.feature.remove naming it. A run that found it already enabled emits nothing. What the inverse cannot undo is anything the feature's own presence changed on the system while it was enabled, and either direction may need the restart reboot_required reports before it is complete."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Enables a Windows optional feature or role via DISM, including its required parent features.",
-      "description": "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable.",
+      "description": "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable. A check reads the feature and sends nothing; when the feature would change, its diff leaves out the state the feature would end in and reboot_required, since DISM decides between the finished and pending states only when it runs.",
       "params": [
         {
           "name": "name",
@@ -5646,9 +5735,10 @@
       "reversible": true,
       "notes": "A run that disabled an enabled feature emits a win.feature.install naming it. A run that found it already disabled emits nothing. Re-enabling it does not pass /all a second time from this inverse, so a parent feature the original install pulled in stays exactly as removing this one left it."
     },
+    "supportsCheck": true,
     "doc": {
       "summary": "Disables a Windows optional feature or role via DISM.",
-      "description": "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone.",
+      "description": "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone. A check reads the feature and sends nothing; when the feature would change, its diff leaves out the state the feature would end in and reboot_required, since DISM decides between the finished and pending states only when it runs.",
       "params": [
         {
           "name": "name",

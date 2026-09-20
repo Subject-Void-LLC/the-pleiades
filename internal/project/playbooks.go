@@ -17,6 +17,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,18 +92,13 @@ func (s *PlaybookSource) Get(ctx context.Context, id string) ([]byte, error) {
 			playbook.ErrNotFound, p.Name, path)
 	}
 
-	full, ok := resolveWithin(p.LocalPath, path)
+	body, ok := readWithin(p.LocalPath, path)
 	if !ok {
 		// A definition is stored on a template and a template is written by
 		// a person, so this is reachable input rather than a value this
 		// package produced. Refused as not-found rather than reported,
 		// because naming what was rejected is itself a probe result.
 		return nil, fmt.Errorf("%w: %q does not name a file in project %q", playbook.ErrNotFound, path, p.Name)
-	}
-
-	body, err := os.ReadFile(full)
-	if err != nil {
-		return nil, fmt.Errorf("%w: reading %q in project %q", playbook.ErrNotFound, path, p.Name)
 	}
 	return body, nil
 }
@@ -120,33 +116,55 @@ func splitDefinition(id string) (int, string, bool) {
 	return projectID, path, true
 }
 
-// resolveWithin joins path onto root and reports whether the result is
-// still inside it.
+// readWithin reads the file path names inside root, and reports false for
+// anything that is not an ordinary file inside it.
 //
-// The containment check is the point. A definition reaches here from a
-// template row, so "3/../../../etc/shadow" is something somebody can
-// actually write, and a plain filepath.Join would resolve it happily. Clean
-// first so "a/../b" is judged as "b" rather than rejected, then compare
-// against the root with a separator appended so "/srv/p1" cannot pass a
-// prefix test for "/srv/p10".
-func resolveWithin(root, path string) (string, bool) {
+// The containment is the point. A definition reaches here from a template
+// row, so "3/../../../etc/shadow" is something somebody can actually write,
+// and a plain filepath.Join would resolve it happily. And the tree is a
+// repository's checkout, whose committers are not necessarily this
+// Controller's administrators, and a checkout keeps a repository's
+// symlinks: "lib -> /" is content somebody can commit, and a lexical check
+// of "lib/etc/..." passes it (FAILURE_PATTERNS 260). So the file is opened
+// through an os.Root, which resolves every component, symlinks included,
+// inside root and refuses any that leaves it, in the same openat walk that
+// opens the file, so nothing can be swapped between a check and the read.
+// A symlink that stays inside the tree still works, as a repository's own
+// layout expects. The lexical check stays in front as a cheap refusal of
+// what could never be inside.
+func readWithin(root, path string) ([]byte, bool) {
 	if root == "" {
-		return "", false
+		return nil, false
 	}
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	full := filepath.Clean(filepath.Join(absRoot, path))
-	if full != absRoot && !strings.HasPrefix(full, absRoot+string(filepath.Separator)) {
-		return "", false
+	if full == absRoot || !strings.HasPrefix(full, absRoot+string(filepath.Separator)) {
+		return nil, false
 	}
-	// A directory is not a playbook, and neither is anything that is not an
-	// ordinary file: a symlink pointing out of the tree would otherwise
-	// walk straight past the containment check above.
-	info, err := os.Lstat(full)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", false
+	rel, err := filepath.Rel(absRoot, full)
+	if err != nil {
+		return nil, false
 	}
-	return full, true
+	tree, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = tree.Close() }()
+	f, err := tree.Open(rel)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	// A directory is not a playbook, and neither is a device or a pipe.
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	body, err := io.ReadAll(f)
+	if err != nil {
+		return nil, false
+	}
+	return body, true
 }

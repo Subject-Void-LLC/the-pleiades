@@ -6,7 +6,7 @@ status: beta
 
 Deletes an S3 bucket via the AWS API.
 
-Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the safety rail, not an error this method routes around.
+Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the safety rail, not an error this method routes around. A check reads the bucket and whether it holds anything, deleting nothing; one that holds objects makes the call unchecked rather than failed, since an earlier task in the same run may be what empties it.
 
 ## Attributes
 
@@ -15,6 +15,7 @@ Deletes bucket if it exists; a no-op otherwise. This method does not empty a non
 | Capabilities | `AWSAPICapable` |
 | Transports | - |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

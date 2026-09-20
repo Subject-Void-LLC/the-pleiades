@@ -133,6 +133,24 @@ func queryCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (st
 	return "", fmt.Errorf("apt-cache policy %s: no Candidate line in its output", name)
 }
 
+// predictInstall is what installing name would leave, for a check: the
+// version named, or, with none named, the version APT would pick, read
+// from apt-cache without installing anything. A package APT has no
+// candidate for is refused, since installing it would fail.
+func predictInstall(ctx context.Context, conn *remoteexec.Conn, name, version string) (state, error) {
+	if version != "" {
+		return state{installed: true, version: version}, nil
+	}
+	candidate, err := queryCandidate(ctx, conn, name)
+	if err != nil {
+		return state{}, err
+	}
+	if candidate == "" {
+		return state{}, fmt.Errorf("APT has no candidate to install for %s, so a real run of this task would fail", name)
+	}
+	return state{installed: true, version: candidate}, nil
+}
+
 // runAptGet runs one apt-get invocation non-interactively and treats a
 // non-zero exit as a real error.
 //

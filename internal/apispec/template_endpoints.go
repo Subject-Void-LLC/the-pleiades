@@ -403,6 +403,37 @@ var LaunchTemplate = Endpoint{
 	},
 }
 
+// CheckTemplate is POST /templates/{id}/check.
+var CheckTemplate = Endpoint{
+	Name:    "check_template",
+	Method:  http.MethodPost,
+	Pattern: "/templates/{id}/check",
+	Scope:   auth.ScopeRunbookCheck,
+	Rel:     auth.RelCheck,
+	Summary: "Check a template",
+	Description: "Launches a template exactly as launch_template does, except that the run is a check: each task " +
+		"reports what it would change and changes nothing, and a task whose method cannot be checked is named " +
+		"as unchecked rather than run. The request body is launch_template's. A check can be asked for without " +
+		"the template opening its mode field, because a check can only make a run change less; a body whose " +
+		"overrides ask for any other mode is refused rather than overruled. The job records mode check, so a " +
+		"relaunch of it is a check too. A check travels to Runners on its own subject, which a Runner that " +
+		"predates check mode never reads: such a Runner leaves the check waiting rather than running it for real. " +
+		"It needs runbook:check, which runbook:execute implies. A check asked for by a caller without runbook:execute " +
+		"never runs an external Collection program's check, which nothing has proven only reads: those tasks are " +
+		"reported unchecked.",
+	Params:             LaunchTemplate.Params,
+	RequestContentType: LaunchTemplate.RequestContentType,
+	RequestSchema:      LaunchTemplate.RequestSchema,
+	Responses: []Response{
+		{Status: http.StatusAccepted, Description: "The check was persisted and will fan out asynchronously.", Schema: launchAcceptedSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or id is not a positive integer.", Schema: errorSchema("")},
+		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No template with that id, or no such saved configuration on it.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, or this controller does not register the template's kind.", Schema: errorSchema("")},
+		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
+	},
+}
+
 // ListTemplateConfigs is GET /templates/{id}/configs.
 var ListTemplateConfigs = Endpoint{
 	Name:    "list_template_configs",

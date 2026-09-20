@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reads the container with docker inspect and changes nothing.
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that created an absent container emits a container.docker.remove naming it, with " +
@@ -31,6 +33,7 @@ func init() {
 			Doc: runDoc(),
 		},
 		Invoke: Run,
+		Check:  CheckRun,
 	})
 }
 
@@ -70,6 +73,17 @@ func runDoc() collection.Doc {
 
 // Run implements "container.docker.run".
 func Run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return run(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRun is "container.docker.run"'s check: it reads the container and says whether
+// Run would create and start it, running no docker command that changes anything.
+func CheckRun(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return run(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// run is Run's and CheckRun's one body; mode says which.
+func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "container.docker.run"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -107,6 +121,12 @@ func Run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	before, err := queryContainer(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		// A new container's status is left out: one whose command exits at
+		// once is exited by the time a real run reads it back.
+		return predictState(rc, fqcn, name, before, !before.exists, map[string]any{"exists": true})
 	}
 
 	changed := false

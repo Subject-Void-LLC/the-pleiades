@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -205,6 +206,35 @@ func recordSkip(rc sdk.RunbookContext, why skipDecision) error {
 		statCmd:     "",
 		"msg":       string(why),
 	} {
+		if err := rc.SetStat(key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// unguardedCheck is a check's answer for a command no creates or removes
+// guards: whether it would change anything cannot be known without running
+// it, so the check says it cannot check this call rather than guessing.
+// Nil when a guard is set, since the guard is what a check can read.
+//
+// It is also both methods' Descriptor.CheckCall, so validation refuses
+// check_mode on an unguarded command with this same answer before a run
+// starts.
+func unguardedCheck(params map[string]any) error {
+	if sdk.StringParam(params, paramCreates) != "" || sdk.StringParam(params, paramRemoves) != "" {
+		return nil
+	}
+	return collection.CannotCheck("what a command changes cannot be known without running it; " +
+		"a creates or removes guard would say what its having run looks like, and a check would read that")
+}
+
+// recordWouldRun writes the stats a check predicts for a command its
+// guard would let run: not skipped, and the command line that would run.
+// Its exit status and output are not known without running it, so they
+// are left out rather than guessed.
+func recordWouldRun(rc sdk.RunbookContext, command string) error {
+	for key, value := range map[string]any{statSkipped: false, statCmd: command} {
 		if err := rc.SetStat(key, value); err != nil {
 			return err
 		}

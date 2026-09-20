@@ -36,7 +36,7 @@ type Config struct {
 	// is here immediately before resolving.
 	//
 	// It lives on Config because Config is the only value that reaches
-	// Template.Resolve without widening the Launchable interface, and
+	// Template.Resolve without changing that method's signature, and
 	// because its zero value is the refusing one: a Config nobody stamped
 	// admits no program content.
 	FilePolicy FilePolicy
@@ -50,7 +50,14 @@ type Config struct {
 // limit means that limit instead of the template's, not both.
 const extraVarsField = "extra_vars"
 
-// Resolve implements Launchable.
+// Resolve folds a caller's configuration over this template's own
+// defaults and returns the concrete run, plus every value the caller
+// supplied that this template does not permit them to set.
+//
+// It does not fail on a value the template locked. Silently applying an
+// unopened override is a privilege escalation; silently dropping one is a
+// lie about what ran. Reporting it is the only remaining option, and it
+// is why the second return value is not an error.
 //
 // The fold is pkg/policy.Resolve, consumed rather than reimplemented, which
 // is Phase 21's own checklist item: "Consume the shared hierarchical policy
@@ -75,6 +82,20 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 	if err != nil {
 		return Resolved{}, nil, err
 	}
+
+	// The mode is settled first and apart from everything else
+	// (resolveMode), and the generic fold below never sees it.
+	mode, err := resolveMode(d, []modeLayer{
+		{name: LayerTemplate, fields: t.Defaults},
+		{name: LayerSaved, fields: cfg.Saved},
+		{name: LayerLaunch, fields: cfg.Overrides},
+	})
+	if err != nil {
+		return Resolved{}, nil, err
+	}
+	t.Defaults = withoutMode(t.Defaults)
+	cfg.Saved = withoutMode(cfg.Saved)
+	cfg.Overrides = withoutMode(cfg.Overrides)
 
 	var ignored []IgnoredField
 
@@ -160,7 +181,15 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 
 	sortIgnored(ignored)
 
+	// Recorded on every run of a kind that has a mode, a real one
+	// included, so the job says which it was rather than leaving a reader
+	// to infer it from an absence.
+	if _, accepted := d.Field(ModeField); accepted {
+		result[ModeField] = string(mode)
+	}
+
 	return Resolved{
+		Mode:              mode,
 		Kind:              t.KindName,
 		Adapter:           d.Adapter,
 		Definition:        t.Definition,

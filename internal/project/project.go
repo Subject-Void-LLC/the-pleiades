@@ -25,10 +25,12 @@ package project
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
 
 // Common failures a caller distinguishes.
@@ -49,6 +51,19 @@ var (
 	// tree, which race each other on the one path a project keys its
 	// checkout by.
 	ErrSyncInProgress = errors.New("project: a sync is already running for this project")
+
+	// ErrInUse is a project something still points at: a schedule that syncs
+	// it. Deleting it would stop automation somebody relies on, so it is
+	// refused and named rather than cascaded, which is the same decision
+	// launch.ErrInUse makes for a template.
+	ErrInUse = fmt.Errorf("%w: a schedule still syncs this project", launchable.ErrInUse)
+
+	// ErrNoActor is a sync asked for by nobody. Refused rather than
+	// defaulted, because every caller has a real identity to hand (a
+	// request's subject, or a schedule's own actor string) and a default
+	// here would be a name in an audit trail that no person or mechanism
+	// answers to.
+	ErrNoActor = errors.New("project: a sync must record who asked for it")
 )
 
 // SCMType is how a project's source is reached.
@@ -82,6 +97,15 @@ type Project struct {
 	ID          int
 	Name        string
 	Description string
+
+	// LaunchableID is this project's row in the launchables table: the stable
+	// reference a schedule points at, which is what makes a sync schedulable
+	// (internal/launchable).
+	//
+	// Read-side only: written by this package's store when the project is
+	// created, never submitted. Zero means the edge was not loaded, or that a
+	// row predates launchables and the backfill did not run.
+	LaunchableID int
 
 	SCMType   SCMType
 	SCMURL    string
@@ -142,25 +166,50 @@ type Store interface {
 	RecordSync(ctx context.Context, id int, result Result) error
 
 	// BeginSync claims a project for an asynchronous sync, moving it to
-	// running and returning the record to hand to the syncer. The move is a
+	// running and returning the claim to hand to the syncer. The move is a
 	// compare-and-swap that matches only a project not already running, so
 	// two presses of Sync cannot both start a clone into the one working
 	// tree a project keys by id; the loser is told ErrSyncInProgress. An
 	// unsyncable project is refused synchronously with ErrNotSyncable
 	// rather than claimed and failed where nobody is looking.
-	BeginSync(ctx context.Context, id int) (Project, error)
+	//
+	// The claim also writes the attempt's history row, so the attempt has
+	// an identity from the moment it starts rather than only once it ends,
+	// and records who asked for it. An empty actor is refused with
+	// ErrNoActor: an unattributed sync is one nobody can account for later,
+	// and every caller has an identity to hand.
+	BeginSync(ctx context.Context, id int, actor string) (Claim, error)
 
-	// ResetInterruptedSyncs moves every running project to failed and
-	// reports how many it moved. A sync runs in memory, so a running row at
-	// process start is a clone whose process is gone; left as it is, its
+	// ResetInterruptedSyncs moves every running project to failed, fails
+	// the history row of every attempt still marked running, and reports
+	// how many projects it moved. A sync runs in memory, so a running row
+	// at process start is a clone whose process is gone; left as it is, its
 	// project could never be synced again, because BeginSync's swap would
 	// never match. It is meant to run once at startup.
 	ResetInterruptedSyncs(ctx context.Context) (int, error)
 
-	// ListSyncRuns returns a project's completed sync attempts, newest
-	// first, capped at limit. It is the history behind the latest outcome
-	// the project row itself carries.
+	// ListSyncRuns returns a project's sync attempts, newest first, capped
+	// at limit. It is the history behind the latest outcome the project row
+	// itself carries, and it includes an attempt still running.
 	ListSyncRuns(ctx context.Context, projectID, limit int) ([]SyncRun, error)
+
+	// ByLaunchable returns the project a launchable row stands for, or
+	// ErrNotFound. It is how a launch that arrived as a launchable reference,
+	// from a schedule, becomes a project again.
+	ByLaunchable(ctx context.Context, launchableID int) (Project, error)
+}
+
+// Claim is a project claimed for one sync attempt.
+//
+// It carries the attempt's identity as well as the record to sync: RunID
+// names the history row BeginSync wrote, which the attempt finishes rather
+// than appends to, and which anything that started the attempt can record
+// as what it started. StartedAt is that row's own start, so the runner and
+// the history cannot disagree about when the attempt began.
+type Claim struct {
+	Project   Project
+	RunID     int
+	StartedAt time.Time
 }
 
 // Result is the outcome of one sync attempt.
@@ -187,27 +236,60 @@ type Result struct {
 	// produces; RecordSync falls back to At so a history row is never
 	// written with a start in the distant past.
 	StartedAt time.Time
+
+	// RunID names the history row this outcome finishes: the one
+	// BeginSync's Claim handed out. It is how an attempt that already has an
+	// identity keeps it, instead of ending as a second row nothing pointed
+	// at.
+	//
+	// Zero means no claimed row, which is what a caller that bypasses
+	// BeginSync produces (a test, or anything recording an outcome it
+	// observed rather than ran). Such an outcome is appended as its own
+	// terminal row, which is what this type did for every caller before
+	// claims existed.
+	RunID int
 }
 
-// SyncRun is one completed attempt to fetch a project's source.
+// SyncRun is one attempt to fetch a project's source.
 //
-// Only terminal attempts are recorded, so Status is SyncSucceeded or
-// SyncFailed. An attempt still running is visible on the project's own
-// SyncStatus; see the SyncRun ent schema for why it is not also a row here.
+// Status is SyncRunning while the attempt is in flight, and SyncSucceeded or
+// SyncFailed once it has ended. A running attempt has no FinishedAt; see the
+// SyncRun ent schema for why the row exists from the start.
 type SyncRun struct {
 	ID       int
 	Status   SyncStatus
 	Revision string
 
+	// Actor is who asked for this attempt: a person's identity subject, or
+	// a "scheduler:<id>" string when a schedule fired it. Empty for a row
+	// written before attribution was recorded.
+	Actor string
+
 	// Err is why this attempt failed, scrubbed the same way Result.Err is.
 	Err string
 
-	StartedAt  time.Time
+	StartedAt time.Time
+
+	// FinishedAt is zero for exactly as long as the attempt is running,
+	// which is the domain reading of the column's own NULL.
 	FinishedAt time.Time
 }
 
-// Took reports how long this attempt ran.
-func (r SyncRun) Took() time.Duration { return r.FinishedAt.Sub(r.StartedAt) }
+// Running reports whether this attempt is still in flight.
+func (r SyncRun) Running() bool { return r.FinishedAt.IsZero() }
+
+// Took reports how long this attempt ran, or how long it has been running
+// so far when it has not finished.
+//
+// Measuring an unfinished attempt to now, rather than answering zero, is
+// what a reader of a history actually wants: "this has been cloning for
+// nine minutes" is the sentence that makes somebody look at it.
+func (r SyncRun) Took() time.Duration {
+	if r.Running() {
+		return time.Since(r.StartedAt)
+	}
+	return r.FinishedAt.Sub(r.StartedAt)
+}
 
 // Syncer fetches a project's source onto local disk.
 type Syncer interface {

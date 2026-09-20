@@ -90,6 +90,11 @@ func FinishedAt(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldFinishedAt, v))
 }
 
+// Unchecked applies equality check predicate on the "unchecked" field. It's identical to UncheckedEQ.
+func Unchecked(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldUnchecked, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldCreatedAt, v))
@@ -548,6 +553,46 @@ func FinishedAtIsNil() predicate.JobTask {
 // FinishedAtNotNil applies the NotNil predicate on the "finished_at" field.
 func FinishedAtNotNil() predicate.JobTask {
 	return predicate.JobTask(sql.FieldNotNull(FieldFinishedAt))
+}
+
+// UncheckedEQ applies the EQ predicate on the "unchecked" field.
+func UncheckedEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldUnchecked, v))
+}
+
+// UncheckedNEQ applies the NEQ predicate on the "unchecked" field.
+func UncheckedNEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldUnchecked, v))
+}
+
+// UncheckedIn applies the In predicate on the "unchecked" field.
+func UncheckedIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldUnchecked, vs...))
+}
+
+// UncheckedNotIn applies the NotIn predicate on the "unchecked" field.
+func UncheckedNotIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldUnchecked, vs...))
+}
+
+// UncheckedGT applies the GT predicate on the "unchecked" field.
+func UncheckedGT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldUnchecked, v))
+}
+
+// UncheckedGTE applies the GTE predicate on the "unchecked" field.
+func UncheckedGTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldUnchecked, v))
+}
+
+// UncheckedLT applies the LT predicate on the "unchecked" field.
+func UncheckedLT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldUnchecked, v))
+}
+
+// UncheckedLTE applies the LTE predicate on the "unchecked" field.
+func UncheckedLTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldUnchecked, v))
 }
 
 // HasJob applies the HasEdge predicate on the "job" edge.

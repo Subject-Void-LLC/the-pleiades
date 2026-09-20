@@ -33,9 +33,9 @@ type alwaysFailAdapter struct {
 	attempts chan struct{}
 }
 
-func (a *alwaysFailAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *alwaysFailAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	a.attempts <- struct{}{}
-	return errors.New("deliberate execution failure")
+	return wire.Outcome{}, errors.New("deliberate execution failure")
 }
 
 // TestAgent_FailedExecutionEventuallyDeadLetters proves runner.Agent's own
@@ -175,11 +175,11 @@ func newCountingAdapter() *countingAdapter {
 	return &countingAdapter{seen: make(map[string]int)}
 }
 
-func (a *countingAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *countingAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
 	a.mu.Lock()
 	a.seen[payload.JobID+":"+payload.DeviceID]++
 	a.mu.Unlock()
-	return nil
+	return wire.Outcome{}, nil
 }
 
 func (a *countingAdapter) total() int {

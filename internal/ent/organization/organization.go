@@ -50,6 +50,8 @@ const (
 	EdgeTemplates = "templates"
 	// EdgeSchedules holds the string denoting the schedules edge name in mutations.
 	EdgeSchedules = "schedules"
+	// EdgeLaunchables holds the string denoting the launchables edge name in mutations.
+	EdgeLaunchables = "launchables"
 	// EdgeCredentialTypes holds the string denoting the credential_types edge name in mutations.
 	EdgeCredentialTypes = "credential_types"
 	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
@@ -97,6 +99,13 @@ const (
 	SchedulesInverseTable = "schedules"
 	// SchedulesColumn is the table column denoting the schedules relation/edge.
 	SchedulesColumn = "organization_schedules"
+	// LaunchablesTable is the table that holds the launchables relation/edge.
+	LaunchablesTable = "launchables"
+	// LaunchablesInverseTable is the table name for the Launchable entity.
+	// It exists in this package in order to avoid circular dependency with the "launchable" package.
+	LaunchablesInverseTable = "launchables"
+	// LaunchablesColumn is the table column denoting the launchables relation/edge.
+	LaunchablesColumn = "organization_launchables"
 	// CredentialTypesTable is the table that holds the credential_types relation/edge.
 	CredentialTypesTable = "credential_types"
 	// CredentialTypesInverseTable is the table name for the CredentialType entity.
@@ -318,6 +327,20 @@ func BySchedules(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByLaunchablesCount orders the results by launchables count.
+func ByLaunchablesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newLaunchablesStep(), opts...)
+	}
+}
+
+// ByLaunchables orders the results by launchables terms.
+func ByLaunchables(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newLaunchablesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByCredentialTypesCount orders the results by credential_types count.
 func ByCredentialTypesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -420,6 +443,13 @@ func newSchedulesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SchedulesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
+	)
+}
+func newLaunchablesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(LaunchablesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, LaunchablesTable, LaunchablesColumn),
 	)
 }
 func newCredentialTypesStep() *sqlgraph.Step {

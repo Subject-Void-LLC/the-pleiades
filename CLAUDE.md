@@ -97,8 +97,21 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
   and resolved params. Nothing performs a rollback yet; the recording exists because only the
   forward run can capture the values an undo needs.
-- **The scheduler is real (Phase 23).** A schedule is an RFC 5545 recurrence attached to a
-  Template, so one mechanism covers every `Launchable` kind. `internal/schedule/rrule` is a
+- **The scheduler is real (Phase 23), and since Phase 21's C1 seam it schedules more than
+  templates.** A schedule is an RFC 5545 recurrence attached to a `launchable.Target`: one row
+  in the `launchables` table standing for a job template or for a project whose run is a sync,
+  with `internal/launchable` holding the open registry of those TYPES. That is a different axis
+  from `launch.Kind`, which says which ENGINE runs a definition, and conflating the two is what
+  left a project unschedulable for three phases (LESSONS 208,
+  `.SPECIFICATION/AWX_PARITY_ROADMAP.md` section 1.1). Both sorts fire through one
+  `Scanner.fire` and one `launchable.Router` (a map lookup, never a type switch; asserted by
+  `internal/archtest`), each type's launcher being composed in `cmd/controller`: the Dispatcher
+  for a template, `internal/project`'s Runner for a sync. Writing a schedule requires the scope
+  the target's own type declares (`runbook:execute`, `project:write`), not merely
+  `schedule:write`, which was a real hole (FAILURE_PATTERNS 268), and every refusal a type can
+  make is made at the write through `Preflight` rather than discovered unattended. The API field
+  is AWX's `unified_job_template`, with `template` kept as a deprecated write alias.
+  `internal/schedule/rrule` is a
   hand-rolled, deliberately bounded engine (no new dependency, following `pkg/filters/cron.go`),
   and its AWX parity is *earned rather than claimed*: `tools/genrrulefixtures` generates golden
   occurrence vectors from python-dateutil, the library AWX itself schedules on, and Python is
@@ -106,14 +119,55 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `pleiades-scheduler-leader` lease `cmd/controller` had elected and ignored since Phase 4, taking
   `isLeader func() bool` exactly as `dispatch.Reaper` does, so the package imports neither
   `internal/election` nor `internal/lock` (asserted by `internal/archtest`). Firing goes through
-  `api.Dispatcher.LaunchScheduled`, the same path a manual launch takes. Four things are worth
-  knowing before describing it: the recurrence grammar is a bounded subset refused at *save* time,
-  not run time; missed runs are **coalesced** to one, with a durable `skipped` row for each that
-  did not happen; a schedule fires once because of a unique index on
-  `(schedule, occurrence_at)` claimed before launching, **not** because of leader election, whose
-  two-second fencing-token-less lease cannot promise it; and a template bound to a prompted
-  credential, or a saved configuration answering a survey password, is refused outright, because
-  neither value is stored and replaying one unattended forever is worse than doing it once.
+  each type's own launcher, which for a template is the same `LaunchTemplate` a manual launch
+  takes. Five things are worth knowing before describing it: the recurrence grammar is a bounded
+  subset refused at *save* time, not run time; missed runs are **coalesced** to one, with a
+  durable `skipped` row for each that did not happen; a schedule fires once because of a unique
+  index on `(schedule, occurrence_at)` claimed before launching, **not** because of leader
+  election, whose two-second fencing-token-less lease cannot promise it; a template bound to a
+  prompted credential, or a saved configuration answering a survey password, is refused outright,
+  because neither value is stored and replaying one unattended forever is worse than doing it
+  once; and a target already running (a project mid-sync) is a **skip** carrying
+  `already_running`, never a failure, since a failure would be retried for as long as the first
+  run lasts.
+- **Check mode is real for 69 of the 78 implemented methods (Phase 46).** `pleiades run --mode
+  check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
+  manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
+  task as unchecked, ending non-zero. The engine refuses a check result carrying an
+  `inverse` stat, never journals a check, and admits simulate-locked devices only in check
+  mode (`engine.LifecycleAdmitsIn`, shared with `validate.LifecycleRule`). Most methods
+  predict through one body shared with `Invoke` that branches on the mode after the same
+  reads and refusals; read-only ones set `Check` to their own `Invoke`. A method that
+  checks only some calls answers the rest with `collection.CannotCheck`, and when the
+  params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
+  sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
+  call. The nine methods with no check (`exec.winrm.shell`, `container.docker.exec`,
+  `net.cli.*`, `net.ios.config`, `net.netconf.config`, the three waits) each carry
+  `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
+  check support. The generated module catalog's `supportsCheck` is the authority. The
+  Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a
+  `TypeChoice`) is resolved by its own narrowing rule (`launch.resolveMode`: a check at any
+  layer wins without the template opening the field, execute beneath a check is refused),
+  `POST /templates/{id}/check` forces it, and a check is published on its own subject
+  (`topology.CheckSubject`, durable `runner-check`) that only a check-aware Runner reads,
+  through `routing.CheckOnly`, so an old Runner never runs one for real. The job shows its
+  mode (`dispatch.Job.Mode`) and, once finished, whether the check was complete
+  (`dispatch.Job.CheckCoverage`, from each device's unchecked count, which the Runner
+  reports through `wire.Outcome`, the second return of every execution adapter). The check
+  route needs `runbook:check` (`auth.ScopeRunbookCheck`, implied by `runbook:execute` in
+  `Identity.HasScope`); a check launched without `runbook:execute` never runs an external
+  program's Check (`dispatch.Job.ExternalChecks` to `wire.DispatchPayload.ExternalChecks`
+  to `engine.WithExternalChecks`, off by default). Not built: Phase 35's classifier. A runbook, block or task
+  can ask for a check with Ansible's `check_mode: true` (`engine.CheckModeFlag`, copied
+  down by the builder, resolved per task by the one shared `engine.TaskMode`); `false`
+  is refused at parse, and validation refuses it on an uncheckable action or when a real
+  task's condition reads a checked task's result. An unknown top-level runbook key is
+  refused (`engine.RunbookKeys`, FAILURE_PATTERNS 252). A check from an external program is
+  never run against a simulate-locked device (`collection.Descriptor.Provider`, set only by
+  the loader; FAILURE_PATTERNS 253): it is reported unchecked there. The engine stamps
+  `predicted: true` (`sdk.StatPredicted`, and `sdk.DiffPredicted` in the diff) on every
+  check result and refuses it on a real one; an incomplete check exits 3 and
+  `--allow-unchecked <method>` accepts named gaps.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.
@@ -201,32 +255,66 @@ the cause was found, and nothing about it is discoverable from the symptom.
 
 `make push-gate` and `make ci` each end by writing `.git/pleiades-gate.json` through
 `tools/gatereceipt`, naming the commit they verified, which gate ran, and when. The hook
-reads it back for the exact commits being pushed. It refuses for three distinct reasons and
-says which: no receipt, a receipt for a different commit, or one past `MaxReceiptAge` (a
-day, which exists for `govulncheck` alone, since that is the one check whose answer moves
-without the tree moving). `git push --no-verify` still skips it.
+pipes git's own pre-push lines straight into `gatereceipt verify --push-stdin`, which
+decides **each ref's tip**, and every decision lives in that command so it is unit tested
+against real repositories rather than in shell that splits its own input.
+
+What it lets through, and what each allowance is worth knowing for:
+
+- the receipt's own commit, which is the ordinary push;
+- an object that **peels** to it, because git hands a hook an annotated tag's *tag object*,
+  not its commit, so a tag cut at the commit that just passed used to be refused at the one
+  moment a developer is most certain they did everything right;
+- a ref **created or fast-forwarded** onto a commit already inside the gated commit's
+  history, since those commits travel under the gated tip anyway. Moving an existing ref
+  *backwards* is refused, because the remote would then serve a tree no gate examined;
+- a push that only deletes refs, which sends no code.
+
+Everything else is refused, each with its own message and the command that fixes it: no
+receipt at all, an unreadable one, one that does not say which gate ran or names a gate
+this repository does not have, one dated ahead of the clock (an age is a subtraction, so a
+future date used to mean a receipt that never expired), one past `MaxReceiptAge` (a day,
+which exists for `govulncheck` alone, since that is the one check whose answer moves
+without the tree moving), a ref outside the gated history, a rewind, and an object that is
+not a commit at all. `git push --no-verify` still skips the lot.
+
+Two things this does **not** prove, both worth saying plainly. Only the tip is gated: a
+push sends every commit its tip can reach, and an intermediate commit that does not compile
+travels under a green receipt, exactly as it did under the hook that ran the suite inline.
+And hooks are opt-in per clone (`make hooks`), so a fresh clone pushes with nothing checking
+anything; the gate now warns at the end of a run when this clone is in that state.
 
 This is **stricter** than running the suite in the hook, which is worth stating because it
 looks like a loosening. That arrangement proved something about the *working tree* and then
 pushed *commits*; with uncommitted edits those are different code, and nothing noticed. A
 receipt is only issued from a clean tree, so the thing verified and the thing pushed are the
-same object by construction.
+same object by construction. It is also issued only when HEAD did not move while the gate
+ran, and the Makefile reads HEAD *while it parses itself* to make that checkable: the
+receipt used to name HEAD as it was when the gate's last line ran, twenty minutes after its
+first, so a commit made in that window collected a receipt for a tree nothing had examined
+and nothing could notice, since committing leaves the tree clean.
 
 `push-gate` itself is every check `ci` runs, with `test-race`/`test-integration` swapped for `tools/testgate`'s own
 invocations and `coverage` swapped for `go run ./tools/coverage-check -tolerant` (that
 tool runs its own separate full `go test ./... -cover` internally, so it needed the
 identical tolerance applied a second time, not just once at the test-race/
-test-integration layer). Both print a warning instead of failing the push when a test
-failure is confined to a package listed in `flaky-packages.json` (each entry with a
-written reason, mirroring `gosec-waivers.json`'s per-finding convention), classified by
-the shared `tools/internal/flakegate` package both tools use so they cannot disagree.
+test-integration layer). Both re-run every failure **alone** and decide on that: a test
+that passes by itself lost a race and is printed as a warning, a test that fails again
+fails the push, and more failures than `flakegate.MaxIsolationRetries` distinct tests fails
+without re-running anything, because that many at once is a change that broke something
+rather than a busy machine. `flaky-packages.json` (each entry with a written reason,
+mirroring `gosec-waivers.json`'s per-finding convention) no longer decides anything: a
+listed package gets **no protection from a real defect**, and an unlisted one is tolerated
+anyway when the re-run says contention. Its entries supply the reason printed beside a
+tolerated failure. Both tools share `tools/internal/flakegate` so they cannot disagree.
 This exists because packages that provision real ephemeral Docker containers or real
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
 flake under this kind of sandboxed environment's full parallel `-race` load —
 `FAILURE_PATTERNS.md` #61 — and pass individually every time. `make ci` itself is
-completely unaffected by any of this and stays exactly as strict. A build failure, or a
-test failure in any package not listed, still fails `push-gate` exactly like `ci`.
+completely unaffected by any of this and stays exactly as strict. A build failure still
+fails `push-gate` exactly like `ci`, and so does any test that fails a second time on its
+own.
 
 Read that tolerance more carefully now than you would have before: there is no stricter
 run waiting downstream of a push any more. `push-gate` used to be a preview of a gate
@@ -396,9 +484,41 @@ blank import into the relevant `builtins.go` (`internal/catalog/builtins.go`,
 intentional: a generated-but-unwired file compiles and its tests pass, but stays invisible
 to `pleiades doc --list`, `validate`, and the dispatcher until wired in.
 
-There is no out-of-tree extension mechanism today: every extension point lives under
-`internal/`, reachable only from inside this module or a fork of it (see
-`docs/11-extending-pleiades.md`).
+Collection methods have one out-of-tree mechanism, **external Collections** (Phases 42
+and 45, built 2026-09-18): a separate program built with the public `pkg/external` SDK,
+loaded by `internal/loader` from the directory `PLEIADES_COLLECTIONS_DIR` names, in
+`cmd/pleiades` (run, validate, doc) and `cmd/runner` only (`internal/archtest` enforces
+both that and that `internal/engine` never reaches the loader). The program runs as a
+child process BESIDE Pleiades, never copied onto a device (the user's decision), speaking
+the same `pkg/wire` ChildRequest/ChildResponse the Runner's own per-task child speaks,
+through the one shared `external.ServeChild`. Its methods register through the ordinary
+`collection.Register`, so validate, doc and dispatch treat them as built-in, and it gets
+credentials exactly as a built-in method does (`InjectSecrets`: the template's bound
+machine credential resolved at fan-out, or the device's own); the loader adds no
+credential path, by the user's explicit rule. The trust
+model is the directory's ownership and permissions, an approval list of exact builds
+(`.pleiades-approvals.json`, written by `pleiades collection approve|revoke|list`, re-read
+before every call), and a SHA-256 re-checked before every run, with the run executing the
+very file that was checked (`/proc/self/fd`, never the path); there is NO signature
+verification and NO registry (Phases 43 and 44 are unbuilt). Every namespace a built-in
+method uses, plus `pleiades` and `ansible`, is reserved (`collection.BuiltinNamespaces`),
+and each external method's `NodeResult` carries its `Provider` (program and digest). The
+Runner loads external Collections before telemetry or any broker connection, so a bad
+directory stops it at once, and it routes a method in process exactly when its descriptor
+has a `Provider`. A method's engine version constraint is enforced only by a release
+build: every binary reports one version from `internal/buildinfo` (stamped through
+`-ldflags -X`, honored only when it reads as a release, else `0.0.0-dev+<commit>`; `pleiades
+version` and `runner version` print it), the Runner and the CLI both hand it to the loader,
+and a development build loads a constrained method with one warning per program. Text from a program (descriptions, error messages, stat values) is
+third-party input: `internal/termsafe` refuses or escapes whatever a terminal acts on,
+and an archtest keeps Go source free of invisible control characters (FAILURE_PATTERNS
+256, 257).
+Every run is confined with Linux Landlock (`internal/loader/confine*.go`) to its own
+directory, system files, known_hosts, a private TMPDIR and `PLEIADES_COLLECTIONS_READ_PATHS`
+grants (never one reaching `.pleiades/` or containing the home directory), and the parent
+marks itself non-dumpable first (FAILURE_PATTERNS 251, 254); loading is refused wherever
+Landlock is absent, which is every platform but Linux. `forge new-external` scaffolds one. Device types and
+sync plugins remain `internal/`-only (see `docs/11-extending-pleiades.md`).
 
 ### Control plane API (`cmd/controller`, `internal/api`)
 

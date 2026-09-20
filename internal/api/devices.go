@@ -381,24 +381,42 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		History: item.History(),
 	}
 
+	var state pkginventory.LifecycleState
 	if req.State != nil {
-		state, err := pkginventory.ParseLifecycleState(*req.State)
-		if err != nil {
+		if state, err = pkginventory.ParseLifecycleState(*req.State); err != nil {
 			RespondError(w, r, http.StatusUnprocessableEntity, "unknown lifecycle state")
 			return
 		}
-		rec.State = state
-	}
-	if req.Tags != nil {
-		rec.Tags = toTagSlice(req.Tags)
 	}
 
+	// Rebuilt as it was loaded, then changed through the item's own
+	// mutators. Setting the new state or tags on the record instead
+	// rebuilt the item already changed, at the version it was loaded at,
+	// so the repository saw no change to store and the update answered 200
+	// having written nothing, which left no way to promote a device out of
+	// quarantine or simulate-locked (FAILURE_PATTERNS 261). The mutators
+	// bump the version and record a revision, as a property change does.
 	updated, err := h.factory.Build(rec)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "rebuilding device for update failed",
 			slog.String("device", name), slog.String("error", err.Error()))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")
 		return
+	}
+	if req.State != nil || req.Tags != nil {
+		mutable, ok := updated.(deviceMutable)
+		if !ok {
+			h.logger.ErrorContext(r.Context(), "stored device cannot record a state or tag change",
+				slog.String("device", name))
+			RespondError(w, r, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if req.State != nil {
+			mutable.ChangeState(state)
+		}
+		if req.Tags != nil {
+			mutable.ChangeTags(toTagSlice(req.Tags))
+		}
 	}
 
 	if err := h.repo.Save(r.Context(), updated); err != nil {
@@ -414,6 +432,15 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	dto := toDeviceDTO(stored)
 	Respond(w, r, http.StatusOK, &dto)
+}
+
+// deviceMutable is the structural check for an item that can record a
+// change to its lifecycle state or tags as a revision. Every item the
+// factory builds embeds record.Base, which provides both; the check is
+// structural so pkg/inventory's read-only item contract gains no setters.
+type deviceMutable interface {
+	ChangeState(pkginventory.LifecycleState) bool
+	ChangeTags([]pkginventory.Tag) bool
 }
 
 // deviceTyped is the structural check for an item that can report its own

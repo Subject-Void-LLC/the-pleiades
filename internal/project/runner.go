@@ -19,6 +19,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,9 +33,16 @@ const defaultConcurrency = 4
 // records the outcome, and clears claims a restart stranded. A narrow view
 // so a test drives it with three methods rather than the whole port.
 type syncStore interface {
-	BeginSync(ctx context.Context, id int) (Project, error)
+	BeginSync(ctx context.Context, id int, actor string) (Claim, error)
 	RecordSync(ctx context.Context, id int, result Result) error
 	ResetInterruptedSyncs(ctx context.Context) (int, error)
+
+	// ByLaunchable resolves the launchable reference a schedule fires with
+	// into the project it stands for. It is here rather than on a separate
+	// port because the Runner is what a schedule launches through
+	// (runner_launch.go), so resolving that reference is part of what this
+	// Runner needs from a store rather than a second collaborator.
+	ByLaunchable(ctx context.Context, launchableID int) (Project, error)
 }
 
 // Runner clones projects asynchronously.
@@ -101,32 +109,47 @@ func NewRunner(store syncStore, syncer Syncer, logger *slog.Logger, opts ...Runn
 	return r
 }
 
-// Enqueue claims a project and starts its sync in the background.
+// Enqueue claims a project and starts its sync in the background, and
+// returns the id of the attempt it started.
+//
+// The id is what lets whoever asked for the sync say which attempt they
+// started: a schedule records it on the occurrence it fired. A caller with
+// no use for it ignores it, which is every caller that has a page to
+// redirect to instead.
 //
 // It returns a synchronous error only for a refusal the caller should see
 // on the control they pressed: the project is gone, has no fetchable
-// source, or is already syncing. Once a clone is under way it returns nil,
-// and the clone's own outcome is recorded rather than returned, because by
-// then there is no caller left holding the request.
-func (r *Runner) Enqueue(ctx context.Context, id int) error {
-	claimed, err := r.store.BeginSync(ctx, id)
+// source, is already syncing, or named no actor. Once a clone is under way
+// the error is nil, and the clone's own outcome is recorded rather than
+// returned, because by then there is no caller left holding the request.
+func (r *Runner) Enqueue(ctx context.Context, id int, actor string) (int, error) {
+	// Refused here as well as in the store. The store is the real boundary
+	// and enforces it for every caller, including one that never comes
+	// through a Runner; this check is so a caller that forgot finds out
+	// before a background goroutine exists to tell.
+	if strings.TrimSpace(actor) == "" {
+		return 0, ErrNoActor
+	}
+
+	claim, err := r.store.BeginSync(ctx, id, actor)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	r.wg.Add(1)
-	go r.run(claimed)
-	return nil
+	go r.run(claim)
+	return claim.RunID, nil
 }
 
 // run performs one claimed project's clone under the Runner's context and
-// records the result.
-func (r *Runner) run(p Project) {
+// records the result against the attempt the claim opened.
+func (r *Runner) run(claim Claim) {
 	defer r.wg.Done()
+	p := claim.Project
 
-	// Stamped here rather than by the syncer: the syncer reports what it
-	// found, and this is what knows when it was asked. It reaches the
-	// history row through the Result.
-	started := time.Now()
+	// The claim's own start, not a second reading of the clock here: the
+	// history row already holds this instant, and two stamps a few
+	// microseconds apart would be two answers to one question.
+	started := claim.StartedAt
 
 	select {
 	case r.sem <- struct{}{}:
@@ -139,6 +162,7 @@ func (r *Runner) run(p Project) {
 			Err:       "the server is shutting down; sync again",
 			At:        time.Now(),
 			StartedAt: started,
+			RunID:     claim.RunID,
 		})
 		return
 	}
@@ -186,6 +210,7 @@ func (r *Runner) run(p Project) {
 	}
 
 	result.StartedAt = started
+	result.RunID = claim.RunID
 	r.record(p.ID, result)
 }
 

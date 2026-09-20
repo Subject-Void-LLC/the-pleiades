@@ -111,14 +111,17 @@ type Job struct {
 	// as its own state rather than being folded into "completed", and
 	// why "canceled" is its own state rather than a kind of "failed").
 	//
-	// The schema also declares "running", which nothing writes yet: see
-	// that field's own comment for why the value exists ahead of a writer.
+	// "running" is written when a fan-out that dispatched at least one
+	// device settles (SettleRunning), and the job moves on to "completed"
+	// once every dispatched device has reported (CompleteRunning). The
+	// schema field's own comment predates that writer and still says
+	// nothing writes it.
 	State string
-	// DispatchedCount, SkippedCount, and FailedCount are the terminal
-	// per-device tallies, final once State is "completed". They read 0
-	// before that, regardless of how much fan-out work has actually
-	// happened; a caller wanting live progress reads the JobTask list
-	// Get also returns.
+	// DispatchedCount, SkippedCount, and FailedCount are the per-device
+	// fan-out tallies. They read 0 while the fan-out is still going and are
+	// written, final, when it settles: into "running", "completed" or
+	// "canceled". A caller wanting live progress during the fan-out reads
+	// the JobTask list Get also returns.
 	DispatchedCount int
 	SkippedCount    int
 	FailedCount     int
@@ -182,6 +185,12 @@ type Job struct {
 	// This is what the fan-out resolves and injects, and it is the audit
 	// answer to what a run authenticated as.
 	CredentialIDs []int
+
+	// ExternalChecks is whether whoever launched this job may run it for
+	// real, which is what lets a check of it run an external program's
+	// Check (wire.DispatchPayload.ExternalChecks). False unless the launch
+	// set it.
+	ExternalChecks bool
 }
 
 // JobTask is the domain view of one device's outcome within a Job's
@@ -217,6 +226,11 @@ type JobTask struct {
 	Result       Result
 	ResultReason string
 	FinishedAt   time.Time
+
+	// Unchecked is how many tasks a check could not check on this device,
+	// as its Runner reported with the result: zero for a real run, for a
+	// check that answered for every task, and until a result arrives.
+	Unchecked int
 }
 
 // Result is the fixed set of execution outcomes a Runner reports back for
@@ -510,7 +524,10 @@ type JobStore interface {
 	// unknown job, returns ErrJobNotFound: both mean the same thing to the
 	// consumer, which is that there is nothing here to record and
 	// retrying will not change that.
-	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string) (complete bool, err error)
+	//
+	// unchecked is how many tasks a check could not check on the device
+	// (zero for a real run), stored with the result.
+	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string, unchecked int) (complete bool, err error)
 
 	// CompleteRunning moves jobID from "running" to "completed" once every
 	// dispatched device has reported. It is the only writer of that
@@ -523,8 +540,8 @@ type JobStore interface {
 	// actually end the job.
 	CompleteRunning(ctx context.Context, jobID string) error
 
-	// Cancel stops jobID, moving it from "pending" or "fanning_out" to
-	// "canceled" and stamping canceledBy and the current time. It is a
+	// Cancel stops jobID, moving it from "pending", "fanning_out" or
+	// "running" to "canceled" and stamping canceledBy and the current time. It is a
 	// compare-and-swap on the state alone, deliberately taking no fence:
 	// a person pressing cancel is not a participant in the fan-out lease
 	// and holds no claim to present, and requiring one would mean the only

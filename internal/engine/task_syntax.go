@@ -29,6 +29,7 @@ var ReservedTaskKeys = map[string]bool{
 	"fqcn":             true,
 	"params":           true,
 	"register":         true,
+	"check_mode":       true,
 	"when":             true,
 	"when_or":          true,
 	"when_cel":         true,
@@ -66,6 +67,13 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 	}
 
 	root := doc.Content[0]
+	keys := make([]string, 0, len(root.Content)/2)
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		keys = append(keys, root.Content[i].Value)
+	}
+	if err := checkRunbookKeys(keys); err != nil {
+		return err
+	}
 	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
 		if seq := findMappingValue(root, key); seq != nil {
 			if err := normalizeTaskListNode(seq, key); err != nil {

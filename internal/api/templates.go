@@ -624,6 +624,13 @@ func (h *TemplateHandler) CreateConfig(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusUnprocessableEntity, "a survey answer is not valid for its question")
 		return
 	}
+	// The run mode is refused here too, not left for the launch: a schedule
+	// saved with a mode it can never run would otherwise fail every time
+	// it fires.
+	if err := tmpl.CheckSavedMode(launch.Fields(body.Fields)); err != nil {
+		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
 	created, err := h.templates.SaveConfig(r.Context(), launch.SavedConfig{
 		TemplateID: id,
@@ -675,8 +682,13 @@ func (h *TemplateHandler) respondStoreError(w http.ResponseWriter, r *http.Reque
 		// entitled to make it; the platform is refusing because something
 		// else depends on the record. The message names what, because
 		// "conflict" alone leaves an operator hunting.
+		//
+		// It used to say "delete or disable the schedule", which was wrong
+		// advice: a disabled schedule still holds the reference, so disabling
+		// one does not unblock the delete and following the instruction left
+		// an operator with the same 409 and less trust in the message.
 		RespondError(w, r, http.StatusConflict,
-			"a schedule still launches this template; delete or disable the schedule first")
+			"a schedule still launches this template; delete the schedule, or point it at something else, first")
 	case errors.Is(err, launch.ErrCrossTenant):
 		// 403 rather than 400, matching inventories.go: the submission is
 		// well formed and the caller is authenticated, they are simply not

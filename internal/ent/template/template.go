@@ -48,8 +48,8 @@ const (
 	EdgeSavedConfigs = "saved_configs"
 	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
 	EdgeCredentials = "credentials"
-	// EdgeSchedules holds the string denoting the schedules edge name in mutations.
-	EdgeSchedules = "schedules"
+	// EdgeLaunchable holds the string denoting the launchable edge name in mutations.
+	EdgeLaunchable = "launchable"
 	// Table holds the table name of the template in the database.
 	Table = "templates"
 	// ProjectTable is the table that holds the project relation/edge.
@@ -92,13 +92,13 @@ const (
 	// CredentialsInverseTable is the table name for the Credential entity.
 	// It exists in this package in order to avoid circular dependency with the "credential" package.
 	CredentialsInverseTable = "credentials"
-	// SchedulesTable is the table that holds the schedules relation/edge.
-	SchedulesTable = "schedules"
-	// SchedulesInverseTable is the table name for the Schedule entity.
-	// It exists in this package in order to avoid circular dependency with the "schedule" package.
-	SchedulesInverseTable = "schedules"
-	// SchedulesColumn is the table column denoting the schedules relation/edge.
-	SchedulesColumn = "template_schedules"
+	// LaunchableTable is the table that holds the launchable relation/edge.
+	LaunchableTable = "launchables"
+	// LaunchableInverseTable is the table name for the Launchable entity.
+	// It exists in this package in order to avoid circular dependency with the "launchable" package.
+	LaunchableInverseTable = "launchables"
+	// LaunchableColumn is the table column denoting the launchable relation/edge.
+	LaunchableColumn = "template_launchable"
 )
 
 // Columns holds all SQL columns for template fields.
@@ -276,17 +276,10 @@ func ByCredentials(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
-// BySchedulesCount orders the results by schedules count.
-func BySchedulesCount(opts ...sql.OrderTermOption) OrderOption {
+// ByLaunchableField orders the results by launchable field.
+func ByLaunchableField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newSchedulesStep(), opts...)
-	}
-}
-
-// BySchedules orders the results by schedules terms.
-func BySchedules(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newSchedulesStep(), append([]sql.OrderTerm{term}, terms...)...)
+		sqlgraph.OrderByNeighborTerms(s, newLaunchableStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newProjectStep() *sqlgraph.Step {
@@ -331,10 +324,10 @@ func newCredentialsStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2M, false, CredentialsTable, CredentialsPrimaryKey...),
 	)
 }
-func newSchedulesStep() *sqlgraph.Step {
+func newLaunchableStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(SchedulesInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
+		sqlgraph.To(LaunchableInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, LaunchableTable, LaunchableColumn),
 	)
 }

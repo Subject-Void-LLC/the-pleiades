@@ -57,6 +57,14 @@ const (
 	// statusMissing means the probe ran and the path was not there, which
 	// is an ANSWER rather than a failure.
 	statusMissing = 120
+
+	// statusUnreadable means a probe that lists a directory could not
+	// list it, which is a failure: it says nothing about what is inside.
+	statusUnreadable = 121
+
+	// statusNotEmpty means the directory probe ran and found at least one
+	// entry, which is an ANSWER rather than a failure.
+	statusNotEmpty = 122
 )
 
 // Kind is what a path is, as far as this package needs to care.
@@ -121,19 +129,19 @@ func (i Info) Exists() bool { return i.Kind != KindAbsent }
 // corrected it; no such type or field exists.)
 func (i Info) Map() map[string]any {
 	m := map[string]any{
-		"exists": i.Exists(),
-		"kind":   string(i.Kind),
+		keyExists: i.Exists(),
+		keyKind:   string(i.Kind),
 	}
 	if !i.Exists() {
 		return m
 	}
-	m["mode"] = i.Mode
-	m["owner"] = i.Owner
-	m["group"] = i.Group
-	m["size"] = i.Size
-	m["mtime"] = i.Mtime
+	m[keyMode] = i.Mode
+	m[keyOwner] = i.Owner
+	m[keyGroup] = i.Group
+	m[keySize] = i.Size
+	m[keyMtime] = i.Mtime
 	if i.Kind == KindSymlink {
-		m["target"] = i.Target
+		m[keyTarget] = i.Target
 	}
 	return m
 }
@@ -191,6 +199,44 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 		}
 	}
 	return info, nil
+}
+
+// DirectoryEmpty reports whether the directory at dirPath has no entries.
+// It only reads: nothing on the device changes.
+//
+// It exists for a check. file.remove refuses a directory that is not
+// empty unless its task allows recursion, and a real run learns that from
+// rmdir's own atomic refusal. A check cannot send rmdir, so it asks this
+// instead, and can then predict the same refusal rather than claiming a
+// removal the real run would refuse.
+//
+// ls -A is POSIX and lists everything except "." and "..", hidden entries
+// included, which is exactly the set rmdir cares about. A directory ls
+// cannot list (no read permission) is an error rather than "empty": being
+// unable to see inside is not evidence that nothing is there. dirPath
+// must name a directory; a regular file would be listed as itself and
+// reported not empty.
+func DirectoryEmpty(ctx context.Context, conn *remoteexec.Conn, dirPath string) (bool, error) {
+	quoted := remoteexec.QuoteArg(dirPath)
+
+	// The listing is captured rather than piped, because a pipeline's exit
+	// status in POSIX sh is its last command's, and "ls failed" has to stay
+	// distinguishable from "ls printed nothing".
+	cmd := "entries=$(ls -A -- " + quoted + ") || exit " + strconv.Itoa(statusUnreadable) + "; " +
+		"if [ -z \"$entries\" ]; then exit 0; fi; exit " + strconv.Itoa(statusNotEmpty)
+
+	result, err := conn.Run(ctx, cmd)
+	if err != nil {
+		return false, fmt.Errorf("list %s: %w", dirPath, err)
+	}
+	switch result.ExitCode {
+	case 0:
+		return true, nil
+	case statusNotEmpty:
+		return false, nil
+	default:
+		return false, fmt.Errorf("list %s: exited %d: %s", dirPath, result.ExitCode, firstLine(result.Stderr))
+	}
 }
 
 // parseStat turns one line of the stat format above into an Info.

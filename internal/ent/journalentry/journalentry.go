@@ -38,6 +38,10 @@ const (
 	FieldFqcn = "fqcn"
 	// FieldFqcnUnresolved holds the string denoting the fqcn_unresolved field in the database.
 	FieldFqcnUnresolved = "fqcn_unresolved"
+	// FieldProviderProgram holds the string denoting the provider_program field in the database.
+	FieldProviderProgram = "provider_program"
+	// FieldProviderDigest holds the string denoting the provider_digest field in the database.
+	FieldProviderDigest = "provider_digest"
 	// FieldTaskName holds the string denoting the task_name field in the database.
 	FieldTaskName = "task_name"
 	// FieldRegister holds the string denoting the register field in the database.
@@ -93,6 +97,8 @@ var Columns = []string{
 	FieldDagVersion,
 	FieldFqcn,
 	FieldFqcnUnresolved,
+	FieldProviderProgram,
+	FieldProviderDigest,
 	FieldTaskName,
 	FieldRegister,
 	FieldStartedAt,
@@ -260,6 +266,16 @@ func ByFqcn(opts ...sql.OrderTermOption) OrderOption {
 // ByFqcnUnresolved orders the results by the fqcn_unresolved field.
 func ByFqcnUnresolved(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFqcnUnresolved, opts...).ToFunc()
+}
+
+// ByProviderProgram orders the results by the provider_program field.
+func ByProviderProgram(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProviderProgram, opts...).ToFunc()
+}
+
+// ByProviderDigest orders the results by the provider_digest field.
+func ByProviderDigest(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProviderDigest, opts...).ToFunc()
 }
 
 // ByTaskName orders the results by the task_name field.

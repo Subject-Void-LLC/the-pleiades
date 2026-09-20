@@ -81,9 +81,13 @@ func init() {
 					"inverse that recreated the path would be worse than emitting none: it would leave an empty file where " +
 					"a full one had been and call that a restore.",
 			},
-			Doc: removeDoc(),
+			// A check reads the path and reports whether a real run would
+			// remove it, removing nothing. See CheckRemove.
+			SupportsCheck: true,
+			Doc:           removeDoc(),
 		},
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -158,6 +162,32 @@ func removeDoc() collection.Doc {
 // at which a human reviewing a diff can see it coming. An empty directory
 // still goes without recurse, since there is nothing under it to lose.
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRemove is "file.remove" in check mode: it reads the path and
+// reports whether Remove would delete it, and deletes nothing.
+//
+// It runs Remove's own body up to the deletion, so it reads the same
+// params and the same path. An absent path predicts no change, exactly as
+// Remove reports none. A directory without recurse is the one case that
+// needs a read Remove does not make: Remove learns from rmdir's own
+// refusal whether the directory was empty, and a check cannot send rmdir,
+// so it lists the directory instead (remotefile.DirectoryEmpty) and
+// predicts the same refusal for one that is not empty.
+//
+// What it cannot predict, stated plainly: rmdir and rm can still be
+// refused for permissions (the account may not be able to write the
+// parent directory), and nothing short of trying reveals that. A check
+// that says "would change" is therefore a prediction that the removal is
+// wanted, not a guarantee that it will be permitted.
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// remove is the one body Remove and CheckRemove share. mode decides only
+// whether anything is deleted.
+func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.remove"
 
 	// Both parameter reads happen before the connection. A refusal that
@@ -205,13 +235,28 @@ func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{Changed: false}, nil
 	}
 
-	if err := removeTarget(ctx, conn, path, before.Kind, recurse); err != nil {
+	if mode == collection.ModeCheck {
+		// The one refusal a real run makes after this point, predicted
+		// rather than provoked: a directory the task may not recurse into
+		// is removed only when it is already empty.
+		if before.Kind == remotefile.KindDirectory && !recurse {
+			empty, err := remotefile.DirectoryEmpty(ctx, conn, path)
+			if err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			if !empty {
+				return collection.Result{}, fmt.Errorf("%s: refusing to remove directory %s: it is not empty. Set %s: true to remove a directory and everything inside it",
+					fqcn, path, removeParamRecurse)
+			}
+		}
+	} else if err := removeTarget(ctx, conn, path, before.Kind, recurse); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	// Built rather than re-read. The removal succeeded, so the state is
 	// known exactly, and a second stat would spend a round trip to be told
-	// what the first one already implies.
+	// what the first one already implies. In a check it is the prediction,
+	// and the same value: a removal that goes through leaves nothing.
 	after := remotefile.Info{Kind: remotefile.KindAbsent}
 	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after.Map()}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

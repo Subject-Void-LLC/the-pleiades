@@ -110,7 +110,7 @@ func TestAdapter_Execute_PublishesStartedThenParsedEvents(t *testing.T) {
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "pleiades/legacy-ansible-runner:test", nil)
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceID: "d1", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
 
@@ -163,7 +163,7 @@ func TestAdapter_Execute_LaunchFieldsReachTheRealArgv(t *testing.T) {
 		},
 		ExtraVars: map[string]any{"deploy_env": "prod"},
 	}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestAdapter_Execute_UnknownPlaybookReturnsError(t *testing.T) {
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "does-not-exist.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	err := adapter.Execute(context.Background(), payload)
+	_, err := adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected an error for an unresolvable playbook, got nil")
 	}
@@ -241,7 +241,7 @@ sw1                        : ok=1    changed=0    unreachable=0    failed=0    s
 		JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1",
 		Secrets: credential.Flatten(credential.Credential{Username: "svc", Password: secretPassword}),
 	}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestAdapter_Execute_NonZeroExitWithNoRecapReportsFailed(t *testing.T) {
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	err := adapter.Execute(context.Background(), payload)
+	_, err := adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit with no parseable summary, got nil")
 	}
@@ -280,7 +280,7 @@ func TestAdapter_Execute_PropagatesOrchestratorFailure(t *testing.T) {
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err == nil {
+	if _, err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("expected Execute to propagate the orchestrator's own error, got nil")
 	}
 }
@@ -291,7 +291,7 @@ func TestAdapter_Execute_PropagatesPublishFailure(t *testing.T) {
 	adapter := legacy.NewAdapter(failingBus{}, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err == nil {
+	if _, err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("expected Execute to propagate the started-event publish failure, got nil")
 	}
 }
@@ -309,7 +309,7 @@ func TestWithNetworks_AttachesConfiguredNetworksToEveryContainerSpec(t *testing.
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil, legacy.WithNetworks([]string{"my-net"}))
 
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
-	if err := adapter.Execute(context.Background(), payload); err != nil {
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
 	if len(orch.lastSpec.Networks) != 1 || orch.lastSpec.Networks[0] != "my-net" {
@@ -329,11 +329,37 @@ func TestAdapter_Execute_PassphraseProtectedKeyFailsBeforeRunningContainer(t *te
 			Username: "svc", PrivateKeyPEM: []byte("fake-key"), Passphrase: "secret-passphrase",
 		}),
 	}
-	err := adapter.Execute(context.Background(), payload)
+	_, err := adapter.Execute(context.Background(), payload)
 	if !errors.Is(err, legacy.ErrPassphraseProtectedKey) {
 		t.Fatalf("error = %v, want ErrPassphraseProtectedKey", err)
 	}
 	if orch.lastSpec.Image != "" {
 		t.Errorf("orchestrator was invoked despite a passphrase-protected key, which must be rejected before any container runs")
+	}
+}
+
+// TestAdapter_Execute_RefusesACheck proves a playbook is never run when
+// the dispatch asks for a check: ansible-playbook --check would still run
+// a task marked check_mode: false for real. Nothing is published and no
+// container runs. The control is the same payload as a real run, which
+// does run.
+func TestAdapter_Execute_RefusesACheck(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		runs bool
+	}{{"check", false}, {"anything", false}, {"execute", true}, {"", true}} {
+		bus := &mockBus{}
+		orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte(realPlaybookOutput), ExitCode: 0}}
+		adapter := legacy.NewAdapter(bus, writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n"), orch, "irrelevant", nil)
+		_, err := adapter.Execute(context.Background(), wire.DispatchPayload{
+			JobID: "job-1", RunbookID: "upgrade.yml", DeviceID: "d1", DeviceName: "sw1", DeviceHost: "10.0.0.1", Mode: tc.mode,
+		})
+		ran := orch.lastSpec.Argv != nil
+		if ran != tc.runs {
+			t.Errorf("mode %q: the playbook ran = %v, want %v (err %v)", tc.mode, ran, tc.runs, err)
+		}
+		if !tc.runs && (err == nil || !strings.Contains(err.Error(), "cannot be run as a check")) {
+			t.Errorf("mode %q: Execute = %v, want the refusal", tc.mode, err)
+		}
 	}
 }

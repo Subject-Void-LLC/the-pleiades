@@ -22,6 +22,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 )
 
@@ -37,6 +38,11 @@ type stubScheduleStore struct {
 
 	gotCreate schedule.Schedule
 	gotUpdate schedule.Schedule
+
+	// gotReach is the reach the handler passed, so a test can prove the
+	// caller's own permissions reach the store rather than being dropped on
+	// the way.
+	gotReach launchable.Reach
 
 	createErr error
 	getErr    error
@@ -56,8 +62,9 @@ func newStubScheduleStore(items ...schedule.Schedule) *stubScheduleStore {
 	return s
 }
 
-func (s *stubScheduleStore) Create(_ context.Context, in schedule.Schedule) (schedule.Schedule, error) {
+func (s *stubScheduleStore) Create(_ context.Context, in schedule.Schedule, reach launchable.Reach) (schedule.Schedule, error) {
 	s.gotCreate = in
+	s.gotReach = reach
 	if s.createErr != nil {
 		return schedule.Schedule{}, s.createErr
 	}
@@ -69,8 +76,9 @@ func (s *stubScheduleStore) Create(_ context.Context, in schedule.Schedule) (sch
 	return in, nil
 }
 
-func (s *stubScheduleStore) Update(_ context.Context, in schedule.Schedule) (schedule.Schedule, error) {
+func (s *stubScheduleStore) Update(_ context.Context, in schedule.Schedule, reach launchable.Reach) (schedule.Schedule, error) {
 	s.gotUpdate = in
+	s.gotReach = reach
 	if s.updateErr != nil {
 		return schedule.Schedule{}, s.updateErr
 	}
@@ -121,9 +129,25 @@ func (s *stubScheduleStore) ListOccurrences(_ context.Context, _ int, id string,
 	return s.occurrences, nil
 }
 
+// stubScheduleTemplates resolves a template id to its launchable, which is all
+// the handler needs for the deprecated "template" field. Template 42 stands for
+// launchable 44 here, deliberately different numbers so a test cannot pass by
+// confusing the two id spaces.
+type stubScheduleTemplates struct{ err error }
+
+func (s stubScheduleTemplates) Get(_ context.Context, id int) (launch.Template, error) {
+	if s.err != nil {
+		return launch.Template{}, s.err
+	}
+	if id != 42 {
+		return launch.Template{}, launch.ErrNotFound
+	}
+	return launch.Template{ID: 42, Name: "nightly build", LaunchableID: 44}, nil
+}
+
 func scheduleRouter(t *testing.T, store api.ScheduleStore) http.Handler {
 	t.Helper()
-	handler := api.NewScheduleHandler(store, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	handler := api.NewScheduleHandler(store, stubScheduleTemplates{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Auth:      alwaysAuthenticated,
@@ -152,13 +176,17 @@ func testSchedule(id string) schedule.Schedule {
 		ID:             1,
 		ScheduleID:     id,
 		OrganizationID: 7,
-		TemplateID:     42,
-		Name:           "nightly",
-		Enabled:        true,
-		RRule:          "FREQ=DAILY",
-		Timezone:       "America/New_York",
-		DTStart:        time.Date(2024, 3, 8, 14, 0, 0, 0, time.UTC),
-		NextRun:        &next,
+		LaunchableID:   44,
+		Launchable: launchable.Target{
+			ID: 44, Type: launchable.TypeJobTemplate,
+			Name: "nightly build", OrganizationID: 7,
+		},
+		Name:     "nightly",
+		Enabled:  true,
+		RRule:    "FREQ=DAILY",
+		Timezone: "America/New_York",
+		DTStart:  time.Date(2024, 3, 8, 14, 0, 0, 0, time.UTC),
+		NextRun:  &next,
 	}
 }
 
@@ -783,7 +811,7 @@ func TestScheduleStoreFailuresMapToStatuses(t *testing.T) {
 // TestNewScheduleHandlerDefaultsItsLogger covers the nil-logger fallback
 // every other handler here has.
 func TestNewScheduleHandlerDefaultsItsLogger(t *testing.T) {
-	if h := api.NewScheduleHandler(newStubScheduleStore(), nil); h == nil {
+	if h := api.NewScheduleHandler(newStubScheduleStore(), stubScheduleTemplates{}, nil); h == nil {
 		t.Fatal("NewScheduleHandler returned nil")
 	}
 }

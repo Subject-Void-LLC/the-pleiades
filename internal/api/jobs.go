@@ -117,6 +117,10 @@ type jobTaskDTO struct {
 	Result       string `json:"result,omitempty"`
 	ResultReason string `json:"result_reason,omitempty"`
 	FinishedAt   string `json:"finished_at,omitempty"`
+
+	// Unchecked is how many tasks a check could not check on this device,
+	// absent when there were none.
+	Unchecked int `json:"unchecked,omitempty"`
 }
 
 // jobResponse is the wire projection of a dispatch.Job together with
@@ -146,17 +150,33 @@ type jobResponse struct {
 	// execution adapter handled it.
 	Kind string `json:"kind,omitempty"`
 
+	// Mode is "execute" for a real run and "check" for one that asked
+	// every task what it would change and changed nothing, always present
+	// so a reader never has to infer a real run from an absent field. A
+	// check's "completed" and "changed" describe what WOULD have happened.
+	// A record whose mode is not either reads "unreadable", never as one
+	// of the two (dispatch.Job.ModeLabel).
+	Mode string `json:"mode"`
+
+	// CheckComplete, on a check job that has finished, says whether the
+	// check covered everything it targeted (dispatch.Job.CheckCoverage):
+	// every device checked, successfully, with no task left unchecked.
+	// Absent on a real run and while a check is still running, so a
+	// reader never takes "not yet known" for either answer. Unchecked is
+	// how many tasks the check could not check across every device.
+	CheckComplete *bool `json:"check_complete,omitempty"`
+	Unchecked     int   `json:"unchecked,omitempty"`
+
 	// FailureReason explains a failed state, and is empty for every other
 	// one. It carries only facts a job-resource reader may see, never a
 	// raw internal error.
 	FailureReason string `json:"failure_reason,omitempty"`
 
-	// Dispatched, Skipped, and Failed are the terminal per-device
-	// tallies (dispatch.Job's own DispatchedCount/SkippedCount/
-	// FailedCount field comments): they read 0 before State reaches
-	// "completed", regardless of how much fan-out work has actually
-	// happened. Tasks below is where a caller reads live progress
-	// instead.
+	// Dispatched, Skipped, and Failed are the per-device fan-out tallies
+	// (dispatch.Job's own DispatchedCount/SkippedCount/FailedCount field
+	// comments): they read 0 while the fan-out is still going and are
+	// final once it settles. Tasks below is where a caller reads live
+	// progress instead.
 	Dispatched int `json:"dispatched"`
 	Skipped    int `json:"skipped"`
 	Failed     int `json:"failed"`
@@ -182,6 +202,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 			Reason:       t.Reason,
 			Result:       t.Result.String(),
 			ResultReason: t.ResultReason,
+			Unchecked:    t.Unchecked,
 		}
 		if !t.FinishedAt.IsZero() {
 			dto.FinishedAt = t.FinishedAt.UTC().Format(time.RFC3339)
@@ -189,7 +210,15 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 		dtos = append(dtos, dto)
 	}
 
+	var checkComplete *bool
+	complete, decided, unchecked := job.CheckCoverage(tasks)
+	if decided {
+		checkComplete = &complete
+	}
+
 	return jobResponse{
+		CheckComplete: checkComplete,
+		Unchecked:     unchecked,
 		JobID:         job.JobID,
 		RunbookID:     job.RunbookID,
 		State:         job.State,
@@ -198,6 +227,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 		Inventory:     job.InventoryID,
 		Organization:  job.OrganizationID,
 		Kind:          job.Kind,
+		Mode:          job.ModeLabel(),
 		FailureReason: job.FailureReason,
 		Dispatched:    job.DispatchedCount,
 		Skipped:       job.SkippedCount,
@@ -211,7 +241,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 // The {id} URL parameter is validated as a UUID before it is used for
 // anything, the identical idiom and reasoning internal/api/logs.go's own
 // StreamLogs already uses for its own {id} param: every job id this
-// platform mints is a UUID (api.Dispatcher's own uuid.New()), so requiring
+// platform mints is a UUID (api.Dispatcher's own newJobID, a UUIDv7), so requiring
 // one closes the same class of hole a caller-controlled id reaching a
 // backing lookup could otherwise open, with no loss of function, and a
 // second, independently invented validation idiom for the identical
@@ -352,6 +382,7 @@ type jobSummaryDTO struct {
 	State        string `json:"state"`
 	TemplateName string `json:"template_name,omitempty"`
 	Kind         string `json:"kind,omitempty"`
+	Mode         string `json:"mode"`
 	Actor        string `json:"actor"`
 	Dispatched   int    `json:"dispatched"`
 	Skipped      int    `json:"skipped"`
@@ -413,6 +444,7 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 			State:        j.State,
 			TemplateName: j.TemplateName,
 			Kind:         j.Kind,
+			Mode:         j.ModeLabel(),
 			Actor:        j.Actor,
 			Dispatched:   j.DispatchedCount,
 			Skipped:      j.SkippedCount,

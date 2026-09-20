@@ -15,6 +15,7 @@ Makes sure a package is at its newest available version, without caring which pa
 | Capabilities | `PackageManagerCapable` |
 | Transports | - |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

@@ -226,6 +226,11 @@ func runInventorySync(args []string) error {
 // conflicted ones are listed individually with their reason, because those
 // are the two outcomes that need a human decision, and a summary count
 // alone would make them easy to miss in a fleet of hundreds.
+//
+// A read-only sync gets the same list. It used to return after its summary,
+// so the preview an operator runs before letting a sync write was the one
+// report that never named what was quarantined or why, and a quarantined
+// record is shown nowhere else, since it is never stored.
 func printReconciliation(report syncplugin.Reconciliation) {
 	if wouldAdd, wouldUpdate := report.Count(syncplugin.OutcomeWouldAdd), report.Count(syncplugin.OutcomeWouldUpdate); wouldAdd+wouldUpdate > 0 {
 		fmt.Printf("read-only: discovered %d device(s): %d would be added, %d would be updated, %d unchanged, %d quarantined, %d conflicted\n",
@@ -234,17 +239,16 @@ func printReconciliation(report syncplugin.Reconciliation) {
 			report.Count(syncplugin.OutcomeQuarantined),
 			report.Count(syncplugin.OutcomeConflict),
 		)
-		return
+	} else {
+		fmt.Printf("discovered %d device(s): %d added, %d updated, %d unchanged, %d quarantined, %d conflicted\n",
+			report.Total(),
+			report.Count(syncplugin.OutcomeAdded),
+			report.Count(syncplugin.OutcomeUpdated),
+			report.Count(syncplugin.OutcomeUnchanged),
+			report.Count(syncplugin.OutcomeQuarantined),
+			report.Count(syncplugin.OutcomeConflict),
+		)
 	}
-
-	fmt.Printf("discovered %d device(s): %d added, %d updated, %d unchanged, %d quarantined, %d conflicted\n",
-		report.Total(),
-		report.Count(syncplugin.OutcomeAdded),
-		report.Count(syncplugin.OutcomeUpdated),
-		report.Count(syncplugin.OutcomeUnchanged),
-		report.Count(syncplugin.OutcomeQuarantined),
-		report.Count(syncplugin.OutcomeConflict),
-	)
 
 	needsAttention := make([]syncplugin.DeviceResult, 0)
 	for _, res := range report.Results {

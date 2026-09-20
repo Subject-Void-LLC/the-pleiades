@@ -12,10 +12,10 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -219,19 +219,23 @@ func (_c *TemplateCreate) AddCredentials(v ...*Credential) *TemplateCreate {
 	return _c.AddCredentialIDs(ids...)
 }
 
-// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
-func (_c *TemplateCreate) AddScheduleIDs(ids ...int) *TemplateCreate {
-	_c.mutation.AddScheduleIDs(ids...)
+// SetLaunchableID sets the "launchable" edge to the Launchable entity by ID.
+func (_c *TemplateCreate) SetLaunchableID(id int) *TemplateCreate {
+	_c.mutation.SetLaunchableID(id)
 	return _c
 }
 
-// AddSchedules adds the "schedules" edges to the Schedule entity.
-func (_c *TemplateCreate) AddSchedules(v ...*Schedule) *TemplateCreate {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
+// SetNillableLaunchableID sets the "launchable" edge to the Launchable entity by ID if the given value is not nil.
+func (_c *TemplateCreate) SetNillableLaunchableID(id *int) *TemplateCreate {
+	if id != nil {
+		_c = _c.SetLaunchableID(*id)
 	}
-	return _c.AddScheduleIDs(ids...)
+	return _c
+}
+
+// SetLaunchable sets the "launchable" edge to the Launchable entity.
+func (_c *TemplateCreate) SetLaunchable(v *Launchable) *TemplateCreate {
+	return _c.SetLaunchableID(v.ID)
 }
 
 // Mutation returns the TemplateMutation object of the builder.
@@ -500,15 +504,15 @@ func (_c *TemplateCreate) createSpec() (*Template, *sqlgraph.CreateSpec) {
 		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
-	if nodes := _c.mutation.SchedulesIDs(); len(nodes) > 0 {
+	if nodes := _c.mutation.LaunchableIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   template.SchedulesTable,
-			Columns: []string{template.SchedulesColumn},
+			Table:   template.LaunchableTable,
+			Columns: []string{template.LaunchableColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

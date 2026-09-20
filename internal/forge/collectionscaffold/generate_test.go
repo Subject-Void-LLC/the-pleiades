@@ -3,6 +3,7 @@ package collectionscaffold_test
 import (
 	"go/parser"
 	"go/token"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -34,6 +35,7 @@ func TestGenerate(t *testing.T) {
 				"RequiresElevation: true",
 				`EngineVersion:   ">=1.0.0"`,
 				"Status:          collection.StatusDeclared",
+				"SupportsCheck: false,",
 				"func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error)",
 				`return collection.Result{}, fmt.Errorf("pkg.apt.install: not implemented")`,
 			},
@@ -212,5 +214,75 @@ func TestGenerate_PromptsForReversibility(t *testing.T) {
 	// absent one.
 	if strings.Contains(got, "\n\t\t\tReversibility: collection.Reversibility{") {
 		t.Error("Reversibility is emitted as live code; it must stay commented until an author answers it")
+	}
+}
+
+// TestGenerate_DeclaresNoCheckSupport proves the generated manifest states
+// its check support outright, as false, and tells the implementer how to
+// change that.
+//
+// False is the only value a declared stub can carry: collection.Register
+// refuses check support on a method that is not implemented. Stating it
+// rather than leaving the zero value in place is what gives the comment
+// beside it somewhere to live, so the author meets the check contract
+// (read, predict, change nothing, never record an inverse) in the file
+// they are already editing rather than after a refused registration.
+func TestGenerate_DeclaresNoCheckSupport(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  collectionscaffold.Config
+	}{
+		{name: "two segment name", cfg: collectionscaffold.Config{Name: "probe.dryrun"}},
+		{name: "three segment name with capabilities", cfg: collectionscaffold.Config{
+			Name:         "probe.nested.dryrun",
+			Capabilities: []capability.Name{capability.NameSSHTransport},
+			Transports:   []string{"ssh"},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files, err := collectionscaffold.Generate(tt.cfg)
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			source := string(files[0].Content)
+
+			// A live field, not a comment: the value has to reach the
+			// registered manifest, where Register and every serialized
+			// manifest read it.
+			if !regexp.MustCompile(`\n\t\t\tSupportsCheck:\s+false,\n`).MatchString(source) {
+				t.Errorf("the generated manifest does not state SupportsCheck: false as a live field:\n%s", source)
+			}
+			if regexp.MustCompile(`SupportsCheck:\s+true`).MatchString(source) {
+				t.Errorf("a declared stub claims check support, which collection.Register refuses:\n%s", source)
+			}
+			// The Descriptor must not carry a live Check either, since
+			// Register refuses a Check without SupportsCheck.
+			if strings.Contains(source, "\n\t\tCheck:") {
+				t.Errorf("the generated Descriptor sets Check on a declared stub:\n%s", source)
+			}
+
+			for _, want := range []string{
+				"SupportsCheck to true",
+				"Check takes exactly Invoke's",
+				"Result.Changed",
+				"changing nothing",
+				"sdk.RecordInverse",
+				"unchecked",
+			} {
+				if !strings.Contains(source, want) {
+					t.Errorf("the generated stub does not mention %q, so an author has no prompt for check support:\n%s", want, source)
+				}
+			}
+
+			// The starter test must pin the same answer, so a later edit
+			// that turns check support on without a Check is caught by
+			// the package's own test rather than only at registration.
+			testSource := string(files[1].Content)
+			if !strings.Contains(testSource, "d.Manifest.SupportsCheck || d.Check != nil") {
+				t.Errorf("the generated starter test does not assert the absence of check support:\n%s", testSource)
+			}
+		})
 	}
 }

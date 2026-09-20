@@ -65,6 +65,11 @@ func UpdatedAt(v time.Time) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
+// Actor applies equality check predicate on the "actor" field. It's identical to ActorEQ.
+func Actor(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEQ(FieldActor, v))
+}
+
 // Revision applies equality check predicate on the "revision" field. It's identical to RevisionEQ.
 func Revision(v string) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldEQ(FieldRevision, v))
@@ -183,6 +188,81 @@ func StatusIn(vs ...Status) predicate.SyncRun {
 // StatusNotIn applies the NotIn predicate on the "status" field.
 func StatusNotIn(vs ...Status) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldNotIn(FieldStatus, vs...))
+}
+
+// ActorEQ applies the EQ predicate on the "actor" field.
+func ActorEQ(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEQ(FieldActor, v))
+}
+
+// ActorNEQ applies the NEQ predicate on the "actor" field.
+func ActorNEQ(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNEQ(FieldActor, v))
+}
+
+// ActorIn applies the In predicate on the "actor" field.
+func ActorIn(vs ...string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldIn(FieldActor, vs...))
+}
+
+// ActorNotIn applies the NotIn predicate on the "actor" field.
+func ActorNotIn(vs ...string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNotIn(FieldActor, vs...))
+}
+
+// ActorGT applies the GT predicate on the "actor" field.
+func ActorGT(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldGT(FieldActor, v))
+}
+
+// ActorGTE applies the GTE predicate on the "actor" field.
+func ActorGTE(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldGTE(FieldActor, v))
+}
+
+// ActorLT applies the LT predicate on the "actor" field.
+func ActorLT(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldLT(FieldActor, v))
+}
+
+// ActorLTE applies the LTE predicate on the "actor" field.
+func ActorLTE(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldLTE(FieldActor, v))
+}
+
+// ActorContains applies the Contains predicate on the "actor" field.
+func ActorContains(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldContains(FieldActor, v))
+}
+
+// ActorHasPrefix applies the HasPrefix predicate on the "actor" field.
+func ActorHasPrefix(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldHasPrefix(FieldActor, v))
+}
+
+// ActorHasSuffix applies the HasSuffix predicate on the "actor" field.
+func ActorHasSuffix(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldHasSuffix(FieldActor, v))
+}
+
+// ActorIsNil applies the IsNil predicate on the "actor" field.
+func ActorIsNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldIsNull(FieldActor))
+}
+
+// ActorNotNil applies the NotNil predicate on the "actor" field.
+func ActorNotNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNotNull(FieldActor))
+}
+
+// ActorEqualFold applies the EqualFold predicate on the "actor" field.
+func ActorEqualFold(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEqualFold(FieldActor, v))
+}
+
+// ActorContainsFold applies the ContainsFold predicate on the "actor" field.
+func ActorContainsFold(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldContainsFold(FieldActor, v))
 }
 
 // RevisionEQ applies the EQ predicate on the "revision" field.
@@ -393,6 +473,16 @@ func FinishedAtLT(v time.Time) predicate.SyncRun {
 // FinishedAtLTE applies the LTE predicate on the "finished_at" field.
 func FinishedAtLTE(v time.Time) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldLTE(FieldFinishedAt, v))
+}
+
+// FinishedAtIsNil applies the IsNil predicate on the "finished_at" field.
+func FinishedAtIsNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldIsNull(FieldFinishedAt))
+}
+
+// FinishedAtNotNil applies the NotNil predicate on the "finished_at" field.
+func FinishedAtNotNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNotNull(FieldFinishedAt))
 }
 
 // HasProject applies the HasEdge predicate on the "project" edge.

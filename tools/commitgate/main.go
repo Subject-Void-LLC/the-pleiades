@@ -2,9 +2,10 @@
 // states and a machine can check.
 //
 // It is the commit-time half of a gate this repository already had at push
-// time. .githooks/pre-push runs `make push-gate`, which builds, vets,
-// formats, scans and tests, and which takes minutes because several
-// packages dial real ephemeral Docker containers. That is the right gate
+// time. `make push-gate` builds, vets, formats, scans and tests, and takes
+// minutes because several packages dial real ephemeral Docker containers;
+// .githooks/pre-push does not run it, it reads back the receipt that run
+// left behind (see tools/gatereceipt). That is the right gate
 // for "does this work" and the wrong one for "is this written the way this
 // repository writes things": by the time it runs, the mistake is already
 // three commits back and fixing it means rewriting history.

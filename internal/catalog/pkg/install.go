@@ -22,6 +22,7 @@ func init() {
 			installDoc(),
 		),
 		Invoke: Install,
+		Check:  CheckInstall,
 	})
 }
 
@@ -42,5 +43,12 @@ func installDoc() collection.Doc {
 // Install implements "pkg.install" by resolving the device's package
 // manager and handing the call to that manager's concrete method.
 func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "install")
+	return dispatch(ctx, rc, device, params, "install", collection.ModeExecute)
+}
+
+// CheckInstall is pkg.install's check: the device's package manager's own
+// check (dispatch), or "cannot check this call" for a manager whose
+// method has none.
+func CheckInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "install", collection.ModeCheck)
 }

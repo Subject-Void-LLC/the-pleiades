@@ -89,6 +89,12 @@ func (s stubTemplates) Get(context.Context, int) (launch.Template, error) {
 	return s.tmpl, s.err
 }
 
+// ByLaunchable answers with the same template, since these tests hold exactly
+// one and what they exercise is the launch rather than the lookup.
+func (s stubTemplates) ByLaunchable(context.Context, int) (launch.Template, error) {
+	return s.tmpl, s.err
+}
+
 // launchableTemplate is a runbook template with two fields open and two
 // locked, against inventory 7 in organization 3.
 func launchableTemplate() launch.Template {

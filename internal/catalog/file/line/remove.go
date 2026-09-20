@@ -38,6 +38,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// It reads the file and computes the edit before it writes, so
+			// a check can predict through the same code (CheckRemove).
+			SupportsCheck: true,
 			// True, and what to put back is decided by the run rather than
 			// here: this method may take one line out or fifty, from anywhere
 			// in the file. See lineRecordInverse.
@@ -53,6 +56,7 @@ func init() {
 			Doc: removeDoc(),
 		},
 		Invoke: Remove,
+		Check:  CheckRemove,
 	})
 }
 
@@ -127,6 +131,21 @@ type removeParams struct {
 // in this namespace: the lines this method takes out exist nowhere else once
 // it has run.
 func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckRemove is file.line.remove's check: the same read, the same refusals and the same
+// edit computed in memory, through the one body both share, then a
+// prediction instead of the write. Whether it changes anything is decided
+// exactly as a real run decides it, by the rendered text against the
+// bytes read, and the predicted diff carries the whole new text
+// (linePredictDiff).
+func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return remove(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// remove is Remove's and CheckRemove's one body; mode says which.
+func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.line.remove"
 
 	req, err := removeRequest(params)
@@ -163,6 +182,16 @@ func Remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	// edit that renders back to the same bytes is not a change to the device.
 	if content == before.content {
 		return removeConverged(rc, fqcn, req.path, before, removeMsg(found), found)
+	}
+
+	if mode == collection.ModeCheck {
+		if err := linePredictDiff(rc, before, content); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := removeRecordStats(rc, req.path, removeMsg(found), found); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 
 	after, afterContent, err := lineWrite(ctx, conn, req.path, content, before.info)

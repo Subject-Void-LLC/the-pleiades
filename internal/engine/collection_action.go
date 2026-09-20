@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -10,7 +11,9 @@ import (
 
 // collectionActionExecutor runs a task whose FQCN names a registered
 // Collection method, delegating anything it does not recognize to a
-// fallback executor.
+// fallback executor. It implements CheckExecutor too: in check mode a
+// method is run through its own declared Check function, and a method that
+// declared none is reported as unchecked.
 //
 // This is the bridge that was missing. Before it, pkg/collection was
 // planning-time metadata only: the Forge generated 71 method packages, each
@@ -51,7 +54,14 @@ type collectionActionExecutor struct {
 // called) means "call desc.Invoke directly, in-process," today's exact,
 // unchanged Crawl-tier behavior -- cmd/pleiades/run.go's own
 // NewCollectionActionExecutor call needs no change at all.
-type CollectionInvoker func(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}) (collection.Result, map[string]interface{}, error)
+//
+// mode says which of desc's two functions the invoker must run
+// (collection.Descriptor.MethodFor). It is passed explicitly rather than
+// left for the invoker to assume, because an invoker that ignored it would
+// run Invoke, and change the device, for a caller that asked only for a
+// check. By the time an invoker is called in check mode, desc has already
+// been confirmed to support it.
+type CollectionInvoker func(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}, mode collection.Mode) (collection.Result, map[string]interface{}, error)
 
 // CollectionActionExecutorOption configures optional, non-default behavior
 // on a collectionActionExecutor built by NewCollectionActionExecutor.
@@ -127,6 +137,27 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 	if !ok {
 		return e.fallback.Execute(ctx, task, device)
 	}
+	return e.run(ctx, task, device, desc, collection.ModeExecute)
+}
+
+// Check implements CheckExecutor: it runs task's registered Collection
+// method through its declared Check function, and hands anything the
+// registry does not know to the fallback's own check.
+func (e *collectionActionExecutor) Check(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
+	desc, ok := collection.Lookup(task.FQCN)
+	if !ok {
+		return checkThrough(ctx, e.fallback, task, device)
+	}
+	return e.run(ctx, task, device, desc, collection.ModeCheck)
+}
+
+// run is the dispatch Execute and Check share: the same status, capability
+// and credential handling for both modes, differing only in which of the
+// method's two functions is finally called. Sharing it is what keeps a
+// check honest about the refusals a real run would hit: a check of a
+// declared stub, or of a method against a device missing its capability,
+// fails exactly the way the real run would.
+func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device inventory.InventoryItem, desc collection.Descriptor, mode collection.Mode) (ActionResult, error) {
 
 	// A declared method is a stub by definition. Refusing here rather than
 	// calling it is the run-time half of the guardrail internal/validate's
@@ -146,10 +177,22 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		return ActionResult{}, err
 	}
 
+	// The method's own declared answer, resolved once, before any
+	// credential is read or subprocess spawned. A method with no check
+	// support is not a failure in check mode: it is reported by name as
+	// unchecked, and the rest of the runbook is still checked.
+	method, err := desc.MethodFor(mode)
+	if err != nil {
+		if mode == collection.ModeCheck {
+			return ActionResult{}, &UncheckedError{FQCN: task.FQCN, Reason: desc.NoCheckAnswer()}
+		}
+		return ActionResult{}, err
+	}
+
 	if e.invoke != nil {
-		result, stats, err := e.invoke(ctx, desc, device, task.Params)
+		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
 		if err != nil {
-			return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+			return ActionResult{}, methodError(task.FQCN, mode, err)
 		}
 		return ActionResult{Changed: result.Changed, Stats: stats}, nil
 	}
@@ -164,9 +207,9 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
 	}
 
-	result, err := desc.Invoke(ctx, rc, device, task.Params)
+	result, err := method(ctx, rc, device, task.Params)
 	if err != nil {
-		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+		return ActionResult{}, methodError(task.FQCN, mode, err)
 	}
 
 	stats := map[string]interface{}{}
@@ -188,4 +231,18 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 type FactCollector interface {
 	// Facts returns everything EmitFact and SetStat recorded, keyed by name.
 	Facts() map[string]interface{}
+}
+
+// methodError is what a method's error means for its task. In a check, a
+// method's answer that it cannot check this call
+// (collection.CannotCheckError, however far it was wrapped or however many
+// processes it crossed) reports the task unchecked, naming the method's
+// reason, like a method with no check support at all. Anything else, and
+// that same answer outside a check, is the task's failure.
+func methodError(fqcn string, mode collection.Mode, err error) error {
+	var cannot *collection.CannotCheckError
+	if mode == collection.ModeCheck && errors.As(err, &cannot) {
+		return &UncheckedError{FQCN: fqcn, Reason: cannot.Reason}
+	}
+	return fmt.Errorf("collection method %q: %w", fqcn, err)
 }

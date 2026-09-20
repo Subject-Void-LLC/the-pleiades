@@ -1,0 +1,1 @@
+Fixed one bad entry stopping a whole `static_yaml` sync. An inventory file entry whose `classify` path did not resolve made `pleiades inventory sync` fail for every host in the file; that entry is now quarantined, with the reason naming its path, and the rest of the file syncs.

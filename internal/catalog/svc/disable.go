@@ -22,6 +22,7 @@ func init() {
 			disableDoc(),
 		),
 		Invoke: Disable,
+		Check:  CheckDisable,
 	})
 }
 
@@ -42,5 +43,12 @@ func disableDoc() collection.Doc {
 // Disable implements "svc.disable" by resolving the device's service
 // manager and handing the call to that manager's concrete method.
 func Disable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return dispatch(ctx, rc, device, params, "disable")
+	return dispatch(ctx, rc, device, params, "disable", collection.ModeExecute)
+}
+
+// CheckDisable is svc.disable's check: the device's service manager's own check
+// (dispatch), or "cannot check this call" for a manager whose method has
+// none.
+func CheckDisable(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return dispatch(ctx, rc, device, params, "disable", collection.ModeCheck)
 }

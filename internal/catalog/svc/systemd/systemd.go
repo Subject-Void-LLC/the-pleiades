@@ -17,6 +17,21 @@
 // takes no unit, has no state to read, and has no inverse, so forcing it
 // through a unit-shaped helper would mean inventing all three.
 //
+// # Check mode is the same code path with the writes left out
+//
+// Every method here also answers collection.ModeCheck: it reports what a
+// real run would change without changing it. That answer comes from
+// runUnitOp too, called with the other mode, rather than from a second
+// function that re-implements the comparison. A dry run that decided
+// "already running" by a different rule from the real run would be
+// worse than no dry run, because an operator reads it precisely to
+// decide whether to run the real thing. So the check parses the same
+// params, opens the same connection, reads the same state and refuses
+// the same unknown, masked or static units, and differs in exactly three
+// places: it sends no systemctl verb, it predicts the after state rather
+// than reading it back, and it records no inverse, since nothing was done
+// that could be undone.
+//
 // # Starting is not enabling
 //
 // These map to systemd's own distinction rather than blurring it, exactly
@@ -68,6 +83,17 @@ type unitOp struct {
 	// apply sends the change.
 	apply func(context.Context, *remoteexec.Conn, string) error
 
+	// predict returns the state a successful apply leaves the unit in,
+	// worked out from the state found rather than read back.
+	//
+	// A check records it as the after half of its diff, because a check
+	// sends nothing and so has nothing to read back. It is the operation's
+	// own meaning written as data (start leaves the unit active, enable
+	// leaves it enabled), and it is called only for a unit that is not
+	// already converged, since a converged unit's after state is its
+	// before state.
+	predict func(remotesvc.State) remotesvc.State
+
 	// inverse builds the instruction that undoes a run that changed
 	// something, or reports false when this operation emits none.
 	//
@@ -112,7 +138,16 @@ type unitOp struct {
 //     unit name that has never existed.
 //   - The unit is masked, for the operations that need it not to be.
 //   - The unit is static, for enable and disable.
-func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op unitOp) (collection.Result, error) {
+//
+// # The two modes
+//
+// mode is collection.ModeExecute for a real run and collection.ModeCheck
+// for a dry run. Everything above holds for both, refusals included, so a
+// check of a typo'd unit fails exactly the way the real run would. The
+// check then skips the three steps that act or depend on acting: apply,
+// the read-back, and the inverse. Its Changed is the same !converged a
+// real run acts on, and its diff's after half is op.predict's answer.
+func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op unitOp, mode collection.Mode) (collection.Result, error) {
 	unit, err := sdk.RequiredStringParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
@@ -133,23 +168,35 @@ func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		return collection.Result{}, err
 	}
 
-	changed := false
-	if op.converged == nil || !op.converged(before) {
+	// The one decision both modes share: a unit already in the wanted
+	// state needs nothing, and anything else is a change.
+	changed := op.converged == nil || !op.converged(before)
+	check := mode == collection.ModeCheck
+
+	after := before
+	switch {
+	case !changed:
+		// A converged run skips both the write and the read-back, since
+		// nothing was written and a second read could only return what
+		// the first already did. A converged check does the same.
+	case check:
+		// Nothing is sent, so there is nothing to read back. The after
+		// half is what a successful real run would leave, which is the
+		// "what would this do" a dry run exists to answer. It is a
+		// prediction and says so only by being a check's diff: a unit that
+		// would start and then fail cannot be foreseen without starting
+		// it.
+		after = op.predict(before)
+	default:
 		if err := op.apply(ctx, conn, unit); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
 		}
-		changed = true
-	}
 
-	// The "after" half is read back from the device rather than assumed
-	// from what was asked for. They differ more often than they should: a
-	// unit that starts and immediately fails reports ActiveState=failed,
-	// and a diff assembled from the request would claim it is active.
-	//
-	// A converged run skips the read, since nothing was written and a
-	// second read could only return what the first already did.
-	after := before
-	if changed {
+		// The "after" half is read back from the device rather than
+		// assumed from what was asked for. They differ more often than
+		// they should: a unit that starts and immediately fails reports
+		// ActiveState=failed, and a diff assembled from the request would
+		// claim it is active.
 		if after, err = remotesvc.Status(ctx, conn, unit); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
 		}
@@ -164,8 +211,10 @@ func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 
 	// An inverse is emitted only by a run that changed something. A
 	// converged run records nothing, which is how it says that undoing it
-	// means doing nothing.
-	if changed && op.inverse != nil {
+	// means doing nothing. A check records nothing either, whatever it
+	// predicted: it changed nothing, and the engine refuses a check result
+	// that carries an undo instruction for a change that never happened.
+	if changed && !check && op.inverse != nil {
 		if inverse, ok := op.inverse(unit, before); ok {
 			if err := sdk.RecordInverse(rc, inverse); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
@@ -192,6 +241,38 @@ func checkUnitUsable(op unitOp, unit string, state remotesvc.State) error {
 			op.fqcn, unit)
 	}
 	return nil
+}
+
+// The systemd state values a prediction writes. They are systemd's own
+// spellings, the same ones remotesvc.State carries raw, so a predicted
+// after half reads exactly like one read back from a device.
+const (
+	activeStateActive   = "active"
+	activeStateInactive = "inactive"
+	unitFileEnabled     = "enabled"
+	unitFileDisabled    = "disabled"
+)
+
+// predictActiveState returns an op.predict for an operation that changes
+// what is running right now (start, stop, restart). It sets ActiveState
+// and leaves the boot-time setting alone, because that is exactly what
+// those verbs do and the reason this namespace keeps them apart from
+// enable and disable.
+func predictActiveState(active string) func(remotesvc.State) remotesvc.State {
+	return func(s remotesvc.State) remotesvc.State {
+		s.ActiveState = active
+		return s
+	}
+}
+
+// predictUnitFileState returns an op.predict for an operation that
+// changes what happens at boot (enable, disable). It sets UnitFileState
+// and leaves the running system alone, for the same reason in reverse.
+func predictUnitFileState(state string) func(remotesvc.State) remotesvc.State {
+	return func(s remotesvc.State) remotesvc.State {
+		s.UnitFileState = state
+		return s
+	}
 }
 
 // unitDoc builds the reference documentation shared by the five

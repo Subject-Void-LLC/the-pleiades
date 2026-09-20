@@ -1,6 +1,7 @@
 package collection_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -157,4 +158,45 @@ func TestMustRegister_SucceedsOnFreshName(t *testing.T) {
 	if _, ok := collection.Lookup(d.Name); !ok {
 		t.Error("Lookup after MustRegister: not found")
 	}
+}
+
+// TestBuiltinNamespaces_LeavesOutExternalPrograms covers what the loader
+// reserves: the namespace of every method compiled into this binary, once
+// each and sorted, and never one only an external program provides, since
+// reserving that would let the first program to load lock the next one out
+// of its own namespace.
+func TestBuiltinNamespaces_LeavesOutExternalPrograms(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	for _, d := range []collection.Descriptor{
+		{Name: "nsalpha.one", Manifest: collection.Manifest{Status: collection.StatusDeclared}},
+		{Name: "nsalpha.two", Manifest: collection.Manifest{Status: collection.StatusDeclared}},
+		{Name: "nsbeta.one", Manifest: collection.Manifest{Status: collection.StatusDeclared}},
+		{Name: "nsgamma.one", Manifest: collection.Manifest{Status: collection.StatusDeclared},
+			Provider: &collection.Provider{Program: "/opt/collections/gamma", Digest: "sha256:00"}},
+	} {
+		if err := collection.Register(d); err != nil {
+			t.Fatalf("Register(%s): %v", d.Name, err)
+		}
+	}
+
+	got := collection.BuiltinNamespaces()
+	if !slices.IsSorted(got) {
+		t.Errorf("BuiltinNamespaces() = %v, not sorted", got)
+	}
+	for ns, want := range map[string]int{"nsalpha": 1, "nsbeta": 1, "nsgamma": 0} {
+		if n := countOf(got, ns); n != want {
+			t.Errorf("namespace %s appears %d times in %v, want %d", ns, n, got, want)
+		}
+	}
+}
+
+// countOf counts the entries of list equal to s.
+func countOf(list []string, s string) int {
+	n := 0
+	for _, v := range list {
+		if v == s {
+			n++
+		}
+	}
+	return n
 }

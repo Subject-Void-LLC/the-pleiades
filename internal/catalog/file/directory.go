@@ -91,9 +91,14 @@ func init() {
 					"file.permissions carrying the old ones, which puts the attributes back and never removes the directory. " +
 					"A converged run emits nothing at all.",
 			},
-			Doc: directoryDoc(),
+			// A check reads the path, compares, and reports whether a real
+			// run would create the directory or change its attributes,
+			// sending nothing. See CheckDirectory.
+			SupportsCheck: true,
+			Doc:           directoryDoc(),
 		},
 		Invoke: Directory,
+		Check:  CheckDirectory,
 	})
 }
 
@@ -186,6 +191,28 @@ func directoryDoc() collection.Doc {
 // device changed anyway. Re-running the task converges it: the directory
 // now exists, so only the attributes are attempted the second time.
 func Directory(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return directory(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckDirectory is "file.directory" in check mode: it reads the path and
+// reports whether Directory would create it or change its attributes, and
+// changes nothing.
+//
+// It runs the same body as Directory (directory, below), so it parses the
+// same params, refuses the same modes and names, reads the same path and
+// refuses the same file or symlink standing where the directory should
+// be. It differs in three places: it sends no mkdir, chmod or chown; its
+// diff's after half is remotefile's prediction of what a real run would
+// leave rather than a read-back; and it records no inverse, since nothing
+// was done that could be undone.
+func CheckDirectory(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return directory(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// directory is the one body Directory and CheckDirectory share. mode
+// decides only whether anything is written; every read and every refusal
+// happens in both.
+func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "file.directory"
 
 	// Both reads happen before the connection is opened, so a runbook
@@ -223,6 +250,10 @@ func Directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	default:
 		return collection.Result{}, fmt.Errorf("%s: %s is %s, not a directory: refusing to replace it, since removing what is there would destroy it",
 			fqcn, path, describeDirectoryKind(before))
+	}
+
+	if mode == collection.ModeCheck {
+		return checkDirectory(rc, path, want, before)
 	}
 
 	created := false
@@ -279,6 +310,43 @@ func Directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	return collection.Result{Changed: changed}, nil
+}
+
+// checkDirectory finishes a check once directory has read the path and
+// found it absent or a directory: it works out what Directory would do and
+// records that, writing nothing.
+//
+// The two decisions are the ones Directory acts on. A missing path would
+// be created; an existing one would have its attributes changed exactly
+// when remotefile.Differs says so, which is the comparison remotefile.Apply
+// itself makes. A new directory needs no Differs call: every attribute the
+// task names gets applied to it, as Directory's own comment on the create
+// path explains.
+//
+// The after half is remotefile's Prediction, which leaves out what only
+// the device can decide (a new directory's umask-given mode, its owner
+// when the task names none) rather than filling those in with a guess.
+func checkDirectory(rc sdk.RunbookContext, path string, want remotefile.Attributes, before remotefile.Info) (collection.Result, error) {
+	const fqcn = "file.directory"
+
+	after := before.Map()
+	changed := false
+	switch {
+	case !before.Exists():
+		after = remotefile.PredictCreate(remotefile.KindDirectory, want).Map()
+		changed = true
+	case remotefile.Differs(want, before):
+		after = remotefile.PredictApply(want, before).Map()
+		changed = true
+	}
+
+	if err := rc.SetStat(dirStatPath, path); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after}); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	return collection.Result{Changed: changed}, nil
 }
 

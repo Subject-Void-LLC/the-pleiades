@@ -8,6 +8,7 @@ package native
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"log/slog"
 	"strings"
 	"time"
@@ -107,7 +108,7 @@ func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) 
 	if !ok {
 		return engine.NewRunbookContext(nil), nil
 	}
-	return engine.NewRunbookContext(wd.payload.Secrets), nil
+	return engine.NewRunbookContext(wd.Payload().Secrets), nil
 }
 
 // Execute implements runner.ExecutionAdapter. It resolves payload's
@@ -115,12 +116,23 @@ func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) 
 // (wireDevice), and runs the identical engine.Executor/ActionExecutor
 // stack the Crawl-tier CLI runs, scoped to the one device this payload
 // names.
-func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
+func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	// The mode is settled before anything starts, and a value that is not
+	// a mode refuses the dispatch: reading it as a real run would be the
+	// one unsafe guess (pkg/wire.DispatchPayload.Mode).
+	mode, err := collection.ParseMode(payload.Mode)
+	if err != nil {
+		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
+	}
+
 	started := wire.JobEvent{Status: "started", Host: payload.DeviceHost, Task: "runbook:" + payload.RunbookID}
 	started.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	started.EventData.Message = fmt.Sprintf("started runbook %q on %s", payload.RunbookID, payload.DeviceName)
+	if mode == collection.ModeCheck {
+		started.EventData.Message = fmt.Sprintf("started a check of runbook %q on %s: nothing will be changed", payload.RunbookID, payload.DeviceName)
+	}
 	if err := a.publish(ctx, payload.JobID, started); err != nil {
-		return fmt.Errorf("failed to publish started event: %w", err)
+		return wire.Outcome{}, fmt.Errorf("failed to publish started event: %w", err)
 	}
 
 	// The run-time backstop, before anything is resolved or executed:
@@ -129,17 +141,17 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	// inject.go for why this is a refusal and not a silent skip, and for
 	// why file is refused for a stronger reason than env.
 	if err := refuseUnsupportedInjection(payload.Injected); err != nil {
-		return err
+		return wire.Outcome{}, err
 	}
 
 	variables, err := injectedVariables(payload.ExtraVars, payload.Injected)
 	if err != nil {
-		return fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
+		return wire.Outcome{}, fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
 	}
 
 	dag, err := a.runbooks.GetDAG(ctx, payload.RunbookID)
 	if err != nil {
-		return fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
+		return wire.Outcome{}, fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
 	}
 
 	device := newWireDevice(payload)
@@ -220,11 +232,17 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		// a typed nil, so a *journalPublisher variable holding nil would
 		// pass the guard and panic at the first level barrier.
 		engine.WithJournal(journalSink),
+		// A check writes no journal, whatever sink it is given
+		// (engine.WithMode), and admits a simulate-locked device.
+		engine.WithMode(mode),
+		// An external program's check runs only for a job whose launcher
+		// could run it for real, which the Controller says on the payload.
+		engine.WithExternalChecks(payload.ExternalChecks),
 	)
 
 	result, runErr := executor.Run(ctx, dag)
 	if runErr != nil {
-		return fmt.Errorf("execution aborted: %w", runErr)
+		return wire.Outcome{}, fmt.Errorf("execution aborted: %w", runErr)
 	}
 
 	changed := false
@@ -251,17 +269,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	secrets = append(secrets, injectedValues...)
 
 	status, message := summarize(result, changed, secrets)
+	if mode == collection.ModeCheck {
+		message = "check: " + message + checkSummary(result)
+	}
 	completed := wire.JobEvent{Status: status, Host: payload.DeviceHost, Task: "task.completed"}
 	completed.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	completed.EventData.Message = message
 	if err := a.publish(ctx, payload.JobID, completed); err != nil {
-		return fmt.Errorf("failed to publish completion event: %w", err)
+		return wire.Outcome{}, fmt.Errorf("failed to publish completion event: %w", err)
 	}
 
 	if result.HasErrors() {
-		return fmt.Errorf("execution failed: %s", message)
+		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
 	}
-	return nil
+	return wire.Outcome{Unchecked: uncheckedCount(result)}, nil
 }
 
 // summarize derives the one status word and message Execute's final
@@ -292,4 +313,27 @@ func summarize(result engine.RunResult, changed bool, secrets []string) (status,
 // observability side effect this Adapter is entitled to hide.
 func (a *Adapter) publish(ctx context.Context, jobID string, evt wire.JobEvent) error {
 	return publishJobEvent(ctx, a.bus, jobID, evt)
+}
+
+// checkSummary is what a check adds to its completion message: how many
+// tasks it could not check, since a check that passed over some of them
+// has not looked at the whole plan, and that nothing was changed.
+func checkSummary(result engine.RunResult) string {
+	if unchecked := uncheckedCount(result); unchecked > 0 {
+		return fmt.Sprintf("; %d task(s) could not be checked, so this check does not cover them; nothing was changed", unchecked)
+	}
+	return "; nothing was changed"
+}
+
+// uncheckedCount is how many of result's tasks a check could not check,
+// the number Execute reports in its wire.Outcome and checkSummary in its
+// message, counted once so the two cannot disagree.
+func uncheckedCount(result engine.RunResult) int {
+	n := 0
+	for _, node := range result.Nodes {
+		if node.Unchecked {
+			n++
+		}
+	}
+	return n
 }

@@ -24,13 +24,20 @@ func newScheduleID() string {
 // something launchable: when automation runs without somebody pressing
 // launch.
 //
-// It attaches to a Template rather than to each launchable kind
-// separately, which is the whole reason internal/launch made Kind an open
-// registry: a Template already carries its kind, so one edge here covers
-// every kind that exists now and every kind added later, with no case
-// statement to extend. PLAN.md Section 30.1 states the requirement as
+// It attaches to a Launchable rather than to a Template, and that
+// distinction is the whole of Phase 21's C1 seam. A Launchable row stands
+// for one thing that can be run, whatever sort of thing it is, so this one
+// edge reaches a job template and a project sync alike, and will reach a
+// workflow when there is one. PLAN.md Section 30.1 states the requirement as
 // "RFC5545 recurrence rules attached to any Launchable", and this is what
-// "any" costs when the abstraction is done first.
+// "any" actually costs.
+//
+// It used to point at Template, on the argument that a Template carries its
+// own kind so one edge covered every kind. That was true and answered the
+// wrong question: a kind is which ENGINE runs a definition (runbook or
+// playbook), while what a schedule needs to name is which OBJECT to run, and
+// a project sync is not a Template of any kind
+// (.SPECIFICATION/AWX_PARITY_ROADMAP.md section 1.1).
 //
 // The recurrence itself is three columns rather than one, and the split is
 // deliberate. AWX stores a single rrule blob with DTSTART and TZID folded
@@ -146,11 +153,17 @@ func (Schedule) Edges() []ent.Edge {
 			Unique().
 			Required(),
 
-		// What it launches. Required and unique: a schedule with no
-		// template has nothing to run, and the template is what carries
-		// the kind, so this one edge is how a schedule reaches every
-		// launchable kind.
-		edge.From("template", Template.Type).
+		// What it launches. Required and unique: a schedule with nothing to
+		// run is not a schedule.
+		//
+		// The key is NO ACTION, deliberately uncascaded, and it is what
+		// protects a schedule from its target disappearing: deleting a
+		// template or a project cascades into its launchable row, this key
+		// refuses that while a schedule still points at it, and the delete
+		// fails as a whole. A deletion is the moment to tell somebody that
+		// automation they rely on is about to stop, rather than silently
+		// taking the schedule with it.
+		edge.From("launchable", Launchable.Type).
 			Ref("schedules").
 			Unique().
 			Required(),

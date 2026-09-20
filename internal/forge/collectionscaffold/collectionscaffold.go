@@ -21,4 +21,12 @@
 // function itself. See the generated package's own doc comment for the
 // full explanation, repeated there so it travels with the generated
 // code, not just this generator.
+//
+// The generated manifest states Manifest.SupportsCheck explicitly, and
+// always as false. collection.Register refuses check support on a method
+// that is not implemented, so false is the only value a declared stub can
+// carry. It is written out rather than left to the zero value so the
+// comment beside it can tell the implementer how to add check support
+// once the method is real: set it to true and add a Check function that
+// reads, predicts, changes nothing, and never records an inverse.
 package collectionscaffold

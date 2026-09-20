@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
@@ -77,5 +78,34 @@ func TestLaunchTemplate_FabricatesNoTraceWhenThereIsNone(t *testing.T) {
 	}
 	if _, ok := event.TraceIDFromContext(bus.lastContext()); ok {
 		t.Error("the publish context carries a TraceID for a launch that happened under no trace")
+	}
+}
+
+// TestLaunchTemplate_JobIDsAreTimeOrdered is the regression test for a
+// template launch minting a random v4 job id. GET /jobs lists newest first
+// by ordering on the id and pages with it as a keyset cursor, which only
+// works for the time-ordered v7 ids the job schema defaults to, so a v4
+// put a new job anywhere in the list. Each launch's id must be a version 7
+// UUID, and a later launch's must sort after an earlier one's.
+func TestLaunchTemplate_JobIDsAreTimeOrdered(t *testing.T) {
+	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), newTestJobStore(t), newCapturingBus(),
+		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
+
+	var ids []string
+	for range 3 {
+		id, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil)
+		if err != nil {
+			t.Fatalf("LaunchTemplate: %v", err)
+		}
+		parsed, err := uuid.Parse(id)
+		if err != nil || parsed.Version() != 7 {
+			t.Fatalf("job id %q is not a version 7 UUID (%v)", id, err)
+		}
+		ids = append(ids, id)
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i] <= ids[i-1] {
+			t.Errorf("job id %q, launched after %q, does not sort after it", ids[i], ids[i-1])
+		}
 	}
 }

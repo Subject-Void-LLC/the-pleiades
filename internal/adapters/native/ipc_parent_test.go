@@ -87,7 +87,7 @@ func TestIPCCollectionExecutor_Invoke_RealSubprocess(t *testing.T) {
 	})
 	desc := collection.Descriptor{Name: nativeIPCEchoMethodName}
 
-	result, facts, err := exec.invoke(context.Background(), desc, device, map[string]any{"message": "hello"})
+	result, facts, err := exec.invoke(context.Background(), desc, device, map[string]any{"message": "hello"}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestIPCCollectionExecutor_Invoke_UnregisteredFQCNReturnsError(t *testing.T)
 	device := newWireDevice(wire.DispatchPayload{DeviceName: "router1", DeviceHost: "10.0.0.1"})
 	desc := collection.Descriptor{Name: "does.not.exist"}
 
-	if _, _, err := exec.invoke(context.Background(), desc, device, nil); err == nil {
+	if _, _, err := exec.invoke(context.Background(), desc, device, nil, collection.ModeExecute); err == nil {
 		t.Fatal("expected an error for an fqcn the child cannot find")
 	}
 }
@@ -162,7 +162,7 @@ func TestIPCCollectionExecutor_Invoke_CancelKillsSubprocessPromptly(t *testing.T
 	}()
 
 	start := time.Now()
-	_, _, err = exec.invoke(ctx, desc, device, nil)
+	_, _, err = exec.invoke(ctx, desc, device, nil, collection.ModeExecute)
 	elapsed := time.Since(start)
 
 	if err == nil {

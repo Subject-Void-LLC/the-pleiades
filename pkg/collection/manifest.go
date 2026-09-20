@@ -151,6 +151,33 @@ type Manifest struct {
 	// live here.
 	Reversibility Reversibility `json:"reversibility"`
 
+	// SupportsCheck reports whether this method can run in check mode:
+	// read the device, compare it against what the task asked for, and
+	// report whether a real run would change anything, without changing
+	// it. Descriptor.Check is the function behind the answer, and
+	// Register refuses a descriptor where the two disagree.
+	//
+	// It carries no omitempty, so every serialized manifest states it,
+	// false included. "This method cannot be checked" is the answer an
+	// operator planning a dry run needs to see, and an absent field would
+	// read as nobody having asked.
+	SupportsCheck bool `json:"supportsCheck"`
+
+	// NoCheckReason says why a method without check support cannot say
+	// what it would change without changing it, in words an operator
+	// planning a dry run can act on: what a check would have to know, and
+	// why only running the change tells. It is empty for a method that
+	// supports check, and Register refuses one that carries both, since a
+	// reason not to check contradicts a check.
+	//
+	// It is what a check run's "could not check" line, validation's
+	// refusal of check_mode, and the method's reference page all say in
+	// place of a bare "does not declare check support". Every built-in
+	// implemented method without check support carries one; a test holds
+	// the catalog to that. It is optional for an external Collection's
+	// method, which gets the bare answer without it.
+	NoCheckReason string `json:"noCheckReason,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.

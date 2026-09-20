@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmdism"
@@ -82,7 +83,7 @@ func TestRunFeatureOp_ConvergedSkipsApply(t *testing.T) {
 			applyCalled = true
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runFeatureOp: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestRunFeatureOp_NotConvergedCallsApplyAndRereads(t *testing.T) {
 		inverse: func(name string) (sdk.Inverse, bool) {
 			return sdk.Inverse{FQCN: "win.feature.remove", Params: map[string]any{paramName: name}}, true
 		},
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runFeatureOp: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestRunFeatureOp_RefusesAFeatureThatDoesNotExist(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Fatal("expected a refusal for a feature DISM does not recognize")
 	}
@@ -187,7 +188,7 @@ func TestRunFeatureOp_InverseOnlyEmittedWhenChanged(t *testing.T) {
 			inverseCalled = true
 			return sdk.Inverse{}, true
 		},
-	})
+	}, collection.ModeExecute)
 	if err != nil {
 		t.Fatalf("runFeatureOp: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestRunFeatureOp_ApplyFailureIsWrapped(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, fmt.Errorf("boom")
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "win.feature.install") || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %v, want it to wrap the apply failure with the fqcn", err)
 	}
@@ -230,7 +231,7 @@ func TestRunFeatureOp_AfterReadFailureIsWrapped(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %v, want it to wrap the after-change read failure", err)
 	}
@@ -247,7 +248,7 @@ func TestRunFeatureOp_NameStatFailureIsWrapped(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Errorf("expected the %q stat failure to be wrapped", statName)
 	}
@@ -264,7 +265,7 @@ func TestRunFeatureOp_RebootRequiredStatFailureIsWrapped(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Errorf("expected the %q stat failure to be wrapped", statRebootRequired)
 	}
@@ -281,7 +282,7 @@ func TestRunFeatureOp_DiffStatFailureIsWrapped(t *testing.T) {
 		apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
 			return winrmdism.ChangeResult{}, nil
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Errorf("expected the %q stat failure to be wrapped", sdk.StatDiff)
 	}
@@ -301,7 +302,7 @@ func TestRunFeatureOp_InverseStatFailureIsWrapped(t *testing.T) {
 		inverse: func(name string) (sdk.Inverse, bool) {
 			return sdk.Inverse{FQCN: "win.feature.remove", Params: map[string]any{paramName: name}}, true
 		},
-	})
+	}, collection.ModeExecute)
 	if err == nil {
 		t.Errorf("expected the %q stat failure to be wrapped", sdk.StatInverse)
 	}
@@ -400,5 +401,31 @@ func TestRemove_EnabledEmitsInstallInverse(t *testing.T) {
 	inv, ok := rc.stats[sdk.StatInverse].(map[string]any)
 	if !ok || inv["fqcn"] != "win.feature.install" {
 		t.Errorf("stats[%q] = %v, want an inverse naming win.feature.install", sdk.StatInverse, rc.stats[sdk.StatInverse])
+	}
+}
+
+// TestRunFeatureOp_CheckStatFailuresAreWrapped is the check-mode half of
+// the stat-failure tests above: a check that cannot record the feature's
+// name or its diff fails naming the method, and never applies the change,
+// since a call to apply fails the test.
+func TestRunFeatureOp_CheckStatFailuresAreWrapped(t *testing.T) {
+	withStatus(t, func(context.Context, winrmdism.Session, string, string) (winrmdism.FeatureState, error) {
+		return winrmdism.FeatureState{Name: "IIS-WebServerRole", Exists: true, State: "Disabled"}, nil
+	})
+	for _, key := range []string{statName, sdk.StatDiff} {
+		t.Run(key, func(t *testing.T) {
+			rc := &failingRC{fakeRC: newFakeRC(), failOnKey: key}
+			_, err := runFeatureOp(context.Background(), rc, stubDevice(), map[string]any{"name": "IIS-WebServerRole"}, featureOp{
+				fqcn:      "win.feature.install",
+				converged: winrmdism.FeatureState.Enabled,
+				apply: func(context.Context, winrmdism.Session, string, string) (winrmdism.ChangeResult, error) {
+					t.Error("a check applied the change")
+					return winrmdism.ChangeResult{}, nil
+				},
+			}, collection.ModeCheck)
+			if err == nil || !strings.HasPrefix(err.Error(), "win.feature.install: ") {
+				t.Errorf("error = %v, want the %q stat failure wrapped with the fqcn", err, key)
+			}
+		})
 	}
 }

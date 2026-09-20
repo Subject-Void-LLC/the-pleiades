@@ -99,6 +99,11 @@ func operatorScopes() []Scope {
 	return append(viewerScopes(),
 		ScopeInventoryWrite,
 		ScopeRunbookExecute,
+		// Implied by ScopeRunbookExecute already; listed so a persisted
+		// session records it, since that row is read as what the session
+		// can do. No built-in role grants it alone: it exists for a token
+		// minted with exactly the scopes a caller needs.
+		ScopeRunbookCheck,
 		ScopeTemplateWrite,
 		ScopeCredentialWrite,
 		ScopeProjectWrite,
@@ -149,6 +154,7 @@ func AllScopes() []Scope {
 		ScopeAnnouncementWrite,
 		ScopeRunbookRead,
 		ScopeRunbookExecute,
+		ScopeRunbookCheck,
 		ScopeJobRead,
 		ScopeTemplateRead,
 		ScopeTemplateWrite,

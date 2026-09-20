@@ -33,6 +33,8 @@ const (
 	FieldResultReason = "result_reason"
 	// FieldFinishedAt holds the string denoting the finished_at field in the database.
 	FieldFinishedAt = "finished_at"
+	// FieldUnchecked holds the string denoting the unchecked field in the database.
+	FieldUnchecked = "unchecked"
 	// EdgeJob holds the string denoting the job edge name in mutations.
 	EdgeJob = "job"
 	// Table holds the table name of the jobtask in the database.
@@ -58,6 +60,7 @@ var Columns = []string{
 	FieldResult,
 	FieldResultReason,
 	FieldFinishedAt,
+	FieldUnchecked,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "job_tasks"
@@ -92,6 +95,10 @@ var (
 	DeviceIDValidator func(string) error
 	// DeviceNameValidator is a validator for the "device_name" field. It is called by the builders before save.
 	DeviceNameValidator func(string) error
+	// DefaultUnchecked holds the default value on creation for the "unchecked" field.
+	DefaultUnchecked int
+	// UncheckedValidator is a validator for the "unchecked" field. It is called by the builders before save.
+	UncheckedValidator func(int) error
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -192,6 +199,11 @@ func ByResultReason(opts ...sql.OrderTermOption) OrderOption {
 // ByFinishedAt orders the results by the finished_at field.
 func ByFinishedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFinishedAt, opts...).ToFunc()
+}
+
+// ByUnchecked orders the results by the unchecked field.
+func ByUnchecked(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUnchecked, opts...).ToFunc()
 }
 
 // ByJobField orders the results by job field.

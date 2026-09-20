@@ -15,6 +15,7 @@ Makes sure a regular file exists at a path, creating it empty when nothing is th
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

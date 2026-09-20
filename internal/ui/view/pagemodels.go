@@ -543,6 +543,11 @@ func (m FormModel) Value(f Field) string { return m.Values[f.Name] }
 // Choices are a select or lookup field's resolved options.
 func (m FormModel) Choices(f Field) []Option { return m.Options[f.Name] }
 
+// ChoiceGroups is Choices split into <optgroup> runs, for a control whose
+// options carry a Group. A field whose options carry none comes back as one
+// unlabelled group, which renders exactly as a flat list did.
+func (m FormModel) ChoiceGroups(f Field) []OptionGroup { return GroupOptions(m.Choices(f)) }
+
 // IsSelected reports whether one option of a KindLookup field is currently
 // chosen.
 //

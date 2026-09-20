@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// It asks getent before it acts, so a check can predict through the same code (CheckCreate).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that created an absent account emits an identity.user.remove naming it. A run that " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: createDoc(),
 		},
 		Invoke: Create,
+		Check:  CheckCreate,
 	})
 }
 
@@ -81,6 +84,16 @@ func createDoc() collection.Doc {
 // which case usermod converges exactly the attributes that differ and
 // no others.
 func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCreate is identity.user.create's check: the same getent reads and change decision as Create, through the one body both share, then a prediction (predictAccount) instead of useradd or usermod.
+func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// create is Create's and CheckCreate's one body; mode says which.
+func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.user.create"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -109,6 +122,27 @@ func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := queryUser(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		changed := !before.exists
+		if before.exists {
+			args, _, err := converge(ctx, conn, before, d)
+			if err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+			changed = len(args) > 0
+		}
+		after := before.Map()
+		if changed {
+			if after, err = predictAccount(ctx, conn, before, d); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+		if err := recordPrediction(rc, name, before, after); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: changed}, nil
 	}
 
 	var changed bool

@@ -255,8 +255,8 @@ func countAcked(msgs []*MockMsg) int {
 // still owns building a real adapter, not this no-op stand-in.
 type MockAdapter struct{}
 
-func (m *MockAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
-	return nil
+func (m *MockAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	return wire.Outcome{}, nil
 }
 
 // erroringAdapter is a runner.ExecutionAdapter that always fails, so
@@ -267,8 +267,8 @@ func (m *MockAdapter) Execute(ctx context.Context, payload wire.DispatchPayload)
 // complements, not replaces.
 type erroringAdapter struct{}
 
-func (erroringAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
-	return errors.New("deliberate execution failure")
+func (erroringAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	return wire.Outcome{}, errors.New("deliberate execution failure")
 }
 
 func TestNewAgent_DefaultsNilLoggerToSlogDefault(t *testing.T) {
@@ -340,8 +340,8 @@ func TestAgent_HandleMessage_MalformedDispatchPayloadInsideValidEnvelope(t *test
 // Agent branches on.
 type unroutableAdapter struct{}
 
-func (unroutableAdapter) Execute(context.Context, wire.DispatchPayload) error {
-	return fmt.Errorf("%w: %q", routing.ErrNoAdapter, "playbook")
+func (unroutableAdapter) Execute(context.Context, wire.DispatchPayload) (wire.Outcome, error) {
+	return wire.Outcome{}, fmt.Errorf("%w: %q", routing.ErrNoAdapter, "playbook")
 }
 
 // TestAgent_HandleMessage_AnUnroutableKindIsReportedThenTerminated covers

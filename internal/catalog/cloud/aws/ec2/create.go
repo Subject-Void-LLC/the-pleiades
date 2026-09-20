@@ -21,6 +21,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check makes only the read a real run makes first (CheckCreate).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that launched a fresh instance (name did not already exist among non-terminated " +
@@ -32,6 +34,7 @@ func init() {
 			Doc: createDoc(),
 		},
 		Invoke: Create,
+		Check:  CheckCreate,
 	})
 }
 
@@ -44,7 +47,9 @@ func createDoc() collection.Doc {
 			"a matching instance's configuration against what was requested. An instance already present under " +
 			"that name is left exactly as it is, regardless of whether its image or instance type match; this " +
 			"method never recreates. The target device is the AWS account/region context itself " +
-			"(an aws_account inventory item), not a device this task reaches over any transport.",
+			"(an aws_account inventory item), not a device this task reaches over any transport. " +
+			"A check looks the name up and, when nothing matches, predicts a launch without sending RunInstances, " +
+			"not even as a dry run; it leaves the instance ID and state out, since AWS assigns both.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The Name tag to find or create an instance under."},
 			{Name: paramImageID, Type: "string", Required: true, Description: "The AMI id to launch from. Ignored when an instance already exists under name."},
@@ -67,6 +72,17 @@ func createDoc() collection.Doc {
 
 // Create implements "cloud.aws.ec2.create".
 func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckCreate is "cloud.aws.ec2.create"'s check: it looks the name up with DescribeInstances and says whether Create would
+// launch an instance, sending no call that changes anything.
+func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return create(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// create is Create's and CheckCreate's one body; mode says which.
+func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "cloud.aws.ec2.create"
 
 	name, err := sdk.RequiredStringParam(params, paramName)
@@ -90,6 +106,10 @@ func Create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := client.FindInstanceByName(ctx, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	if mode == collection.ModeCheck {
+		return predictCreate(rc, fqcn, before)
 	}
 
 	changed := false

@@ -2,6 +2,7 @@ package catalyst_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -40,7 +41,16 @@ import (
 type fakeContext struct {
 	secrets map[string]string
 	facts   map[string]interface{}
+
+	// failFact names the one fact whose emission fails, so a test can
+	// reach the branch where the controller answered and storing what it
+	// said did not. Naming one fact rather than failing every one is what
+	// lets a test reach the second and later emissions.
+	failFact string
 }
+
+// errEmitting is what a fake context's refusal to store a fact carries.
+var errEmitting = errors.New("storing the fact failed")
 
 func newFakeContext(secrets map[string]string) *fakeContext {
 	return &fakeContext{secrets: secrets, facts: map[string]interface{}{}}
@@ -54,6 +64,9 @@ func (c *fakeContext) SetStat(key string, value interface{}) error {
 }
 
 func (c *fakeContext) EmitFact(key string, value interface{}) error {
+	if c.failFact != "" && c.failFact == key {
+		return errEmitting
+	}
 	c.facts[key] = value
 	return nil
 }

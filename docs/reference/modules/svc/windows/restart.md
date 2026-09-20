@@ -15,6 +15,7 @@ Restarts a Windows service. This is ansible.windows.win_service with state=resta
 | Capabilities | `WindowsServiceCapable` |
 | Transports | `winrm` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

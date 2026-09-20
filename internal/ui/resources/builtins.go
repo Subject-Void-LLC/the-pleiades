@@ -29,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -103,6 +104,13 @@ type Deps struct {
 	// narrowed here to the administration half: this side can describe
 	// when a schedule should fire and cannot fire one.
 	Schedules schedule.Store
+
+	// Launchables is everything a schedule can be pointed at, of every sort:
+	// a job template, a project whose run is a sync. Read-only, and separate
+	// from Templates above because it is the one listing that spans them: the
+	// Schedules form's picker offers this rather than templates alone
+	// (internal/launchable).
+	Launchables launchable.Store
 
 	// Catalog is every definition the deployment can launch, feeding the
 	// Templates form's RUNS picker. The same value the template store

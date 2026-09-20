@@ -104,8 +104,8 @@ func WithCancelSignals(control event.CancelSubscriber) AgentOption {
 // failure branch already gates its own cancelExec() call on interruptible
 // identically, so both triggers now honor the flag consistently.
 //
-// It returns Execute's own result (possibly context.Canceled, on a
-// self-abort), errLockContention wrapping the lock.Manager error if the
+// It returns Execute's own outcome and error (the error possibly
+// context.Canceled, on a self-abort), errLockContention wrapping the lock.Manager error if the
 // lease could not be acquired at all (a distinct outcome the caller,
 // handleMessage, must not treat as an execution failure, since Execute
 // was never actually invoked), or an error describing a panic recovered
@@ -115,10 +115,10 @@ func WithCancelSignals(control event.CancelSubscriber) AgentOption {
 // whole Runner process and every other concurrently in-flight worker
 // along with it, mirroring internal/event/consumer.go's own handleDelivery
 // panic-recovery precedent for a handler this codebase does not control.
-func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPayload) (execErr error) {
+func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPayload) (outcome wire.Outcome, execErr error) {
 	lease, err := a.locks.Acquire(ctx, payload.DeviceID, a.leaseTTL, lock.AcquireOptions{})
 	if err != nil {
-		return fmt.Errorf("%w: %w", errLockContention, err)
+		return wire.Outcome{}, fmt.Errorf("%w: %w", errLockContention, err)
 	}
 	defer func() {
 		// ctx (and therefore execCtx below) may already be canceled by a
@@ -183,7 +183,7 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 		<-done
 		if r := recover(); r != nil {
 			a.logger.Error("adapter execution panicked", slog.String("device_id", payload.DeviceID), slog.Any("panic", r))
-			execErr = fmt.Errorf("adapter execution panicked: %v", r)
+			outcome, execErr = wire.Outcome{}, fmt.Errorf("adapter execution panicked: %v", r)
 		}
 	}()
 

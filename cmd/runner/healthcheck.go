@@ -81,7 +81,14 @@ const (
 
 	// routeHealthcheck is the container probe (this file).
 	routeHealthcheck
+
+	// routeVersion prints this build's version (internal/buildinfo) and
+	// exits, the same string `pleiades version` prints.
+	routeVersion
 )
+
+// versionCommand is the argument that selects routeVersion.
+const versionCommand = "version"
 
 // isCollectionChildCommand reports whether args select the per-task
 // collection subprocess.
@@ -114,6 +121,9 @@ func routeFor(args []string) commandRoute {
 	}
 	if isHealthcheckCommand(args) {
 		return routeHealthcheck
+	}
+	if len(args) > 0 && args[0] == versionCommand {
+		return routeVersion
 	}
 	return routeAgent
 }

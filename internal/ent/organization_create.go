@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
@@ -277,6 +278,21 @@ func (_c *OrganizationCreate) AddSchedules(v ...*Schedule) *OrganizationCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddScheduleIDs(ids...)
+}
+
+// AddLaunchableIDs adds the "launchables" edge to the Launchable entity by IDs.
+func (_c *OrganizationCreate) AddLaunchableIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddLaunchableIDs(ids...)
+	return _c
+}
+
+// AddLaunchables adds the "launchables" edges to the Launchable entity.
+func (_c *OrganizationCreate) AddLaunchables(v ...*Launchable) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddLaunchableIDs(ids...)
 }
 
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
@@ -573,6 +589,22 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.LaunchablesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.LaunchablesTable,
+			Columns: []string{organization.LaunchablesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(launchable.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

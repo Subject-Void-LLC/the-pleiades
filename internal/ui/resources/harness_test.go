@@ -85,6 +85,11 @@ var conformanceStream activity.Store
 // clone the way a caller waits on a poll.
 var conformanceProjectRunner *project.Runner
 
+// conformanceProjectStore is the store behind that runner, captured for the
+// same reason: a test asserting who a sync was attributed to has to read what
+// the claim recorded.
+var conformanceProjectStore *fakeProjectStore
+
 func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
@@ -92,8 +97,19 @@ func registerViews(t *testing.T) {
 		accessStore, activityStream := newTestAccessStore(t)
 		conformanceStream = activityStream
 		projectStore := newFakeProjectStore()
+		conformanceProjectStore = projectStore
 		projectSyncer := fakeProjectSyncer{}
 		conformanceProjectRunner = project.NewRunner(projectStore, projectSyncer, nil)
+
+		// The template store first and the schedule store second, in
+		// statements rather than inside the Deps literal below, because the
+		// order is load-bearing and a literal's field order does not decide
+		// it: the schedule fixture attaches its seed to a template the
+		// template fixture created. The schedule fixture returns both halves,
+		// since the schedules view writes through the schedule store and its
+		// picker lists launchables.
+		templateStore := newTestTemplateStore(t)
+		scheduleStore, launchableStore := newTestScheduleStore(t)
 		if err := resources.RegisterAll(resources.Deps{
 			// A real ent-backed store rather than a fake, and the reason is
 			// arithmetic rather than principle: access.Store is twenty
@@ -109,7 +125,7 @@ func registerViews(t *testing.T) {
 			Factory:   inventory.NewItemFactory(),
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
-			Templates: newTestTemplateStore(t),
+			Templates: templateStore,
 			// Source control. The syncer is rooted in a temp directory so
 			// the suite never touches a real checkout path, and the store
 			// seeds one synced project so the Playbooks tab has something
@@ -120,7 +136,8 @@ func registerViews(t *testing.T) {
 			// Built after the template store, and the order matters: a
 			// schedule requires a template to attach to, and the fixture
 			// seeds one by reading what that store just created.
-			Schedules: newTestScheduleStore(t),
+			Schedules:   scheduleStore,
+			Launchables: launchableStore,
 			// The credential pair: the store whose projection cannot carry
 			// a plaintext value, and the one render engine, so the
 			// Credential Types view's Test action renders an injector
@@ -717,6 +734,21 @@ type fakeProjectStore struct {
 	mu       sync.Mutex
 	projects []project.Project
 	runs     map[int][]project.SyncRun
+
+	// claimedActor is who the last claim said asked for the sync, so a test
+	// can assert the Sync control passes the caller's identity through.
+	// claimedActors keeps the same per project, because the real store sticks
+	// an actor to the attempt's own row and the history renders it from
+	// there.
+	claimedActor  string
+	claimedActors map[int]string
+}
+
+// lastClaimedActor answers who the last claim recorded.
+func (s *fakeProjectStore) lastClaimedActor() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claimedActor
 }
 
 func newFakeProjectStore() *fakeProjectStore {
@@ -829,6 +861,7 @@ func (s *fakeProjectStore) appendRun(id int, result project.Result) {
 		ID:         len(s.runs[id]) + 1,
 		Status:     result.Status,
 		Revision:   result.Revision,
+		Actor:      s.claimedActors[id],
 		Err:        result.Err,
 		StartedAt:  started,
 		FinishedAt: result.At,
@@ -851,7 +884,10 @@ func (s *fakeProjectStore) ListSyncRuns(_ context.Context, projectID, limit int)
 	return out, nil
 }
 
-func (s *fakeProjectStore) BeginSync(_ context.Context, id int) (project.Project, error) {
+func (s *fakeProjectStore) BeginSync(_ context.Context, id int, actor string) (project.Claim, error) {
+	if strings.TrimSpace(actor) == "" {
+		return project.Claim{}, project.ErrNoActor
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, p := range s.projects {
@@ -859,16 +895,28 @@ func (s *fakeProjectStore) BeginSync(_ context.Context, id int) (project.Project
 			continue
 		}
 		if !p.Syncable() {
-			return project.Project{}, project.ErrNotSyncable
+			return project.Claim{}, project.ErrNotSyncable
 		}
 		if p.SyncStatus == project.SyncRunning {
-			return project.Project{}, project.ErrSyncInProgress
+			return project.Claim{}, project.ErrSyncInProgress
 		}
 		p.SyncStatus, p.SyncError = project.SyncRunning, ""
 		s.projects[i] = p
-		return p, nil
+		s.claimedActor = actor
+		if s.claimedActors == nil {
+			s.claimedActors = map[int]string{}
+		}
+		s.claimedActors[id] = actor
+		return project.Claim{Project: p, RunID: id, StartedAt: time.Now()}, nil
 	}
-	return project.Project{}, project.ErrNotFound
+	return project.Claim{}, project.ErrNotFound
+}
+
+// ByLaunchable resolves a launchable reference. The fake gives each project a
+// launchable id equal to its own id, which is what its BeginSync reports, so
+// the two agree.
+func (s *fakeProjectStore) ByLaunchable(ctx context.Context, launchableID int) (project.Project, error) {
+	return s.Get(ctx, launchableID)
 }
 
 func (s *fakeProjectStore) ResetInterruptedSyncs(_ context.Context) (int, error) {

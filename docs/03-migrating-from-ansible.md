@@ -280,7 +280,7 @@ plainly rather than implying a rough match exists.
 | Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
 | Survey | A Survey on a Template, authored from its Survey section | `beta`: AWX's seven question types, character for character, with per-type validation, an authored order, and encrypted answers. One addition AWX has no name for: a `file` question carrying a text file's content, bounded at 32 KiB, treated as secret, and refused if it opens with an interpreter line unless both the deployment and the question permit program content |
 | Approval node | none | `design`, not built |
-| Schedule (RRULE) | A Schedule, attached to a template | `beta`: RFC 5545 recurrence with exclusion rules, time zones and a preview endpoint, proven against AWX's own recurrence library. See [Migrating schedules](#migrating-schedules) below |
+| Schedule (RRULE) | A Schedule, attached to anything launchable | `beta`: RFC 5545 recurrence with exclusion rules, time zones and a preview endpoint, proven against AWX's own recurrence library. Attaches to a job template or a project, as AWX's does; an inventory source, a workflow and a system job do not exist here to attach to. See [Migrating schedules](#migrating-schedules) below |
 | Notification template | none | `design`, not built |
 | Execution environment | none | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
 | Instance group | none | `design`, not built. No capacity/admission control exists yet |
@@ -311,11 +311,11 @@ curl -X POST https://controller.example.com/api/v1/schedules \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-        "name":     "nightly patching",
-        "template": 42,
-        "rrule":    "FREQ=DAILY;INTERVAL=1",
-        "timezone": "America/New_York",
-        "dtstart":  "2024-03-08T02:00:00-05:00"
+        "name":                 "nightly patching",
+        "unified_job_template": 42,
+        "rrule":                "FREQ=DAILY;INTERVAL=1",
+        "timezone":             "America/New_York",
+        "dtstart":              "2024-03-08T02:00:00-05:00"
       }'
 ```
 
@@ -327,9 +327,11 @@ Three mechanical rules cover the conversion:
 - **`extra_data` becomes a saved launch configuration.** It is the same bundle this
   platform already stores for relaunch. Create it against the template, then name it as
   the schedule's `saved_config`.
-- **`unified_job_template` becomes `template`.** A schedule attaches to a template, and
-  the template carries its own kind, so a runbook and a playbook are scheduled
-  identically.
+- **`unified_job_template` stays `unified_job_template`.** It means the same thing here: the
+  id of the thing being scheduled, in one id space across every sort of thing. The id itself
+  will differ, since it is this deployment's rather than the source instance's. A job template
+  and a project are both scheduled this way, as in AWX; the sorts AWX has and this platform
+  does not yet (an inventory source, a workflow, a system job) have nothing to convert into.
 
 Exclusions are a separate field rather than extra lines in the rule:
 

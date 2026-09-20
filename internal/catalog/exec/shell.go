@@ -51,6 +51,8 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Only a call guarded by creates or removes can be checked (CheckShell).
+			SupportsCheck: true,
 			// Nothing here can be undone, and the reason is the same fact
 			// that makes Changed unconditional: a command cannot be
 			// inspected, so the platform cannot know what it did.
@@ -60,7 +62,9 @@ func init() {
 			},
 			Doc: shellDoc(),
 		},
-		Invoke: Shell,
+		Invoke:    Shell,
+		Check:     CheckShell,
+		CheckCall: unguardedCheck,
 	})
 }
 
@@ -69,7 +73,7 @@ func init() {
 func shellDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Runs a command through the target's shell, so pipes and redirects work.",
-		Description: "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like.",
+		Description: "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the line would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
 			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them."},
 			{Name: paramExecutable, Type: "string", Description: "The shell to run the command with, invoked as `<executable> -c <cmd>`. Defaults to the shell the device declares, or /bin/sh."},
@@ -138,11 +142,27 @@ func shellDoc() collection.Doc {
 // quoting would let a chdir path or the line itself break out of the
 // outer shell's parse.
 func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return shell(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckShell is exec.shell's check: a call guarded by creates or removes reads the guard exactly as Shell does and reports the skip the real run would make, or predicts that the command would run, without running it; an unguarded call answers that it cannot be checked, since what a command changes is not knowable without running it. This is Ansible's own check behavior for its command and shell modules.
+func CheckShell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return shell(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// shell is Shell's and CheckShell's one body; mode says which.
+func shell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "exec.shell"
 
 	line := sdk.StringParam(params, paramCmd)
 	if line == "" {
 		return collection.Result{}, fmt.Errorf("%s: %s is required: there is no command to run", fqcn, paramCmd)
+	}
+
+	if mode == collection.ModeCheck {
+		if err := unguardedCheck(params); err != nil {
+			return collection.Result{}, err
+		}
 	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
@@ -165,6 +185,12 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	}
 
 	command := commandLine([]string{shellPath(device, params), "-c", line}, dir)
+	if mode == collection.ModeCheck {
+		if err := recordWouldRun(rc, command); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
+	}
 
 	var result remoteexec.Result
 	if text := sdk.StringParam(params, paramStdin); text != "" {

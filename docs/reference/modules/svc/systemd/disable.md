@@ -15,6 +15,7 @@ Makes sure a systemd unit is not set to start at boot. This is ansible.builtin.s
 | Capabilities | `SystemdCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=1.0.0` |
 
 ## Parameters

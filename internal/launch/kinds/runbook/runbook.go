@@ -8,6 +8,7 @@ package runbook
 
 import (
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -30,6 +31,12 @@ func init() {
 		Summary:    "This platform's own typed automation format, executed natively against the device.",
 		Adapter:    Adapter,
 		Fields: []launch.FieldSpec{
+			{
+				Name: launch.ModeField, Type: launch.TypeChoice,
+				Choices: []string{string(collection.ModeExecute), string(collection.ModeCheck)},
+				Label:   "MODE",
+				Help:    "execute changes devices; check asks every task what it would change and changes nothing. A check can be asked for at any level, and nothing can turn one back into a real run.",
+			},
 			{
 				Name: "limit", Type: launch.TypeString,
 				Label: "LIMIT",

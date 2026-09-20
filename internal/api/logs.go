@@ -20,7 +20,7 @@ import (
 // NATS subject wildcards are ordinary characters, so a job ID of ">"
 // produced the FilterSubject "pleiades.jobs.logs.>" and streamed every
 // job's logs in the system to whoever asked. Every job ID this platform
-// mints is a UUID (api.Dispatcher's own uuid.New()), so requiring one
+// mints is a UUID (api.Dispatcher's own newJobID, a UUIDv7), so requiring one
 // closes that hole with no loss of function. See FAILURE_PATTERNS.md.
 type LogStreamer struct {
 	js jetstream.JetStream

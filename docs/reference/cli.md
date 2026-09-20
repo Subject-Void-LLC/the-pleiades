@@ -71,12 +71,18 @@ build, validate, and run a runbook
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --mode | `string` | `execute` | execute applies changes; check reports what each task would change and changes nothing |
 | --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
+| --allow-unchecked | `string` | - | a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed |
 
 `pleiades run runbooks/site.yaml`
 
 `pleiades run runbooks/site.yaml --verbose`
+
+`pleiades run runbooks/site.yaml --mode check --verbose`
+
+`pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command`
 
 ## pleiades inventory
 
@@ -112,6 +118,47 @@ list the available inventory sync plugins
 `pleiades inventory plugins [flags]`
 
 `pleiades inventory plugins`
+
+## pleiades collection
+
+approve, revoke and list the external Collection builds allowed to run (see 'pleiades collection --help')
+
+`pleiades collection [flags]`
+
+### pleiades collection approve
+
+approve a build of a program in PLEIADES_COLLECTIONS_DIR, after showing what it says it provides
+
+`pleiades collection approve <program> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --digest | `string` | - | approve this build (sha256:<hex>) without inspecting the program, for an image build or a rolling upgrade |
+| --yes | `bool` | `false` | approve without asking, after still showing what the program provides |
+
+`pleiades collection approve note`
+
+`pleiades collection approve note --digest sha256:<64 hex digits>`
+
+### pleiades collection revoke
+
+withdraw a program's approvals, so it stops running from its next call
+
+`pleiades collection revoke <program> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --digest | `string` | - | withdraw only this build's approval (default: every build of the program) |
+
+`pleiades collection revoke note`
+
+### pleiades collection list
+
+list every approved build, who approved it and when
+
+`pleiades collection list [flags]`
+
+`pleiades collection list`
 
 ## pleiades import
 
@@ -208,6 +255,19 @@ generate a new web UI view resource package
 | --nav-order | `int` | `70` | sidebar position; built-in views use 10 through 60 |
 
 `pleiades forge new-view access-reviews --title "Access Reviews" --summary "Who approved what, and when."`
+
+### pleiades forge new-external
+
+generate a buildable external Collection program providing one method
+
+`pleiades forge new-external <namespace.method> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | - | directory to write the program into (default: the method name with its dots as hyphens) |
+| --no-go-mod | `bool` | `false` | write no go.mod, so the program joins the Go module around it instead of being a module of its own |
+
+`pleiades forge new-external acme.motd.read`
 
 ### pleiades forge new-filter
 

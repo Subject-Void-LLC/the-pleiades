@@ -1,6 +1,6 @@
-// Package launch is the Launchable abstraction: the saved, reusable
-// definition of something this platform can run, and the rules for what a
-// caller may change at the moment they run it.
+// Package launch is the job template: the saved, reusable definition of
+// something this platform can run, and the rules for what a caller may
+// change at the moment they run it.
 //
 // It exists because the launch surface was four scalars. Dispatching meant
 // naming a group and a runbook, with no way to save the pairing, no way to
@@ -9,21 +9,36 @@
 // Task Template; the sentence both build around is that a template defines
 // what to run, where to run it, and how to run it.
 //
-// The Kind is an OPEN registry key, not a closed enum, and that is the
-// single most consequential decision in this package. PLAN.md Section 28
-// names it explicitly, and the reason is downstream: a closed set forces a
-// type switch at every consumer, and the consumers are schedules, workflow
-// nodes, notification policies, approvals and the runner's own adapter
-// selection. Each one would grow a case per kind, and each new kind would
-// mean editing every one of them. With a registry, a kind is one file plus
-// a line in builtins.go, exactly the shape Collections, device types and
-// sync plugins already use here.
+// # Two axes, and this package owns one of them
 //
-// It is pure domain: no ent, no HTTP, no runbook source, no filesystem. A
-// Descriptor declares what a definition reference must *look* like; what a
-// reference actually resolves to belongs to whoever owns that source. That
-// keeps this package testable without a database and keeps the resolution
-// rules in one place rather than one place per storage backend.
+// A Kind here answers "which engine runs this definition": the native
+// runbook engine, or a sandboxed ansible-playbook. AWX has no equivalent,
+// because AWX always runs ansible-playbook.
+//
+// It does NOT answer "what sort of object is this", which is the question a
+// schedule, a workflow node and a notification policy actually ask, and
+// whose answers are a job template, a project sync, an inventory sync and a
+// workflow. That axis is AWX's UnifiedJobTemplate and it belongs to
+// internal/launchable, which is what those consumers bind to. Conflating
+// the two is a recorded mistake (.SPECIFICATION/AWX_PARITY_ROADMAP.md
+// section 1.1): a Template is one object type that can be run by either
+// engine, so the two axes cross rather than nest, and an interface named
+// for both once lived here and was consumed by nothing.
+//
+// The Kind is still an OPEN registry key rather than a closed enum, for the
+// reason PLAN.md Section 28 gives: a closed set forces a type switch at
+// every consumer, and the consumers here are the runner's adapter
+// selection, validation and the launch API. With a registry, a kind is one
+// file plus a line in builtins.go, exactly the shape Collections, device
+// types and sync plugins already use.
+//
+// Almost all of this package is pure domain, and everything except
+// ent_store.go (the one file that reaches a database) stays that way: a
+// Descriptor declares what a definition reference must *look* like, while
+// what a reference actually resolves to belongs to whoever owns that
+// source. That keeps the rules in one place rather than one place per
+// storage backend, and keeps most of the package testable with no database
+// at all.
 package launch
 
 import (
@@ -94,6 +109,13 @@ const (
 	// are. It merges rather than replaces when it is layered, because two
 	// callers setting two different variables both mean it.
 	TypeMap FieldType = "map"
+
+	// TypeChoice is exactly one of the field's own Choices. Anything else
+	// is refused wherever it arrives, a launch included, where a bad value
+	// for another field is merely reported as ignored: for a choice like
+	// the run mode, ignoring a misspelled "check" would fall back to a
+	// real run.
+	TypeChoice FieldType = "choice"
 )
 
 // FieldSpec declares one field a kind accepts.
@@ -124,6 +146,10 @@ type FieldSpec struct {
 	// depends on the deployment rather than on this code.
 	Min int
 	Max int
+
+	// Choices is every value a TypeChoice field accepts, in the order a
+	// form offers them.
+	Choices []string
 }
 
 // Bounded reports whether this field constrains its range.
@@ -242,6 +268,17 @@ func validateFieldSpecs(d Descriptor) error {
 		}
 		switch f.Type {
 		case TypeString, TypeInt, TypeStringList, TypeMap:
+		case TypeChoice:
+			if len(f.Choices) == 0 {
+				return fmt.Errorf("launch: kind %q declares choice field %q with no choices, which no value satisfies", d.Kind, name)
+			}
+			offered := map[string]bool{}
+			for _, c := range f.Choices {
+				if strings.TrimSpace(c) == "" || offered[c] {
+					return fmt.Errorf("launch: kind %q declares choice field %q with an empty or repeated choice %q", d.Kind, name, c)
+				}
+				offered[c] = true
+			}
 		default:
 			return fmt.Errorf("launch: kind %q declares field %q with unknown type %q", d.Kind, name, f.Type)
 		}

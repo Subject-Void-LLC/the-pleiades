@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
@@ -40,10 +41,15 @@ func (s stubStore) Update(context.Context, project.Project) error         { retu
 func (s stubStore) Delete(context.Context, int) error                     { return nil }
 func (s stubStore) RecordSync(context.Context, int, project.Result) error { return nil }
 
-func (s stubStore) BeginSync(_ context.Context, id int) (project.Project, error) {
-	return s.Get(context.Background(), id)
+func (s stubStore) BeginSync(_ context.Context, id int, _ string) (project.Claim, error) {
+	p, err := s.Get(context.Background(), id)
+	return project.Claim{Project: p, RunID: id, StartedAt: time.Now()}, err
 }
 func (s stubStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, nil }
+
+func (s stubStore) ByLaunchable(_ context.Context, launchableID int) (project.Project, error) {
+	return s.Get(context.Background(), launchableID)
+}
 
 func (s stubStore) ListSyncRuns(context.Context, int, int) ([]project.SyncRun, error) {
 	return nil, nil
@@ -172,6 +178,42 @@ func TestPlaybookSource_RefusesAPathOutsideTheTree(t *testing.T) {
 		if !strings.Contains(err.Error(), playbook.ErrNotFound.Error()) {
 			t.Errorf("Get(%q) = %v, want a not-found refusal", path, err)
 		}
+	}
+}
+
+// TestPlaybookSource_RefusesAPathThroughASymlinkedDirectory is the
+// regression test for a synced repository escaping its own tree through a
+// symlinked directory. A repository's committers are not necessarily the
+// Controller's administrators, and a checkout keeps a repository's
+// symlinks, so "lib -> /" is content somebody can commit. The final
+// component being an ordinary file is not enough: every component on the
+// way to it must stay inside the tree too. The control is a real file
+// reached through a relative symlinked directory that stays inside the
+// tree, which still resolves.
+func TestPlaybookSource_RefusesAPathThroughASymlinkedDirectory(t *testing.T) {
+	src, p := newSource(t, map[string]string{"site.yml": "- hosts: all\n", "roles/inner.yml": "- hosts: inner\n"})
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.yml"), []byte("- hosts: stolen\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(p.LocalPath, "lib")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	if body, err := src.Get(t.Context(), project.Definition(1, "lib/secret.yml")); err == nil {
+		t.Fatalf("a playbook reached through a symlink out of the tree was read: %q", body)
+	} else if !strings.Contains(err.Error(), playbook.ErrNotFound.Error()) {
+		t.Errorf("Get through an escaping symlink = %v, want a not-found refusal", err)
+	}
+
+	// Relative, as a repository's own links are: an absolute link names a
+	// path on whoever committed it, never inside this checkout, and is
+	// refused like any other escape.
+	if err := os.Symlink("roles", filepath.Join(p.LocalPath, "alias")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	if body, err := src.Get(t.Context(), project.Definition(1, "alias/inner.yml")); err != nil || string(body) != "- hosts: inner\n" {
+		t.Errorf("Get through a symlink that stays inside the tree = %q, %v; want the file", body, err)
 	}
 }
 

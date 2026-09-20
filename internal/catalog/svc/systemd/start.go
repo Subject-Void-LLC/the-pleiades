@@ -32,9 +32,13 @@ func init() {
 					"restore is anything the service did while it was up: connections it accepted, files it wrote, " +
 					"messages it consumed. Stopping it again returns the unit to where it was, not the system.",
 			},
-			Doc: startDoc(),
+			// A check reads the unit's state and says whether a start would
+			// be sent, without sending it. See CheckStart.
+			SupportsCheck: true,
+			Doc:           startDoc(),
 		},
 		Invoke: Start,
+		Check:  CheckStart,
 	})
 }
 
@@ -57,6 +61,28 @@ func startDoc() collection.Doc {
 	)
 }
 
+// startOp is what makes svc.systemd.start different from its siblings.
+// Start and CheckStart both run it, so the two cannot disagree about
+// when a unit counts as started.
+var startOp = unitOp{
+	fqcn:          "svc.systemd.start",
+	converged:     remotesvc.State.Active,
+	apply:         remotesvc.Start,
+	predict:       predictActiveState(activeStateActive),
+	refusesMasked: true,
+	inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
+		// Reached only when the run actually started the unit, so the
+		// state it was found in was "not running" and stopping it is the
+		// exact reverse.
+		return sdk.Inverse{
+			FQCN:   "svc.systemd.stop",
+			Params: map[string]any{paramName: unit},
+			Description: fmt.Sprintf("Stop %s, which this task started. It does not undo anything the service did "+
+				"while it was running.", unit),
+		}, true
+	},
+}
+
 // Start implements "svc.systemd.start".
 //
 // A unit that is already active is left alone and the task reports no
@@ -64,21 +90,17 @@ func startDoc() collection.Doc {
 // part-way through starting has not started, and treating it as done
 // would let this report success for a unit that goes on to fail.
 func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runUnitOp(ctx, rc, device, params, unitOp{
-		fqcn:          "svc.systemd.start",
-		converged:     remotesvc.State.Active,
-		apply:         remotesvc.Start,
-		refusesMasked: true,
-		inverse: func(unit string, _ remotesvc.State) (sdk.Inverse, bool) {
-			// Reached only when the run actually started the unit, so the
-			// state it was found in was "not running" and stopping it is
-			// the exact reverse.
-			return sdk.Inverse{
-				FQCN:   "svc.systemd.stop",
-				Params: map[string]any{paramName: unit},
-				Description: fmt.Sprintf("Stop %s, which this task started. It does not undo anything the service did "+
-					"while it was running.", unit),
-			}, true
-		},
-	})
+	return runUnitOp(ctx, rc, device, params, startOp, collection.ModeExecute)
+}
+
+// CheckStart is "svc.systemd.start" in check mode: it reads the unit and
+// reports whether Start would send a start, sending nothing.
+//
+// It predicts a change for exactly the units Start would act on, since
+// both go through runUnitOp with the same startOp, and its diff's after
+// half is the unit with ActiveState "active". It refuses an unknown or
+// masked unit the same way Start does, so a dry run of a typo fails
+// rather than predicting a start systemd would never perform.
+func CheckStart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runUnitOp(ctx, rc, device, params, startOp, collection.ModeCheck)
 }

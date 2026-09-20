@@ -20,6 +20,8 @@ func init() {
 			PlatformTargets:      nil,
 			EngineVersion:        ">=1.0.0",
 			Status:               collection.StatusImplemented,
+			// A check reports the change a reload always reports, after the read that fails when a reload would (CheckReload).
+			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "A reload applies the permanent configuration to the runtime one, and there is no " +
@@ -29,6 +31,7 @@ func init() {
 			Doc: reloadDoc(),
 		},
 		Invoke: Reload,
+		Check:  CheckReload,
 	})
 }
 
@@ -62,6 +65,16 @@ func reloadDoc() collection.Doc {
 // a reload would have made any difference, and guessing would be the
 // kind of guess that makes a handler silently stop firing.
 func Reload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return reload(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckReload is fw.firewalld.reload's check: a reload always reports a change, since it replaces the runtime configuration with the permanent one, and what that replaces cannot be told without comparing both whole; so the check predicts that same change. It reads firewall-cmd --state first, which fails exactly when a reload would: firewalld not running.
+func CheckReload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return reload(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// reload is Reload's and CheckReload's one body; mode says which.
+func reload(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fw.firewalld.reload"
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
@@ -69,6 +82,13 @@ func Reload(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, err
 	}
 	defer func() { _ = conn.Close() }()
+
+	if mode == collection.ModeCheck {
+		if err := runFirewallCmd(ctx, conn, []string{"firewall-cmd", "--state"}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
+	}
 
 	if err := runFirewallCmd(ctx, conn, []string{"firewall-cmd", "--reload"}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

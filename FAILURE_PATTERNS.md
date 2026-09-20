@@ -249,6 +249,32 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 244. A setting a restored file attaches to its database applies to the sessions that check it
 245. `make up`'s documented script form never worked: its check drained the piped password before setup could read it
 246. A sanitizer written for names from an untrusted file cut host paths to 64 characters
+247. An ownership change cleared a setgid bit the task asked for, and the run reported success
+248. GNU chmod keeps a directory's setuid and setgid bits for a four-digit mode, so "0755" never cleared them
+249. Validation refused a check of a simulate-locked device that the engine was built to allow
+250. The plan said nothing ever sets simulate-locked; two sync plugins set it on every device they discover
+251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
+252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
+253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
+254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
+256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
+257. An external program's own text reached the terminal raw, including at the approval prompt
+258. A new NATS subject and consumer shipped without their mesh identity grants
+259. A package-level struct literal froze a test seam at init, and a test dialed a real WinRM endpoint
+260. A synced project's playbook escaped its tree through a symlinked directory
+261. A device's state or tags update answered 200 and stored nothing
+262. A re-sync reverted an operator's promotion, with no revision saying so
+263. A read-only sync hid the one list an operator previewing it needed
+264. Template launches minted unordered job ids under a list that orders by id
+265. One unresolvable entry failed a whole static_yaml sync
+266. SQLite migrations never really turned foreign keys off
+267. A project that had ever synced could not be deleted
+268. Writing a schedule needed no permission to launch what it launches
+269. Editing a schedule silently dropped its saved configuration
+270. A refusal gave advice that does not work
+271. A fetch ignored the project's own URL, so repointing one changed nothing
+272. Nothing constrained where a project's source came from
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

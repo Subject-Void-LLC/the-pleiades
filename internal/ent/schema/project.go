@@ -9,6 +9,7 @@ package schema
 
 import (
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
@@ -137,9 +138,26 @@ func (Project) Edges() []ent.Edge {
 		// The templates that run playbooks out of this project.
 		edge.To("templates", Template.Type),
 
-		// Every completed attempt to fetch this project's source. The latest
-		// outcome stays on this row; these are the history behind it.
-		edge.To("sync_runs", SyncRun.Type),
+		// Every attempt to fetch this project's source, finished or still
+		// running. The latest outcome stays on this row; these are the
+		// history behind it.
+		//
+		// Cascade, declared here on the owning side. A run describes one
+		// attempt at THIS project and means nothing without it, which is
+		// the same lifetime the working tree has. Without the cascade the
+		// history's foreign key refused to let a project that had ever
+		// synced be deleted at all, and the delete answered 500
+		// (FAILURE_PATTERNS.md #267).
+		edge.To("sync_runs", SyncRun.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+
+		// This project's row in the launchables table, which is what makes a
+		// sync schedulable: a schedule points at that row, not at this one.
+		// Cascaded for the same reason the template's is, and refused for
+		// the same reason while a schedule still uses it.
+		edge.To("launchable", Launchable.Type).
+			Unique().
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }
 

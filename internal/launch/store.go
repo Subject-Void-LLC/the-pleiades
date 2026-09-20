@@ -3,7 +3,9 @@ package launch
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
@@ -31,18 +33,24 @@ var ErrCrossTenant = errors.New("launch: template and inventory belong to differ
 // ErrInUse is returned when a template cannot be deleted because something
 // still points at it.
 //
-// The only thing that can today is a Schedule, whose edge is deliberately
-// NOT cascaded: a schedule is an independent object an operator created and
-// can see in its own list, so deleting a template out from under one should
-// be refused rather than silently stop automation somebody relies on. The
-// deletion attempt is the moment to say so.
+// The only thing that can today is a Schedule, and it reaches the template
+// through the launchable row standing for it: deleting the template cascades
+// into that row, and the schedule's own uncascaded key refuses the cascade.
+// A schedule is an independent object an operator created and can see in its
+// own list, so deleting a template out from under one is refused rather than
+// silently stopping automation somebody relies on. The deletion attempt is
+// the moment to say so.
 //
 // It exists as a typed error rather than being left to the database's own
 // constraint failure because that failure reaches an HTTP handler as an
 // opaque 500, which tells an operator that the server is broken when in
 // fact they asked for something reasonable that is being refused for a
 // reason they can act on.
-var ErrInUse = errors.New("launch: template is still referenced")
+//
+// It wraps launchable.ErrInUse, which project.ErrInUse also wraps, so a
+// handler can answer 409 for "something still launches this" once rather
+// than once per sort of launchable thing.
+var ErrInUse = fmt.Errorf("%w: launch: template is still referenced", launchable.ErrInUse)
 
 // Query is a list request over templates.
 type Query struct {
@@ -97,6 +105,16 @@ type Store interface {
 	// job is a historical record and "what did this template run" is
 	// precisely the question somebody has once it is gone.
 	Delete(ctx context.Context, id int) error
+
+	// ByLaunchable returns the template a launchable row stands for, or
+	// ErrNotFound.
+	//
+	// It exists because a launch that came through internal/launchable
+	// carries a launchable id and nothing else: a schedule stores the
+	// reference rather than the template, deliberately, so that one schedule
+	// mechanism can point at any sort of launchable thing. This is the one
+	// place that reference becomes a template again.
+	ByLaunchable(ctx context.Context, launchableID int) (Template, error)
 
 	// SavedConfigs returns the stored launch configurations for a
 	// template, newest last.
