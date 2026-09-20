@@ -125,9 +125,12 @@ The one-credential-per-kind binding rule, with vault credentials exempted while 
 carries a distinct identifier, is enforced by the application and not by the database.
 A writer going straight to SQL can still violate it.
 
-**The scheduler is real.** A schedule is an RFC 5545 recurrence attached to a
-template, carrying its own IANA time zone, its own anchor, and any number of exclusion
-rules. Exactly one controller replica evaluates due schedules at a time, and a
+**The scheduler is real.** A schedule is an RFC 5545 recurrence attached to anything this
+platform can launch, carrying its own IANA time zone, its own anchor, and any number of
+exclusion rules. Two sorts of thing can be scheduled today: a job template, and a project,
+whose run fetches its source. Both travel one code path, so adding a third sort later is not
+a change to the scheduler. Writing a schedule requires permission to launch the thing it
+names, not merely permission to write schedules. Exactly one controller replica evaluates due schedules at a time, and a
 scheduled run reaches devices through the identical dispatch path a person pressing
 Launch goes through: the same template resolution, credential binding, durable
 JetStream delivery, per-device locking and audit trail.

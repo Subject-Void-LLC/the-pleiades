@@ -268,6 +268,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 263. A read-only sync hid the one list an operator previewing it needed
 264. Template launches minted unordered job ids under a list that orders by id
 265. One unresolvable entry failed a whole static_yaml sync
+266. SQLite migrations never really turned foreign keys off
+267. A project that had ever synced could not be deleted
+268. Writing a schedule needed no permission to launch what it launches
+269. Editing a schedule silently dropped its saved configuration
+270. A refusal gave advice that does not work
+271. A fetch ignored the project's own URL, so repointing one changed nothing
+272. Nothing constrained where a project's source came from
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

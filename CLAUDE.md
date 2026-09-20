@@ -97,8 +97,21 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
   and resolved params. Nothing performs a rollback yet; the recording exists because only the
   forward run can capture the values an undo needs.
-- **The scheduler is real (Phase 23).** A schedule is an RFC 5545 recurrence attached to a
-  Template, so one mechanism covers every `Launchable` kind. `internal/schedule/rrule` is a
+- **The scheduler is real (Phase 23), and since Phase 21's C1 seam it schedules more than
+  templates.** A schedule is an RFC 5545 recurrence attached to a `launchable.Target`: one row
+  in the `launchables` table standing for a job template or for a project whose run is a sync,
+  with `internal/launchable` holding the open registry of those TYPES. That is a different axis
+  from `launch.Kind`, which says which ENGINE runs a definition, and conflating the two is what
+  left a project unschedulable for three phases (LESSONS 208,
+  `.SPECIFICATION/AWX_PARITY_ROADMAP.md` section 1.1). Both sorts fire through one
+  `Scanner.fire` and one `launchable.Router` (a map lookup, never a type switch; asserted by
+  `internal/archtest`), each type's launcher being composed in `cmd/controller`: the Dispatcher
+  for a template, `internal/project`'s Runner for a sync. Writing a schedule requires the scope
+  the target's own type declares (`runbook:execute`, `project:write`), not merely
+  `schedule:write`, which was a real hole (FAILURE_PATTERNS 268), and every refusal a type can
+  make is made at the write through `Preflight` rather than discovered unattended. The API field
+  is AWX's `unified_job_template`, with `template` kept as a deprecated write alias.
+  `internal/schedule/rrule` is a
   hand-rolled, deliberately bounded engine (no new dependency, following `pkg/filters/cron.go`),
   and its AWX parity is *earned rather than claimed*: `tools/genrrulefixtures` generates golden
   occurrence vectors from python-dateutil, the library AWX itself schedules on, and Python is
@@ -106,14 +119,17 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `pleiades-scheduler-leader` lease `cmd/controller` had elected and ignored since Phase 4, taking
   `isLeader func() bool` exactly as `dispatch.Reaper` does, so the package imports neither
   `internal/election` nor `internal/lock` (asserted by `internal/archtest`). Firing goes through
-  `api.Dispatcher.LaunchScheduled`, the same path a manual launch takes. Four things are worth
-  knowing before describing it: the recurrence grammar is a bounded subset refused at *save* time,
-  not run time; missed runs are **coalesced** to one, with a durable `skipped` row for each that
-  did not happen; a schedule fires once because of a unique index on
-  `(schedule, occurrence_at)` claimed before launching, **not** because of leader election, whose
-  two-second fencing-token-less lease cannot promise it; and a template bound to a prompted
-  credential, or a saved configuration answering a survey password, is refused outright, because
-  neither value is stored and replaying one unattended forever is worse than doing it once.
+  each type's own launcher, which for a template is the same `LaunchTemplate` a manual launch
+  takes. Five things are worth knowing before describing it: the recurrence grammar is a bounded
+  subset refused at *save* time, not run time; missed runs are **coalesced** to one, with a
+  durable `skipped` row for each that did not happen; a schedule fires once because of a unique
+  index on `(schedule, occurrence_at)` claimed before launching, **not** because of leader
+  election, whose two-second fencing-token-less lease cannot promise it; a template bound to a
+  prompted credential, or a saved configuration answering a survey password, is refused outright,
+  because neither value is stored and replaying one unattended forever is worse than doing it
+  once; and a target already running (a project mid-sync) is a **skip** carrying
+  `already_running`, never a failure, since a failure would be retried for as long as the first
+  run lasts.
 - **Check mode is real for 69 of the 78 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other

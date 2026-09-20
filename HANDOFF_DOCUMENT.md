@@ -4,350 +4,185 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-46-Simulation-Modes`, off `origin/main` at `27d4bac` (the merge of PR #33).
-COMMITTED 2026-09-19 at the user's request as the 19 commits listed below, on top of `cb509f7` (an
-earlier compose fix). Not pushed, and not yet gated: `make ci` has not run on these commits.** The
-branch has no upstream on purpose (`git branch --unset-upstream`): it was created from `origin/main`
-and tracked it, so a stray `git push` would have targeted main. Push with `-u` to its own name. The work
-answers the JetPorch comparison's two "ideas worth borrowing": check mode (Phase 46, first slice) and
-external Collections (Phase 42's payload decision, Phase 45's loader, Phase 33's forge). The user also
-changed `.gitignore` (a `.venv` line) and asked for it kept; it is unrelated and gets its own commit.
+**Branch `feature/Phase-46-Simulation-Modes`, on top of the 19 committed check-mode and external
+Collection commits (whose status is now the top entry of `HANDOFF_ARCHIVE.md`). This session's work is
+UNCOMMITTED in the working tree, and `make ci` has not run on it.** The user asked for Phase 21's last
+open item, "rebind schedules, workflow nodes and notification policies to `Launchable`", and chose to
+build the seam rather than close the item on paper.
 
-### Then the easy wins (2026-09-19, committed at the user's request as the five commits after `4196fd1`)
+### What it turned out to be
 
-The user asked to close the easy gates early phases had left open. Using `.SPECIFICATION/implementation.py`
-(its `parse_implementation`, imported rather than served), eight phases closed: 5, 6, 10 and 14 (their
-remaining gate or item) and 19, 20, 23 and 73 (commit messages, now naming their commits; 21's too).
-Every plan item citing a test that no longer exists was corrected in place with a dated note (16 citations,
-`missing_tests` now reports none). Writing the two documentation gates from the code found and fixed
-five defects, each with a regression test that failed first:
-
-1. **Security:** a synced project's playbook could be read from outside its checkout through a symlinked
-   directory (`lib -> /`). Now opened through `os.Root` (FAILURE_PATTERNS 260; a stale gosec waiver
-   removed with the `os.ReadFile` it waived).
-2. **Correctness:** `PATCH /inventory/devices/{name}` with a state or tags answered 200 and stored nothing,
-   so no device could be promoted. `record.Base.ChangeState`/`ChangeTags` now record revisions (261).
-3. **Correctness:** a re-sync put a promoted device back to its landing state, unrecorded (262).
-4. **Correctness:** `inventory sync --read-only` hid the review list naming quarantined records (263).
-5. **Correctness:** template launches minted v4 job ids under a list that orders by id; now v7 (264).
-
-Also: docs/09 gained "Dispatch: from a launch to a result"; docs/10 "How a device gets its state";
-stale claims corrected in docs/01, 09, 10 and 11 and in the API descriptions (regenerated OpenAPI); two
-test fixtures `tools/gencatalog` leaked into the tree and that were committed on 2026-08-24 were removed,
-and `.gitignore` now keeps them out; three changelog fragments; LESSONS 206. Left, and why: the job
-schema's comment still says nothing writes `running`, since the commit gate refuses a comment-only schema
-edit (no generated change to stage beside it); dead letters still carry secrets and a failed run still
-re-runs up to five times, both already build items of Phases 103a and 103c. Verified: the full suites of
-every touched package, `-race` on the fixed ones, vet, gosec (20, all waived), docs-lint, gendocs
-idempotent. Committed as: the security fix; the device-state fixes; the job id fix; removing the leaked
-fixtures; docs and records, each built and vetted on its own first.
-
-### Then a second round of easy wins (2026-09-19, committed at the user's request as two commits)
-
-`.SPECIFICATION/implementation.py` now flags a finished item citing a repository file that no longer
-exists, beside its existing check for missing tests (`repository_files`, `missing_files`; a same-name
-file elsewhere is offered as the likely new home). It found 27 items citing 16 missing paths; each was
-corrected by its kind: history kept as plain text with where the file went and in which commit, live
-references swapped (`design/hephaestus.md`, `pkg/policy/policy.go`). The dashboard now reports no
-missing tests and no missing files. It also gained `--json` (the user's request, so an LLM reads the
-roadmap natively): `implementation.py --json [--phase ID] [--open] [--details]` prints the dashboard's own
-model and exits, and the server answers `/roadmap.json` with the same filters; `--help` no longer starts
-the server. And `static_yaml` no longer fails a whole sync over one entry whose
-`classify` path does not resolve: that entry is quarantined with the reason (FAILURE_PATTERNS 265,
-`static-yaml-unresolvable-classify.fixed.md`, docs/10's quarantine examples). Verified: the inventory
-tree and `cmd/pleiades` suites, `-race` on `static_yaml`, vet, docs-lint.
+The item's two earlier notes were both wrong, and correcting them is the work. The second note (made
+earlier the same day) had called schedules done because a schedule attaches to a `Template` and "a
+Template carries its kind, so one mechanism covers every Launchable kind". That conflated the two axes
+`.SPECIFICATION/AWX_PARITY_ROADMAP.md` section 1.1 had separated a year earlier: a `launch.Kind` says
+which ENGINE runs a definition, while a schedule has to name which OBJECT to run, and a project sync is
+not a `Template` of any kind. So a project could not be scheduled at all, which is exactly the
+roadmap's C1 gate. LESSONS 208.
 
 ### What was built
 
-- **Check mode.** `collection.Mode` and `ParseMode`; `Descriptor.Check` with `Manifest.SupportsCheck`
-  (Register enforces agreement); engine `CheckExecutor`, `UncheckedError`, `WithMode`; a check never
-  journals, refuses an `inverse` stat, names unchecked tasks and keeps walking, and admits
-  simulate-locked devices through `engine.LifecycleAdmitsIn` (also used by `validate.LifecycleRule`,
-  whose `WorldView` gained `Mode`). `pleiades run --mode check` ends non-zero if anything went
-  unchecked. Nine methods check: six `svc.systemd.*`, `file.directory`, `file.permissions`,
-  `file.remove`. `pkg/remotefile` gained `Differs`, `PredictApply`, `PredictCreate`, `DirectoryEmpty`.
-- **External Collections.** `pkg/external` (SDK: `Main`, `Serve`, `Description`, `ProtocolVersion`,
-  and the device, context and child loop MOVED from `internal/adapters/native`, which now uses them);
-  `internal/loader` (two-pass load, ownership and permission checks, SHA-256 pinned and re-checked
-  before every run, scrubbed environment, bounded runs, masked output); wiring in `cmd/pleiades`
-  (`PLEIADES_COLLECTIONS_DIR`, for run, validate and doc, which now shows each method's origin and
-  check support) and `cmd/runner` (`native.WithExternalCollections`); `examples/external_collection`.
-- **Forge.** `new-collection` states `SupportsCheck: false` with guidance; new `forge new-external`.
-- **Decisions settled, then built (second half of the session).** Every decision got numbered edge
-  cases and the secure answer with the most functionality (the user's rule). The three highest-risk
-  build items are DONE: confinement of external programs (Landlock plus a non-dumpable parent,
-  `internal/loader/confine*.go`, grants through `PLEIADES_COLLECTIONS_READ_PATHS`); the runbook
-  `check_mode` key at runbook, block and task level, with unknown top-level keys refused
-  (`internal/engine/check_mode.go`, `condition_refs.go`, `internal/validate/check_mode_rule.go`);
-  and third-party checks kept off simulate-locked devices (`collection.Descriptor.Provider`, set only
-  by the loader, guarded in `engine.checkAction`). New archtest `TestOneYAMLModule`.
-- **Then the next three (after the user's "Go").** The approval list (`.pleiades-approvals.json`,
-  `pleiades collection approve|revoke|list`, approval checked before any program runs and re-read
-  before every call, every run executing the verified file through `/proc/self/fd`, closing the
-  swap window); reserved namespaces (`collection.BuiltinNamespaces` plus `pleiades` and `ansible`)
-  with `NodeResult.Provider`; and the Runner path, now routed on `Descriptor.Provider` alone, loaded
-  before any connection, and proven by a unit test and a real-NATS, real-sshd gate.
-- **Then the next three (after the second "Go").** Phase 45's hardening as tests (`internal/termsafe`
-  refusing or escaping terminal-controlling text from programs, including at the approve prompt;
-  argv, name, stat-name, masking and fuzz tests; an archtest keeping Go source free of invisible
-  characters); the provider in the run journal (two ent columns, `sqlite/0028`, `postgres/0025`, the
-  CSV, docs/10); and Phase 46's exit status 3 with `--allow-unchecked`, and the engine-owned
-  `predicted: true` marker on every check result.
-- **Then Walk-tier check mode (the overnight run, under the user's /goal).** The runbook launch kind's
-  `mode` field (`launch.TypeChoice`), resolved by narrowing (`launch.resolveMode`, `ErrMode` 422,
-  `Template.CheckSavedMode` at save), a form select in the UI; `POST /templates/{id}/check` (rel
-  `check`, `Dispatcher.CheckFromTemplate`); fan-out admission by `LifecycleAdmitsIn` and a check
-  published on `topology.CheckSubject`, read by the Runner's second loop (durable `runner-check`,
-  `routing.CheckOnly`), so a Runner from before check mode never receives one; the legacy adapter
-  refuses checks; `dispatch.Job.Mode`, shown by the job API, its OpenAPI schema and the Jobs page;
-  `internal/meshid` grants for the check subject and consumer. Proven by a real-NATS, real-sshd gate
-  and a real operator-mode broker gate.
-- **Then the rest of the plan's buildable items (still the overnight run).** CEL partial evaluation of
-  a check's conditions (`Program.EvalPartial`, `ConditionProgram.EvalPartial`, `check_conditions.go`:
-  answered where the unknowns cannot change it, unchecked where they can, a misspelled register fails
-  as the real run would); the "cannot check this call" answer (`collection.CannotCheck`, the optional
-  `wire.ChildResponse.CannotCheck` flag, honored only for a check by the engine and both parents);
-  engine version stamping (`internal/buildinfo`, `runner version`, the Runner's loader gets the version,
-  one warning per program, the Dockerfiles stamp from `VERSION`/`VCS_REF` with a character guard, the
-  scaffold writes the generating release); the scaffold's minimal `go.mod` and `--no-go-mod`, its
-  release gate now built out of tree by the README's own offline steps; the loader's registration
-  parity fuzz and injected-rule test; the Windows refusal naming WSL 2; the mixed-DAG fuzz and the
-  check-versus-run benchmark with `ansible-playbook --check` as reference; the BusyBox chmod test on a
-  real Alpine sshd; Phase 46's hardening audit and documentation gate. Also: a doc comment added to
-  seventy new Go files the commit gate would have refused (LESSONS 203), and `internal/catalog/file`
-  added to the Makefile's `DOCKER_DEPENDENT_PACKAGES` (the repeat-gate test caught it).
-- **Then the two Walk-tier check items.** `check_complete` on the job: `wire.Outcome` is the second
-  return of every execution adapter, the Runner reports a check's unchecked count and a reason with its
-  result, the Controller stores it (`job_task.unchecked`, `sqlite/0029`, `postgres/0026`) and
-  `dispatch.Job.CheckCoverage` answers complete or not. And `runbook:check`: the scope (implied by
-  execute), the check route requiring it, and external programs' checks run only for a launcher who may
-  run the job for real (`api.MayRunForReal` to `dispatch.Job.ExternalChecks`, `jobs.external_checks`,
-  `sqlite/0030`, `postgres/0027`, to `wire.DispatchPayload.ExternalChecks` to
-  `engine.WithExternalChecks`, off by default).
-- **Then check support for every other method (2026-09-19, still the overnight run).** 69 of the 78
-  implemented methods now check; the other nine carry `Manifest.NoCheckReason`, which the unchecked
-  line, validation and the reference page print, and `internal/archtest` requires of every built-in
-  without check support. Read-only methods set Check to Invoke (`facts.gather`, `net.ssh.ping`,
-  `net.ios.facts`, `net.ios.ping`, four `net.catalyst.*`); the rest share one body with Invoke that
-  branches after the same reads and refusals (`file.*`, `pkg.*`, `identity.*`, `fw.firewalld.*`,
-  `svc.*`, `win.feature.*`, `archive.*`, `fs.*` with a new `fstabDecide`, `container.docker.run/stop/
-  remove`, the AWS four with a new `awscloud.BucketHoldsAnything`/`AccessDenied`, `net.ios.save`).
-  `exec.command`/`exec.shell` check guarded calls and `http.request` safe methods, with
-  `Descriptor.CheckCall` letting validation refuse `check_mode` on any other call of theirs
-  (`engine.Checkable(fqcn, params)`). A check whose inputs are missing when it runs reports that task
-  unchecked, naming the input. `internal/catalog/container/docker` joined the Makefile's Docker list.
-- **Docs.** 01 (status, limitations, FAQ), 02 (step 8, real captured output), 11 (check support,
-  external Collections, forge), 13 (the protocol's compatibility promise), CLAUDE.md, the regenerated
-  reference (a "Check mode" row on every module page, `--mode`, `new-external`, `check_mode` in the
-  task-key page and runbook schema), four changelog fragments (one `.breaking`: unknown top-level
-  runbook keys), FAILURE_PATTERNS 247 to 255, LESSONS 199 to 201, and progress notes under Phases 33, 42,
-  45 and 46 in IMPLEMENTATION.md recording what is and is not built, and every deviation.
+- **`internal/launchable`**, the axis-A abstraction (AWX's UnifiedJobTemplate): an open registry of
+  launchable TYPES keyed by AWX's own names (`job_template`, `project`), each declaring a label, what
+  one of its runs is called, the scope needed to launch it and whether it takes a saved configuration.
+  `Reach.Admits` is the one predicate the UI picker filters with and the store checks on submit.
+  `Router` launches by map lookup, never a type switch, and refuses to be built with a gap in either
+  direction (a registered type with no launcher, or a launcher for an unregistered type).
+- **A `Launchable` ent entity** as the stable reference: one row per launchable thing, a nullable
+  unique pointer per target type, a CHECK requiring exactly one, cascading from `Template` and
+  `Project`. A schedule's key into it is uncascaded, so deleting a scheduled template or project is
+  refused as one statement (409). Migrations `sqlite/0032` and `postgres/0029`, both hand-backfilled.
+- **Schedules rebound**: `Schedule.LaunchableID` replaces `TemplateID`, `Dispatcher.LaunchScheduled` is
+  gone (the Dispatcher is now a `launchable.Launcher` with a `Preflight`), `internal/project`'s Runner
+  is the other launcher, and `Scanner.fire` makes one `Launch` call. A target already running is a skip
+  carrying `already_running` rather than a failure that would be retried for as long as the run lasts.
+- **A sync run now exists from the moment it starts and records who asked** (status `running`, nullable
+  finish, `actor`), which is what lets a fired occurrence name the attempt it started. The Sync history
+  tab gained a STARTED BY column.
+- **API**: AWX's `unified_job_template`, with `template` kept as a deprecated write alias (both
+  disagreeing is a 400). Responses carry `unified_job_template{,_name,_type}`; an occurrence carries
+  `unified_job_type`. Reference regenerated.
+- **UI**: the RUNS picker offers both sorts, grouped in native `<optgroup>`s, filtered by what the
+  viewer may launch.
+- **Spec**: Phase 21's item ticked with the correction; workflow nodes re-homed to Phase 27 (which had
+  been assuming a workflow graph existed, and which nothing owned building) and notification policies to
+  Phase 28, each with the reference's rules written out; Phase 23's and Phase 24's notes corrected;
+  roadmap C1 marked done; parity's `project_updates` moved from 0/9 to 4/9.
 
 ### Findings: report each to the user as its own item
 
-1. **Correctness, fixed:** `remotefile.Apply` left a regular file's setgid cleared after changing its
-   group, and reported success (FAILURE_PATTERNS 247).
-2. **Correctness, fixed:** GNU chmod keeps a directory's setuid/setgid for a four-digit mode, so a task
-   asking 0755 of a 2755 directory reported changed forever (FAILURE_PATTERNS 248). Apply now sends
-   five digits (`00755`) for every chmod.
-3. **Correctness, fixed:** validation refused check mode against simulate-locked devices
-   (FAILURE_PATTERNS 249), caught by the real-device gate after the engine unit test passed.
-4. **Security, by the user's rule:** an external Collection gets credentials exactly as designed,
-   through `InjectSecrets` (the template's bound machine credential resolved at fan-out, or the
-   device's own); the loader adds no credential path. The user corrected my earlier wording ("the one
-   device's credential") and my over-reading of their rule as a demand for OS sandboxing.
-5. **Security, proven by probe, FIXED (FAILURE_PATTERNS 251):** the environment allowlist was
-   documented as keeping the master key and broker credentials from a program, but a same-user child
-   reads its parent's starting environment from `/proc/<ppid>/environ`, even after the parent unsets
-   the variable. The false claims are corrected (loader doc and capture.go, `pkg/external`, docs/11,
-   which now lists "No confinement"). `PR_SET_DUMPABLE 0` in the parent blocked the read in the same
-   probe. Now fixed by confinement (Landlock) plus the non-dumpable parent; a real program is denied
-   the master key, credentials, SSH keys, `/proc/<parent>/environ` and `mem`, and the unconfined
-   control reaches them.
-6. **Security, FIXED (FAILURE_PATTERNS 253):** check mode admitted simulate-locked devices for a
-   third party's unproven Check. Now reported unchecked; proven on a real sshd with a program whose
-   Check writes (nothing on the locked device, the write lands on the active control).
-7. **Correctness, FIXED (FAILURE_PATTERNS 252):** a runbook-level `check_mode: true` was silently
-   ignored and the runbook ran for real. Now honored, and any unknown top-level key is refused.
-8. **Stated plainly:** no signature verification yet; the directory's permissions and the SHA-256
-   re-check are the trust decision. Between the re-check and the exec there is still a swap window,
-   usable only by the directory's owner or root; the approval-lockfile build item closes it by
-   executing the bytes it hashed (not built; confinement did not need a re-exec shim after all).
-9. **Security, found while building and fixed (FAILURE_PATTERNS 254):** Landlock applied from a
-   goroutine could land on the main thread, putting Pleiades inside the program's own domain (the
-   program could signal it). Intermittent; now pinned by a deterministic main-thread probe test.
-10. **Correctness, found while building and fixed (FAILURE_PATTERNS 255):** an unmarshal hook written
-    against `gopkg.in/yaml.v3` is never called by the engine's `go.yaml.in/yaml/v3` decoder, so
-    `check_mode: false` decoded silently until a test caught it; now an archtest forbids the old module.
-11. **Security, found by the hardening audit and fixed (FAILURE_PATTERNS 257):** a program's text
-    reached the terminal raw: the approve prompt, its error message as the task's FAILED line, and
-    `--verbose` stat values. A program could draw a fake "approved" line. Now refused at load where
-    possible and escaped wherever printed.
-12. **Process, found and fixed (FAILURE_PATTERNS 256, LESSONS 202):** the agent's file-writing tool
-    decodes `\u` escapes, and real bidirectional overrides landed in source; replaced, scanned
-    (2,414 files clean), and guarded by `TestNoInvisibleControlCharactersInGoSource`.
-13. **Security and availability, found while building and fixed (FAILURE_PATTERNS 258):** the check
-    subject and the `runner-check` consumer were missing from `internal/meshid`'s grants, so under a
-    minted identity every check would fail at publish and an upgraded Runner would exit at startup.
-    Nothing in production mints identities yet, so nothing was broken today; the grants and the real
-    operator-mode broker gate now cover the check traffic.
+1. **Data loss and a failed upgrade, MEASURED, fixed (FAILURE_PATTERNS 266, LESSONS 207).** SQLite
+   migrations never really turned foreign keys off: `applyOne` ran each script inside a transaction,
+   where that pragma is a no-op, and SQLite declines it silently. Migration 0022 therefore deleted every
+   authored survey question and saved launch configuration on a populated database, and 0030 could not
+   be applied at all to one holding a job task, so the Controller would not start after upgrading. No
+   test had ever migrated a database with rows in it. Fixed by pinning a connection, setting the pragma
+   before the transaction, reading it back, and running `PRAGMA foreign_key_check` before commit.
+2. **Security, fixed (FAILURE_PATTERNS 268).** `schedule:write` alone could arrange for any template in
+   any organization to run for real, repeatedly, unattended. Now the write path requires the scope the
+   target's own type declares; proven over real HTTP, and the proof fails with the check removed.
+3. **Correctness, fixed (FAILURE_PATTERNS 267).** A project that had ever synced could not be deleted:
+   the history's key was uncascaded and the delete answered 500, while the schema's own comment said the
+   history goes with the project.
+4. **Correctness, fixed (FAILURE_PATTERNS 269).** Editing a schedule in the UI silently dropped the
+   saved configuration its runs used, because the form renders no control for it and the binder wrote
+   the zero value.
+5. **Minor, fixed (FAILURE_PATTERNS 270).** The template-delete 409 advised disabling the schedule,
+   which does not release the reference. The same advice was in docs/09.
+6. **Security, FIXED the next day (FAILURE_PATTERNS 272), and reported to the user first.** `GitSyncer`
+   had no URL-scheme allowlist, so a `project:write` holder could aim a sync at any repository the
+   Controller could reach. Two things I said when reporting it were wrong and are corrected in the
+   allowlist section below: the local-path half is not exploitable in the shipped image (go-git's file
+   transport needs a git binary the image does not carry), and an allowlist does not stop internal reach
+   (anything shaped like `host:path` is a valid ssh address). The live half was the network transports
+   with no integrity, since a clone's content is code that runs on managed devices.
+7. **Stated, pre-existing.** No request carries a tenant, so the tenancy half of the launch check can
+   only compare a target's organization to the schedule's, not to the caller's. Enforced at the store for
+   a narrowed caller; unenforceable at the API until requests carry a tenant.
 
 ### Verified, and how
 
-- Check support batch (2026-09-19): every new check tested from converged and unconverged starts
-  against its real run and mutation-checked (Check wired to Invoke, or the guard removed), with the
-  controls on real things wherever this machine has them: a real sshd for the guarded `exec.command`
-  under `check_mode` (the key gate), real tar, this machine's real Docker daemon through the real SSH
-  path, real LocalStack for EC2 and S3, real mounts and a real account database (useradd and kin)
-  inside an unprivileged user and mount namespace (`testsupport.InPrivateRoot`), the Catalyst replay
-  with every request recorded; fakes for Windows, firewalld and the package managers (stated, and a
-  new build item).
-  `FuzzRegistrationParity` gained `NoCheckReason` and caught the loader mirror's removal. `-race` on
-  collection, engine, validate, loader, exec, http, win/feature, archive, gendocs. The key gate's
-  docs/02 output was recaptured from the real CLI against a real sshd. The full suites of all 77
-  changed packages, serially: green (67 with tests, 10 without), and the seven changed after the run
-  passed them green on a rerun. Two infrastructure failures, both in listed packages and both green on
-  rerun: `cmd/runner`'s `TestInjectionReleaseGate_NoSecretLeaves` once, under the long serial load
-  (alone and in a full rerun it passes), and LocalStack not starting within 60 seconds once under
-  `-race` in `internal/catalog/cloud/aws/s3`. `-race` on every package that gained a check, vet under
-  both tag sets, vet and build for Windows and macOS, gosec (21 findings, all waived: two scope waivers
-  renumbered and re-reviewed, and the helper's G702 fixed by `os.Executable` rather than waived),
-  gofmt, docs-lint, gendocs idempotent, `go mod tidy` clean, every new Go file carries its doc comment,
-  no em dash.
-
-- Walk-tier check items: `TestAgent_ReportResult_AnIncompleteCheckSaysSo`, `TestCheckCoverage_FromTheRunnersResults`,
-  `TestResultConsumer_DropsANegativeUncheckedCount`, `TestJobHandler_SaysWhetherACheckWasComplete`, the
-  Walk-tier gate's new incomplete check over real NATS and sshd, `TestCheckRoute_ACheckOnlyCallerMayCheckAndNotRun`
-  (real tokens), `TestCheckMode_ExternalChecksAreOffByDefault`, `TestWorker_CarriesTheExternalChecksDecision`,
-  `TestAdapter_Execute_ExternalChecksFollowThePayload`; five mutations caught; migration parity; full
-  suites of auth, api, dispatch, adapters, engine, ui, ent, archtest, launch, runner and the three
-  commands green; `-race` on runner, dispatch, adapters, api, wire.
-
-- Plan-items batch: `TestCheckConditions_*`, `FuzzCELEvalPartial` (183k runs), `TestCannotCheck_*`,
-  `TestInvokeRequest_CannotCheckCrossesAsItsOwnFlag`, `TestIPCCollectionExecutor_CannotCheckCrossesTheProcessBoundary`,
-  `TestHardening_CannotCheckIsNeverASuccess`, `TestRelease`, `TestResolve`, `TestCheckEngineVersion`,
-  `TestLoad_OneVersionWarningPerProgram`, `TestVersionReleaseGate_OneVersionAcrossBothBinaries` (both real
-  binaries, stamped both ways), `TestGenerate_EngineConstraintFollowsTheGeneratingBuild`, `TestGoMod_*`,
-  the scaffold release gate built offline from its README, `TestForgeNewExternal_GoMod`,
-  `FuzzRegistrationParity` (7.9M runs), `TestRegister_ARuleOnlyRegisterHasNamesWhatStaysRegistered`,
-  `TestUnsupported`, `TestLoadExternalCollections_UnsetIsSilent`, the Windows-only test (compiled and
-  vetted for Windows, not run: no Windows host), `FuzzCheckMixedDAG` (422k runs) and its generator
-  coverage test, the file benchmarks, `TestBusyBoxChmod_FiveDigitModesMeanWhatTheySay`,
-  `TestCheckSubject_AHostileDeviceIDIsOneToken`, and the CEL cost limit on partial evaluation. Every new
-  guard mutation-checked. Full short suite of `./internal/... ./pkg/... ./cmd/... ./tools/...` green
-  after the Makefile fix (one Vault container start-up refusal passed on rerun); `-race` on engine,
-  loader, buildinfo, externalscaffold, adapters, pkg/external, collection, topology, api, dispatch;
-  vet under both tag sets and for Windows and macOS; gosec 21 (all waived); gofmt; docs-lint;
-  gendocs idempotent; no em dash in any added line; every new Go file has its doc comment.
-
-- Walk-tier batch: `TestResolveMode`, `TestModeIsRefusedWhenSaved`, `TestChoiceField`,
-  `TestCheckRoute_*`, `TestJobHandler_SaysWhetherAJobWasACheck`, `TestModeBadge_MarksACheckApart`, the
-  dispatch mode table, `CheckOnly`, the legacy refusal, the grant tables,
-  `TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity` (now with a check act), and
-  `TestCheckModeReleaseGate_TheWalkTierChecksAndChangesNothing` (now asserting a check journals nothing
-  against a real run that does). Handler, grant and broker-gate mutations each caught. Short-mode
-  suites of every touched package, `-race` on launch, api, dispatch, adapters, ui jobs and templates,
-  meshid; vet, gosec (21, all waived), gofmt, docs-lint, gendocs clean.
-
-- Unit and integration tests for every touched package, one at a time, and `-race` on each core
-  package; `internal/loader` 90.8% coverage, under goleak, fuzzed (FuzzParseDescription, ~426k execs
-  clean); `pkg/external` 98.2%. Mutation checks: the engine's seven check-mode guards, the three file
-  checks, five loader guards; each failed its test when disabled.
-- Real devices: `TestCLI_CheckModeChangesNothing` and `TestCLI_ExternalCollectionRunsAgainstARealDevice`
-  against a real sshd, inspecting the device over an independent connection.
-- `internal/archtest` (all), `make gosec` (21 findings, all previously waived), `make vet` (both tag
-  sets), `make fmt`, `docs-lint`, gendocs regenerated, `GOOS=windows`/`darwin` vet of the loader.
-- Benchmark: an external call costs 0.83 ms (re-verify, spawn, one exchange) against ~1 ns in-process.
-- Second half: `TestConfinement_*`, `TestCheckModeKey_*`, `TestRunbookKeys_*`, `TestConditionReads`,
-  `TestCheckModeRule_*`, `TestCheckMode_AnExternalCheckSkipsASimulateLockedDevice`,
-  `TestLoad_TheLoaderSetsTheProvider`, `TestOneYAMLModule`; eleven guards mutation-checked;
-  FuzzCheckModeKey ~568k runs clean; `-race` on loader, engine, validate, collection, remoteexec,
-  archtest; real-sshd gates `TestCLI_CheckModeKeyAgainstARealDevice` and
-  `TestCLI_AnExternalCheckNeverReachesASimulateLockedDevice` new, and every existing gate still
-  passes; the full `cmd/pleiades` suite passes; `cmd/runner`'s full run had one NATS provisioning
-  timeout (listed package), and that test passed alone. `make vet`, `make gosec`, gofmt, docs-lint,
-  gendocs idempotent, `go.mod` unchanged.
-- Third batch: `TestApproval_*` (including the swap race and its by-path control),
-  `TestLoad_ReservedNamespacesAreRefused`, `TestCLI_CollectionApproveAsksAndRecords`,
-  `TestCLI_AProgramCannotClaimACatalogNamespace`, `TestIPCCollectionExecutor_ExternalMethodsRunInThisProcess`,
-  `TestExternalCollectionReleaseGate_*` (real NATS, real sshd, and the real Runner binary refusing a
-  bad directory with no broker); five more guards mutation-checked; full `cmd/pleiades` and
-  `cmd/runner` suites pass; race, vet, gosec, gofmt, docs-lint clean; `go.mod` unchanged.
-- Fourth batch: `TestHardening_*`, `FuzzDecodeResponse`, `FuzzParseApprovals`, `FuzzEscape` (30s each,
-  clean), `TestCLI_CollectionApproveEscapesTheProgramsText`, `TestNoInvisibleControlCharactersInGoSource`
-  (proven by planting a character), `TestJournal_AnExternalMethodsEntryNamesItsProgram`, the ent
-  round-trip and migration parity, `TestCLI_CheckExitStatus`, `TestPrediction_*`; nine more guards
-  mutation-checked; full `cmd/pleiades` and `cmd/runner` suites pass; race, vet (both tag sets), gosec,
-  gofmt, docs-lint, gendocs clean; cross-vet on Windows, macOS, FreeBSD; `go.mod` unchanged.
-- **Not run:** `make ci` and `make push-gate` (they saturate this machine for ~20 minutes; ask first).
-
-14. **Correctness, found by the key gate and fixed:** making `exec.command` checkable for guarded
-    calls made `pleiades validate` accept `check_mode: true` on an unguarded one, which can only ever
-    be reported unchecked. Fixed with `Descriptor.CheckCall` (LESSONS 204).
-15. **Security, process, report it:** a shell test of whether `LOCALSTACK_AUTH_TOKEN` was set printed
-    its first 22 characters into this session's output (`${VAR:+set}${VAR:-unset}`). Nothing left the
-    session, but the user should rotate that LocalStack token (LESSONS 205).
-16. **Tests, found and fixed (FAILURE_PATTERNS 259):** hoisting `svc.windows`'s operations into
-    package-level values froze their test seams at init, and the tests dialed a real WinRM address.
+- **The C1 gate** (`internal/schedule/launchable_gate_test.go`): a real file database through the
+  production opener and the real migrations, the real template and project stores, a real git repository
+  and the real `GitSyncer`, the real Dispatcher over a real in-process bus, the real router and Scanner.
+  Two due schedules, ONE `Sweep`: a job with the schedule's actor, and a sync attempt whose id the
+  occurrence records, whose actor is `scheduler:<id>` and whose revision is the repository's own HEAD.
+  Plus the busy-target skip (and that a second sweep adds no row), and a launchable type this build has
+  never heard of firing through the same store and scanner with no code change.
+- **The migration backfill** on a populated SQLite database: every template and project gains its row,
+  every schedule is repointed with its saved configuration kept, the old column is gone, occurrences are
+  typed, the scheduled-template delete is refused and an unscheduled one cascades. Removing the project
+  backfill line fails it. The upgrade tests for 0022 and 0030 fail with finding 1's fix reverted.
+- **Mutations checked** (each turned a named test red): the launch-scope check removed; every type
+  routed to the template launcher; `ErrBusy` treated as a launch failure; the project backfill dropped;
+  finding 1's fix reverted; a branch on launchable type planted in the scanner (caught by the archtest);
+  the actor cell blanked in the UI history.
+- Full suites of `./internal/...` green, including `internal/backup` (see below), `tests/parity`,
+  `internal/archtest`. `-race` on launchable, schedule, api, project, ent/migrate. The three-replica
+  `TestControllerScheduler_FiresExactlyOnce_ReleaseGate` passes against real NATS on the new schema
+  (69s). `make vet` (both tag sets), `make fmt`, `make gosec` (20 findings, all waived; one waiver
+  renumbered with a written re-review), `make docs-lint`, migration parity, generated reference
+  idempotent, no em dash in any added line.
+- **A fixture regenerated rather than edited.** Adding a table broke
+  `internal/backup`'s `TestParseTOC_ReadsARealBackupOfThisSchema`, which counts the tables a real
+  `pg_restore --list` holds. Both listings were recaptured the way their provenance describes: postgres
+  at the pinned 15.19 image, the real migrations, the real `controller bootstrap-admin`, then `pg_dump`
+  and `pg_restore --list` from inside the container so the server and the tool both read 15.19. The
+  procedure is now written down in that test.
 
 ### Known and not done
 
-Every decision is SETTLED (2026-09-18) under the user's rule: list each decision's edge cases, then
-take the secure answer that gives the most functionality. Each is a ticked item in IMPLEMENTATION.md
-(options with pros and cons, numbered edge cases, the decision), followed by an unticked "Build:" item
-carrying its test plan; 15 decisions across Phases 33, 42, 45 and 46, plus one build item in Phase 48.
-Four answers changed from the earlier recommendations: confinement with Landlock and a non-dumpable
-parent instead of an environment-variable key (Phase 45), a minimal `go.mod` (Phase 33), stamped
-versions enforced on releases only (Phase 42), and CEL partial evaluation for conditions (Phase 46).
-Walk-tier mode resolves by narrowing, the one exception to the most-specific-wins settings rule. The
-headline gaps, all now build items:
+- **`make ci` and `make push-gate` have not run** on this work (they saturate this machine for about
+  twenty minutes; ask first). Nothing is committed yet either.
+- **The release gate over three real controller processes covers a job template only.** Extending it
+  with a project-sync schedule is the one item from this session's plan left undone; the seam itself is
+  proven in-process by the C1 gate above.
+- **An inventory source is not a launchable type**, because there is no Controller-side entity for one:
+  inventory sync runs from the `pleiades` CLI. A workflow is not one either, and Phase 27 now owns
+  building it.
+- **A project sync is still not a row in the Jobs list.** Its record is its own `SyncRun`. Unifying the
+  two lists (AWX's UnifiedJob) is a separate decision nobody has taken, and `tests/parity` says so.
+- **`GET /unified_job_templates`** as a listing route is deferred to the roadmap's D3, which needs
+  per-type read scopes. Discovery today is the `unified_job_template` field on a template or a project.
 
-- Phase 45: the phase's publishing and signing items (Phases 43 and 44). (Confinement, the approval
-  list, namespaces, the Runner path, the hardening tests, the journal provider, the registration parity
-  fuzz and the Windows refusal DONE.)
-- Phase 46: real-device proof for the checks proven only on fakes (Windows, firewalld, package
-  managers), toybox and BSD chmod, and the Phase 35 cross-check. (Check support for
-  every implemented method DONE: 69 check, nine say why.) (Walk-tier mode, `check_complete`, `runbook:check`, the `check_mode` key, simulate-lock admission, exit status 3, the
-  prediction marker, partial evaluation, the "cannot check this call" answer, the mixed-DAG fuzz and
-  benchmark, BusyBox chmod, the hardening audit and the documentation gate DONE.)
-- Phase 42 and Phase 33: DONE (engine version stamping; the minimal `go.mod`). Phase 48: the stored,
-  digest-bound check result.
-- Phases 42 to 44: OCI media types and artifacts, reproducible digests, a registry, signing.
-- External Collections on Windows.
+### Then the project source allowlist (2026-09-20, also uncommitted)
 
-### Commits (made 2026-09-19)
+You asked for the allowlist half of finding 6 above, as a plan; it was approved and built.
+`internal/project/source.go` is the predicate: the protocols go-git will dial, allowlisted, defaulting
+to https and ssh, with `PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE` (http, the git daemon) and
+`PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` (file and bare paths) as separate opt-ins because they are
+separate threats. Enforced at `project.entStore` Create and Update, which is the only writer of the
+column, and again in `GitSyncer.Sync` before anything touches disk. A password in the URL is refused at
+the write only, since refusing it at the sync would make an existing row permanently unsyncable with no
+migration. The protocol is decided by `transport.NewEndpoint`, the same call the transport layer makes,
+rather than by a second parser (LESSONS 209).
 
-Split by file rather than by hunk, since the engine, the native adapter and a few other files carry
-several features each; the 32-commit plan this replaces assumed hunk splits. Every commit was checked
-to build and vet from a clean worktree at that commit, cumulatively, before any was made. The commit
-gate refused nothing and warned three times: a deliberate capitalized test error in
-`pkg/awscloud/bucket_contents_test.go`, and `cb9388a` and `a62b891` editing a spec without the
-regenerated reference, which is in `37ead22`.
+**Two corrections to what I told you when I reported the finding, both from review:**
 
-1. `3040d2b` chore: ignore .venv
-2. `e3903d9` fix(remotefile): keep setuid and setgid right across chown and chmod
-3. `49ee6af` feat(build): report one build version from every binary
-4. `031a97b` feat(collection): add check mode to the Collection contract
-5. `eda7a21` feat(external): load Collections built outside this repository
-6. `73e58e1` feat(engine): run checks through the engine, both parents and the Runner
-7. `ec5d571` feat(runner): read checks from their own subject, load Collections first
-8. `0b47a5d` feat(store): record task providers, check coverage and external checks
-9. `ddeabe5` feat(catalog): check the read-only, network and HTTP methods
-10. `38dcd95` feat(catalog): check every file method
-11. `eeb2ba5` feat(catalog): check the package methods
-12. `1c8d258` feat(catalog): check the identity and firewalld methods
-13. `00a9477` feat(catalog): check the Windows and generic service methods
-14. `ae53ab6` feat(catalog): check guarded commands, features, archives and mounts
-15. `9c02b30` feat(catalog): check Docker and AWS, and say why the rest cannot be
-16. `cb9388a` feat(controller): run a template as a check
-17. `a62b891` feat(cli): add pleiades run --mode check, and load external Collections
-18. `37ead22` docs: document check mode and external Collections
-19. `0a2d28c` docs: record what the check mode and external Collection work found
+1. The local-path half is not exploitable in the shipped image. go-git's file transport shells out to
+   `git-upload-pack` and the image carries no git binary, so a local source fails there anyway. It
+   works on a developer's machine, which is why the tests that use one now say so. The package comment
+   claiming go-git needs no git binary was wrong and is corrected.
+2. An allowlist does not stop internal reach: `srv:secrets-repo` is a valid ssh address, so an allowed
+   protocol still reaches any resolvable host. Stated in the code, in docs/10 and in the roadmap rather
+   than implied.
+
+**A second defect, fixed here (FAILURE_PATTERNS 271).** `fetch` passed go-git no remote, so it used the
+URL the FIRST clone configured: editing a project's address changed nothing about what was fetched,
+forever, while the sync reported success. That also made any check on the column bypassable by a
+checkout that already existed. Fixed by passing `RemoteURL` AND by replacing a checkout whose remote
+differs, because an unrelated history cannot be fast-forwarded into and the project would otherwise
+fail with "non-fast-forward update" with nothing an operator could clear. The replacement clones into a
+sibling and swaps on success, so a wrong new address leaves the last good checkout serving.
+
+**What the tests found that the plan had wrong.** The plan called `RemoteURL` a two-line fix and
+deferred the re-clone. The repoint test showed that leaves a repointed project permanently unsyncable,
+so the sibling-swap went in. The plan's own mutation list is therefore out of date in one entry:
+dropping `RemoteURL` no longer fails the repoint test, because the mismatch check subsumes it. The
+comment there says so rather than claiming a guarantee the test does not check.
+
+**Verified:** `internal/project` green including four new tests (the classification table, the
+representative refusal asserting the checkout directory was never created, the store-then-sync control
+that proves the two checks are not redundant, and the failed-repoint test that proves the old tree
+survives); every mutation caught (admit everything at sync, allow file by default, key the secret check
+on the user instead of the password, and the two above); `-race` on project; full suites of api,
+ui/..., schedule/..., internal/... and tests/parity; vet both tag sets, fmt, gosec (20, all waived),
+docs-lint, reference regenerated and idempotent. One infrastructure failure in `internal/ent`
+(a Postgres container not ready within 60s under load) which passes alone.
+
+**Docs and records:** docs/10 gains "Where a project's source may come from" with the two toggles and
+the three limits (no host allowlist, redirects followed, and git-over-ssh not using this platform's
+known_hosts, which makes https the only source that works in the image as shipped); the apispec
+description and the 400; FAILURE_PATTERNS 271 and 272; LESSONS 209; two changelog fragments; and an A1b
+addendum in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` recording both open items.
 
 ### Next step
 
-Run `make ci` (or `make push-gate`) on the committed tree with nothing else running; it writes the
-receipt the pre-push hook checks. Then push with `-u` to this branch's own name, since it has no
-upstream on purpose. The remaining build items:
-real-device proof for the checks proven only on fakes, toybox and BSD chmod (no device in the lab),
-and the Phase 35 cross-check (waits on Phase 35). Rotate the LocalStack token (finding 15).
+Run `make ci` (or `make push-gate`) with nothing else running, then commit. A commit series is not yet
+drafted; the work splits along the same lines the plans' steps did (the migration-runner fix, the
+interface retirement, the sync-run change, the launchable package, the schedule rebind, the UI, the
+docs, and then the source allowlist with its fetch fix), and each step's own tests pass on their own.
+
+Two items this work names and does not do, both in `internal/project`: known hosts for git over ssh
+(which is what stops an ssh project working in the shipped image at all), and a host allowlist, which
+belongs with whatever settings mechanism lands first.

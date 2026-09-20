@@ -205,9 +205,61 @@ with its `outcome`, `reason`, `result`, `result_reason`, `unchecked` and `finish
 
 ## Schedules
 
-A schedule is an RFC 5545 recurrence attached to a template: when automation runs
-without somebody pressing launch. The full request and response shapes are in the
+A schedule is an RFC 5545 recurrence attached to something launchable: when automation
+runs without somebody pressing launch. The full request and response shapes are in the
 generated document; what follows is the part that is not obvious from a schema.
+
+### What a schedule can point at
+
+Two sorts of thing today, and one field names either:
+
+| `unified_job_template_type` | What a run of it is | What it does |
+|---|---|---|
+| `job_template` | a job | Runs the template, exactly as pressing Launch does. |
+| `project` | a project update | Fetches the project's source, exactly as pressing Sync does. |
+
+`unified_job_template` is the id, and it is one id space across both: a schedule holds one
+reference and needs to know nothing about which sort it points at. The names are AWX's own,
+so an imported AWX schedule resolves without translation.
+
+A schedule response also carries `unified_job_template_name` for rendering, and
+`unified_job_template_type` above. Note the near-collision: on an occurrence,
+`unified_job_type` says what sort of RUN was started (`job` or `project_update`), which is
+a different question from what sort of thing was pointed at.
+
+The older field `template`, which named a template id, still works on a write and is
+deprecated. It resolves to that template's `unified_job_template`. Sending both fields
+naming different things is refused rather than resolved one way, since a client updated by
+halves must not silently repoint a schedule. Responses no longer carry `template`: a field
+that would be absent for a project sync is one every reader has to special-case.
+
+### Writing a schedule needs permission to launch what it launches
+
+`schedule:write` decides who may arrange for things to run. It does not decide what may be
+run: that is the scope the thing's own sort declares, `runbook:execute` for a job template
+and `project:write` for a project, and the write path requires it as well.
+
+This closes a real hole rather than adding ceremony. Before it, `schedule:write` alone was
+enough, so a token that could not run a template by hand could arrange for it to run
+repeatedly and unattended, attributed to the scheduler rather than to whoever arranged it.
+A caller missing the scope gets a `403` naming which one, and the Schedules form offers only
+things the person looking at it could launch themselves.
+
+### A schedule that could never run is refused when you save it
+
+Each sort of launchable gets to object before the schedule is stored, because the
+alternative is a schedule that saves cleanly and then fails at whatever hour it was set
+for, on a page nobody has open. Refused with a `400` naming the field:
+
+- a template bound to a credential whose type prompts for an input at launch, and a saved
+  configuration answering a survey password or a survey file: neither value is stored, so
+  there is nobody to ask and nothing to replay;
+- a saved configuration belonging to a different template, which carries answers that only
+  mean something against the template whose questions produced them;
+- a saved configuration on a project sync, which takes no launch-time overrides at all: what
+  it fetches is the project's own record, so accepting one would be storing values that
+  silently never applied;
+- a project with no source to fetch.
 
 ### The object is deliberately not one `rrule` string
 
@@ -220,8 +272,8 @@ AWX folds `DTSTART` and `TZID` into the rule. Here they are three separate field
 | `dtstart` | The anchor, RFC 3339. RFC 5545 takes from it every field the rule leaves unspecified, including the time of day, so it is part of the recurrence rather than a creation timestamp. |
 
 `exclusions` is a list of `EXRULE` recurrences and `EXDATE` instants subtracted from
-the rule. `dtend` bounds the schedule from outside the rule — an operator saying "stop
-after then" without editing what an author wrote.
+the rule. `dtend` bounds the schedule from outside the rule: an operator saying "stop after then"
+without editing what an author wrote.
 
 ### The grammar is a bounded subset, refused at the write
 
@@ -274,8 +326,8 @@ with an `outcome`:
 
 | `outcome` | Meaning |
 |---|---|
-| `fired` | A job was created and published. `job` names it. |
-| `skipped` | It did not run. `reason` says why: `missed_window`, `missed_window_truncated`, or `launch_failed`. |
+| `fired` | A run was started. `job` names it and `unified_job_type` says which sort it is: a job's own id, or a project sync attempt's. |
+| `skipped` | It did not run. `reason` says why: `missed_window`, `missed_window_truncated`, `launch_failed`, or `already_running`. |
 | `claimed` | A controller won the right to run this occurrence and stopped before recording what happened. |
 
 An occurrence that did not run is a **row**, not a gap. A missing row and a row reading
@@ -285,10 +337,16 @@ different answers, and only the second is auditable.
 A `claimed` row is shown rather than hidden because only a person can safely resolve
 it: re-running risks doing the work twice, abandoning it risks not doing it at all.
 
+`already_running` is the one skip that is nobody's mistake: the thing the schedule launches
+was still running from an earlier occurrence, which an hourly sync of a large repository will
+eventually hit. It is a skip rather than a failure deliberately. A failure would be retried
+and would keep failing for as long as the first run lasts, so a slow clone would produce a
+row of failures; skipping advances the schedule and lets the next occurrence try.
+
 ### Missed runs are coalesced
 
 If occurrences pass while no controller is running, exactly one run happens on
-recovery — the most recent missed occurrence — and every earlier one is recorded as
+recovery, the most recent missed occurrence, and every earlier one is recorded as
 `skipped`/`missed_window`. An hourly job that missed four hours launches once, not
 four times.
 
@@ -308,13 +366,17 @@ What guarantees single firing is a unique database index on the pair
 (schedule, occurrence time). The occurrence is claimed by an insert *before* anything
 is launched, so a second claimant loses on a constraint rather than on timing.
 
-### Deleting a template a schedule uses
+### Deleting something a schedule uses
 
-`DELETE /templates/{id}` answers `409` while any schedule still launches it, naming the
-reason. A schedule is not a part of a template the way its survey is: it is an
-independent object somebody created and can see in its own list, so removing the
-template underneath one would silently stop automation that is relied on. Delete or
-disable the schedule first, or disable the schedule and keep its history.
+`DELETE /templates/{id}` and `DELETE /projects/{id}` both answer `409` while any schedule
+still launches the thing, naming the reason. A schedule is not a part of a template or a
+project the way a survey or a sync history is: it is an independent object somebody created
+and can see in its own list, so removing what it launches would silently stop automation
+that is relied on.
+
+Delete the schedule, or point it at something else, first. Disabling it is not enough and
+the refusal used to say it was: a disabled schedule still holds the reference, so following
+that advice produced the same `409`.
 
 ### What cannot be scheduled
 

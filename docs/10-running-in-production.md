@@ -1183,6 +1183,48 @@ A runbook may already pipe any text answer to a shell with no flag at all.
 Binary content is refused unconditionally, whatever the gates say: an answer must
 be valid UTF-8 with no NUL byte and no byte-order mark, and at most 32 KiB.
 
+### Where a project's source may come from
+
+A project names a repository, a sync clones it, and a template then runs what was
+cloned against managed devices. That last clause is why the address is constrained:
+the content of a clone is code, so how it arrived decides whether the code is the
+code somebody wrote.
+
+By default a project is fetched over **https or ssh** only. Three things are
+refused, each with its own opt-in on the **Controller**, unset meaning refuse:
+
+- `PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE` admits plain `http` and the git daemon
+  protocol (`git://`). Neither proves what sent the code or stops it being changed
+  in transit, and `http` additionally puts a bound credential's password on the
+  wire. Set it only where the network between the Controller and the mirror is one
+  you would run unauthenticated automation across.
+- `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
+  is a repository on the Controller's own disk. Note that a URL with no scheme at
+  all is a local path, so this also covers `/srv/repos/x` and `../x`.
+- A password in the URL (`https://user:token@host/repo`) is refused outright, with
+  no toggle. `scm_url` is an ordinary column while a credential is encrypted, so the
+  two are not equivalent places to put a secret. An existing project that already
+  carries one keeps syncing; it is refused the next time somebody saves that
+  project, which is the moment there is somewhere better to put it.
+
+Both toggles are read once at startup and logged as a warning on every start when
+either is on, so an operator reading a boot log sees what a deployment permits. A
+refusal is answered at the write, where somebody can fix it, and again at the sync,
+because a row can predate the rule or the toggle can be taken away.
+
+Three limits worth knowing, none of which this mechanism claims to cover:
+
+- **It is not a host allowlist.** git reads anything shaped like `host:path` as an
+  ssh address, so an allowed protocol still reaches any host the Controller can
+  resolve. Restricting that is a network question, not a URL one.
+- **Redirects are followed.** An allowed `https` address can redirect elsewhere,
+  including to plain http, without passing the check again.
+- **git over ssh does not use this platform's `known_hosts`.** A clone verifies
+  against the library's own default rather than the file `PLEIADES_KNOWN_HOSTS`
+  names, and the shipped image carries no such file, so an ssh project needs one
+  mounted before it can verify a host at all. In the image as shipped, https is the
+  only source that works without further setup.
+
 ### Credential storage
 
 `pleiades add-credential <device> --username <user>` prompts for a password or a
