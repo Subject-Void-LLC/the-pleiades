@@ -25,10 +25,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
@@ -1326,5 +1329,141 @@ func TestProjects_ASyncWithNoIdentityIsRefused(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Errorf("a refused sync recorded %d attempts, want none", len(runs))
+	}
+}
+
+// TestProjects_ASourceThisDeploymentWillNotFetchFromIsRefused covers the
+// allowlist at the HTTP boundary, which is where somebody typing an address
+// finds out about it.
+//
+// A 400 naming the field rather than a 500: the request is well formed and the
+// caller is entitled to make it, and what is wrong is a value they can change.
+func TestProjects_ASourceThisDeploymentWillNotFetchFromIsRefused(t *testing.T) {
+	f := newProjectFixture(t)
+
+	for _, url := range []string{
+		"/srv/repos/automation.git",       // a path on this server
+		"http://mirror.internal/repo.git", // no integrity in transit
+		"git://git.internal/repo.git",     // no authentication at all
+	} {
+		body := map[string]any{
+			"name": "refused-" + url, "organization": f.orgID,
+			"scm_type": "git", "scm_url": url,
+		}
+		status, resp := f.do(t, http.MethodPost, "/api/v1/projects", body)
+		if status != http.StatusBadRequest {
+			t.Errorf("POST with scm_url %q = %d, want 400; body %s", url, status, resp)
+			continue
+		}
+		if !strings.Contains(string(resp), "scm_url") {
+			t.Errorf("the refusal of %q does not name the field: %s", url, resp)
+		}
+	}
+
+	// A password in the URL is refused too, and the message points at the
+	// credential rather than at the toggle, because no toggle allows it.
+	body := map[string]any{
+		"name": "token-in-url", "organization": f.orgID,
+		"scm_type": "git", "scm_url": "https://someone:ghp-TOKEN@github.com/org/repo.git",
+	}
+	status, resp := f.do(t, http.MethodPost, "/api/v1/projects", body)
+	if status != http.StatusBadRequest {
+		t.Fatalf("POST with a password in the URL = %d, want 400; body %s", status, resp)
+	}
+	if strings.Contains(string(resp), "ghp-TOKEN") {
+		t.Errorf("the refusal echoed the token it refused: %s", resp)
+	}
+
+	// The ordinary case still works, so this is a rule rather than a wall.
+	ok := map[string]any{
+		"name": "ordinary", "organization": f.orgID,
+		"scm_type": "git", "scm_url": "https://github.com/org/repo.git",
+	}
+	if status, resp := f.do(t, http.MethodPost, "/api/v1/projects", ok); status != http.StatusCreated {
+		t.Errorf("POST with an https URL = %d, want 201; body %s", status, resp)
+	}
+}
+
+// TestProjects_DeletingOneAScheduleSyncsIsRefused is the user-visible half of
+// the key that protects a scheduled project.
+//
+// A schedule is not part of a project the way its sync history is: it is an
+// independent object somebody created and can see in its own list, so deleting
+// what it syncs would silently stop automation that is relied on. A 409 naming
+// the reason, rather than the opaque 500 the raw constraint failure produced.
+func TestProjects_DeletingOneAScheduleSyncsIsRefused(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "scheduled")
+	ctx := context.Background()
+
+	// The launchable row the project's own store wrote, and a schedule
+	// pointing at it. Written straight to the database because this fixture
+	// composes no schedule store.
+	rows, err := f.client.Launchable.Query().All(ctx)
+	if err != nil {
+		t.Fatalf("reading the project's launchable: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("%d launchable rows exist, want the one project's", len(rows))
+	}
+	if _, err := f.client.Schedule.Create().
+		SetScheduleID("sched-projects-1").
+		SetName("nightly sync").
+		SetRrule("FREQ=DAILY").
+		SetDtstart(time.Now().UTC()).
+		SetOrganizationID(f.orgID).
+		SetLaunchableID(rows[0].ID).
+		Save(ctx); err != nil {
+		t.Fatalf("seeding a schedule for the project: %v", err)
+	}
+
+	status, body := f.do(t, http.MethodDelete, fmt.Sprintf("/api/v1/projects/%d", id), nil)
+	if status != http.StatusConflict {
+		t.Fatalf("status %d, want 409 while a schedule still syncs it; body %s", status, body)
+	}
+	if !strings.Contains(string(body), "schedule") {
+		t.Errorf("the refusal does not name what is still using it: %s", body)
+	}
+
+	// And it really did not delete it: a refusal that half-happened would be
+	// worse than either outcome.
+	if n := f.client.Project.Query().CountX(ctx); n != 1 {
+		t.Errorf("%d projects remain, want the one that could not be deleted", n)
+	}
+}
+
+// TestProjects_SyncingWithNoIdentityOnTheRequestIsRefused covers the handler's
+// own guard, which the router's admission middleware normally reaches first.
+//
+// A sync records who asked for it, so a request carrying nobody cannot be
+// attributed and is refused rather than recorded against an invented actor. The
+// guard is exercised directly here because behind the real router this request
+// never arrives at the handler at all.
+func TestProjects_SyncingWithNoIdentityOnTheRequestIsRefused(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "unattributed")
+
+	handler := api.NewProjectHandler(f.store, f.runner, f.creds, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
+
+	// The route parameter the handler reads, which the router would normally
+	// have put there. Without it the handler answers about the id instead, and
+	// the guard under test is never reached.
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(id))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	handler.Sync(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401 for a sync nobody asked for; body %s", rec.Code, rec.Body.String())
+	}
+	runs, err := f.store.ListSyncRuns(context.Background(), id, 0)
+	if err != nil {
+		t.Fatalf("ListSyncRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("%d sync attempts were recorded for an unattributable request", len(runs))
 	}
 }

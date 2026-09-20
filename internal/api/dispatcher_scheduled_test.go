@@ -293,3 +293,55 @@ func TestDispatcherLaunch_RefusesToReplayASavedSurveyPassword(t *testing.T) {
 		t.Errorf("a schedule replaying an ordinary saved answer was refused: %v", err)
 	}
 }
+
+// TestDispatcherLaunch_ReportsAFailureResolvingTheTemplate separates the two
+// ways a template can fail to resolve.
+//
+// A template that is gone is a refusal naming the control, because somebody has
+// to repoint or delete the schedule. A storage failure is not: there is nothing
+// for them to change, so it travels as an error rather than as advice.
+func TestDispatcherLaunch_ReportsAFailureResolvingTheTemplate(t *testing.T) {
+	broken := errors.New("reading template 12: database is locked")
+	jobs := newTestJobStore(t)
+	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, newCapturingBus(),
+		api.WithTemplates(stubTemplates{err: broken}))
+
+	_, err := dispatcher.Launch(context.Background(),
+		scheduledRequest(schedule.ScheduleActor("sched-123"), 0))
+	if !errors.Is(err, broken) {
+		t.Fatalf("Launch = %v, want the storage failure itself", err)
+	}
+	var refusal launchable.Refusal
+	if errors.As(err, &refusal) {
+		t.Errorf("a storage failure was reported as a refusal about %q", refusal.Field)
+	}
+	if listed, listErr := jobs.List(context.Background(), "", 10); listErr != nil {
+		t.Fatal(listErr)
+	} else if len(listed) != 0 {
+		t.Error("a job was created despite the failure")
+	}
+}
+
+// TestDispatcherLaunch_ReportsAFailureRecordingTheJob covers the last step of an
+// unattended launch: the template resolved, every refusal passed, and the job
+// could not be written.
+//
+// It matters that this is an error rather than a silent success, because the
+// caller is a schedule: an occurrence that recorded a fired job which does not
+// exist would be a history nobody can follow, and the scheduler's own answer to
+// a failed launch (a skip carrying the reason) depends on hearing about it.
+func TestDispatcherLaunch_ReportsAFailureRecordingTheJob(t *testing.T) {
+	broken := errors.New("writing the job: database is locked")
+	jobs := &erroringJobStore{JobStore: newTestJobStore(t), err: broken}
+	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, newCapturingBus(),
+		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
+
+	launched, err := dispatcher.Launch(context.Background(),
+		scheduledRequest(schedule.ScheduleActor("sched-123"), 0))
+	if err == nil {
+		t.Fatal("a launch whose job could not be recorded was reported as succeeding")
+	}
+	if launched.RunID != "" {
+		t.Errorf("the failed launch reported run %q, want nothing to point at", launched.RunID)
+	}
+}

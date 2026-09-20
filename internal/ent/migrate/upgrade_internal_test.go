@@ -474,3 +474,51 @@ func TestApply_TheLaunchableBackfillRepointsEverySchedule(t *testing.T) {
 		t.Errorf("launchables after deleting one template = %d, want 2: the row did not cascade", got)
 	}
 }
+
+// TestApplyPending_StopsAtAVersionAlreadyApplied proves stopping is idempotent.
+//
+// The tests above call applyThrough more than once against the same database,
+// so the second call finds everything up to its stopping point already
+// recorded. It has to return there rather than walking on to the newest
+// migration, which is what would happen if the stop were only checked on the
+// migrations it applied.
+func TestApplyPending_StopsAtAVersionAlreadyApplied(t *testing.T) {
+	db := openUpgradeDB(t)
+	const stop = "0021_add_journal_entries.sql"
+
+	applyThrough(t, db, stop)
+	before := countRows(t, db, "schema_migrations")
+
+	applyThrough(t, db, stop)
+	if after := countRows(t, db, "schema_migrations"); after != before {
+		t.Errorf("applying through %s twice recorded %d versions then %d; the second call did not stop",
+			stop, before, after)
+	}
+
+	// And it really stopped there rather than migrating to the newest version,
+	// which a later table proves: projects arrives in 0022.
+	if _, err := db.Exec(`SELECT 1 FROM projects`); err == nil {
+		t.Error("a later migration was applied despite the stop")
+	}
+}
+
+// TestApplyOne_AClosedDatabaseIsReported covers the first thing that can fail
+// now that a migration runs on a connection of its own: taking that connection.
+//
+// Reported rather than panicking, and named, because this is what a Controller
+// whose database went away during startup would see.
+func TestApplyOne_AClosedDatabaseIsReported(t *testing.T) {
+	db := openUpgradeDB(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing the database: %v", err)
+	}
+
+	err := applyOne(context.Background(), db, migrationSources["sqlite3"],
+		"0999_never_applied.sql", "SELECT 1;")
+	if err == nil {
+		t.Fatal("applying a migration to a closed database was accepted")
+	}
+	if !strings.Contains(err.Error(), "0999_never_applied.sql") {
+		t.Errorf("error = %q, want it to name the migration that could not be applied", err)
+	}
+}

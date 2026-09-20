@@ -49,6 +49,10 @@ type launchableScheduleFixture struct {
 	client *ent.Client
 	router http.Handler
 
+	// store is the real schedule store, exposed for the one test that builds a
+	// second handler over it.
+	store api.ScheduleStore
+
 	templateLaunchable int
 	templateID         int
 	projectLaunchable  int
@@ -162,6 +166,7 @@ func newLaunchableScheduleFixture(t *testing.T, identity *auth.Identity) *launch
 	return &launchableScheduleFixture{
 		client:             client,
 		router:             httpRouter,
+		store:              store,
 		templateLaunchable: tmpl.LaunchableID,
 		templateID:         tmpl.ID,
 		projectLaunchable:  syncable.LaunchableID,
@@ -417,5 +422,119 @@ func TestSchedules_TheDeprecatedTemplateFieldStillWorks(t *testing.T) {
 		f.templateID, f.templateLaunchable))
 	if status != http.StatusCreated {
 		t.Errorf("status %d for two fields naming the same thing, want 201; body %s", status, body)
+	}
+}
+
+// TestSchedules_TheDeprecatedFieldsRefusals covers what the compatibility path
+// does when it cannot resolve what it was given.
+//
+// Both answers are about the old field rather than about schedules, which is
+// why they are worth separating: a caller still using it needs to know whether
+// the template is missing or whether this deployment cannot resolve one at all.
+func TestSchedules_TheDeprecatedFieldsRefusals(t *testing.T) {
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+
+	// A template id that names nothing.
+	status, body := f.post(t, `{"name":"gone","template":99999,`+
+		`"rrule":"FREQ=DAILY","dtstart":"2024-03-08T09:00:00Z"}`)
+	if status != http.StatusNotFound {
+		t.Errorf("status %d for a template that does not exist, want 404; body %s", status, body)
+	}
+
+	// A template with no launchable row, which is what a database the
+	// launchable migration has not reached looks like. Written straight to the
+	// database, because the store cannot produce one.
+	ctx := context.Background()
+	org := f.client.Organization.Query().FirstX(ctx)
+	inv := f.client.Inventory.Query().FirstX(ctx)
+	orphan := f.client.Template.Create().
+		SetName("unmigrated").
+		SetKind("runbook").
+		SetDefinition("patch-edge").
+		SetOrganization(org).
+		SetInventory(inv).
+		SaveX(ctx)
+
+	status, body = f.post(t, fmt.Sprintf(
+		`{"name":"unmigrated","template":%d,"rrule":"FREQ=DAILY","dtstart":"2024-03-08T09:00:00Z"}`,
+		orphan.ID))
+	if status != http.StatusConflict {
+		t.Errorf("status %d for a template with no launchable row, want 409; body %s", status, body)
+	}
+	if !strings.Contains(body, "migrations") {
+		t.Errorf("the refusal does not say what is actually wrong: %s", body)
+	}
+}
+
+// TestSchedules_AHandlerWithNoTemplateReaderRefusesTheDeprecatedField proves the
+// alias is refused rather than silently ignored where it cannot be resolved.
+//
+// Silently ignoring it would repoint nothing and answer 201, which is the worst
+// of the three possible behaviors: the caller believes a schedule now launches
+// something it does not.
+func TestSchedules_AHandlerWithNoTemplateReaderRefusesTheDeprecatedField(t *testing.T) {
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	handler := api.NewScheduleHandler(f.store, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	router, err := api.NewRouter(api.RouterConfig{
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Auth:      alwaysAuthenticated,
+		Admission: &fakeAdmitter{},
+		HATEOAS:   allowAllGenerator(t),
+		Routes:    []api.Route{apispec.CreateSchedule.Route(handler.Create)},
+	})
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/schedules", strings.NewReader(
+		`{"name":"old","template":42,"rrule":"FREQ=DAILY","dtstart":"2024-03-08T09:00:00Z"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400; body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "unified_job_template") {
+		t.Errorf("the refusal does not name the field to use instead: %s", rec.Body.String())
+	}
+}
+
+// TestSchedules_TheHandlersOwnIdentityGuard covers a guard the router's own
+// middleware normally reaches first.
+//
+// Writing a schedule needs an identity, because the reach it checks is that
+// caller's. The route requires a scope, so the admission middleware refuses an
+// unauthenticated request before any handler runs, which is what the
+// router-level test above actually proves. This calls the handlers directly, so
+// the guard inside them is exercised rather than assumed: it is what stands
+// between a mounting mistake and a schedule written with nobody's permissions.
+func TestSchedules_TheHandlersOwnIdentityGuard(t *testing.T) {
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	handler := api.NewScheduleHandler(f.store, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	body := scheduleBody("unattributed", f.templateLaunchable, "")
+
+	// Create, with no identity on the context at all.
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/schedules", strings.NewReader(body))
+	create.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.Create(rec, create)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Create with no identity = %d, want 401; body %s", rec.Code, rec.Body.String())
+	}
+
+	// Update, which asks the same question on its own path.
+	update := httptest.NewRequest(http.MethodPatch, "/api/v1/schedules/whatever", strings.NewReader(body))
+	update.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	handler.Update(rec, update)
+	if rec.Code == http.StatusOK {
+		t.Errorf("Update with no identity = 200, want it refused; body %s", rec.Body.String())
+	}
+
+	if n := f.client.Schedule.Query().CountX(context.Background()); n != 0 {
+		t.Errorf("%d schedules were written with no identity on the request", n)
 	}
 }

@@ -761,3 +761,126 @@ func TestDelete_TakesTheLaunchableRowWithIt(t *testing.T) {
 		t.Errorf("%d launchable rows outlived their template", n)
 	}
 }
+
+// TestByLaunchable_ResolvesTheTemplateALaunchableStandsFor covers the one read
+// a launch that came from a schedule makes.
+//
+// A schedule stores a launchable reference rather than a template, deliberately,
+// so that one schedule mechanism can point at any sort of launchable thing. This
+// is where that reference becomes a template again, and it returns the same
+// fully loaded Template every other read does, because what needs it is a launch
+// and a launch needs the survey and the bound credentials.
+func TestByLaunchable_ResolvesTheTemplateALaunchableStandsFor(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	created, err := f.store.Create(ctx, f.template("patch the edge"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := f.store.ByLaunchable(ctx, created.LaunchableID)
+	if err != nil {
+		t.Fatalf("ByLaunchable(%d) = %v", created.LaunchableID, err)
+	}
+	if got.ID != created.ID {
+		t.Errorf("ByLaunchable resolved to template %d, want %d", got.ID, created.ID)
+	}
+	if got.Defaults["limit"] != created.Defaults["limit"] {
+		t.Errorf("the resolved template is not fully loaded: defaults = %v", got.Defaults)
+	}
+
+	// A reference to something that is not a template, or to nothing at all, is
+	// ErrNotFound rather than a zero Template: a launcher has to be able to
+	// refuse rather than launch whatever a zero value would name.
+	if _, err := f.store.ByLaunchable(ctx, 999999); !errors.Is(err, launch.ErrNotFound) {
+		t.Errorf("ByLaunchable of an unknown reference = %v, want ErrNotFound", err)
+	}
+}
+
+// TestCreate_ARefusedTemplateLeavesNoLaunchableRow proves the create is atomic.
+//
+// A template, its launchable row and its survey are written in one transaction.
+// Without that, a name collision would leave a launchable row pointing at
+// nothing, and nothing in the schema can forbid one: a schedule could then be
+// written against a launchable whose template does not exist.
+func TestCreate_ARefusedTemplateLeavesNoLaunchableRow(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	if _, err := f.store.Create(ctx, f.template("patch the edge")); err != nil {
+		t.Fatalf("the first Create: %v", err)
+	}
+	if _, err := f.store.Create(ctx, f.template("patch the edge")); !errors.Is(err, launch.ErrExists) {
+		t.Fatalf("the second Create = %v, want ErrExists", err)
+	}
+
+	if n := f.client.Launchable.Query().CountX(ctx); n != 1 {
+		t.Errorf("%d launchable rows exist after a refused create, want only the first template's", n)
+	}
+	if n := f.client.Template.Query().CountX(ctx); n != 1 {
+		t.Errorf("%d templates exist, want only the first", n)
+	}
+}
+
+// TestDelete_AnUnknownTemplateIsNotFound covers the answer a caller needs to
+// tell apart from a refusal: nothing was deleted because nothing was there,
+// which is a 404, rather than because something still uses it, which is a 409.
+func TestDelete_AnUnknownTemplateIsNotFound(t *testing.T) {
+	f := newStoreFixture(t)
+
+	if err := f.store.Delete(context.Background(), 999999); !errors.Is(err, launch.ErrNotFound) {
+		t.Errorf("Delete of a template that does not exist = %v, want ErrNotFound", err)
+	}
+}
+
+// TestByLaunchable_RefusesAReferenceToAnotherSortOfThing proves the lookup is
+// by template and not merely by id.
+//
+// A launchable id is one space across every sort of launchable thing, so the
+// reference a schedule holds can name a project. Resolving that to a template
+// would launch the wrong thing entirely, which is why this answers ErrNotFound
+// rather than whatever happened to share the number.
+func TestByLaunchable_RefusesAReferenceToAnotherSortOfThing(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	// A project and the launchable row standing for it, written directly
+	// because internal/launch does not own projects and must not import the
+	// package that does.
+	proj := f.client.Project.Create().
+		SetName("automation").
+		SetScmURL("https://example.invalid/automation.git").
+		SetOrganizationID(f.orgA).
+		SaveX(ctx)
+	other := f.client.Launchable.Create().
+		SetType("project").
+		SetName(proj.Name).
+		SetOrganizationID(f.orgA).
+		SetProject(proj).
+		SaveX(ctx)
+
+	if _, err := f.store.ByLaunchable(ctx, other.ID); !errors.Is(err, launch.ErrNotFound) {
+		t.Errorf("ByLaunchable of a project's reference = %v, want ErrNotFound", err)
+	}
+}
+
+// TestLaunchable_RefusesARowStandingForNothing proves the constraint underneath
+// all of this, which is what lets every consumer hold one key and trust it.
+//
+// A launchable row names exactly one thing. A row naming none would be a
+// reference a schedule could be written against and that nothing could ever
+// resolve, and no amount of care in the stores can prevent one if the schema
+// permits it.
+func TestLaunchable_RefusesARowStandingForNothing(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	if err := f.client.Launchable.Create().
+		SetType("job_template").
+		SetName("nothing at all").
+		SetOrganizationID(f.orgA).
+		Exec(ctx); err == nil {
+		t.Error("a launchable row standing for nothing was accepted, so a schedule could point at it")
+	}
+}
