@@ -41,6 +41,7 @@ var registryConsumers = map[string]bool{
 	modulePath + "/internal/inventory/syncplugin": true,
 	modulePath + "/internal/ui/view":              true,
 	modulePath + "/internal/launch":               true,
+	modulePath + "/internal/launchable":           true,
 	modulePath + "/internal/credtype":             true,
 	modulePath + "/internal/engine":               true,
 }
