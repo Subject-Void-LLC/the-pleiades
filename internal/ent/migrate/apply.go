@@ -12,7 +12,10 @@
 // force every realistically reachable failure for real (a closed
 // connection, a malformed schema_migrations table, a conflicting
 // CREATE TABLE, an unrecognized or gapped applied-migrations history),
-// per this project's RULE 0. What remains uncovered are mid-transaction
+// per this project's RULE 0. upgrade_internal_test.go covers the case
+// those two do not: applying a migration to a database that already
+// holds rows, which is what an upgrade is and where
+// FAILURE_PATTERNS.md #266 lived. What remains uncovered are mid-transaction
 // driver failures (BeginTx, the schema_migrations INSERT, and Commit
 // inside applyOne) that need real fault injection to trigger without
 // mocking the behavior under test, the same accepted, documented
@@ -27,6 +30,7 @@ package migrate
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -71,6 +75,14 @@ type migrationSource struct {
 	// placeholder. Every dialect's statement stays parameterized; only
 	// the placeholder spelling changes.
 	insertVersion string
+
+	// suspendForeignKeys says whether this dialect needs enforcement
+	// turned off around a migration, and its integrity checked again
+	// before the migration is allowed to commit. It is true for SQLite
+	// alone: see applyOne for what rebuilding a table costs there.
+	// Postgres alters a constraint in place, inside transactional DDL, so
+	// it needs neither half of this.
+	suspendForeignKeys bool
 }
 
 // migrationSources maps a driver dialect name (entgo.io/ent/dialect's
@@ -82,9 +94,10 @@ type migrationSource struct {
 // instead of drifting silently.
 var migrationSources = map[string]migrationSource{
 	"sqlite3": {
-		fsys:          sqliteMigrations,
-		dir:           "migrations/sqlite",
-		insertVersion: `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		fsys:               sqliteMigrations,
+		dir:                "migrations/sqlite",
+		insertVersion:      `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		suspendForeignKeys: true,
 	},
 	"postgres": {
 		fsys:          postgresMigrations,
@@ -126,16 +139,35 @@ func Apply(ctx context.Context, dialectName string, db *sql.DB) error {
 		return err
 	}
 
+	return applyPending(ctx, db, src, names, applied, "")
+}
+
+// applyPending applies every migration in names that applied does not
+// already record, in order, stopping after the file named stopAfter.
+//
+// stopAfter exists for the tests, which have to build a database at one
+// past version, put rows in it, and only then apply the next migration:
+// that is the only way to prove an upgrade preserves data, and it cannot
+// be done if the only entry point migrates all the way to the newest
+// version in one call. An empty stopAfter applies everything, which is
+// what Apply itself asks for.
+func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []string, applied map[string]bool, stopAfter string) error {
 	for _, name := range names {
 		if applied[name] {
+			if name == stopAfter {
+				return nil
+			}
 			continue
 		}
 		script, err := fs.ReadFile(src.fsys, src.dir+"/"+name)
 		if err != nil {
 			return fmt.Errorf("migrate: reading %s: %w", name, err)
 		}
-		if err := applyOne(ctx, db, src.insertVersion, name, string(script)); err != nil {
+		if err := applyOne(ctx, db, src, name, string(script)); err != nil {
 			return err
+		}
+		if name == stopAfter {
+			return nil
 		}
 	}
 	return nil
@@ -245,18 +277,75 @@ func checkGate(known []string, applied map[string]bool) error {
 // single transaction, so a failure partway through a migration's own
 // statements never leaves it half-applied and unrecorded.
 //
-// insertVersion is the calling dialect's own version-record statement
-// (see migrationSource), taking the migration name and the applied-at
-// time as its two parameters. It is passed in rather than written here
-// because its placeholder spelling is the one part of this function that
-// is not portable across dialects.
+// src supplies the dialect's own version-record statement (see
+// migrationSource), taking the migration name and the applied-at time as
+// its two parameters, because its placeholder spelling is the one part of
+// this function that is not portable across dialects. src also decides
+// whether this dialect needs the foreign-key dance below.
+//
+// # Why one pinned connection, and why the pragma is set out here
+//
+// SQLite has no ALTER TABLE ADD CONSTRAINT, so every generated migration
+// that changes a table's foreign keys rebuilds the table: create a new
+// one, copy the rows, DROP the old one, rename. With foreign keys
+// enforced, that DROP performs an implicit DELETE FROM, which fires the
+// children's ON DELETE actions: a CASCADE child silently loses its rows,
+// and a NO ACTION child fails the whole migration. Every such file
+// therefore opens with "PRAGMA foreign_keys = off".
+//
+// That pragma is a no-op inside a transaction, and the script used to run
+// inside one, so it never took effect and the enforcement it was written
+// to suspend stayed on (FAILURE_PATTERNS.md #266). The pragma is also
+// per connection, so setting it on the pool would land on whichever
+// connection answered. Hence: take one connection, set the pragma on it
+// before the transaction opens, read it back to prove it took, and open
+// the transaction on that same connection.
 //
 // script may hold many statements. Both supported drivers execute a
 // multi-statement script in a single zero-argument ExecContext: SQLite
 // natively, and lib/pq through the simple query protocol, which it
 // selects precisely because no arguments are bound here.
-func applyOne(ctx context.Context, db *sql.DB, insertVersion, name, script string) error {
-	tx, err := db.BeginTx(ctx, nil)
+func applyOne(ctx context.Context, db *sql.DB, src migrationSource, name, script string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: taking a connection for %s: %w", name, err)
+	}
+	// The connection is handed back to the pool on the way out, unless
+	// restoring enforcement failed, in which case it is discarded instead.
+	discard := false
+	defer func() {
+		if discard {
+			// Returning driver.ErrBadConn tells database/sql this
+			// connection must not be reused. A connection with foreign
+			// keys still off would otherwise serve application queries.
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+		_ = conn.Close()
+	}()
+
+	if src.suspendForeignKeys {
+		if err := setForeignKeys(ctx, conn, false); err != nil {
+			return fmt.Errorf("migrate: suspending foreign keys for %s: %w", name, err)
+		}
+		defer func() {
+			if err := setForeignKeys(ctx, conn, true); err != nil {
+				discard = true
+			}
+		}()
+	}
+
+	if err := applyOneOn(ctx, conn, src, name, script); err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyOneOn runs one migration's transaction on an already-prepared
+// connection. It is split out so that restoring foreign-key enforcement
+// happens after the transaction has committed or rolled back, which a
+// single function would express as two competing defers.
+func applyOneOn(ctx context.Context, conn *sql.Conn, src migrationSource, name, script string) error {
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("migrate: beginning transaction for %s: %w", name, err)
 	}
@@ -272,12 +361,87 @@ func applyOne(ctx context.Context, db *sql.DB, insertVersion, name, script strin
 	if _, err := tx.ExecContext(ctx, script); err != nil {
 		return fmt.Errorf("migrate: applying %s: %w", name, err)
 	}
-	if _, err := tx.ExecContext(ctx, insertVersion, name, time.Now().UTC()); err != nil {
+	if src.suspendForeignKeys {
+		if err := checkForeignKeys(ctx, tx); err != nil {
+			return fmt.Errorf("migrate: %s: %w", name, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, src.insertVersion, name, time.Now().UTC()); err != nil {
 		return fmt.Errorf("migrate: recording %s as applied: %w", name, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("migrate: committing %s: %w", name, err)
 	}
 	committed = true
+	return nil
+}
+
+// setForeignKeys turns SQLite's foreign-key enforcement on or off for one
+// connection, and reads the setting back to prove it took.
+//
+// The read-back is the whole point rather than a belt-and-braces extra.
+// SQLite answers this pragma with silence when it cannot honor it, which
+// is exactly what hid #266 for thirty migrations: the statement
+// succeeded, the setting did not change, and nothing said so.
+func setForeignKeys(ctx context.Context, conn *sql.Conn, on bool) error {
+	setting := "off"
+	if on {
+		setting = "on"
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = "+setting); err != nil {
+		return fmt.Errorf("setting foreign_keys = %s: %w", setting, err)
+	}
+
+	var enforced bool
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enforced); err != nil {
+		return fmt.Errorf("reading foreign_keys back: %w", err)
+	}
+	if enforced != on {
+		return fmt.Errorf("foreign_keys reads %t after setting it %s", enforced, setting)
+	}
+	return nil
+}
+
+// checkForeignKeys refuses a migration that left a row pointing at
+// nothing.
+//
+// Suspending enforcement is what lets a table be rebuilt at all, and the
+// price is that a mistake in the rebuild (a copy that drops rows, a
+// backfill that misses a join) writes a database no later statement would
+// have accepted. SQLite's own foreign_key_check reports every such row,
+// so the migration is refused and rolled back while the tree that
+// produced it is still in front of somebody, rather than failing months
+// later on an unrelated insert.
+func checkForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("checking foreign keys: %w", err)
+	}
+	defer rows.Close()
+
+	violations := 0
+	first := ""
+	for rows.Next() {
+		// The columns are the child table, the offending rowid (null for a
+		// WITHOUT ROWID table), the parent table, and the index of the
+		// foreign key within the child. Only the table names are worth
+		// reporting: a rowid means nothing to whoever reads the failure.
+		var child, parent sql.NullString
+		var rowID sql.NullInt64
+		var fkID sql.NullInt64
+		if err := rows.Scan(&child, &rowID, &parent, &fkID); err != nil {
+			return fmt.Errorf("scanning a foreign-key violation: %w", err)
+		}
+		violations++
+		if first == "" {
+			first = fmt.Sprintf("%s -> %s", child.String, parent.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating foreign-key violations: %w", err)
+	}
+	if violations > 0 {
+		return fmt.Errorf("left %d row(s) referencing nothing (first: %s); refusing the migration", violations, first)
+	}
 	return nil
 }
