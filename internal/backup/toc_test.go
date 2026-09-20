@@ -18,6 +18,16 @@ import (
 // version's migrations built and bootstrap-admin wrote to. toc_planted.txt
 // is the same database after a function, a trigger and a view were added
 // to it, the shape a crafted or foreign archive takes.
+//
+// Both were recaptured on 2026-09-19, when the launchables table arrived and
+// the counts below stopped matching. The procedure is the one the pair's own
+// provenance describes and it is worth writing down, because the alternative
+// when a table is added is to hand-edit a fixture that claims to be a real
+// backup: run postgres at the pinned image (internal/testsupport.PostgresImage,
+// 15.19), apply the migrations and bootstrap an administrator through the real
+// controller binary, then pg_dump -Fc and pg_restore --list from INSIDE the
+// container so both the server and the tool read 15.19. Plant the three objects
+// above with psql and list again for the second fixture.
 func readListing(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name)) // #nosec G304 -- a fixture name from this file
@@ -37,8 +47,8 @@ func TestParseTOC_ReadsARealBackupOfThisSchema(t *testing.T) {
 	if toc.Format != "CUSTOM" || toc.ServerVersion != "15.19" {
 		t.Fatalf("header = %q, %q; want CUSTOM, 15.19", toc.Format, toc.ServerVersion)
 	}
-	if len(toc.Entries) != 251 {
-		t.Fatalf("read %d entries, want the 251 the listing holds", len(toc.Entries))
+	if len(toc.Entries) != 262 {
+		t.Fatalf("read %d entries, want the 262 the listing holds", len(toc.Entries))
 	}
 	if err := toc.Check(backup.KnownTables()); err != nil {
 		t.Fatalf("Check() refused a real backup of this schema: %v", err)
@@ -52,7 +62,7 @@ func TestParseTOC_ReadsARealBackupOfThisSchema(t *testing.T) {
 			data = append(data, e.Tag)
 		}
 	}
-	if kinds["TABLE"] != 36 || kinds["TABLE DATA"] != 36 || kinds["FK CONSTRAINT"] != 41 {
+	if kinds["TABLE"] != 37 || kinds["TABLE DATA"] != 37 || kinds["FK CONSTRAINT"] != 44 {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	// Every table this version knows is in the backup with its data, so a
