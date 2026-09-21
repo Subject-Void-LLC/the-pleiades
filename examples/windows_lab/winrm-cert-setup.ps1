@@ -81,8 +81,18 @@ if (-not (Get-LocalGroupMember -Group $group -Member $LocalUser -ErrorAction Sil
 Write-Host "   member of '$group'"
 
 Write-Step 3 'private certificate authority'
-Get-ChildItem Cert:\LocalMachine\My, Cert:\LocalMachine\Root, Cert:\LocalMachine\TrustedPeople |
-    Where-Object FriendlyName -like "$Tag*" | Remove-Item -Force
+# A previous run's certificates go first, keys and all. The copies in Root
+# and TrustedPeople go without -DeleteKey because they can point at the same
+# key container as the original in My, which goes last and takes the key
+# with it. The originals' thumbprints are kept: step 6 needs them to
+# recognise the listener a previous run bound, which would otherwise look
+# like somebody else's and stop this run.
+$previousThumbprints = @(Get-ChildItem Cert:\LocalMachine\My |
+    Where-Object FriendlyName -like "$Tag *" | ForEach-Object Thumbprint)
+Get-ChildItem Cert:\LocalMachine\Root, Cert:\LocalMachine\TrustedPeople |
+    Where-Object FriendlyName -like "$Tag *" | Remove-Item -Force
+Get-ChildItem Cert:\LocalMachine\My | Where-Object FriendlyName -like "$Tag *" |
+    ForEach-Object { Remove-Item -Path "Cert:\LocalMachine\My\$($_.Thumbprint)" -DeleteKey -Force }
 $ca = New-SelfSignedCertificate -Subject "CN=$Tag Root CA" -FriendlyName "$Tag CA" `
     -CertStoreLocation Cert:\LocalMachine\My -KeyUsage CertSign,CRLSign,DigitalSignature `
     -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(1) `
@@ -124,7 +134,7 @@ Write-Step 6 'HTTPS listener and certificate authentication'
 # destroys one without asking would make that promise worthless. There is
 # nothing to restore from afterwards, because the private key of the
 # certificate it was bound to is not ours to re-bind.
-$ourThumbprints = @($ca.Thumbprint, $server.Thumbprint, $client.Thumbprint)
+$ourThumbprints = @($ca.Thumbprint, $server.Thumbprint, $client.Thumbprint) + $previousThumbprints
 $foreign = @(Get-ChildItem WSMan:\localhost\Listener | ForEach-Object {
     $props = Get-ChildItem $_.PSPath
     if (($props | Where-Object Name -eq 'Transport').Value -ne 'HTTPS') { return }
@@ -183,7 +193,7 @@ Write-Step 9 "firewall, $AllowedSubnet only"
 # Deliberately not open to any address. winrm quickconfig's own rule covers
 # the Private and Domain profiles, and a WSL adapter is classified Public,
 # so that rule does not apply to traffic from WSL.
-Get-NetFirewallRule -DisplayName "$Tag*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+Get-NetFirewallRule -DisplayName "$Tag *" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName "$Tag WinRM HTTPS" -Direction Inbound -Action Allow `
     -Protocol TCP -LocalPort 5986 -RemoteAddress $AllowedSubnet -Profile Any | Out-Null
 
