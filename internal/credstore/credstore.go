@@ -368,7 +368,8 @@ type Store interface {
 	//
 	// It refuses, before writing any of them, an input the credential's
 	// type does not declare, a source in another organization, a source
-	// that is not an external-kind credential, and a set that would make
+	// that does not name a readable field, a secret read into an input that
+	// is not secret, and a set that would make
 	// resolution return to the credential it started from. Each of those
 	// would otherwise surface at dispatch, which is days later and
 	// somebody else's job.

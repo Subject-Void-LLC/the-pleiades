@@ -169,11 +169,6 @@ func (r *entResolver) resolveInputSources(
 	if len(bindings) == 0 {
 		return nil
 	}
-	if r.lookups == nil {
-		return fmt.Errorf(
-			"resolve: credential %d reads inputs from an external secret source and this controller has none configured",
-			cred.ID)
-	}
 
 	// Sorted so a credential with two broken bindings reports the same one
 	// every time, matching resolveExternal's own reason for sorting.
@@ -189,39 +184,154 @@ func (r *entResolver) resolveInputSources(
 		// The source's own inputs may themselves be external, so it is
 		// resolved through the same walk rather than read directly. This is
 		// the recursion the bounds above exist for.
+		//
+		// It happens BEFORE the branch below, and that ordering is what makes
+		// the two forms compose: a linked Password credential whose own
+		// password comes out of Vault is already filled in by the time this
+		// reads a field off it, and nothing in the linked branch knows that
+		// happened.
 		resolvedSource, err := r.resolveCredential(ctx, source.ID, chain)
 		if err != nil {
 			return fmt.Errorf("resolve: credential %d: input %q: %w", cred.ID, b.InputID, err)
 		}
 
-		factory, ok := r.lookups.Factory(resolvedSource.Type.Namespace)
-		if !ok {
-			return fmt.Errorf(
-				"%w: credential %d input %q reads from a %q source, which is not one of %v",
-				credtype.ErrLookupUnknown, cred.ID, b.InputID,
-				resolvedSource.Type.Namespace, r.lookups.Namespaces())
+		var value string
+		if resolvedSource.Type.Kind == credtype.KindExternal {
+			value, err = r.resolveThroughSource(ctx, cred, b, resolvedSource)
+		} else {
+			value, err = resolveFromLinkedCredential(cred, b, resolvedSource)
 		}
-
-		lookup, err := factory.New(resolvedSource.Inputs)
 		if err != nil {
-			// Names the SOURCE credential by id, because that is the row
-			// whoever fixes this has to edit.
-			return fmt.Errorf("resolve: credential %d input %q: source credential %d is not usable: %w",
-				cred.ID, b.InputID, resolvedSource.ID, err)
-		}
-
-		reference, err := factory.Reference(b.Metadata)
-		if err != nil {
-			return fmt.Errorf("resolve: credential %d input %q: %w", cred.ID, b.InputID, err)
-		}
-
-		value, err := r.lookups.ResolveThrough(ctx, b.InputID, lookup, reference)
-		if err != nil {
-			return fmt.Errorf("resolve: credential %d: %w", cred.ID, err)
+			return err
 		}
 		cred.Inputs[b.InputID] = value
 	}
 	return nil
+}
+
+// resolveThroughSource reads a bound input out of an external secret
+// manager, which is what every binding did before Phase 78d.
+func (r *entResolver) resolveThroughSource(
+	ctx context.Context,
+	cred *credtype.Credential,
+	b *ent.CredentialInputSource,
+	source credtype.Credential,
+) (string, error) {
+	if r.lookups == nil {
+		return "", fmt.Errorf(
+			"resolve: credential %d reads inputs from an external secret source and this controller has none configured",
+			cred.ID)
+	}
+
+	factory, ok := r.lookups.Factory(source.Type.Namespace)
+	if !ok {
+		return "", fmt.Errorf(
+			"%w: credential %d input %q reads from a %q source, which is not one of %v",
+			credtype.ErrLookupUnknown, cred.ID, b.InputID,
+			source.Type.Namespace, r.lookups.Namespaces())
+	}
+
+	lookup, err := factory.New(source.Inputs)
+	if err != nil {
+		// Names the SOURCE credential by id, because that is the row
+		// whoever fixes this has to edit.
+		return "", fmt.Errorf("resolve: credential %d input %q: source credential %d is not usable: %w",
+			cred.ID, b.InputID, source.ID, err)
+	}
+
+	reference, err := factory.Reference(b.Metadata)
+	if err != nil {
+		return "", fmt.Errorf("resolve: credential %d input %q: %w", cred.ID, b.InputID, err)
+	}
+
+	value, err := r.lookups.ResolveThrough(ctx, b.InputID, lookup, reference)
+	if err != nil {
+		return "", fmt.Errorf("resolve: credential %d: %w", cred.ID, err)
+	}
+	return value, nil
+}
+
+// resolveFromLinkedCredential reads a bound input out of another
+// credential's own field, with no network in the path at all.
+//
+// This is what PLAN.md Section 17.4 means by linking a standard Password
+// credential to a certificate bundle: the passphrase is not stored twice
+// and not fetched from anywhere, it is read from the credential that
+// already holds it at the moment of use.
+//
+// It is deliberately NOT a second mechanism. The entity, the recursion, the
+// depth bound, the cycle check and the ordering are all the ones Phase 78a
+// built; the only thing that differs is where the value comes from once the
+// source has been resolved, which is why this is one branch rather than a
+// parallel path.
+//
+// No LookupFactory is involved and none is required, which is the whole
+// correction: until Phase 78d every binding demanded a registered factory
+// for the source's namespace, so naming an ordinary Password credential as
+// a source failed with an error about an unknown secret source.
+func resolveFromLinkedCredential(
+	cred *credtype.Credential,
+	b *ent.CredentialInputSource,
+	source credtype.Credential,
+) (string, error) {
+	field := b.Metadata[credtype.SourceFieldMetadataKey]
+	if field == "" {
+		return "", fmt.Errorf(
+			"%w: credential %d input %q reads from credential %d, which is an ordinary credential rather than a "+
+				"secret source, so the binding has to name which of its fields to read in its %q metadata",
+			credtype.ErrLookupReference, cred.ID, b.InputID, source.ID, credtype.SourceFieldMetadataKey)
+	}
+
+	// Checked against the type rather than only against the values, so a
+	// field that is declared but empty is reported differently from one that
+	// was never part of the source's type at all. Those are different
+	// mistakes: the first is an unfilled credential, the second is a typo.
+	sourceField, declared := source.Type.Inputs.Field(field)
+	if !declared {
+		return "", fmt.Errorf(
+			"%w: credential %d input %q reads field %q of credential %d, whose type %q declares no such input",
+			credtype.ErrLookupReference, cred.ID, b.InputID, field, source.ID, source.Type.Namespace)
+	}
+
+	// A secret may only be read into an input that is itself secret.
+	//
+	// This is a containment rule rather than a tidiness one, and it replaces
+	// something the old external-kind-only refusal was providing by accident.
+	// The masking ruleset is built from the TARGET credential type's own
+	// secret fields (credtype.Credential.SecretValues), so a value read out
+	// of a secret field and written into an input its type does not mark
+	// secret is never registered with the redactor. It would then render into
+	// an extra var, an environment variable or a generated file in cleartext,
+	// and appear unmasked in captured output, while the credential it came
+	// from is masked everywhere else. That turns a binding into a way of
+	// reading any same-organization secret out through a type the reader
+	// controls.
+	if sourceField.Secret && !targetSecret(cred, b.InputID) {
+		return "", fmt.Errorf(
+			"%w: credential %d input %q is not declared secret, and field %q of credential %d is, so reading it "+
+				"would move a secret into a value nothing masks: declare the input secret, or bind a field that is not",
+			credtype.ErrLookupReference, cred.ID, b.InputID, field, source.ID)
+	}
+
+	value := source.Inputs[field]
+	if value == "" {
+		return "", fmt.Errorf(
+			"%w: credential %d input %q reads field %q of credential %d, and that field is empty",
+			credtype.ErrLookupReference, cred.ID, b.InputID, field, source.ID)
+	}
+	return value, nil
+}
+
+// targetSecret reports whether the bound input is declared secret on the
+// credential being filled in.
+//
+// An input the type does not declare at all counts as not secret, which is
+// the safe direction: the store refuses such a binding at write time, so
+// reaching here means a row written behind it, and the conservative answer
+// is the one that refuses.
+func targetSecret(cred *credtype.Credential, inputID string) bool {
+	field, ok := cred.Type.Inputs.Field(inputID)
+	return ok && field.Secret
 }
 
 // formatChain renders a resolution chain for an error message.

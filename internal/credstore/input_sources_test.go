@@ -3,6 +3,7 @@ package credstore_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
@@ -140,11 +141,12 @@ func TestTheStoreRefusesEveryBindingItCanTell(t *testing.T) {
 			want: credstore.ErrNotFound,
 		},
 		{
-			name: "a source that is not an external-kind credential",
+			// An ordinary credential CAN supply another's input as of Phase
+			// 78d, but only if the binding says which field to read. Without
+			// that the binding is unresolvable, and saying so at write time
+			// is the whole point of checking here.
+			name: "an ordinary source with no field named",
 			build: func(t *testing.T, store credstore.Store, orgID, targetTypeID, _ int) []credstore.InputSourceBinding {
-				// A credential of the fixture's own cloud-kind type:
-				// perfectly valid, and simply not a thing that can supply
-				// another credential's input.
 				other, err := store.CreateCredential(context.Background(), orgID, targetTypeID, "not a vault", "",
 					map[string]string{"api_token": "x"}, nil)
 				if err != nil {
@@ -152,7 +154,21 @@ func TestTheStoreRefusesEveryBindingItCanTell(t *testing.T) {
 				}
 				return bind("api_token", other.ID)
 			},
-			want: credstore.ErrInUse,
+			want: credstore.ErrNotFound,
+		},
+		{
+			name: "an ordinary source whose type has no such field",
+			build: func(t *testing.T, store credstore.Store, orgID, targetTypeID, _ int) []credstore.InputSourceBinding {
+				other, err := store.CreateCredential(context.Background(), orgID, targetTypeID, "not a vault", "",
+					map[string]string{"api_token": "x"}, nil)
+				if err != nil {
+					t.Fatalf("CreateCredential() error = %v", err)
+				}
+				bindings := bind("api_token", other.ID)
+				bindings[0].Metadata = map[string]string{credtype.SourceFieldMetadataKey: "no_such_field"}
+				return bindings
+			},
+			want: credstore.ErrNotFound,
 		},
 	}
 
@@ -420,4 +436,104 @@ func vaultTypeID(t *testing.T, store credstore.Store, orgID int) int {
 		t.Fatalf("GetTypeByNamespace() error = %v", err)
 	}
 	return ct.ID
+}
+
+// TestASecretFieldCannotBeBoundIntoANonSecretInput is the write-time half of
+// the containment rule, and it is the half that matters most: it stops the
+// binding being written at all, by whoever wrote it.
+//
+// The rule exists because the masking ruleset is built from the TARGET
+// credential type's own secret fields, so a value read out of a secret field
+// and written into an input its type does not mark secret is never
+// registered with the redactor. It would render in cleartext into an extra
+// var, an environment variable or a generated file, while the credential it
+// came from stays masked everywhere else.
+//
+// The blanket "external-kind sources only" refusal that Phase 78d removed
+// had been providing this containment by accident, so removing it needed
+// something deliberate in its place.
+func TestASecretFieldCannotBeBoundIntoANonSecretInput(t *testing.T) {
+	ctx := context.Background()
+	store, _, orgID, _, _ := sourceFixture(t)
+
+	// The source holds a secret. The target's input does not declare itself
+	// secret, which is the whole trick.
+	sourceType, err := store.CreateType(ctx, orgID, credtype.CredentialType{
+		Name: "Password", Kind: credtype.KindSSH, Namespace: "plain_password",
+		Inputs: credtype.InputSchema{Fields: []credtype.InputField{
+			{ID: "password", Label: "Password", Secret: true},
+			{ID: "username", Label: "Username"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() for the source error = %v", err)
+	}
+	source, err := store.CreateCredential(ctx, orgID, sourceType.ID, "production machine", "",
+		map[string]string{"password": "the-production-password", "username": "operator"}, nil)
+	if err != nil {
+		t.Fatalf("CreateCredential() for the source error = %v", err)
+	}
+
+	lootType, err := store.CreateType(ctx, orgID, credtype.CredentialType{
+		Name: "Loot", Kind: credtype.KindCloud, Namespace: "loot_type",
+		Inputs: credtype.InputSchema{Fields: []credtype.InputField{{ID: "loot", Label: "Loot"}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() for the target error = %v", err)
+	}
+	target, err := store.CreateCredential(ctx, orgID, lootType.ID, "loot", "",
+		map[string]string{"loot": "placeholder"}, nil)
+	if err != nil {
+		t.Fatalf("CreateCredential() for the target error = %v", err)
+	}
+
+	_, err = store.SetCredentialInputSources(ctx, target.ID, []credstore.InputSourceBinding{{
+		InputID:            "loot",
+		SourceCredentialID: source.ID,
+		Metadata:           map[string]string{credtype.SourceFieldMetadataKey: "password"},
+	}})
+	if err == nil {
+		t.Fatal("a secret field was bound into a non-secret input")
+	}
+	if !errors.Is(err, credstore.ErrInUse) {
+		t.Errorf("error = %v, want ErrInUse", err)
+	}
+	if !strings.Contains(err.Error(), "nothing masks") {
+		t.Errorf("error = %v, want it to say the value would be unmasked", err)
+	}
+	if strings.Contains(err.Error(), "the-production-password") {
+		t.Error("the refusal leaked the secret it was refusing to leak")
+	}
+
+	// The negative control, twice over, because a rule that refused every
+	// linked binding would pass the assertion above and break the feature.
+	// A non-secret field into a non-secret input is fine...
+	if _, err := store.SetCredentialInputSources(ctx, target.ID, []credstore.InputSourceBinding{{
+		InputID:            "loot",
+		SourceCredentialID: source.ID,
+		Metadata:           map[string]string{credtype.SourceFieldMetadataKey: "username"},
+	}}); err != nil {
+		t.Errorf("a non-secret field was refused: %v", err)
+	}
+
+	// ...and so is a secret field into an input that is itself secret.
+	secretType, err := store.CreateType(ctx, orgID, credtype.CredentialType{
+		Name: "Holder", Kind: credtype.KindCloud, Namespace: "holder_type",
+		Inputs: credtype.InputSchema{Fields: []credtype.InputField{{ID: "held", Label: "Held", Secret: true}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() for the secret holder error = %v", err)
+	}
+	holder, err := store.CreateCredential(ctx, orgID, secretType.ID, "holder", "",
+		map[string]string{"held": "placeholder"}, nil)
+	if err != nil {
+		t.Fatalf("CreateCredential() for the secret holder error = %v", err)
+	}
+	if _, err := store.SetCredentialInputSources(ctx, holder.ID, []credstore.InputSourceBinding{{
+		InputID:            "held",
+		SourceCredentialID: source.ID,
+		Metadata:           map[string]string{credtype.SourceFieldMetadataKey: "password"},
+	}}); err != nil {
+		t.Errorf("a secret field was refused into a secret input: %v", err)
+	}
 }

@@ -24,7 +24,7 @@ import (
 // shape, because nothing reads these rows until a job dispatches, which may
 // be days later and will be somebody else's problem. So an input id the
 // type never declared, a source in another tenant, a source that is not an
-// external-kind credential, and a reference cycle are all refused by the
+// source that cannot supply the value it promises, and a reference cycle are all refused by the
 // write that creates them rather than by the dispatch that trips over them.
 //
 // The cycle check is the one worth reading twice, because it is duplicated
@@ -207,14 +207,73 @@ func (s *entStore) checkBindings(
 			return fmt.Errorf("%w: the source credential %q belongs to another organization",
 				ErrCrossOrganization, source.Name)
 		}
-		if credtype.Kind(sourceType.Kind) != credtype.KindExternal {
-			return fmt.Errorf(
-				"%w: credential %q is of kind %q, and only an external-kind credential can supply another credential's input",
-				ErrInUse, source.Name, sourceType.Kind)
+		if err := checkSourceField(b, source.Name, sourceType, schema); err != nil {
+			return err
 		}
 	}
 
 	return s.checkNoCycle(ctx, targetID, bindings)
+}
+
+// checkSourceField refuses a binding whose source cannot supply the value
+// it promises, at the moment somebody writes it.
+//
+// Until Phase 78d this was a flat refusal of any source that was not an
+// external-kind credential, which made PLAN.md Section 17.4's "link a
+// standard Password credential to it" impossible: naming a Password
+// credential as a source failed here, before the resolver was ever
+// reached. The two source shapes are now separated instead.
+//
+// An EXTERNAL source addresses a secret with its own vocabulary, decoded
+// by that source's own LookupFactory, so there is nothing general to check
+// here and the metadata is left to the factory at dispatch.
+//
+// Any OTHER kind is an ordinary credential whose field is read directly.
+// That has exactly two ways to be wrong and both are knowable now: the
+// binding names no field, or it names one the source's type does not
+// declare. Checking them at write time is the argument the cycle check
+// already makes for itself. Nothing reads these rows until a job
+// dispatches, so a binding found broken then is found during a run,
+// against a device, by whoever launched it rather than by whoever wrote it.
+func checkSourceField(
+	b InputSourceBinding,
+	sourceName string,
+	sourceType *ent.CredentialType,
+	targetSchema credtype.InputSchema,
+) error {
+	if credtype.Kind(sourceType.Kind) == credtype.KindExternal {
+		return nil
+	}
+
+	field := b.Metadata[credtype.SourceFieldMetadataKey]
+	if field == "" {
+		return fmt.Errorf(
+			"%w: credential %q is an ordinary credential rather than a secret source, so binding input %q to it has "+
+				"to name which of its fields to read, in the %q metadata key",
+			ErrNotFound, sourceName, b.InputID, credtype.SourceFieldMetadataKey)
+	}
+	sourceField, declared := sourceType.Inputs.Field(field)
+	if !declared {
+		return fmt.Errorf(
+			"%w: input %q would read field %q of credential %q, whose type declares no such input",
+			ErrNotFound, b.InputID, field, sourceName)
+	}
+
+	// A secret may only be read into an input that is itself secret. The
+	// resolver refuses this too, and the duplication is deliberate for the
+	// reason the cycle check gives for its own: this one catches the writer,
+	// and that one catches a row written behind the store.
+	//
+	// The rule exists because the masking ruleset is built from the TARGET
+	// type's secret fields, so a secret landing in an input nothing marks
+	// secret is a secret nothing masks.
+	if targetField, ok := targetSchema.Field(b.InputID); sourceField.Secret && (!ok || !targetField.Secret) {
+		return fmt.Errorf(
+			"%w: field %q of credential %q is secret and input %q is not, so reading it would move a secret into "+
+				"a value nothing masks: declare the input secret, or bind a field that is not",
+			ErrInUse, field, sourceName, b.InputID)
+	}
+	return nil
 }
 
 // checkNoCycle refuses a proposed set of bindings that would let resolution

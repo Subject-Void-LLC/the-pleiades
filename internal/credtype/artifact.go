@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // The injection artifact: everything one launch's credentials produce,
@@ -40,35 +41,46 @@ var (
 	ErrInjection = errors.New("credtype: injection failed")
 )
 
-// The four keys a machine credential flattens into.
+// The keys a machine credential flattens into, aliased from pkg/wire
+// rather than restated.
 //
-// These deliberately restate internal/credential's own SecretUsername,
-// SecretPassword, SecretPrivateKeyPEM and SecretPassphrase rather than
-// importing them, and the reason is a hard one rather than a preference:
-// internal/ent imports this package for its own field.JSON column types,
-// and internal/credential's dependency closure reaches internal/ent through
-// internal/crypto. An import here would close that loop and nothing in the
-// module would build.
+// These were literal strings here until Phase 78d, duplicating
+// internal/credential's copy, and the doc comment explained that
+// importing internal/credential would close a real cycle: internal/ent
+// imports this package for its own field.JSON column types, and
+// internal/credential's dependency closure reaches internal/ent through
+// internal/crypto. That reasoning was correct and it is unchanged.
 //
-// internal/catalog/net/catalyst/client.go restates the same two literals
-// for a related reason (a Collection method may import only pkg/), and
-// internal/credential/flatten.go's own doc comment already states that the
-// literal strings, not a shared constant, are the contract. What keeps the
-// two sides honest is machine_test.go, which is an external test package
-// and therefore free of the cycle: it imports both and fails if they ever
-// disagree.
+// It was also an answer to the wrong question. pkg/wire is not in that
+// loop at all (it imports encoding/json and pkg/capability and nothing
+// else), it is the package that declares the secrets map these keys index,
+// and pkg/ may never import internal/ by construction. So both sides can
+// alias one definition, which is what pkg/wire's own doc comment already
+// claimed and what machine_test.go previously had to assert by comparison.
 const (
 	// MachineUsername is the account the transport authenticates as.
-	MachineUsername = "username"
+	MachineUsername = wire.SecretUsername
 
 	// MachinePassword is a password for that account.
-	MachinePassword = "password"
+	MachinePassword = wire.SecretPassword
 
-	// MachinePrivateKey is a PEM private key body.
-	MachinePrivateKey = "private_key_pem"
+	// MachinePrivateKey is a PEM private key body. It is the key half of a
+	// client certificate as well as an SSH key.
+	MachinePrivateKey = wire.SecretPrivateKeyPEM
 
-	// MachinePassphrase unlocks MachinePrivateKey.
-	MachinePassphrase = "passphrase"
+	// MachinePassphrase unlocks MachinePrivateKey on the SSH path, and
+	// MachinePFX on the certificate path. It does NOT unlock a loose
+	// MachinePrivateKey presented with MachineCertificate: nothing on that
+	// path decrypts a key, and such a credential is refused rather than
+	// silently ignoring the value.
+	MachinePassphrase = wire.SecretPassphrase
+
+	// MachineCertificate is a PEM X.509 client certificate to present.
+	MachineCertificate = wire.SecretCertificatePEM
+
+	// MachinePFX is a base64 PKCS#12 bundle holding both halves at once,
+	// sealed until the point of use.
+	MachinePFX = wire.SecretPFXBase64
 )
 
 // The input ids a machine credential type declares, which are AWX's own
@@ -98,9 +110,66 @@ const (
 	MachineInputKeyUnlock = "ssh_key_unlock"
 )
 
+// The input ids a KindCryptography credential type declares to present a
+// client certificate.
+//
+// These are NOT AWX's names, because AWX has no credential type that
+// presents a client certificate to a managed host. Where a name had to be
+// invented, it describes the material rather than a protocol, so the same
+// type serves WinRM over HTTPS and whatever presents a certificate next.
+//
+// A type declares EITHER the certificate and key pair OR the bundle,
+// never both. The one-of rule is enforced where the values are read
+// rather than here, because a constant cannot express it.
+const (
+	// CertificateInputCertificate maps onto MachineCertificate.
+	CertificateInputCertificate = "certificate"
+
+	// CertificateInputPrivateKey maps onto MachinePrivateKey. It is the
+	// same flattened key an SSH credential's own private key uses, because
+	// it is the same kind of material: a PEM private key body.
+	CertificateInputPrivateKey = "private_key"
+
+	// CertificateInputKeyUnlock maps onto MachinePassphrase, and unlocks the
+	// BUNDLE only.
+	//
+	// It does not unlock a loose private key, and an earlier version of this
+	// comment claimed it did. Nothing decrypts a private key on the
+	// certificate path: crypto/tls cannot, so the value would have been
+	// read, carried across the broker and then discarded. A passphrase
+	// protected loose key is refused by name instead
+	// (pkg/winrmexec.Auth.Validate), naming the bundle as the form that
+	// does support one.
+	//
+	// This is the input Section 17.4's "link a standard Password
+	// credential to it" binds: it is an ordinary input, so a
+	// CredentialInputSource row can fill it from another credential's own
+	// field with no network in the path.
+	CertificateInputKeyUnlock = "key_unlock"
+
+	// CertificateInputPFX maps onto MachinePFX.
+	CertificateInputPFX = "pfx_bundle"
+)
+
 // VaultPasswordInput is the input id an Ansible Vault credential carries
 // its password in. AWX's own name for the field.
 const VaultPasswordInput = "vault_password"
+
+// SourceFieldMetadataKey is the CredentialInputSource metadata key naming
+// which field of a LINKED credential fills the bound input.
+//
+// It applies only when the source credential is an ordinary one rather than
+// an external secret source. An external source addresses a secret with its
+// own vocabulary (a mount, a path and a key, for HashiCorp Vault), decoded
+// by that source's own LookupFactory. A linked credential has no address to
+// decode: the value is already a field of a row this platform holds, so the
+// only thing the binding has to say is which field, and this is where it
+// says it.
+//
+// It lives here, beside the other input-id constants, because both the
+// store that validates a binding at write time and the resolver that reads
+// one at dispatch have to agree on it, and those are different packages.
+const SourceFieldMetadataKey = "source_field"
 
 // VaultFileLabel is the label the vault strategy generates its password
 // file under, so a vault credential's file is distinguishable from one a

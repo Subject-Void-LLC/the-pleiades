@@ -534,8 +534,11 @@ var SetCredentialInputSources = Endpoint{
 	Rel:     auth.RelCredentials,
 	Summary: "Replace a credential's input sources",
 	Description: "Replaces the whole set, so an empty list makes every input read from stored values again. " +
+		"A source is either an external-kind credential, read through that secret manager's own client, or any " +
+		"other credential, whose named field is read directly. " +
 		"Refused, before anything is written, when an input is not one this credential's type declares, when the " +
-		"source belongs to another organization, when the source is not an external-kind credential, or when the " +
+		"source belongs to another organization, when a non-external source does not name a source_field its own " +
+		"type declares, when that field is secret and the input being filled is not, or when the " +
 		"result would make resolution return to the credential it started from.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
@@ -552,10 +555,12 @@ var SetCredentialInputSources = Endpoint{
 					"required": []any{"input_id", "source_credential"},
 					"properties": map[string]any{
 						"input_id":          stringSchema("The input of this credential to supply."),
-						"source_credential": map[string]any{"type": "integer", "description": "The external-kind credential to read it through."},
+						"source_credential": map[string]any{"type": "integer", "description": "The credential to read the value from: an external-kind one to read it through, or any other one to read a field of."},
 						"metadata": map[string]any{
-							"type":                 "object",
-							"description":          "The source's own per-field addressing, for example a secret path and the key within it.",
+							"type": "object",
+							"description": "The source's own per-field addressing. For an external-kind source that is its own vocabulary, " +
+								"for example secret_backend, secret_path and secret_key for HashiCorp Vault. For any other source it is " +
+								"source_field, naming which of that credential's own inputs to read, and it is required.",
 							"additionalProperties": map[string]any{"type": "string"},
 						},
 					},

@@ -45,6 +45,7 @@ require (
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 	golang.org/x/time v0.11.0
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (

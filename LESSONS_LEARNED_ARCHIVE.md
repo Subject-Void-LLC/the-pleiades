@@ -4748,3 +4748,35 @@ fuzz target exists to send is invalid UTF-8, and a rune-level transform repairs 
 **The rule.** When validating an input that a library will later interpret, validate by asking that library what it will make of it. A second parser is a second opinion, and the two only have to differ once for the check to be decorative. This is the same failure shape as a validator that reimplements a grammar, and this repository has recorded it twice before under other names.
 
 **The corollary.** Having asked, write down what the answer was, because it is usually surprising. The test table for this validator exists as much to record that a bare path is local and that anything with a colon is a host as it does to check the allowlist: the next person to touch the rule needs that more than they need the rule.
+
+## 210. A plan's own claims about the code are evidence about when it was written, not about the code
+
+**The incident.** On 2026-09-20, building Phase 78d from a stage plan written five days earlier, three of its claims about the codebase turned out to be wrong, and each would have produced a different defect if it had been built on rather than checked.
+
+It said the three catalog packages that reach a Windows host would "inherit the capability with no edit of their own, which is the argument for putting it in `pkg/winrmexec`". All three build their `Auth` from raw string literals (`secrets["username"]`), so all three needed editing, and the argument the sentence rests on only became true once a shared `AuthFromSecrets` was added for them to call. Building on the claim would have shipped a transport that supports certificates and three callers that cannot pass one.
+
+It said one new secret key lands in two places. It lands in three: `pkg/wire`, `internal/credential` and `internal/credtype` each declared the same literals, and only two of the three were held together by a test. The third copy would have drifted with nothing watching.
+
+It named `internal/catalog/http` as the cheaper fallback consumer if a Windows host proved unavailable. That package has no `InjectSecrets` call at all and builds a `tls.Config` only on its skip-verification branch, so choosing it means building a credential channel from scratch: more work than the option it was offered as an alternative to, not less.
+
+**The rule.** Treat a plan's factual claims about code the way you would treat a comment: as something that was true when somebody looked, aimed at the question they were asking then. Before building on one, re-read the source it describes. The cost is a few minutes per claim and the saving is not the time, it is that a wrong premise does not produce a visible failure. It produces working code that solves a slightly different problem, which nothing downstream will catch.
+
+**The corollary, which is the more useful half.** A fourth stale claim pointed the other way: the AWX parity test constrains only SHIPPED credential types, so the certificate type can be user-defined and needs no exemption, and a blocker the plan treated as a precondition simply was not one. So of four corrections, three made the work bigger and one removed work entirely. A stale plan is not reliably pessimistic or reliably optimistic, so "check the claims that would cost me" is not a filter worth applying; check the ones the work rests on, in both directions.
+
+**Corrected 2026-09-20**, because the first draft of this entry said "two of these three corrections made the work smaller" and then named, as one of the two, a correction that was not among the three it had just listed. An entry about checking claims that miscounted its own is worth fixing in place rather than quietly, and it is the same failure it describes: a number written from memory of the shape of the thing rather than from the thing.
+
+**Write the correction into the plan rather than around it.** Each of the three is now recorded in the roadmap next to the sentence it corrects, because the next reader of that stage will otherwise re-derive the same three things, and the second derivation is exactly as expensive as the first.
+
+## 211. A verification harness must tell "disproved" apart from "never checked", or a dead verifier reads as a clean bill of health
+
+**The incident.** On 2026-09-20 an adversarial review of the finished Phase 78d work ran four lenses, each raising findings that three independent verifiers then tried to refute; a finding survived if fewer than two refuted it. Partway through, 78 of the 109 agents died hitting a session limit. The result came back reporting four survivors and, for two of the four lenses, ZERO survivors out of fourteen raised findings.
+
+Zero survivors read as "that lens was clean". It was nothing of the sort. The survival test was `votes.length > 0 && refuters < 2`, so a finding whose three verifiers had all errored had zero votes, failed the first clause, and was filed as not surviving, which is the same bucket as a finding three verifiers had actively demolished. Fourteen findings were silently discarded without anyone forming an opinion on them.
+
+The failure was only caught because the run also reported an agent error count, and the number was large enough to be obviously wrong. With two or three dead agents instead of seventy-eight, the same bug would have quietly dropped a finding or two and nothing would have looked unusual.
+
+**The rule.** In any harness that filters candidates through a check, the absence of a verdict is a third state and must be represented as one. "Refuted", "confirmed" and "not assessed" are three answers, and collapsing the third into either of the others is a bug in the harness rather than in the run. Default the missing case to the one that costs you work, not the one that lets you stop: an unverified finding should surface as unverified, not vanish.
+
+**The corollary, which is where this actually bites.** The temptation is strongest in exactly the harness whose job is to reduce a long list to a short one, because there the discard path is the success path and nobody reads it. Report the counts at every stage (raised, verified, refuted, unassessed) and make them add up, so a stage that silently lost work cannot balance.
+
+**And the reporting obligation.** Having found it, say so where the result is consumed rather than only fixing the code. The two unaudited lenses are now named in the handoff as unaudited, because "the review found four things" and "the review found four things and failed to look at fourteen" support very different decisions about whether to ship.

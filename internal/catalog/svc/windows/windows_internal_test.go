@@ -29,10 +29,20 @@ import (
 
 type fakeRC struct {
 	stats map[string]any
+	// secrets overrides what InjectSecrets returns, for the tests that need
+	// a credential shape other than an ordinary username and password.
+	secrets map[string]string
 }
 
 func newFakeRC() *fakeRC { return &fakeRC{stats: map[string]any{}} }
+
+// InjectSecrets returns the fake's own secrets when it has any, and an
+// ordinary password credential otherwise, so the many tests that only need
+// a working credential stay unchanged.
 func (c *fakeRC) InjectSecrets() map[string]string {
+	if c.secrets != nil {
+		return c.secrets
+	}
 	return map[string]string{"username": "administrator", "password": "secret"}
 }
 func (c *fakeRC) SetStat(k string, v any) error  { c.stats[k] = v; return nil }
@@ -439,6 +449,28 @@ func TestWinrmSession_RefusesANilDevice(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "needs a target device") {
 		t.Errorf("error = %v, want it to say a device is needed", err)
+	}
+}
+
+// TestWinrmSession_RefusesAnUnusableCredential covers the branch this
+// method gained when the credential vocabulary moved into pkg/winrmexec.
+//
+// Reading the secrets through AuthFromSecrets is what lets a credential
+// form added there reach these methods without an edit, and the price is
+// that they now have a failure this function has to wrap. A credential
+// carrying two identities is the shape that reaches it: a PKCS#12 bundle
+// beside a loose private key is refused, because those are two ways to
+// supply one identity rather than a pair of fallbacks.
+func TestWinrmSession_RefusesAnUnusableCredential(t *testing.T) {
+	_, err := winrmSession(&fakeRC{stats: map[string]any{}, secrets: map[string]string{
+		"pfx_base64":      "MIIKzQIBAzCCCoc=",
+		"private_key_pem": "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n",
+	}}, stubDevice(), "svc.windows.start")
+	if err == nil {
+		t.Fatal("expected a refusal for a credential carrying two identities")
+	}
+	if !strings.Contains(err.Error(), "svc.windows.start") {
+		t.Errorf("error = %v, want it to name the method", err)
 	}
 }
 

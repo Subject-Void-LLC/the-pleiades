@@ -1074,8 +1074,9 @@ when a job dispatches rather than when the binding was written.
 
 Four things are refused when you write a binding, rather than when a job later
 trips over them: an input the credential's type does not declare, a source in
-another organization, a source that is not an external-kind credential, and a set
-that would make resolution return to the credential it started from.
+another organization, a binding to an ordinary credential that does not say which
+of its fields to read, and a set that would make resolution return to the
+credential it started from.
 
 A source credential's own inputs may themselves be bound to a further source, and
 that chain is bounded at **four hops**. Past that the resolution is refused by name
@@ -1085,12 +1086,30 @@ against the controller reachable from ordinary data. A chain that returns to whe
 it started is reported as a cycle rather than as depth, since the two need
 different fixes.
 
-The source credential's type is what decides how a binding is resolved, so the set
-of sources you can bind to is the set of external-kind types this release ships.
-Today that is HashiCorp Vault. A binding whose source type nothing can build fails
-with an explicit error naming that source and listing the ones this controller has,
-in the same way a declared-but-unimplemented source does, so the set shrinks
-honestly as real sources land rather than a binding quietly resolving to nothing.
+The source credential's **kind** is what decides how a binding is resolved, and
+there are two answers.
+
+An **external-kind** source is a secret manager: the binding's metadata addresses a
+secret inside it, and that address is decoded by the source's own client. The set
+you can bind to is the set of external-kind types this release ships, which today
+is HashiCorp Vault. A binding whose source type nothing can build fails with an
+explicit error naming that source and listing the ones this controller has, in the
+same way a declared-but-unimplemented source does, so the set shrinks honestly as
+real sources land rather than a binding quietly resolving to nothing.
+
+Any **other kind** is an ordinary credential, and the input is filled from one of
+its own fields. Name that field in the binding's `source_field` metadata. Nothing
+is fetched and no network call happens: the value is already in a row this
+controller holds. This is how one stored password serves several credentials that
+each need it, and it is what a certificate bundle's passphrase is bound to, below.
+A field the source's type does not declare is refused when you write the binding; a
+field that is declared but empty is reported by name when the job runs, since a
+credential can be filled in after it is bound.
+
+The two compose, and that is worth knowing because it is the useful arrangement
+rather than a curiosity: the ordinary credential a binding reads a field from may
+itself read that field out of Vault. The certificate credential does not know that,
+and does not have to.
 
 For a Vault source, the binding's metadata carries AWX's own field names, so an AWX
 `CredentialInputSource` row maps across without translation: `secret_backend` (the
@@ -1651,6 +1670,115 @@ that: the chart configures how a *client* reaches the Controller, and the
 Controller-to-Runner path still carries no certificates at all. Traffic between the
 Controller, the Runners, the database and the broker is unencrypted inside the
 cluster unless you put a service mesh there yourself.
+
+**Presenting a certificate TO a managed device is real, and it is a different
+thing.** The paragraph above is about the mesh, Controller to Runner. This is about
+the far end: a Runner authenticating to a Windows host over WinRM with a client
+certificate instead of a username and a password. It is the first place this
+platform presents a client certificate to anything.
+
+Store the certificate as a credential of a `cryptography`-kind type with the inputs
+`certificate` and `private_key`, both PEM. **The private key must be unencrypted.**
+Nothing decrypts a loose private key on this path, so a passphrase-protected one is
+refused by name rather than stored and quietly ignored; if your key has a passphrase,
+supply the identity as a PKCS#12 bundle instead, described below, which IS unlocked
+at the point of use.
+
+Bind it to a template as you would a machine credential. Two rules follow from what a
+certificate is, and both are enforced rather than documented and hoped for:
+
+- A run authenticates as exactly one identity, so a template cannot bind both a
+  machine credential and a certificate credential. The write is refused, not just the
+  run. One template therefore cannot reach Linux over SSH and Windows by certificate
+  in the same run; use two. A `cryptography` credential that carries no certificate,
+  such as a signing key, is not an identity and binds alongside a machine credential
+  as normal.
+- Certificate authentication is HTTPS only, because the WinRM profile it uses sends
+  no password and would present nothing at all over plain HTTP. Pleiades selects
+  HTTPS itself rather than making you set a flag whose only correct value is true.
+
+**Set the device's `port` property to 5986.** A Windows device defaults to 5985,
+the cleartext listener that `Enable-PSRemoting` creates, and that default is
+indistinguishable from a deliberate choice. A certificate credential aimed at 5985
+is refused with a message saying so, rather than attempted: a TLS handshake against
+a plain HTTP listener fails with a transport error about a malformed record, which
+reads like a broken certificate and sends whoever gets it to inspect the one thing
+that is fine.
+
+**The configuration burden is on the Windows host, not on Pleiades**, and an
+operator who has not been told this will read a failed handshake as a defect here.
+The target needs an HTTPS WinRM listener, the issuing authority in its trusted
+roots, and an explicit certificate-to-account mapping (`New-Item -Path
+WSMan:\localhost\ClientCertificate`). The client certificate must carry a UPN in
+its subject alternative name and Client Authentication in its extended key usage,
+or the mapping cannot match it. One more that is easy to miss because it fails
+differently: the mapped account needs WinRM's own service ACL to grant it, not only
+membership of `Remote Management Users`. Where it does not, the certificate
+authenticates and the session is then refused with a WS-Man `AccessDenied` when it
+tries to create a shell. `examples/windows_lab/winrm-cert-setup.ps1` configures all
+of this, and `winrm-cert-teardown.ps1` removes it.
+
+**Pleiades caps this path at TLS 1.2, and the reason is a limitation in Go rather than
+in Windows.** TLS 1.3 replaced renegotiation with post-handshake authentication, which
+is how Windows asks for a client certificate; Go's TLS stack does not implement it, so
+over TLS 1.3 the certificate is never sent and the request comes back as an empty
+`503`. Windows itself handles TLS 1.3 client certificates correctly, as other clients
+demonstrate. Only the certificate path is capped; password authentication negotiates
+whatever both ends support.
+
+Treat the cap as permanent rather than as a pending fix. Go's omission is deliberate
+and the proposal to add post-handshake authentication is on hold upstream: the relevant
+standard forbids it alongside HTTP/2 because it deadlocks multiplexed streams, adding it
+would need new server-side interfaces and would fire the client's certificate callback
+mid-stream, and it would mean keeping the handshake state machine alive indefinitely
+after the connection is established. Plan on TLS 1.2 for this path.
+
+**If you control the target and need TLS 1.3, there is a second option.** The cap exists
+because Windows asks for the certificate *late*, after it has seen which URL was
+requested. You can tell it to ask during the initial handshake instead, which removes
+the need for post-handshake authentication entirely:
+
+```powershell
+# inspect first; "Negotiate Client Certificate" is Disabled by default
+netsh http show sslcert ipport=0.0.0.0:5986
+```
+
+Re-binding that certificate with `clientcertnegotiation=enable` makes TLS 1.3 work with
+this client. It is not the default here because it is configuration on every target, and
+this platform is built to reach fleets of machines it does not own. Note that Pleiades
+currently caps the version unconditionally, so today this only removes the *server* side
+of the obstacle; see the gap below.
+
+**Three transport settings are not reachable yet, and this is the honest limit of the
+feature.** `pkg/winrmexec` accepts a CA bundle, an HTTPS flag and a verification toggle,
+and nothing in a runbook or a device can set any of them; the TLS version cap is a fourth
+setting in the same unreachable place. Two consequences follow, and a private PKI
+deployment has to plan around both:
+
+- The server's own certificate must be trusted by the **Runner host's system trust
+  store**, because there is no way to hand this transport an internal authority.
+- Even a target configured for upfront negotiation cannot currently be reached over TLS
+  1.3, because the cap cannot be lifted per device.
+
+Making these settable from device properties, the way `port` already is, is the work that
+closes both. It is a named gap rather than a design decision.
+
+**A PKCS#12 bundle is the other way to supply the same identity, and the only one that
+accepts a passphrase.** Put the base64 of the `.pfx` in a `pfx_bundle` input and bind
+its passphrase to an ordinary password credential through `source_field`, described
+above; the passphrase is then stored once and rotated in one place. Note that a
+binding may only read a secret field into an input that is itself declared secret,
+so declare `key_unlock` secret. The bundle stays sealed until the moment it is used:
+it is unlocked inside the short-lived process that runs the task, never on the
+Controller, so what crosses the message broker is the sealed bundle rather than an
+unlocked private key. A bundle and a loose certificate and key pair are
+alternatives, and a credential carrying both is refused rather than resolved in
+favour of one.
+
+One caveat worth knowing before you are debugging it: the decoder reads DER and not
+BER, and bundles written by older Windows tooling are not reliably DER. A bundle
+other software opens can still be refused here. Re-exporting it with a current
+`Export-PfxCertificate` produces DER.
 
 ## Data handling disclosure
 

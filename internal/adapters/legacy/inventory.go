@@ -52,6 +52,28 @@ const sshPrivateKeyContainerPath = "/run/pleiades/id_key"
 // interactive passphrase prompt it can never receive.
 var ErrPassphraseProtectedKey = fmt.Errorf("legacy: passphrase-protected private keys are not supported")
 
+// ErrCertificateCredential reports a client-certificate credential aimed at
+// the Ansible path, which cannot use one.
+//
+// It exists because the alternative was silent and wrong. Phase 78d widened
+// the machine identity to carry a certificate and a PKCS#12 bundle, and
+// internal/dispatch attaches that map to every payload regardless of which
+// adapter will run it. This adapter reads only the four original keys, so a
+// certificate credential would have reached ansible-playbook as an SSH
+// private key file with no username: hostvars sets
+// ansible_ssh_private_key_file from private_key_pem, and a TLS client key
+// is a perfectly valid PEM private key, so nothing downstream would have
+// objected. It would simply have failed to authenticate, against the wrong
+// protocol, for a reason nothing in the output could explain.
+//
+// Refusing here is not a limitation this adapter chose: it is the honest
+// report of one it has. Certificate authentication is a native-path feature
+// (pkg/winrmexec), and teaching the Ansible path to present a client
+// certificate is a separate piece of work nobody has asked for.
+var ErrCertificateCredential = fmt.Errorf(
+	"legacy: client certificate credentials are not supported on the Ansible path, which authenticates over SSH: " +
+		"bind a machine credential to this template instead, or run it as a native runbook")
+
 // ansibleInventory is the root of the generated inventory document. Its
 // JSON shape is Ansible's own "yaml" inventory plugin schema (see this
 // file's own top-of-file comment for why, verified empirically), not the
@@ -86,6 +108,13 @@ type ansibleGroup struct {
 // pleiades_capabilities/pleiades_tags hostvars, so a task can read either
 // Ansible's own group_names or the explicit hostvar.
 func BuildInventoryJSON(payload wire.DispatchPayload) ([]byte, error) {
+	// Certificate material is refused before the passphrase check, because
+	// a PKCS#12 bundle carries a passphrase and would otherwise be reported
+	// as an unsupported SSH key passphrase, which is a true sentence about
+	// the wrong thing.
+	if err := refuseCertificateMaterial(payload); err != nil {
+		return nil, err
+	}
 	if _, ok := payload.Secrets[credential.SecretPassphrase]; ok {
 		return nil, ErrPassphraseProtectedKey
 	}
@@ -150,4 +179,19 @@ func capabilityStrings(caps []capability.Name) []string {
 		out[i] = string(c)
 	}
 	return out
+}
+
+// refuseCertificateMaterial refuses a payload carrying certificate material.
+//
+// It checks the flattened keys rather than a credential kind because that is
+// what this adapter receives: by the time a payload reaches here the
+// credential is an anonymous map, and the two keys below are the only
+// evidence of what it was.
+func refuseCertificateMaterial(payload wire.DispatchPayload) error {
+	for _, key := range []string{wire.SecretCertificatePEM, wire.SecretPFXBase64} {
+		if _, ok := payload.Secrets[key]; ok {
+			return fmt.Errorf("%w (device %s carries %s)", ErrCertificateCredential, payload.DeviceName, key)
+		}
+	}
+	return nil
 }

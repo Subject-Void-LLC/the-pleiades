@@ -2,6 +2,7 @@ package credential
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
@@ -63,5 +64,23 @@ func TestBuildCredentialEntry_PassphraseEncryptError(t *testing.T) {
 	_, err := buildCredentialEntry(failingEncryptService{}, Credential{Passphrase: "x"})
 	if err == nil {
 		t.Fatal("expected an error when the passphrase fails to encrypt")
+	}
+}
+
+// TestBuildCredentialEntry_CertificateEncryptError covers
+// buildCredentialEntry's certificate error-wrapping branch.
+func TestBuildCredentialEntry_CertificateEncryptError(t *testing.T) {
+	_, err := buildCredentialEntry(failingEncryptService{}, Credential{CertificatePEM: []byte("x")})
+	if err == nil || !strings.Contains(err.Error(), "certificate:") {
+		t.Errorf("buildCredentialEntry() error = %v, want it wrapped as certificate", err)
+	}
+}
+
+// TestBuildCredentialEntry_BundleEncryptError covers buildCredentialEntry's
+// PKCS#12 bundle error-wrapping branch.
+func TestBuildCredentialEntry_BundleEncryptError(t *testing.T) {
+	_, err := buildCredentialEntry(failingEncryptService{}, Credential{PFXBase64: "x"})
+	if err == nil || !strings.Contains(err.Error(), "bundle:") {
+		t.Errorf("buildCredentialEntry() error = %v, want it wrapped as bundle", err)
 	}
 }

@@ -36,7 +36,7 @@ add a host to the static inventory
 
 ## pleiades add-credential
 
-store an encrypted SSH credential for a device
+store an encrypted credential for a device
 
 `pleiades add-credential <device> [flags]`
 
@@ -46,9 +46,14 @@ store an encrypted SSH credential for a device
 | --username | `string` | - | account name to authenticate as |
 | --password | `string` | - | password to authenticate with (prompted interactively if --key is also absent and this is empty) |
 | --key | `string` | - | path to a PEM private key file to authenticate with |
-| --passphrase | `bool` | `false` | prompt for the private key's passphrase (only meaningful with --key) |
+| --certificate | `string` | - | path to a PEM client certificate to present, which requires --key |
+| --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
+| --passphrase | `bool` | `false` | prompt for the private key's or the bundle's passphrase |
+| --passphrase-stdin | `bool` | `false` | read the private key's or the bundle's passphrase as one line on standard input |
 
 `pleiades add-credential web01 --username admin`
+
+`pleiades add-credential win01 --certificate client.pem --key client.key`
 
 ## pleiades validate
 

@@ -121,6 +121,16 @@ func TestFileStore_CorruptCiphertextIsAnErrorPerField(t *testing.T) {
 			cred:  credential.Credential{Username: "admin", PrivateKeyPEM: []byte("KEY"), Passphrase: "unlock-me"},
 			field: "passphrase_encrypted",
 		},
+		{
+			name:  "certificate",
+			cred:  credential.Credential{CertificatePEM: []byte("CERTIFICATE BODY"), PrivateKeyPEM: []byte("KEY")},
+			field: "certificate_encrypted",
+		},
+		{
+			name:  "bundle",
+			cred:  credential.Credential{PFXBase64: "MIIKzQIBAzCCCoc=", Passphrase: "unlock-me"},
+			field: "pfx_encrypted",
+		},
 	}
 
 	for _, tt := range tests {

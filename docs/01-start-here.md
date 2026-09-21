@@ -92,8 +92,12 @@ template bound to a cloud credential and two file-generating credentials puts se
 more values on the same message, including whole PEM bodies. The full secret manager
 described in [Running in production](10-running-in-production.md) is closer than it was:
 credentials, devices and saved survey answers all rotate under a new master key, and a
-credential input can be read from HashiCorp Vault. PFX and PKI bundle handling is still
-not built.
+credential input can be read from HashiCorp Vault or from another credential's own
+field. A credential can also hold a PKCS#12 bundle, which is unlocked at the moment
+it is used rather than on the Controller; that is a value a credential stores, not a
+third place an input can be read from. What is still not built is the mTLS mesh
+between the Controller and the Runners; presenting a client certificate to a managed
+device, which is a different thing, is real.
 
 **Credential types and injectors are real.** An administrator can define a credential
 type as data, over the API, with an input schema and an injector document, exactly as
