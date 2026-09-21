@@ -104,15 +104,21 @@ var Root = Command{
 		{
 			Name:       "add-credential",
 			Positional: "<device>",
-			Synopsis:   "store an encrypted SSH credential for a device",
+			Synopsis:   "store an encrypted credential for a device",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "username", Type: "string", Default: "", Doc: "account name to authenticate as"},
 				{Name: "password", Type: "string", Default: "", Doc: "password to authenticate with (prompted interactively if --key is also absent and this is empty)"},
 				{Name: "key", Type: "string", Default: "", Doc: "path to a PEM private key file to authenticate with"},
-				{Name: "passphrase", Type: "bool", Default: "false", Doc: "prompt for the private key's passphrase (only meaningful with --key)"},
+				{Name: "certificate", Type: "string", Default: "", Doc: "path to a PEM client certificate to present, which requires --key"},
+				{Name: "pfx", Type: "string", Default: "", Doc: "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key"},
+				{Name: "passphrase", Type: "bool", Default: "false", Doc: "prompt for the private key's or the bundle's passphrase"},
+				{Name: "passphrase-stdin", Type: "bool", Default: "false", Doc: "read the private key's or the bundle's passphrase as one line on standard input"},
 			},
-			Examples: []string{"pleiades add-credential web01 --username admin"},
+			Examples: []string{
+				"pleiades add-credential web01 --username admin",
+				"pleiades add-credential win01 --certificate client.pem --key client.key",
+			},
 		},
 		{
 			Name:       "validate",

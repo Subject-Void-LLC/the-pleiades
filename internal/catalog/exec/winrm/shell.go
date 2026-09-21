@@ -163,8 +163,13 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 			fqcn, paramReconnectTimeout, paramExpectDisconnect)
 	}
 
-	secrets := rc.InjectSecrets()
-	auth := winrmexec.Auth{Username: secrets["username"], Password: secrets["password"]}
+	// The credential vocabulary is read by pkg/winrmexec rather than
+	// spelled out here, so a credential form added there reaches this
+	// method without an edit.
+	auth, err := winrmexec.AuthFromSecrets(rc.InjectSecrets())
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	opts := winrmexec.Options{Timeout: timeout}
 
 	result, runErr := winrmexec.Run(ctx, target, auth, shell, script, opts)

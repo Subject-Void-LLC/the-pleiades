@@ -190,3 +190,65 @@ func TestBuildInventoryJSON_AcceptedByRealAnsible(t *testing.T) {
 		t.Errorf("event message = %q, does not contain %q", got, want)
 	}
 }
+
+// TestBuildInventoryJSON_RefusesCertificateMaterial covers what this adapter
+// would otherwise have done silently and wrongly.
+//
+// internal/dispatch attaches the machine identity to every payload whatever
+// adapter will run it, and Phase 78d widened that identity to carry a
+// certificate and a PKCS#12 bundle. This path reads only the four original
+// keys, so a certificate credential reached ansible-playbook as an SSH
+// private key file with no username: a TLS client key is a perfectly valid
+// PEM private key, so nothing downstream objected. It simply failed to
+// authenticate, against the wrong protocol, for a reason nothing in the
+// output could explain.
+func TestBuildInventoryJSON_RefusesCertificateMaterial(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		secrets map[string]string
+	}{
+		{
+			name: "a loose certificate and key",
+			secrets: map[string]string{
+				wire.SecretCertificatePEM: "-----BEGIN CERTIFICATE-----\nbody\n-----END CERTIFICATE-----\n",
+				wire.SecretPrivateKeyPEM:  "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n",
+			},
+		},
+		{
+			name:    "a sealed bundle",
+			secrets: map[string]string{wire.SecretPFXBase64: "MIIKzQIBAzCCCoc="},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := legacy.BuildInventoryJSON(wire.DispatchPayload{
+				DeviceName: "win01", Secrets: tt.secrets,
+			})
+			if err == nil {
+				t.Fatal("certificate material was accepted on the Ansible path")
+			}
+			if !errors.Is(err, legacy.ErrCertificateCredential) {
+				t.Errorf("error = %v, want ErrCertificateCredential", err)
+			}
+			if !strings.Contains(err.Error(), "win01") {
+				t.Errorf("error = %v, want it to name the device", err)
+			}
+		})
+	}
+
+	// A bundle carries a passphrase, and the certificate check runs first so
+	// it is not reported as an unsupported SSH key passphrase: a true
+	// sentence about the wrong thing.
+	_, err := legacy.BuildInventoryJSON(wire.DispatchPayload{
+		DeviceName: "win01",
+		Secrets: map[string]string{
+			wire.SecretPFXBase64:  "MIIKzQIBAzCCCoc=",
+			wire.SecretPassphrase: "unlock-me",
+		},
+	})
+	if errors.Is(err, legacy.ErrPassphraseProtectedKey) {
+		t.Errorf("error = %v, want the certificate refusal rather than the SSH passphrase one", err)
+	}
+}

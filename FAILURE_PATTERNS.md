@@ -275,6 +275,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 270. A refusal gave advice that does not work
 271. A fetch ignored the project's own URL, so repointing one changed nothing
 272. Nothing constrained where a project's source came from
+273. A round trip was not a round trip, and the test wrote the workaround into its own expectation
+274. A field was added to a type, to its wire format and to a CLI flag, but not to the store, so the command reported success and wrote nothing
+275. Go cannot do TLS 1.3 client-certificate authentication against Windows, and the empty 503 that results names nothing
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

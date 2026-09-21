@@ -91,6 +91,47 @@ func TestCredential_StringDistinguishesSetFromNotSet(t *testing.T) {
 	}
 }
 
+// TestCredential_StringMarksACertificateSetButNotSecret covers the one
+// field on this type that is deliberately not treated as a secret.
+//
+// The distinction is the point rather than a detail. Marking a certificate
+// "redacted" would be a lie in the direction that costs an incident
+// responder time: they would go looking for a way to read a value that a
+// TLS handshake already publishes to anyone who connects. The body is still
+// withheld, because a PEM certificate is several lines of noise in a log
+// line, and this test pins both halves of that.
+func TestCredential_StringMarksACertificateSetButNotSecret(t *testing.T) {
+	t.Parallel()
+
+	const body = "-----BEGIN CERTIFICATE-----\nMIIBkTCB+w\n-----END CERTIFICATE-----\n"
+	cred := credential.Credential{
+		CertificatePEM: []byte(body),
+		PrivateKeyPEM:  []byte("-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n"),
+		PFXBase64:      "MIIKzQIBAzCCCoc=",
+	}
+
+	got := cred.String()
+	if !strings.Contains(got, "<set, not secret>") {
+		t.Errorf("String() = %s, want the certificate marked as set but not secret", got)
+	}
+	if strings.Contains(got, body) {
+		t.Errorf("String() = %s, want the certificate body withheld", got)
+	}
+	// The bundle IS a secret, and must not be marked the same way.
+	if strings.Contains(got, cred.PFXBase64) {
+		t.Errorf("String() = %s, want the bundle redacted", got)
+	}
+	if !strings.Contains(got, "<redacted, set>") {
+		t.Errorf("String() = %s, want the secret fields redacted", got)
+	}
+
+	// The negative control: with no certificate, the not-secret marker must
+	// not appear at all, or this test would pass against a constant.
+	if bare := (credential.Credential{Username: "admin"}).String(); strings.Contains(bare, "<set, not secret>") {
+		t.Errorf("String() = %s on a credential with no certificate, want no not-secret marker", bare)
+	}
+}
+
 // TestCredential_GoStringMatchesString proves GoString is not an
 // independent, possibly-forgotten redaction path: it must produce
 // exactly what String produces, so %#v gets the same guarantee %v does.

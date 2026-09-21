@@ -41,8 +41,31 @@ type Credential struct {
 	// or empty (nil) if this credential is not key-authenticated.
 	PrivateKeyPEM []byte
 	// Passphrase decrypts PrivateKeyPEM when the key itself is
-	// passphrase-protected. It is meaningless if PrivateKeyPEM is empty.
+	// passphrase-protected, and unlocks PFXBase64 when that is what this
+	// credential carries instead. It is meaningless if both are empty.
 	Passphrase string
+	// CertificatePEM is the PEM-encoded X.509 client certificate this
+	// credential presents, or empty (nil) if it authenticates some other
+	// way. Its key half is PrivateKeyPEM, because a certificate's private
+	// key is an ordinary PEM private key body and needed no field of its
+	// own.
+	//
+	// This is the one field on this type that is NOT a secret: a
+	// certificate is handed to whoever asks during a TLS handshake. It
+	// lives here because it is useless without PrivateKeyPEM, not because
+	// it needs protecting, and String below says so rather than marking it
+	// redacted and implying otherwise.
+	CertificatePEM []byte
+	// PFXBase64 is a base64-encoded PKCS#12 bundle carrying a certificate
+	// and its private key together, unlocked by Passphrase at the point of
+	// use.
+	//
+	// It is an alternative to the CertificatePEM and PrivateKeyPEM pair
+	// rather than a supplement. Base64 rather than []byte because this
+	// value's whole journey is through map[string]string (Flatten below,
+	// then the wire, then InjectSecrets), and choosing the encoding once
+	// here beats every reader choosing one.
+	PFXBase64 string
 }
 
 // redactedMarker replaces a secret field's real value in Credential's
@@ -58,6 +81,12 @@ const redactedMarker = "<redacted, set>"
 // secret, if any, is actually present.
 const notSetMarker = "<not set>"
 
+// publicSetMarker replaces a set field that is deliberately not a secret,
+// so the output distinguishes "withheld from you" from "simply too bulky
+// to print". See publicMarker below for why the distinction earns its
+// keep.
+const publicSetMarker = "<set, not secret>"
+
 // String implements fmt.Stringer. Go's fmt package calls this
 // automatically for the %v, %s, and %q verbs, including when a
 // Credential is embedded as a field inside a larger struct formatted
@@ -71,11 +100,14 @@ const notSetMarker = "<not set>"
 // LogValue below close those two paths the same way.
 func (c Credential) String() string {
 	return fmt.Sprintf(
-		"credential.Credential{Username:%q, Password:%s, PrivateKeyPEM:%s, Passphrase:%s}",
+		"credential.Credential{Username:%q, Password:%s, PrivateKeyPEM:%s, Passphrase:%s, "+
+			"CertificatePEM:%s, PFXBase64:%s}",
 		c.Username,
 		setMarker(c.Password != ""),
 		setMarker(len(c.PrivateKeyPEM) != 0),
 		setMarker(c.Passphrase != ""),
+		publicMarker(len(c.CertificatePEM) != 0),
+		setMarker(c.PFXBase64 != ""),
 	)
 }
 
@@ -98,15 +130,19 @@ func (c Credential) GoString() string {
 // "structurally impossible" before this method existed, and it was not.
 func (c Credential) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Username      string
-		Password      string
-		PrivateKeyPEM string
-		Passphrase    string
+		Username       string
+		Password       string
+		PrivateKeyPEM  string
+		Passphrase     string
+		CertificatePEM string
+		PFXBase64      string
 	}{
-		Username:      c.Username,
-		Password:      setMarker(c.Password != ""),
-		PrivateKeyPEM: setMarker(len(c.PrivateKeyPEM) != 0),
-		Passphrase:    setMarker(c.Passphrase != ""),
+		Username:       c.Username,
+		Password:       setMarker(c.Password != ""),
+		PrivateKeyPEM:  setMarker(len(c.PrivateKeyPEM) != 0),
+		Passphrase:     setMarker(c.Passphrase != ""),
+		CertificatePEM: publicMarker(len(c.CertificatePEM) != 0),
+		PFXBase64:      setMarker(c.PFXBase64 != ""),
 	})
 }
 
@@ -129,6 +165,23 @@ func (c Credential) LogValue() slog.Value {
 func setMarker(set bool) string {
 	if set {
 		return redactedMarker
+	}
+	return notSetMarker
+}
+
+// publicMarker is setMarker for a field that is set but is not a secret,
+// which on this type is CertificatePEM alone.
+//
+// It exists so a debug print does not claim to be protecting something it
+// is not. Marking a certificate "redacted" would be a lie in the
+// direction that costs an incident responder time: they would go looking
+// for a way to read a value that a TLS handshake already publishes to
+// anyone who connects. The output is still a marker rather than the body,
+// because a PEM certificate is several lines of noise in a log line, not
+// because those lines are sensitive.
+func publicMarker(set bool) string {
+	if set {
+		return publicSetMarker
 	}
 	return notSetMarker
 }

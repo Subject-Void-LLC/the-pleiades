@@ -55,6 +55,32 @@ type Bound struct {
 	// identity, and a definition can have at most one of those, exactly as
 	// it can have at most one of any other identity.
 	VaultIdentifier string
+
+	// PresentsCertificate says this credential supplies a client
+	// certificate, and is meaningful only when Kind is KindCryptography.
+	//
+	// It is a fact about the credential's VALUES rather than its type,
+	// which is why it is a field here rather than something this package
+	// derives from Kind. KindCryptography covers signing keys as well as
+	// client certificates, and only the latter competes for the single
+	// machine identity a run authenticates as. PresentsCertificateFor
+	// computes it from the one place that knows.
+	PresentsCertificate bool
+}
+
+// PresentsCertificateFor reports whether a credential's values make it a
+// client-certificate identity.
+//
+// It is exported so a caller assembling Bound values can fill
+// PresentsCertificate without reimplementing the test, and it asks the same
+// question the injector asks: evidence, not kind. A cryptography credential
+// with neither a certificate nor a bundle is a signing key or something
+// like it, and competes for nothing.
+func PresentsCertificateFor(cred Credential) bool {
+	if cred.Type.Kind != KindCryptography {
+		return false
+	}
+	return cred.Inputs[CertificateInputCertificate] != "" || cred.Inputs[CertificateInputPFX] != ""
 }
 
 // CheckBinding reports whether every credential in bound can be attached to
@@ -91,7 +117,47 @@ func CheckBinding(bound []Bound) error {
 			ErrBindingConflict, previous.CredentialName, b.CredentialName, b.Kind)
 	}
 
-	return nil
+	return checkOneMachineIdentity(seen)
+}
+
+// checkOneMachineIdentity refuses a definition that binds more than one
+// thing capable of being the identity a run authenticates as.
+//
+// # Why this is not covered by the per-kind rule above
+//
+// That rule gives each KIND its own slot, and it is right to: a machine
+// credential and a network credential are different kinds and coexist
+// happily. A client certificate is a different kind again (cryptography),
+// so the per-kind rule sees no conflict and accepts the binding, while
+// Combine refuses the same pair at fan-out because an artifact may carry
+// exactly one machine identity.
+//
+// The gap that leaves is the one worth closing. Without this, the write
+// succeeds and the failure appears later, to whoever LAUNCHES the template,
+// against a device, as an injection conflict naming two credentials they
+// may not have bound. docs/10-running-in-production.md states the rule as
+// "a template cannot bind both", and the same document makes the
+// write-time/run-time distinction load bearing elsewhere, so a reader is
+// entitled to read that as a refused write. This makes the sentence true.
+//
+// A cryptography credential is only a machine identity when it actually
+// carries certificate material, which is the same evidence-based test the
+// injector applies; a signing key bound beside a machine credential is
+// ordinary and stays accepted.
+func checkOneMachineIdentity(seen map[string]Bound) error {
+	machine, hasMachine := seen[string(KindSSH)]
+	if !hasMachine {
+		machine, hasMachine = seen[string(KindNet)]
+	}
+	certificate, hasCertificate := seen[string(KindCryptography)]
+
+	if !hasMachine || !hasCertificate || !certificate.PresentsCertificate {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: %q is a machine credential and %q presents a client certificate, and a run authenticates as exactly "+
+			"one identity: bind one or the other",
+		ErrBindingConflict, machine.CredentialName, certificate.CredentialName)
 }
 
 // describeVaultIdentifier renders an identifier for a message, naming the

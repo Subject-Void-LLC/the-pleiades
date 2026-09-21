@@ -4,185 +4,136 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-46-Simulation-Modes`, on top of the 19 committed check-mode and external
-Collection commits (whose status is now the top entry of `HANDOFF_ARCHIVE.md`). This session's work is
-UNCOMMITTED in the working tree, and `make ci` has not run on it.** The user asked for Phase 21's last
-open item, "rebind schedules, workflow nodes and notification policies to `Launchable`", and chose to
-build the seam rather than close the item on paper.
+**Branch `feature/Phase-78d-Certificate-Path`, cut from `feature/Phase-46-Simulation-Modes` at
+`2bc2b5c`. Phase 78d is BUILT and the work is UNCOMMITTED. `make ci` has NOT been run end to end.**
+The user asked for Phase 78 next; 78a, 78b and 78c were already in this history, so the whole of the
+work was 78d, the one stage never built.
 
-### What it turned out to be
+### What 78d is, in one paragraph
 
-The item's two earlier notes were both wrong, and correcting them is the work. The second note (made
-earlier the same day) had called schedules done because a schedule attaches to a `Template` and "a
-Template carries its kind, so one mechanism covers every Launchable kind". That conflated the two axes
-`.SPECIFICATION/AWX_PARITY_ROADMAP.md` section 1.1 had separated a year earlier: a `launch.Kind` says
-which ENGINE runs a definition, while a schedule has to name which OBJECT to run, and a project sync is
-not a `Template` of any kind. So a project could not be scheduled at all, which is exactly the
-roadmap's C1 gate. LESSONS 208.
+Section 17.4 wants a PFX bundle unlocked just in time to present a client certificate. 78b found that
+blocked and recorded why: nothing in this platform could present a client certificate to anything, so
+a decoder would have had no caller. Re-verified this session, still true before the change: the only
+`Certificates` assignment in non-test code was the Controller's own listener. So the certificate path
+was built FIRST taking PEM, and PKCS#12 landed LAST as an input adapter into a path already tested.
 
-### What was built
+### What was built, in build order
 
-- **`internal/launchable`**, the axis-A abstraction (AWX's UnifiedJobTemplate): an open registry of
-  launchable TYPES keyed by AWX's own names (`job_template`, `project`), each declaring a label, what
-  one of its runs is called, the scope needed to launch it and whether it takes a saved configuration.
-  `Reach.Admits` is the one predicate the UI picker filters with and the store checks on submit.
-  `Router` launches by map lookup, never a type switch, and refuses to be built with a gap in either
-  direction (a registered type with no launcher, or a launcher for an unregistered type).
-- **A `Launchable` ent entity** as the stable reference: one row per launchable thing, a nullable
-  unique pointer per target type, a CHECK requiring exactly one, cascading from `Template` and
-  `Project`. A schedule's key into it is uncascaded, so deleting a scheduled template or project is
-  refused as one statement (409). Migrations `sqlite/0032` and `postgres/0029`, both hand-backfilled.
-- **Schedules rebound**: `Schedule.LaunchableID` replaces `TemplateID`, `Dispatcher.LaunchScheduled` is
-  gone (the Dispatcher is now a `launchable.Launcher` with a `Preflight`), `internal/project`'s Runner
-  is the other launcher, and `Scanner.fire` makes one `Launch` call. A target already running is a skip
-  carrying `already_running` rather than a failure that would be retried for as long as the run lasts.
-- **A sync run now exists from the moment it starts and records who asked** (status `running`, nullable
-  finish, `actor`), which is what lets a fired occurrence name the attempt it started. The Sync history
-  tab gained a STARTED BY column.
-- **API**: AWX's `unified_job_template`, with `template` kept as a deprecated write alias (both
-  disagreeing is a 400). Responses carry `unified_job_template{,_name,_type}`; an occurrence carries
-  `unified_job_type`. Reference regenerated.
-- **UI**: the RUNS picker offers both sorts, grouped in native `<optgroup>`s, filtered by what the
-  viewer may launch.
-- **Spec**: Phase 21's item ticked with the correction; workflow nodes re-homed to Phase 27 (which had
-  been assuming a workflow graph existed, and which nothing owned building) and notification policies to
-  Phase 28, each with the reference's rules written out; Phase 23's and Phase 24's notes corrected;
-  roadmap C1 marked done; parity's `project_updates` moved from 0/9 to 4/9.
+- **One secret-key vocabulary.** `pkg/wire`, `internal/credential` and `internal/credtype` each
+  declared the same literals; the latter two now ALIAS `pkg/wire`. Two keys added:
+  `certificate_pem` and `pfx_base64`. `machine_test.go` became tautological and now pins the literal
+  values instead, which is the property that still matters (this is a wire format queued JetStream
+  messages already agree on).
+- **`pkg/winrmexec` client-certificate authentication** in a sibling file, `certauth.go`, because the
+  main file was already 508 lines. `Auth` gained the pair, the guard became "exactly one complete
+  credential" with a separate refusal per shape, and a third `TransportDecorator` branch returns
+  this package's OWN `certificateTransport` (`pkg/winrmexec/certtransport.go`, ~250 lines).
+  It started as `masterzen/winrm`'s `ClientAuthRequest`, which was already in the module and never
+  referenced, and had to be replaced: that transport builds its `tls.Config` on an unexported field,
+  so there was no seam to cap the TLS version through, and the cap is what makes this work at all
+  (see finding 4). The replacement also carries the error reporting, the Insecure refusal and the
+  version cap, none of which the library's version has, so it is the thing to review rather than a
+  thin wrapper.
+  `AuthFromSecrets` is new and is now the single place the key vocabulary is read. Its three callers
+  are the three catalog packages; `pkg/winrmsvc` and `pkg/winrmdism` were NOT changed and do not
+  call it, they carry an `Auth` their caller fills.
+- **`machineTarget` accepts `KindCryptography`**, so a certificate becomes the machine identity.
+- **An input can be filled from a linked credential's field** (`source_field` metadata), which is
+  what 78b wrongly recorded as already built.
+- **`pkg/pfx`**, the PKCS#12 decoder, unlocked in the Runner's per-task child.
+- **`add-credential --certificate/--pfx`**, without which the Crawl tier could store no certificate
+  and the new `Credential` fields would have been unfillable.
 
 ### Findings: report each to the user as its own item
 
-1. **Data loss and a failed upgrade, MEASURED, fixed (FAILURE_PATTERNS 266, LESSONS 207).** SQLite
-   migrations never really turned foreign keys off: `applyOne` ran each script inside a transaction,
-   where that pragma is a no-op, and SQLite declines it silently. Migration 0022 therefore deleted every
-   authored survey question and saved launch configuration on a populated database, and 0030 could not
-   be applied at all to one holding a job task, so the Controller would not start after upgrading. No
-   test had ever migrated a database with rows in it. Fixed by pinning a connection, setting the pragma
-   before the transaction, reading it back, and running `PRAGMA foreign_key_check` before commit.
-2. **Security, fixed (FAILURE_PATTERNS 268).** `schedule:write` alone could arrange for any template in
-   any organization to run for real, repeatedly, unattended. Now the write path requires the scope the
-   target's own type declares; proven over real HTTP, and the proof fails with the check removed.
-3. **Correctness, fixed (FAILURE_PATTERNS 267).** A project that had ever synced could not be deleted:
-   the history's key was uncascaded and the delete answered 500, while the schema's own comment said the
-   history goes with the project.
-4. **Correctness, fixed (FAILURE_PATTERNS 269).** Editing a schedule in the UI silently dropped the
-   saved configuration its runs used, because the form renders no control for it and the binder wrote
-   the zero value.
-5. **Minor, fixed (FAILURE_PATTERNS 270).** The template-delete 409 advised disabling the schedule,
-   which does not release the reference. The same advice was in docs/09.
-6. **Security, FIXED the next day (FAILURE_PATTERNS 272), and reported to the user first.** `GitSyncer`
-   had no URL-scheme allowlist, so a `project:write` holder could aim a sync at any repository the
-   Controller could reach. Two things I said when reporting it were wrong and are corrected in the
-   allowlist section below: the local-path half is not exploitable in the shipped image (go-git's file
-   transport needs a git binary the image does not carry), and an allowlist does not stop internal reach
-   (anything shaped like `host:path` is a valid ssh address). The live half was the network transports
-   with no integrity, since a clone's content is code that runs on managed devices.
-7. **Stated, pre-existing.** No request carries a tenant, so the tenancy half of the launch check can
-   only compare a target's organization to the schedule's, not to the caller's. Enforced at the store for
-   a narrowed caller; unenforceable at the API until requests carry a tenant.
+1. **Four of the roadmap's own 78d claims were stale** (LESSONS 210), and they did not all point the
+   same way. Three made the work BIGGER: the three catalog packages did not inherit the capability
+   for free; the secret key landed in three places, not two, and the third had no drift test; and
+   `internal/catalog/http` is a worse fallback than the thing it was offered as an alternative to.
+   One made it SMALLER: the AWX parity test walks shipped types only, so the certificate type needs
+   no exemption and the reserved-prefix question stays deferred. Since they point both ways, "check
+   the claims that would cost me" would not have been the right filter.
+2. **A latent correctness bug, fixed** (FAILURE_PATTERNS 273). `Unflatten` used `[]byte("")`, which
+   is non-nil, so it was never the inverse of `Flatten` that its own test claimed, and the test had
+   written the workaround into its expectations. Fixed at the cause.
+3. **Two things the plan did not predict, both load bearing.** Certificate authentication is HTTPS
+   only (the transport sends no Basic header), so HTTPS is selected from the credential rather than
+   by a caller flag. And a Windows device's port defaults to 5985, the cleartext listener,
+   indistinguishably from a deliberate choice, so the ordinary path to certificate authentication
+   hits the wrong port; that is refused by name rather than attempted, because the TLS error it would
+   otherwise produce reads like a broken certificate.
+4. **The AWX parity blocker 78b predicted does not exist.** The parity test walks shipped types only,
+   so the first mTLS type can be user-defined. No exemption, no reserved prefix, no new kind.
+5. **`golang.org/x/crypto/pkcs12` was already in the module and cannot serve**, and the REASON I
+   first wrote down was wrong. It exports `Decode` and `ToPEM` only, so it returns one certificate
+   and cannot return a chain, and it refuses a safe holding more than two items. `pkg/pfx` emits the
+   leaf plus intermediates, which that API cannot express. My original justification said Windows
+   defaults `Export-PfxCertificate` to AES-256, which the older library cannot read. Testing a real
+   Windows 11 export disproved it: the default is 3DES, which it CAN read. Corrected in the source,
+   the roadmap and the commit message rather than quietly dropped.
 
 ### Verified, and how
 
-- **The C1 gate** (`internal/schedule/launchable_gate_test.go`): a real file database through the
-  production opener and the real migrations, the real template and project stores, a real git repository
-  and the real `GitSyncer`, the real Dispatcher over a real in-process bus, the real router and Scanner.
-  Two due schedules, ONE `Sweep`: a job with the schedule's actor, and a sync attempt whose id the
-  occurrence records, whose actor is `scheduler:<id>` and whose revision is the repository's own HEAD.
-  Plus the busy-target skip (and that a second sweep adds no row), and a launchable type this build has
-  never heard of firing through the same store and scanner with no code change.
-- **The migration backfill** on a populated SQLite database: every template and project gains its row,
-  every schedule is repointed with its saved configuration kept, the old column is gone, occurrences are
-  typed, the scheduled-template delete is refused and an unscheduled one cascades. Removing the project
-  backfill line fails it. The upgrade tests for 0022 and 0030 fail with finding 1's fix reverted.
-- **Mutations checked** (each turned a named test red): the launch-scope check removed; every type
-  routed to the template launcher; `ErrBusy` treated as a launch failure; the project backfill dropped;
-  finding 1's fix reverted; a branch on launchable type planted in the scanner (caught by the archtest);
-  the actor cell blanked in the UI history.
-- Full suites of `./internal/...` green, including `internal/backup` (see below), `tests/parity`,
-  `internal/archtest`. `-race` on launchable, schedule, api, project, ent/migrate. The three-replica
-  `TestControllerScheduler_FiresExactlyOnce_ReleaseGate` passes against real NATS on the new schema
-  (69s). `make vet` (both tag sets), `make fmt`, `make gosec` (20 findings, all waived; one waiver
-  renumbered with a written re-review), `make docs-lint`, migration parity, generated reference
-  idempotent, no em dash in any added line.
-- **A fixture regenerated rather than edited.** Adding a table broke
-  `internal/backup`'s `TestParseTOC_ReadsARealBackupOfThisSchema`, which counts the tables a real
-  `pg_restore --list` holds. Both listings were recaptured the way their provenance describes: postgres
-  at the pinned 15.19 image, the real migrations, the real `controller bootstrap-admin`, then `pg_dump`
-  and `pg_restore --list` from inside the container so the server and the tool both read 15.19. The
-  procedure is now written down in that test.
+- **Both Release Gate halves written; one passed, one is OPEN.**
+  `TestReleaseGate_TheCertificateIsPresentedAndVerified` passes and runs anywhere: the real
+  `certificateTransport` against a real TLS server with `RequireAndVerifyClientCert`, three acts
+  including two negative controls, plus `TestReleaseGate_ABundlePresentsTheSameCertificateAsThePEMPath`.
+  `TestWinRMGate_ACertificateAuthenticatesAndAStrangerDoesNot` needs a real Windows host with a
+  cert-mapped account and SKIPS here, so its checkbox stays open per checkbox rule 1. That is the
+  same call 78b made, and 78b's gate then passed first try once it could run.
+- **Four mutations, each turned a named test red**, then reverted and re-confirmed green: the
+  certificate transport branch dropped; HTTPS no longer forced; the blanket `KindExternal` refusal
+  restored; the decoder ignoring its passphrase.
+- **Fuzz and benchmark**, per checkbox rule 2: `FuzzDecode` 15,273,485 executions, 77 new interesting
+  inputs, 60s, clean. `BenchmarkDecode` 533,106 ns/op, 101,105 B/op, 2,374 allocs/op.
+- Green: `go build ./...`, `go vet ./...`, `gofmt`, `go test ./internal/... ./pkg/...` in full,
+  `-race` on every touched package, `internal/archtest`, `tools/docs-lint`, `make gosec`.
+- Coverage floors RAISED: `internal/credential` 91.6 to 92.0 (measured 92.2),
+  `internal/credstore/resolve` 96.0 to 97.0 (measured 97.1). New: `pkg/pfx` 91.0 (measured 91.7),
+  `pkg/winrmexec` 85.0 (measured 85.2, and it had NO floor at all before, so it was unratcheted).
 
-### Known and not done
+### What has NOT been run, and the one expected failure
 
-- **`make ci` and `make push-gate` have not run** on this work (they saturate this machine for about
-  twenty minutes; ask first). Nothing is committed yet either.
-- **The release gate over three real controller processes covers a job template only.** Extending it
-  with a project-sync schedule is the one item from this session's plan left undone; the seam itself is
-  proven in-process by the C1 gate above.
-- **An inventory source is not a launchable type**, because there is no Controller-side entity for one:
-  inventory sync runs from the `pleiades` CLI. A workflow is not one either, and Phase 27 now owns
-  building it.
-- **A project sync is still not a row in the Jobs list.** Its record is its own `SyncRun`. Unifying the
-  two lists (AWX's UnifiedJob) is a separate decision nobody has taken, and `tests/parity` says so.
-- **`GET /unified_job_templates`** as a listing route is deferred to the roadmap's D3, which needs
-  per-type read scopes. Discovery today is the `unified_job_template` field on a template or a project.
+- **`make ci` has not run end to end.** It should, before this is called verified.
+- **`tools/coverage-check` has not run**, because it runs the full suite internally.
+- **`make docs-gen-check` passes.** It does `git diff --exit-code -- docs/reference`, which compares
+  the working tree against the INDEX rather than against HEAD, so staging is what satisfies it and
+  the work is staged. An earlier note here said it fails until committed, which was wrong about
+  which git comparison the target makes.
 
-### Then the project source allowlist (2026-09-20, also uncommitted)
+### The reviews found what review is for, and the second one is the more interesting
 
-You asked for the allowlist half of finding 6 above, as a plan; it was approved and built.
-`internal/project/source.go` is the predicate: the protocols go-git will dial, allowlisted, defaulting
-to https and ssh, with `PLEIADES_PROJECT_ALLOW_INSECURE_SOURCE` (http, the git daemon) and
-`PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` (file and bare paths) as separate opt-ins because they are
-separate threats. Enforced at `project.entStore` Create and Update, which is the only writer of the
-column, and again in `GitSyncer.Sync` before anything touches disk. A password in the URL is refused at
-the write only, since refusing it at the sync would make an existing row permanently unsyncable with no
-migration. The protocol is decided by `transport.NewEndpoint`, the same call the transport layer makes,
-rather than by a second parser (LESSONS 209).
+Two adversarial multi-agent reviews ran over this work. The first, before any gate was ticked, raised
+27 findings of which 17 survived verification, including three CRITICAL ones sharing a root cause:
+`add-credential --certificate/--pfx` reported success and stored nothing.
 
-**Two corrections to what I told you when I reported the finding, both from review:**
+The second ran over the FINISHED tree and hunted one thing specifically: claims corrected in one
+place and not another. It found four, three of them exactly that shape. A Release Gate header and
+three handoff sentences still named `masterzen/winrm`'s `ClientAuthRequest` as the shipped transport,
+a week after it was replaced; the changelog still said the server-side TLS 1.3 workaround "sidesteps
+the problem entirely" while two other documents correctly noted the cap makes it not yet help; and
+the lab setup script destroyed any pre-existing HTTPS listener while its teardown carefully preserved
+foreign ones and its own docstring claimed it touched nothing else. All four are fixed.
 
-1. The local-path half is not exploitable in the shipped image. go-git's file transport shells out to
-   `git-upload-pack` and the image carries no git binary, so a local source fails there anyway. It
-   works on a developer's machine, which is why the tests that use one now say so. The package comment
-   claiming go-git needs no git binary was wrong and is corrected.
-2. An allowlist does not stop internal reach: `srv:secrets-repo` is a valid ssh address, so an allowed
-   protocol still reaches any resolvable host. Stated in the code, in docs/10 and in the roadmap rather
-   than implied.
+**Read the second review's coverage honestly: 78 of its 109 agents died on session limits.** Two of
+its four lenses report zero survivors, and that is NOT evidence they were clean, because a finding
+whose verifiers all failed is indistinguishable from a refuted one in that workflow's own logic. The
+`code-vs-prose` and `gaps-honesty` lenses raised 8 and 6 findings respectively and none were verified
+either way. Re-running those two is worth doing before anyone treats this tree as audited.
 
-**A second defect, fixed here (FAILURE_PATTERNS 271).** `fetch` passed go-git no remote, so it used the
-URL the FIRST clone configured: editing a project's address changed nothing about what was fetched,
-forever, while the sync reported success. That also made any check on the column bypassable by a
-checkout that already existed. Fixed by passing `RemoteURL` AND by replacing a checkout whose remote
-differs, because an unrelated history cannot be fast-forwarded into and the project would otherwise
-fail with "non-fast-forward update" with nothing an operator could clear. The replacement clones into a
-sibling and swaps on success, so a wrong new address leaves the last good checkout serving.
+### Two residuals, both recorded in the roadmap rather than left implicit
 
-**What the tests found that the plan had wrong.** The plan called `RemoteURL` a two-line fix and
-deferred the re-clone. The repoint test showed that leaves a repointed project permanently unsyncable,
-so the sibling-swap went in. The plan's own mutation list is therefore out of date in one entry:
-dropping `RemoteURL` no longer fails the repoint test, because the mismatch check subsumes it. The
-comment there says so rather than claiming a guarantee the test does not check.
-
-**Verified:** `internal/project` green including four new tests (the classification table, the
-representative refusal asserting the checkout directory was never created, the store-then-sync control
-that proves the two checks are not redundant, and the failed-repoint test that proves the old tree
-survives); every mutation caught (admit everything at sync, allow file by default, key the secret check
-on the user instead of the password, and the two above); `-race` on project; full suites of api,
-ui/..., schedule/..., internal/... and tests/parity; vet both tag sets, fmt, gosec (20, all waived),
-docs-lint, reference regenerated and idempotent. One infrastructure failure in `internal/ent`
-(a Postgres container not ready within 60s under load) which passes alone.
-
-**Docs and records:** docs/10 gains "Where a project's source may come from" with the two toggles and
-the three limits (no host allowlist, redirects followed, and git-over-ssh not using this platform's
-known_hosts, which makes https the only source that works in the image as shipped); the apispec
-description and the 400; FAILURE_PATTERNS 271 and 272; LESSONS 209; two changelog fragments; and an A1b
-addendum in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` recording both open items.
+1. **`winrmexec.Options` is unreachable.** `HTTPS`, `Insecure` and `CACert` have never been settable
+   from a runbook or a device, and 78d added a TLS version cap in the same place. The Release Gate hit
+   both consequences: it needed `SSL_CERT_FILE` to trust the lab authority, and a target configured
+   for upfront certificate negotiation still could not be reached over TLS 1.3. The fix is device
+   properties, the way `port` already works. Its own piece of work, deliberately not smuggled in here.
+2. **A `crypto/tls` fork is the only route to TLS 1.3 on this path.** Go issue #40521 is on Hold and a
+   native fix is unlikely. The user wants a fork eventually; nothing in this phase depends on it.
 
 ### Next step
 
-Run `make ci` (or `make push-gate`) with nothing else running, then commit. A commit series is not yet
-drafted; the work splits along the same lines the plans' steps did (the migration-runner fix, the
-interface retirement, the sync-run change, the launchable package, the schedule rebind, the UI, the
-docs, and then the source allowlist with its fetch fix), and each step's own tests pass on their own.
-
-Two items this work names and does not do, both in `internal/project`: known hosts for git over ssh
-(which is what stops an ssh project working in the shipped image at all), and a host allowlist, which
-belongs with whatever settings mechanism lands first.
+Run `make ci`, commit, and decide whether the Windows gate can be run against a lab host. Phase 78 is
+complete except that one checkbox. The exposure Phase 78's own preamble names is unchanged and is
+Phase 105's: a resolved secret still rides JetStream. This stage deliberately did not widen it, which
+is why the PFX unlock happens in the Runner's child and the sealed bundle is what crosses the broker.

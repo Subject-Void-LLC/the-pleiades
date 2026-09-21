@@ -42,6 +42,23 @@ func runPleiades(t *testing.T, dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// runPleiadesWithStdin is runPleiades with something on standard input, for
+// the commands that read a secret from a pipe rather than from a flag.
+//
+// It exists because a secret on a command line is visible in this process's
+// argument list to anything else on the machine, which is the property the
+// --*-stdin flags exist to preserve. A test that reached for a flag value
+// instead would be exercising a path the platform deliberately does not
+// offer.
+func runPleiadesWithStdin(t *testing.T, dir, stdin string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(binPath, args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // TestCLI_EndToEnd walks init -> add-host -> validate -> run against the
 // real binary in a real temp directory, asserting on real files and real
 // stdout, with no server, database, or broker running (Part 0 Phase W1's

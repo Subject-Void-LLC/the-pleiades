@@ -64,7 +64,9 @@ import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 // Collection may import only pkg/). Four copies of a string that has to
 // match on both sides of a process boundary is a defect waiting for
 // somebody to fix a typo in three of them. There is one copy now, and
-// both sides can reach it.
+// both sides can reach it: internal/credential and internal/credtype
+// both alias these rather than restating them, which is what makes the
+// sentence above true rather than aspirational.
 //
 // A missing key means the device has no such secret. Flatten omits an
 // empty field rather than writing "", so `v, ok := secrets[k]` is a real
@@ -77,11 +79,46 @@ const (
 	SecretPassword = "password"
 
 	// SecretPrivateKeyPEM is a PEM-encoded private key.
+	//
+	// It is the key half of a client certificate as well as an SSH key,
+	// because both are a PEM private key body and a tls.Certificate needs
+	// exactly this alongside SecretCertificatePEM. Only the certificate
+	// needed a new key.
 	SecretPrivateKeyPEM = "private_key_pem"
 
 	// SecretPassphrase decrypts SecretPrivateKeyPEM when that key is
-	// encrypted. It is meaningless on its own.
+	// encrypted, and unlocks SecretPFXBase64 when that is what the
+	// credential carries. It is meaningless on its own.
 	SecretPassphrase = "passphrase"
+
+	// SecretCertificatePEM is a PEM-encoded X.509 client certificate, to
+	// be PRESENTED rather than trusted.
+	//
+	// Distinct from a certificate authority bundle, which answers "whom do
+	// I trust" and is transport configuration rather than a credential.
+	// This answers "who am I", so it belongs with the private key that
+	// proves it and travels the same path.
+	//
+	// Unlike every other key here the value is not itself a secret: a
+	// certificate is published to whoever asks during a handshake. It
+	// travels with the secrets because it is useless apart from
+	// SecretPrivateKeyPEM, not because it needs hiding.
+	SecretCertificatePEM = "certificate_pem"
+
+	// SecretPFXBase64 is a PKCS#12 bundle, base64 encoded, holding a
+	// certificate and its private key together.
+	//
+	// Base64 because this map is map[string]string and a PFX bundle is
+	// binary DER, so the alternative is an encoding decided separately by
+	// every reader.
+	//
+	// It is an ALTERNATIVE to the SecretCertificatePEM and
+	// SecretPrivateKeyPEM pair, never a supplement: a credential carrying
+	// both is refused rather than silently resolved in favor of one, since
+	// nothing could say which the operator meant. It is unlocked by
+	// SecretPassphrase at the point of use rather than anywhere earlier,
+	// which is the whole point of shipping the sealed bundle.
+	SecretPFXBase64 = "pfx_base64"
 )
 
 // DispatchPayload is the message body the Controller publishes to NATS
@@ -205,10 +242,16 @@ type DispatchPayload struct {
 	// pre-distributed to the Runner). Empty when the device has no stored
 	// credential, which is not itself a dispatch failure: only a task that
 	// actually needs a secret fails downstream, the same place a missing
-	// credential already fails at the Crawl tier. Keys follow the
-	// convention internal/credential.Flatten documents ("username",
-	// "password", "private_key_pem", "passphrase"). omitempty keeps a
-	// credential-less dispatch's wire form free of a bare "secrets":{}.
+	// credential already fails at the Crawl tier.
+	//
+	// The keys are the Secret* constants declared at the top of this file,
+	// which is the authority rather than any package that aliases them. That
+	// matters because the set has grown: it was the four SSH keys until
+	// Phase 78d added SecretCertificatePEM and SecretPFXBase64, and a doc
+	// comment here enumerating a closed set is a doc comment that goes
+	// quietly out of date in the one file the whole vocabulary is defined
+	// in. omitempty keeps a credential-less dispatch's wire form free of a
+	// bare "secrets":{}.
 	Secrets map[string]string `json:"secrets,omitempty"`
 
 	// Tags is the device's own pkg/inventory.InventoryItem.Tags() result at

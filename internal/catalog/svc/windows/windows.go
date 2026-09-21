@@ -236,10 +236,16 @@ func winrmSession(rc sdk.RunbookContext, device inventory.InventoryItem, fqcn st
 			fqcn, device.Name(), capability.NameWinRM)
 	}
 
-	secrets := rc.InjectSecrets()
+	// The credential vocabulary is read by pkg/winrmexec rather than
+	// spelled out here, so a credential form added there reaches these
+	// methods without an edit.
+	auth, err := winrmexec.AuthFromSecrets(rc.InjectSecrets())
+	if err != nil {
+		return winrmsvc.Session{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	return winrmsvc.Session{
 		Target: winrmexec.Target{Host: dev.WinRMHost(), Port: dev.WinRMPort()},
-		Auth:   winrmexec.Auth{Username: secrets["username"], Password: secrets["password"]},
+		Auth:   auth,
 	}, nil
 }
 

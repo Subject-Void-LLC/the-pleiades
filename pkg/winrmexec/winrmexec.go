@@ -175,11 +175,34 @@ type Target struct {
 	Port int
 }
 
-// Auth is how to authenticate. WinRM here speaks NTLM, which needs a
-// username and a password; a key is not a usable credential.
+// Auth is how to authenticate, in exactly one of two ways.
+//
+// A username and password authenticate over NTLM, which is what a stock
+// Enable-PSRemoting host accepts and what this package did exclusively
+// until Phase 78d.
+//
+// A certificate and its private key authenticate over TLS mutual
+// authentication instead. That path is HTTPS only and carries no
+// username: WinRM maps the certificate to a local account on the Windows
+// side, so the account is named by the certificate rather than by this
+// struct. See certauth.go for the whole mechanism and for what the target
+// has to be configured with before it works.
+//
+// The two are alternatives, never a combination. Validate is where that
+// is enforced and where the reasoning lives.
 type Auth struct {
+	// Username is the account to authenticate as, for password
+	// authentication. It is empty for certificate authentication, where
+	// the certificate names the account.
 	Username string
+	// Password is the password for Username.
 	Password string
+	// CertificatePEM is a PEM X.509 client certificate to present.
+	CertificatePEM []byte
+	// PrivateKeyPEM is the PEM private key proving CertificatePEM. A
+	// certificate without it cannot complete a handshake, which is why
+	// Validate refuses half a pair rather than trying.
+	PrivateKeyPEM []byte
 }
 
 // Result is what running one script produced. A non-zero ExitCode is the
@@ -227,6 +250,10 @@ func Run(ctx context.Context, target Target, auth Auth, shell Shell, script stri
 	if script == "" {
 		return Result{}, fmt.Errorf("winrm: empty script")
 	}
+	// Resolved before the cleartext check below, because certificate
+	// authentication selects HTTPS on its own and would otherwise be
+	// refused here for a risk it does not take.
+	opts = opts.resolve(auth)
 	if opts.DisableEncryption && !opts.HTTPS {
 		return Result{}, fmt.Errorf("winrm: DisableEncryption requires HTTPS: over plain HTTP it would send the credential exchange and every script in cleartext")
 	}
@@ -396,20 +423,47 @@ func unbracket(host string) string {
 // and a cache keyed by target alone would hand one device's session to
 // whichever credential asked for it second.
 func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
-	if auth.Username == "" || auth.Password == "" {
-		return nil, fmt.Errorf("winrm: needs a username and a password (WinRM authenticates with NTLM, not with a key)")
+	if err := auth.Validate(); err != nil {
+		return nil, err
 	}
+	opts = opts.resolve(auth)
 
 	port := ResolvePort(target.Port, opts.HTTPS)
+	if auth.usesCertificate() {
+		if err := checkCertificatePort(port); err != nil {
+			return nil, err
+		}
+	}
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
 
-	endpoint := winrm.NewEndpoint(unbracket(target.Host), port, opts.HTTPS, opts.Insecure, opts.CACert, nil, nil, timeout)
+	// The cert and key positions are empty for password authentication and
+	// carry the pair for certificate authentication. The library reads them
+	// only from the transport that needs them, so passing them
+	// unconditionally would be harmless, but passing them conditionally
+	// makes the two mechanisms visible in one place.
+	endpoint := winrm.NewEndpoint(
+		unbracket(target.Host), port, opts.HTTPS, opts.Insecure, opts.CACert,
+		auth.CertificatePEM, auth.PrivateKeyPEM, timeout)
 
 	params := *winrm.DefaultParameters
-	if !opts.DisableEncryption && !opts.HTTPS {
+	switch {
+	case auth.usesCertificate():
+		// TLS mutual authentication, through this package's own transport
+		// rather than the library's ClientAuthRequest. certtransport.go says
+		// why at length, and the short version is that the library's version
+		// cannot complete this exchange against any current Windows host: it
+		// offers TLS 1.3, which http.sys answers with a bare 503.
+		//
+		// It is an alternative to both NTLM branches below rather than a
+		// variation on one, because it sends no Basic header at all.
+		// Auth.Validate has already refused every combination that would
+		// reach here with only half a pair.
+		params.TransportDecorator = func() winrm.Transporter { return &certificateTransport{} }
+
+	case !opts.DisableEncryption && !opts.HTTPS:
 		// SPNEGO session encryption over HTTP. Windows refuses
 		// unencrypted WinRM by default, so without this the very first
 		// request comes back 415 rather than working and then leaking.
@@ -424,12 +478,19 @@ func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
 			}
 			return enc
 		}
-	} else {
+
+	default:
 		params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientNTLM{} }
 	}
 
+	// Username and password are empty on the certificate path, which is
+	// correct rather than a gap: that transport sends no Basic header, and
+	// the account is whatever the target maps the certificate to.
 	client, err := winrm.NewClientWithParameters(endpoint, auth.Username, auth.Password, &params)
 	if err != nil {
+		// The library validates the keypair while building the transport, so
+		// an unparsable certificate or a key that does not match it arrives
+		// here rather than at the handshake.
 		return nil, fmt.Errorf("winrm: building client for %s:%d: %w", target.Host, port, err)
 	}
 	return client, nil

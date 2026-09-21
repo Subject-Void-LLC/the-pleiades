@@ -19,10 +19,20 @@ import (
 
 type fakeRC struct {
 	stats map[string]any
+	// secrets overrides what InjectSecrets returns, for the tests that need
+	// a credential shape other than an ordinary username and password.
+	secrets map[string]string
 }
 
 func newFakeRC() *fakeRC { return &fakeRC{stats: map[string]any{}} }
+
+// InjectSecrets returns the fake's own secrets when it has any, and an
+// ordinary password credential otherwise, so the many tests that only need
+// a working credential stay unchanged.
 func (c *fakeRC) InjectSecrets() map[string]string {
+	if c.secrets != nil {
+		return c.secrets
+	}
 	return map[string]string{"username": "administrator", "password": "secret"}
 }
 func (c *fakeRC) SetStat(k string, v any) error  { c.stats[k] = v; return nil }
@@ -427,5 +437,28 @@ func TestRunFeatureOp_CheckStatFailuresAreWrapped(t *testing.T) {
 				t.Errorf("error = %v, want the %q stat failure wrapped with the fqcn", err, key)
 			}
 		})
+	}
+}
+
+// TestWinrmSession_RefusesAnUnusableCredential covers the branch this method
+// gained when the credential vocabulary moved into pkg/winrmexec.
+//
+// Reading the secrets through AuthFromSecrets is what lets a credential form
+// added there reach these methods without an edit, and the price is that they
+// now have a failure to wrap. A PKCS#12 bundle beside a loose private key is
+// the shape that reaches it: two ways to supply one identity, which is refused
+// rather than resolved in favour of either.
+func TestWinrmSession_RefusesAnUnusableCredential(t *testing.T) {
+	rc := &fakeRC{stats: map[string]any{}, secrets: map[string]string{
+		"pfx_base64":      "MIIKzQIBAzCCCoc=",
+		"private_key_pem": "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n",
+	}}
+
+	_, _, err := winrmSession(rc, stubDevice(), "win.feature.enable")
+	if err == nil {
+		t.Fatal("expected a refusal for a credential carrying two identities")
+	}
+	if !strings.Contains(err.Error(), "win.feature.enable") {
+		t.Errorf("error = %v, want it to name the method", err)
 	}
 }

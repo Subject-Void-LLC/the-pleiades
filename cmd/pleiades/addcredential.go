@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"os"
@@ -16,17 +17,36 @@ import (
 // hand-edit, so this command is the only way to populate it.
 //
 // Exactly one authentication method is accepted per invocation:
-// --password (a literal value, or an interactive no-echo prompt if
-// omitted) or --key (a path to a PEM private key file, optionally
-// protected by a passphrase, itself prompted for with no echo). Prompting
-// by default, rather than requiring the secret as a bare flag value, is
-// deliberate: a flag value is visible in shell history and in this
-// process's argument list to any other user on the same machine for as
-// long as the process runs, which a prompt avoids.
+//
+//   - --password, a literal value or an interactive no-echo prompt if
+//     omitted.
+//   - --key, a path to a PEM private key file, optionally protected by a
+//     passphrase, itself prompted for with no echo.
+//   - --certificate together with --key, a PEM client certificate and the
+//     key that proves it, for a device reached by TLS mutual
+//     authentication rather than by a password. The key must be
+//     unencrypted: nothing decrypts a loose private key on that path, so a
+//     passphrase is refused here rather than stored and ignored.
+//   - --pfx, a PKCS#12 bundle holding both of those sealed together,
+//     unlocked with --passphrase at the moment it is used rather than
+//     here.
+//
+// Prompting by default, rather than requiring the secret as a bare flag
+// value, is deliberate: a flag value is visible in shell history and in
+// this process's argument list to any other user on the same machine for
+// as long as the process runs, which a prompt avoids. A certificate and a
+// bundle are named by PATH for the same reason and one more: neither fits
+// on a command line.
+//
+// --username is required for the first two and refused for the last two.
+// A certificate names the account it authenticates as, by carrying a
+// principal the target maps to one, so a username beside it is a second
+// answer to a question that already has one.
 func runAddCredential(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"passphrase": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades add-credential <device> --username <user> [--password <password> | --key <path> [--passphrase]]: %w", err)
+		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
+			"[--password <password> | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
@@ -34,38 +54,105 @@ func runAddCredential(args []string) error {
 	username := fs.String("username", "", "account name to authenticate as")
 	password := fs.String("password", "", "password to authenticate with (prompted interactively if --key is also absent and this is empty)")
 	keyPath := fs.String("key", "", "path to a PEM private key file to authenticate with")
-	promptPassphrase := fs.Bool("passphrase", false, "prompt for the private key's passphrase (only meaningful with --key)")
+	certPath := fs.String("certificate", "", "path to a PEM client certificate to present, which requires --key")
+	pfxPath := fs.String("pfx", "", "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key")
+	promptPassphrase := fs.Bool("passphrase", false, "prompt for the private key's or the bundle's passphrase")
+	stdinPassphrase := fs.Bool("passphrase-stdin", false,
+		"read the private key's or the bundle's passphrase as one line on standard input")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 
-	if *username == "" {
+	usesCertificate := *certPath != "" || *pfxPath != ""
+
+	if *username == "" && !usesCertificate {
 		return fmt.Errorf("--username is required")
 	}
-	if *password != "" && *keyPath != "" {
-		return fmt.Errorf("--password and --key are mutually exclusive: a device authenticates one way at a time")
+	if *username != "" && usesCertificate {
+		return fmt.Errorf("--username does not apply to a certificate: the target maps the certificate to an account, so naming one here would be a second answer")
 	}
-	if *promptPassphrase && *keyPath == "" {
-		return fmt.Errorf("--passphrase only applies to --key")
+	if *password != "" && (*keyPath != "" || usesCertificate) {
+		return fmt.Errorf("--password is mutually exclusive with --key, --certificate and --pfx: a device authenticates one way at a time")
+	}
+	if *pfxPath != "" && (*certPath != "" || *keyPath != "") {
+		return fmt.Errorf("--pfx already holds a certificate and its key, so it cannot be combined with --certificate or --key")
+	}
+	if *certPath != "" && *keyPath == "" {
+		return fmt.Errorf("--certificate needs --key: a certificate alone cannot prove possession")
+	}
+	if (*promptPassphrase || *stdinPassphrase) && *keyPath == "" && *pfxPath == "" {
+		return fmt.Errorf("--passphrase and --passphrase-stdin only apply to --key or --pfx")
+	}
+	if (*promptPassphrase || *stdinPassphrase) && *certPath != "" {
+		// Refused rather than stored and ignored. Nothing decrypts a loose
+		// private key on the certificate path, so a passphrase here would be
+		// written to disk, carried to the device and discarded, and the run
+		// would fail with a parse error naming neither.
+		return fmt.Errorf("a passphrase does not apply to --certificate: nothing decrypts a loose private key, " +
+			"so supply the key unencrypted, or supply --pfx, which is unlocked with its passphrase at the point of use")
+	}
+	if *promptPassphrase && *stdinPassphrase {
+		return fmt.Errorf("--passphrase and --passphrase-stdin are mutually exclusive: a passphrase is read one way")
+	}
+
+	// readPassphrase is the one place the two non-interactive and
+	// interactive forms are chosen between, so the three branches below
+	// cannot drift. Reading from a pipe is opted into by a flag rather than
+	// entered automatically when stdin is not a terminal, for the reason
+	// internal/prompt states: an automatic fallback means the same command
+	// echoes a secret on some machines and not others.
+	readPassphrase := func(promptText string) (string, error) {
+		switch {
+		case *stdinPassphrase:
+			return prompt.SecretFromStdin()
+		case *promptPassphrase:
+			return promptSecret(promptText)
+		default:
+			return "", nil
+		}
 	}
 
 	cred := credential.Credential{Username: *username}
 
 	switch {
+	case *pfxPath != "":
+		// Base64 because a credential's values travel as strings the whole
+		// way, and choosing the encoding once here beats every reader
+		// choosing one. The bundle stays sealed: this command does not
+		// unlock it, and nothing does until the task that presents it runs.
+		bundle, err := os.ReadFile(*pfxPath)
+		if err != nil {
+			return fmt.Errorf("failed to read bundle %s: %w", *pfxPath, err)
+		}
+		cred.PFXBase64 = base64.StdEncoding.EncodeToString(bundle)
+		passphrase, err := readPassphrase("bundle passphrase: ")
+		if err != nil {
+			return err
+		}
+		cred.Passphrase = passphrase
+	case *certPath != "":
+		certBytes, err := os.ReadFile(*certPath)
+		if err != nil {
+			return fmt.Errorf("failed to read certificate %s: %w", *certPath, err)
+		}
+		keyBytes, err := os.ReadFile(*keyPath)
+		if err != nil {
+			return fmt.Errorf("failed to read private key %s: %w", *keyPath, err)
+		}
+		cred.CertificatePEM = certBytes
+		cred.PrivateKeyPEM = keyBytes
 	case *keyPath != "":
 		keyBytes, err := os.ReadFile(*keyPath)
 		if err != nil {
 			return fmt.Errorf("failed to read private key %s: %w", *keyPath, err)
 		}
 		cred.PrivateKeyPEM = keyBytes
-		if *promptPassphrase {
-			passphrase, err := promptSecret("private key passphrase: ")
-			if err != nil {
-				return err
-			}
-			cred.Passphrase = passphrase
+		passphrase, err := readPassphrase("private key passphrase: ")
+		if err != nil {
+			return err
 		}
+		cred.Passphrase = passphrase
 	case *password != "":
 		cred.Password = *password
 	default:

@@ -106,6 +106,20 @@ func buildCredentialEntry(svc crypto.Service, cred Credential) (credentialEntry,
 		}
 		entry.PassphraseEncrypted = encrypted
 	}
+	if len(cred.CertificatePEM) != 0 {
+		encrypted, err := encryptField(svc, cred.CertificatePEM)
+		if err != nil {
+			return credentialEntry{}, fmt.Errorf("certificate: %w", err)
+		}
+		entry.CertificateEncrypted = encrypted
+	}
+	if cred.PFXBase64 != "" {
+		encrypted, err := encryptField(svc, []byte(cred.PFXBase64))
+		if err != nil {
+			return credentialEntry{}, fmt.Errorf("bundle: %w", err)
+		}
+		entry.PFXEncrypted = encrypted
+	}
 
 	return entry, nil
 }

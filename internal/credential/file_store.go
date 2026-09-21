@@ -54,6 +54,15 @@ type credentialEntry struct {
 	PasswordEncrypted   string `yaml:"password_encrypted,omitempty"`
 	PrivateKeyEncrypted string `yaml:"private_key_encrypted,omitempty"`
 	PassphraseEncrypted string `yaml:"passphrase_encrypted,omitempty"`
+	// CertificateEncrypted holds a PEM client certificate. It is encrypted
+	// like every other field here even though a certificate is not a
+	// secret, because this file's format is uniform and an exception would
+	// be one more thing to reason about for no gain. Phase 78d.
+	CertificateEncrypted string `yaml:"certificate_encrypted,omitempty"`
+	// PFXEncrypted holds a base64 PKCS#12 bundle, which IS a secret: it
+	// carries a private key, sealed only by a passphrase that may be stored
+	// in this same file. Phase 78d.
+	PFXEncrypted string `yaml:"pfx_encrypted,omitempty"`
 }
 
 // fileStore is the Store implementation backed by credentialsFileName
@@ -140,6 +149,20 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 			return Credential{}, fmt.Errorf("failed to decrypt passphrase for device %s: %w", deviceName, err)
 		}
 		cred.Passphrase = string(passphrase)
+	}
+	if entry.CertificateEncrypted != "" {
+		certificate, err := s.decryptField(entry.CertificateEncrypted)
+		if err != nil {
+			return Credential{}, fmt.Errorf("failed to decrypt certificate for device %s: %w", deviceName, err)
+		}
+		cred.CertificatePEM = certificate
+	}
+	if entry.PFXEncrypted != "" {
+		bundle, err := s.decryptField(entry.PFXEncrypted)
+		if err != nil {
+			return Credential{}, fmt.Errorf("failed to decrypt bundle for device %s: %w", deviceName, err)
+		}
+		cred.PFXBase64 = string(bundle)
 	}
 
 	return cred, nil

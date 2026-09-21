@@ -286,17 +286,18 @@ type machineTarget struct{}
 func (machineTarget) Key() string  { return "machine" }
 func (machineTarget) Phase() Phase { return PhaseValues }
 
-// Apply maps the four transport inputs onto their flattened keys.
+// Apply maps a kind's transport inputs onto their flattened keys.
 //
-// Only those four are read. Every other input a machine type declares,
-// become_password among them, is an ordinary input its own injector
-// document can reference; see this package's MachineInput* constants for
-// why that is the design rather than an omission.
+// Only the inputs listed below are read. Every other input a machine type
+// declares, become_password among them, is an ordinary input its own
+// injector document can reference; see this package's MachineInput* and
+// CertificateInput* constants for why that is the design rather than an
+// omission.
 //
 // # Why a network credential is a machine credential here
 //
-// Two kinds reach this target, and the second one is a judgement worth
-// writing down. AWX's net credential type declares exactly these four
+// Two kinds share the password mapping, and the second one is a judgement
+// worth writing down. AWX's net credential type declares exactly these four
 // inputs under exactly these ids, and AWX consumes them by handing them to
 // the network connection plugins, which reach the device over SSH. This
 // platform's only transport is that same SSH, so the four values mean the
@@ -310,17 +311,45 @@ func (machineTarget) Phase() Phase { return PhaseValues }
 // in. The kinds stay distinct everywhere else, including in the
 // one-credential-per-kind binding rule, so a template may still bind one
 // machine credential and one network credential.
+//
+// # Why a certificate is a machine identity rather than a third thing
+//
+// KindCryptography joined this target in Phase 78d rather than getting one
+// of its own, and that is the load-bearing decision rather than a tidying
+// one. A client certificate answers "who does this run authenticate as",
+// which is the same question a username and password answer, so it belongs
+// in the same slot. Putting it there is what makes Combine's existing
+// refusal apply to it for free: an artifact may carry exactly one machine
+// identity, so binding both a machine credential and a certificate
+// credential to one template is refused with a message that says a run
+// authenticates as exactly one identity, and no new rule had to be written
+// to get that.
+//
+// The consequence is real and is stated here rather than discovered later:
+// one template cannot reach Linux over SSH and Windows by certificate in
+// the same run. That is the pre-existing one-identity rule doing what it
+// says, not a limitation this stage introduced.
 func (machineTarget) Apply(req Request, art *Artifact) error {
 	cred := req.Credential
-	if cred.Type.Kind != KindSSH && cred.Type.Kind != KindNet {
-		return nil
-	}
 
-	mapping := []struct{ input, key string }{
-		{MachineInputUsername, MachineUsername},
-		{MachineInputPassword, MachinePassword},
-		{MachineInputKeyData, MachinePrivateKey},
-		{MachineInputKeyUnlock, MachinePassphrase},
+	var mapping []struct{ input, key string }
+	switch cred.Type.Kind {
+	case KindSSH, KindNet:
+		mapping = []struct{ input, key string }{
+			{MachineInputUsername, MachineUsername},
+			{MachineInputPassword, MachinePassword},
+			{MachineInputKeyData, MachinePrivateKey},
+			{MachineInputKeyUnlock, MachinePassphrase},
+		}
+	case KindCryptography:
+		mapping = []struct{ input, key string }{
+			{CertificateInputCertificate, MachineCertificate},
+			{CertificateInputPrivateKey, MachinePrivateKey},
+			{CertificateInputKeyUnlock, MachinePassphrase},
+			{CertificateInputPFX, MachinePFX},
+		}
+	default:
+		return nil
 	}
 
 	machine := make(map[string]string, len(mapping))
@@ -336,8 +365,89 @@ func (machineTarget) Apply(req Request, art *Artifact) error {
 	if len(machine) == 0 {
 		return nil
 	}
+	claims, err := checkCertificateMaterial(cred, machine)
+	if err != nil {
+		return err
+	}
+	if !claims {
+		return nil
+	}
 	art.machine = machine
 	return nil
+}
+
+// checkCertificateMaterial decides whether a cryptography credential is a
+// machine identity at all, and refuses one that is a contradictory half of
+// one.
+//
+// # Why it asks that question rather than validating every cryptography credential
+//
+// KindCryptography is "a signing or verification key" and AWX registers its
+// GPG Public Key type under it, so the kind covers far more than client
+// certificates and any operator may choose it for a custom type. This
+// target therefore cannot treat every cryptography credential as a
+// certificate: the deciding evidence is a CERTIFICATE or a BUNDLE, not the
+// kind and not an input that happens to be called private_key.
+//
+// Getting this wrong is not theoretical. A code-signing credential with an
+// input named private_key and an env injector is an ordinary thing to have,
+// it works today, and an earlier draft of this function turned every launch
+// binding one into an injection-time refusal complaining about a missing
+// certificate it was never meant to carry. Worse, a type declaring only
+// key_unlock would have claimed the single machine-identity slot while
+// carrying no identity, so Combine would refuse a template for a conflict
+// with something that is not a credential for authenticating as anyone.
+//
+// So the answer is a bool: claims tells Apply whether to take the slot.
+// False means this credential is not a machine identity and its inputs
+// belong to its own injector document, which is exactly what they did
+// before this target learned the kind.
+//
+// It runs at injection rather than only at the transport because this is
+// where the credential is still identifiable. By the time these values
+// reach a Collection method they are an anonymous map, and the error a
+// transport can raise there names a device rather than the credential an
+// operator has to go and edit.
+//
+// A bundle and a loose pair are alternatives, never a pair of fallbacks.
+// Silently preferring one would mean a run authenticating with material the
+// operator did not choose, which is FAILURE_PATTERNS.md #116's shape again
+// and the same reason ErrInjectorConflict exists.
+func checkCertificateMaterial(cred Credential, machine map[string]string) (claims bool, err error) {
+	if cred.Type.Kind != KindCryptography {
+		// SSH and net credentials reached here, and they are machine
+		// identities by definition of their own kinds.
+		return true, nil
+	}
+
+	_, hasBundle := machine[MachinePFX]
+	_, hasCert := machine[MachineCertificate]
+	_, hasKey := machine[MachinePrivateKey]
+
+	switch {
+	case hasBundle && (hasCert || hasKey):
+		return false, fmt.Errorf("%w: credential %q carries a %s bundle and a separate %s or %s, and those are two "+
+			"ways to supply one identity rather than a pair of fallbacks: keep whichever the target expects and clear the other",
+			ErrInvalidCredential, cred.Name, CertificateInputPFX,
+			CertificateInputCertificate, CertificateInputPrivateKey)
+
+	case hasCert && !hasKey:
+		// A certificate is unambiguous evidence that this credential means
+		// to authenticate, so a missing key is an error rather than a
+		// reason to walk away.
+		return false, fmt.Errorf("%w: credential %q has a %s but no %s, and a certificate alone cannot prove possession",
+			ErrInvalidCredential, cred.Name, CertificateInputCertificate, CertificateInputPrivateKey)
+
+	case hasCert || hasBundle:
+		return true, nil
+
+	default:
+		// A key with no certificate, or a passphrase on its own. Not a
+		// machine identity, and deliberately not an error: this is what a
+		// signing credential looks like, and refusing it here would break
+		// something that never had anything to do with this feature.
+		return false, nil
+	}
 }
 
 // secretTracking is the Decorator every Target is wrapped in.

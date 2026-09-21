@@ -464,7 +464,7 @@ have already created, with `PUT /api/v1/credentials/{id}/input-sources`, whose b
 takes the same three fields AWX's own row has: the target's `input_id`, the
 `source_credential`, and the `metadata` that addresses the secret inside it.
 
-Three differences to plan around, none of which change the shape of the data:
+Four differences to plan around, none of which change the shape of the data:
 
 - **The source must exist first.** A binding names a credential, so create the source
   credentials before the ones that read through them. Where a target's required input
@@ -475,12 +475,19 @@ Three differences to plan around, none of which change the shape of the data:
   may not itself read from a further source. Pleiades allows a source whose own token
   is external, up to four links, and refuses past that by name. Any AWX export is well
   inside this.
-- **`hashivault_kv` is the only source implemented.** An imported row pointing at
-  HashiCorp Vault resolves for real, and its `metadata` fields carry over unchanged:
-  `secret_backend`, `secret_path`, `secret_key` and `secret_version` mean here what
-  they mean in your export. A row pointing at any of the other seven is stored
-  faithfully and fails with an explicit error naming that source, which is the same
-  honest-failure convention the "not implemented" types above follow.
+- **`hashivault_kv` is the only external source implemented.** An imported row
+  pointing at HashiCorp Vault resolves for real, and its `metadata` fields carry over
+  unchanged: `secret_backend`, `secret_path`, `secret_key` and `secret_version` mean
+  here what they mean in your export. A row pointing at any of the other seven is
+  stored faithfully and fails with an explicit error naming that source, which is the
+  same honest-failure convention the "not implemented" types above follow.
+- **A source can also be an ordinary credential, which AWX does not do.** Where AWX
+  requires the source to be an external secret source, Pleiades also lets an input be
+  filled from another credential's own field: name that field in the binding's
+  `source_field` metadata. Nothing in an AWX export uses this, so it changes no
+  imported row. It is worth knowing about because it is how one stored password serves
+  several credentials without being typed in twice, and because it is what a
+  certificate bundle's passphrase is bound to.
 
 ## Running an unconverted playbook
 

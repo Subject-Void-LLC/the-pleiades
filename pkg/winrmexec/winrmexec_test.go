@@ -160,23 +160,51 @@ func TestRun_PowerShellAllowsCDATATerminator(t *testing.T) {
 	}
 }
 
-// TestRun_RequiresUsernameAndPassword covers the credential shape this
-// protocol needs. WinRM authenticates with NTLM, so a key is not usable
-// and saying so beats a confusing failure from the far side.
-func TestRun_RequiresUsernameAndPassword(t *testing.T) {
+// TestRun_RequiresOneCompleteCredential covers every incomplete credential
+// shape, and asserts each is refused for its OWN reason.
+//
+// It used to assert that all of them mentioned "username and a password",
+// which was right while NTLM was the only mechanism here. Certificate
+// authentication made that message wrong for half these cases, and the
+// substring would have kept passing while sending an operator holding a
+// certificate to look for a password. Each case now pins the distinguishing
+// words of the answer it should get, so a refusal that regresses to one
+// generic message fails here rather than in the field.
+func TestRun_RequiresOneCompleteCredential(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		auth Auth
+		want string
 	}{
-		{name: "nothing at all", auth: Auth{}},
-		{name: "username only", auth: Auth{Username: "administrator"}},
-		{name: "password only", auth: Auth{Password: "secret"}},
+		{name: "nothing at all", auth: Auth{}, want: "credential is empty"},
+		{name: "username only", auth: Auth{Username: "administrator"}, want: "no password"},
+		{name: "password only", auth: Auth{Password: "secret"}, want: "no username"},
+		{
+			name: "certificate with no key",
+			auth: Auth{CertificatePEM: []byte("-----BEGIN CERTIFICATE-----")},
+			want: "no private key",
+		},
+		{
+			name: "key with no certificate",
+			auth: Auth{PrivateKeyPEM: []byte("-----BEGIN PRIVATE KEY-----")},
+			want: "no client certificate",
+		},
+		{
+			name: "both mechanisms at once",
+			auth: Auth{
+				Username:       "administrator",
+				Password:       "secret",
+				CertificatePEM: []byte("-----BEGIN CERTIFICATE-----"),
+				PrivateKeyPEM:  []byte("-----BEGIN PRIVATE KEY-----"),
+			},
+			want: "both a client certificate and a password",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Run(context.Background(), Target{Host: "192.0.2.1"}, tt.auth,
 				ShellPowerShell, "hostname", Options{})
-			if err == nil || !strings.Contains(err.Error(), "username and a password") {
-				t.Errorf("error = %v, want it to require a username and a password", err)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tt.want)
 			}
 		})
 	}
