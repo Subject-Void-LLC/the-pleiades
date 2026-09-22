@@ -175,7 +175,11 @@ func TestMain(m *testing.M) {
 	}
 	harnessCert = cert
 
-	os.Exit(m.Run())
+	code := m.Run()
+	// The previous release's extracted tree and binary, when an upgrade
+	// gate built one (previous_build_test.go).
+	removePreviousBuilds()
+	os.Exit(code)
 }
 
 // managedProc is one subprocess plus the goroutine draining its output.

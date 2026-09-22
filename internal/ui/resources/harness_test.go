@@ -919,7 +919,7 @@ func (s *fakeProjectStore) ByLaunchable(ctx context.Context, launchableID int) (
 	return s.Get(ctx, launchableID)
 }
 
-func (s *fakeProjectStore) ResetInterruptedSyncs(_ context.Context) (int, error) {
+func (s *fakeProjectStore) ResetInterruptedSyncs(_ context.Context, _ []string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0

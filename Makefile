@@ -1,4 +1,4 @@
-.PHONY: up setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -245,8 +245,14 @@ fmt-fix:
 # error. If the package timeout fired first it would replace that clear
 # message with a goroutine-dump panic saying nothing about Docker, which
 # is the failure mode this value exists to prevent, not merely a slower
-# one. 20m covers that worst case with room for the tests themselves,
-# while still bounding a genuinely hung run; the slowest package today is
+# one. 30m covers that worst case with room for the tests themselves,
+# while still bounding a genuinely hung run. The slowest package today is
+# tests/e2e, at 1099 seconds under test-integration on 2026-09-22 once the
+# upgrade gates (a kind cluster upgraded twice, a compose stack upgraded
+# and rolled back, the previous release's binary run beside this one) were
+# added. That was 92% of the 20m this used to be, and a package timeout
+# panics without running any test's cleanup, which strands a kind cluster
+# and a compose stack. The slowest package before them was
 # internal/event at roughly six minutes, most of which is one deliberate
 # sleep: Phase 96a's release gate severs a real broker for 150 seconds,
 # because the defect it guards (a connection that gave up for good at
@@ -260,7 +266,7 @@ fmt-fix:
 # caller-controlled for no benefit. Its TestGoTestTimeoutMatchesMakefile
 # asserts the two agree, so changing this line alone fails the build
 # rather than silently leaving the two runs bounded differently.
-GO_TEST_TIMEOUT ?= 20m
+GO_TEST_TIMEOUT ?= 30m
 
 test:
 	go test -timeout $(GO_TEST_TIMEOUT) ./...
@@ -363,6 +369,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
+	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
 	github.com/Subject-Void-LLC/the-pleiades/internal/event \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
@@ -718,6 +725,21 @@ templ-gen-check: templ-gen
 	git diff --exit-code -- internal/ui/render
 	test -z "$$(git ls-files --others --exclude-standard -- internal/ui/render)"
 
+# DRY_RUN is set under make -n (and --dry-run, --just-print, --recon). Make
+# puts every single-letter option together in MAKEFLAGS's first word, and the
+# leading "-" keeps an empty first word from matching, so a long option such
+# as --no-print-directory, which contains an n, does not count.
+DRY_RUN := $(findstring n,$(firstword -$(MAKEFLAGS)))
+
+# refuse-dry-run stops `make -n` on a target whose recipe recurses. Make runs
+# any recipe line that names $(MAKE) even under -n, so a "dry run" of such a
+# target runs for real: `make -n up` stopped the live controller and runner
+# when an upgrade was due, and took no backup (FAILURE_PATTERNS.md #284). It
+# is an expansion rather than a command, so it fires while make reads the
+# recipe, before any line is printed or run; a guard written as a command
+# would itself only be printed.
+refuse-dry-run = $(if $(DRY_RUN),$(error make -n cannot preview $@: its recipe runs $$(MAKE), which make executes even under -n. Read the recipe in the Makefile instead))
+
 # up brings the compose stack up in one command, running setup first when
 # .env does not yet hold a key and a JWT secret.
 #
@@ -737,7 +759,22 @@ templ-gen-check: templ-gen
 # check swallowed the password piped in for setup, which then wrote .env and
 # failed with "no secret on standard input". The backup release gate found
 # that on the first `make up` any test ran.
+#
+# Then it asks the build it is about to start what that start would do to the
+# database (up-plan below), and when the answer is an upgrade of a database
+# that holds data, it stops the controller and runner and takes a backup
+# first. A backup that fails stops the upgrade: the old build's database is
+# left exactly as it was, and restoring that backup is how an upgrade is
+# undone.
+#
+# The last line builds what it starts. Without --build, an upgrade rebuilt
+# the controller only by accident (setup shares its image tag, and the check
+# above builds setup) and never rebuilt the runner, so a checkout of a new
+# release came up as a new controller beside the old build's runner
+# (FAILURE_PATTERNS.md #285). Profile services are not started here, so
+# they are not built here either; setup and backup build on their own runs.
 up: setup-env-check
+	$(refuse-dry-run)
 	@status=0; \
 	docker compose run --rm --build --no-deps -T --user "$$($(SETUP_USER))" setup --check </dev/null >/dev/null 2>&1 || status=$$?; \
 	case $$status in \
@@ -745,7 +782,41 @@ up: setup-env-check
 	  3) $(MAKE) --no-print-directory setup ;; \
 	  *) docker compose run --rm --no-deps -T --user "$$($(SETUP_USER))" setup --check </dev/null; exit 1 ;; \
 	esac
-	docker compose up -d --wait
+	@$(MAKE) --no-print-directory up-plan
+	docker compose up -d --wait --build
+
+# up-plan runs `controller migrate --plan` from the build `make up` is about
+# to start, in the backup service (it has the database's DSN and the stack's
+# network), and acts on its exit code:
+#
+#   0  new or current: nothing to do
+#   4  a newer build migrated the database and this one can still serve it,
+#      which is what rolling back inside the compatibility window looks like
+#   3  starting this build upgrades a database that holds data: stop the
+#      controller and runner, so nothing is written after the backup, and
+#      take one
+#   *  this build cannot use the database, or it could not be read: start
+#      nothing, and leave whatever is running as it is
+#
+# The plan changes nothing. Its /backups and /restore mounts point at the
+# setup directory, which exists already, so a first install does not get an
+# empty backups directory that Docker created as root.
+#
+# `make -n up`, `make -n up-plan` and `make -n restore` are refused rather
+# than run (refuse-dry-run above): this recipe's one shell line names
+# $(MAKE), so make would execute it even under -n, plan and stop included.
+up-plan:
+	$(refuse-dry-run)
+	@status=0; \
+	PLEIADES_BACKUP_DIR="$${PLEIADES_SETUP_DIR:-$(CURDIR)}" PLEIADES_RESTORE_DIR="$${PLEIADES_SETUP_DIR:-$(CURDIR)}" \
+	  docker compose run --rm --build -T --user "$$($(SETUP_USER))" backup migrate --plan </dev/null || status=$$?; \
+	case $$status in \
+	  0|4) ;; \
+	  3) echo "make up: this build upgrades the database, so it is backed up first."; \
+	     docker compose stop controller runner >/dev/null 2>&1 || true; \
+	     $(MAKE) --no-print-directory backup || { echo "make up: the backup failed, so the database was NOT upgraded and nothing was started. Fix the backup, or start the previous build again." >&2; exit 1; } ;; \
+	  *) echo "make up: this build cannot use the database (see above), so nothing was started." >&2; exit 1 ;; \
+	esac
 
 # setup runs the controller's setup command in the compose stack's one-shot
 # `setup` service (see the bottom of docker-compose.yml for why it runs on
@@ -858,6 +929,7 @@ BACKUP ?=
 RESTORE_FLAGS ?=
 
 restore: setup-env-check
+	$(refuse-dry-run)
 	@test -n "$(BACKUP)" || { echo "make restore: name the backup to restore: make restore BACKUP=$(BACKUP_DIR)/<file>.dump" >&2; exit 2; }
 	@test -f "$(BACKUP)" || { echo "make restore: there is no file $(BACKUP)" >&2; exit 2; }
 	@$(BACKUP_DIR_CREATE)

@@ -287,6 +287,29 @@ func TestRestore_RefusesABackupFromANewerVersion(t *testing.T) {
 	srv.assertNoLeftovers(t)
 }
 
+// TestTake_BacksUpADatabaseANewerBuildMigrated covers the backup an older
+// build takes after a rollback inside the compatibility window: the live
+// database holds a table only the newer build knows. The backup is taken,
+// with that table in it, and says which build restores it; this build's own
+// restore then refuses the file rather than guessing at the newer schema.
+func TestTake_BacksUpADatabaseANewerBuildMigrated(t *testing.T) {
+	srv := startServer(t)
+	key := testKey('w')
+	srv.seed(t, key, crypto.DefaultKeyVersion)
+	srv.exec(t, "pleiades", `CREATE TABLE things_a_newer_build_made (id bigint PRIMARY KEY)`)
+	srv.exec(t, "pleiades", `INSERT INTO schema_migrations (version, applied_at) VALUES ('9999_from_a_newer_build.sql', now())`)
+	d := newDirs(t, envKey(key))
+
+	file, out := takeBackup(t, srv, d)
+	if !strings.Contains(out, "9999_from_a_newer_build.sql") || !strings.Contains(out, "Restore this backup with the build that applied them") {
+		t.Errorf("the summary does not say which build restores it:\n%s", out)
+	}
+	_, _, err := restore(srv, d, file, nil)
+	if err == nil {
+		t.Fatal("this build restored a backup holding a schema it does not know")
+	}
+}
+
 // TestTake_RefusesADatabaseNoControllerHasOpened covers backing up before
 // the first start: there is nothing to back up, and no file is written.
 func TestTake_RefusesADatabaseNoControllerHasOpened(t *testing.T) {

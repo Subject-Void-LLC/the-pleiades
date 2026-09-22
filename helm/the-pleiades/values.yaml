@@ -297,16 +297,28 @@ controller:
       periodSeconds: 5
       timeoutSeconds: 5
       failureThreshold: 3
-    # -- The startup probe is what makes the liveness settings above safe. The
-    # controller runs its schema migration before it opens a listener, so on a
-    # first install nothing answers for a while, and a liveness probe with no
-    # startup probe in front of it would kill the pod mid-migration and do it
-    # again on the next try. failureThreshold x periodSeconds is the migration
-    # budget: 30 x 5s = 150 seconds here.
+    # -- The startup probe covers the seconds before the controller's listener
+    # is bound. The listener opens BEFORE the schema is migrated and answers
+    # /healthz as alive (and /readyz as not ready) for as long as a migration
+    # takes, so this is no longer a migration budget: a long upgrade stays
+    # alive and simply is not sent traffic until it finishes.
     startup:
       periodSeconds: 5
       timeoutSeconds: 5
       failureThreshold: 30
+
+  # -- How long a stopping controller keeps serving after it reports itself
+  # not ready, so requests the Service already routed to it finish landing.
+  # Two cases set the floor. When the pod is deleted (a rolling upgrade),
+  # the cluster removes its endpoint as soon as it starts terminating, and
+  # the drain only has to outlast that removal reaching every node. When the
+  # controller stops by itself (it found the database migrated past it),
+  # nothing deletes the pod, and only the readiness probe takes it out of
+  # the Service: up to periodSeconds times failureThreshold, 15 seconds with
+  # the defaults above. The default covers that plus five seconds for the
+  # endpoint to go. Raise it with the readiness probe. The pod's termination
+  # grace period is this plus 25 seconds for the shutdown itself.
+  shutdownDrainSeconds: 20
 
   podAnnotations: {}
   podLabels: {}

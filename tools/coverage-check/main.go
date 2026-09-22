@@ -52,7 +52,7 @@ const tolerance = 0.05
 // a constant. TestGoTestTimeoutMatchesMakefile keeps the two copies
 // honest, the same way internal/testsupport keeps docker-compose.yml and
 // its image pins honest.
-const goTestTimeout = "20m"
+const goTestTimeout = "30m"
 
 var (
 	pkgPattern     = regexp.MustCompile(`github\.com/Subject-Void-LLC/the-pleiades/\S*`)

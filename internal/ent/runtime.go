@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/controllerinstance"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
@@ -129,6 +130,53 @@ func init() {
 	contactDescDisplayOrder := contactFields[6].Descriptor()
 	// contact.DefaultDisplayOrder holds the default value on creation for the display_order field.
 	contact.DefaultDisplayOrder = contactDescDisplayOrder.Default.(int)
+	controllerinstanceMixin := schema.ControllerInstance{}.Mixin()
+	controllerinstanceMixinFields0 := controllerinstanceMixin[0].Fields()
+	_ = controllerinstanceMixinFields0
+	controllerinstanceFields := schema.ControllerInstance{}.Fields()
+	_ = controllerinstanceFields
+	// controllerinstanceDescCreatedAt is the schema descriptor for created_at field.
+	controllerinstanceDescCreatedAt := controllerinstanceMixinFields0[0].Descriptor()
+	// controllerinstance.DefaultCreatedAt holds the default value on creation for the created_at field.
+	controllerinstance.DefaultCreatedAt = controllerinstanceDescCreatedAt.Default.(func() time.Time)
+	// controllerinstanceDescUpdatedAt is the schema descriptor for updated_at field.
+	controllerinstanceDescUpdatedAt := controllerinstanceMixinFields0[1].Descriptor()
+	// controllerinstance.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	controllerinstance.DefaultUpdatedAt = controllerinstanceDescUpdatedAt.Default.(func() time.Time)
+	// controllerinstance.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	controllerinstance.UpdateDefaultUpdatedAt = controllerinstanceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// controllerinstanceDescInstanceID is the schema descriptor for instance_id field.
+	controllerinstanceDescInstanceID := controllerinstanceFields[0].Descriptor()
+	// controllerinstance.InstanceIDValidator is a validator for the "instance_id" field. It is called by the builders before save.
+	controllerinstance.InstanceIDValidator = func() func(string) error {
+		validators := controllerinstanceDescInstanceID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(instance_id string) error {
+			for _, fn := range fns {
+				if err := fn(instance_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// controllerinstanceDescVersion is the schema descriptor for version field.
+	controllerinstanceDescVersion := controllerinstanceFields[1].Descriptor()
+	// controllerinstance.VersionValidator is a validator for the "version" field. It is called by the builders before save.
+	controllerinstance.VersionValidator = controllerinstanceDescVersion.Validators[0].(func(string) error)
+	// controllerinstanceDescMigrationHead is the schema descriptor for migration_head field.
+	controllerinstanceDescMigrationHead := controllerinstanceFields[2].Descriptor()
+	// controllerinstance.MigrationHeadValidator is a validator for the "migration_head" field. It is called by the builders before save.
+	controllerinstance.MigrationHeadValidator = controllerinstanceDescMigrationHead.Validators[0].(func(string) error)
+	// controllerinstanceDescHost is the schema descriptor for host field.
+	controllerinstanceDescHost := controllerinstanceFields[3].Descriptor()
+	// controllerinstance.DefaultHost holds the default value on creation for the host field.
+	controllerinstance.DefaultHost = controllerinstanceDescHost.Default.(string)
+	// controllerinstance.HostValidator is a validator for the "host" field. It is called by the builders before save.
+	controllerinstance.HostValidator = controllerinstanceDescHost.Validators[0].(func(string) error)
 	credentialMixin := schema.Credential{}.Mixin()
 	credentialMixinFields0 := credentialMixin[0].Fields()
 	_ = credentialMixinFields0
@@ -957,6 +1005,10 @@ func init() {
 	syncrun.DefaultError = syncrunDescError.Default.(string)
 	// syncrun.ErrorValidator is a validator for the "error" field. It is called by the builders before save.
 	syncrun.ErrorValidator = syncrunDescError.Validators[0].(func(string) error)
+	// syncrunDescOwnerInstance is the schema descriptor for owner_instance field.
+	syncrunDescOwnerInstance := syncrunFields[6].Descriptor()
+	// syncrun.OwnerInstanceValidator is a validator for the "owner_instance" field. It is called by the builders before save.
+	syncrun.OwnerInstanceValidator = syncrunDescOwnerInstance.Validators[0].(func(string) error)
 	teamMixin := schema.Team{}.Mixin()
 	teamMixinFields0 := teamMixin[0].Fields()
 	_ = teamMixinFields0

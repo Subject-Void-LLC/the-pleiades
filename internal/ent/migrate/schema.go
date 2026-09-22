@@ -114,6 +114,31 @@ var (
 			},
 		},
 	}
+	// ControllerInstancesColumns holds the columns for the "controller_instances" table.
+	ControllerInstancesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "instance_id", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "version", Type: field.TypeString, Size: 128},
+		{Name: "migration_head", Type: field.TypeString, Size: 128},
+		{Name: "host", Type: field.TypeString, Size: 255, Default: ""},
+		{Name: "started_unix", Type: field.TypeInt64},
+		{Name: "last_seen_unix", Type: field.TypeInt64},
+	}
+	// ControllerInstancesTable holds the schema information for the "controller_instances" table.
+	ControllerInstancesTable = &schema.Table{
+		Name:       "controller_instances",
+		Columns:    ControllerInstancesColumns,
+		PrimaryKey: []*schema.Column{ControllerInstancesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "controllerinstance_last_seen_unix",
+				Unique:  false,
+				Columns: []*schema.Column{ControllerInstancesColumns[8]},
+			},
+		},
+	}
 	// CredentialsColumns holds the columns for the "credentials" table.
 	CredentialsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -951,6 +976,7 @@ var (
 		{Name: "error", Type: field.TypeString, Size: 2048, Default: ""},
 		{Name: "started_at", Type: field.TypeTime},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+		{Name: "owner_instance", Type: field.TypeString, Nullable: true, Size: 64},
 		{Name: "project_sync_runs", Type: field.TypeInt},
 	}
 	// SyncRunsTable holds the schema information for the "sync_runs" table.
@@ -961,7 +987,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "sync_runs_projects_sync_runs",
-				Columns:    []*schema.Column{SyncRunsColumns[9]},
+				Columns:    []*schema.Column{SyncRunsColumns[10]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -970,7 +996,7 @@ var (
 			{
 				Name:    "syncrun_started_at_project_sync_runs",
 				Unique:  false,
-				Columns: []*schema.Column{SyncRunsColumns[7], SyncRunsColumns[9]},
+				Columns: []*schema.Column{SyncRunsColumns[7], SyncRunsColumns[10]},
 			},
 		},
 	}
@@ -1223,6 +1249,7 @@ var (
 		ActivityEntriesTable,
 		AnnouncementsTable,
 		ContactsTable,
+		ControllerInstancesTable,
 		CredentialsTable,
 		CredentialInputSourcesTable,
 		CredentialTypesTable,

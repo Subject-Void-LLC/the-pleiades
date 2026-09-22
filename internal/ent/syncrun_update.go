@@ -131,6 +131,26 @@ func (_u *SyncRunUpdate) ClearFinishedAt() *SyncRunUpdate {
 	return _u
 }
 
+// SetOwnerInstance sets the "owner_instance" field.
+func (_u *SyncRunUpdate) SetOwnerInstance(v string) *SyncRunUpdate {
+	_u.mutation.SetOwnerInstance(v)
+	return _u
+}
+
+// SetNillableOwnerInstance sets the "owner_instance" field if the given value is not nil.
+func (_u *SyncRunUpdate) SetNillableOwnerInstance(v *string) *SyncRunUpdate {
+	if v != nil {
+		_u.SetOwnerInstance(*v)
+	}
+	return _u
+}
+
+// ClearOwnerInstance clears the value of the "owner_instance" field.
+func (_u *SyncRunUpdate) ClearOwnerInstance() *SyncRunUpdate {
+	_u.mutation.ClearOwnerInstance()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *SyncRunUpdate) SetProjectID(id int) *SyncRunUpdate {
 	_u.mutation.SetProjectID(id)
@@ -211,6 +231,11 @@ func (_u *SyncRunUpdate) check() error {
 			return &ValidationError{Name: "error", err: fmt.Errorf(`ent: validator failed for field "SyncRun.error": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OwnerInstance(); ok {
+		if err := syncrun.OwnerInstanceValidator(v); err != nil {
+			return &ValidationError{Name: "owner_instance", err: fmt.Errorf(`ent: validator failed for field "SyncRun.owner_instance": %w`, err)}
+		}
+	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "SyncRun.project"`)
 	}
@@ -255,6 +280,12 @@ func (_u *SyncRunUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.FinishedAtCleared() {
 		_spec.ClearField(syncrun.FieldFinishedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.OwnerInstance(); ok {
+		_spec.SetField(syncrun.FieldOwnerInstance, field.TypeString, value)
+	}
+	if _u.mutation.OwnerInstanceCleared() {
+		_spec.ClearField(syncrun.FieldOwnerInstance, field.TypeString)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -407,6 +438,26 @@ func (_u *SyncRunUpdateOne) ClearFinishedAt() *SyncRunUpdateOne {
 	return _u
 }
 
+// SetOwnerInstance sets the "owner_instance" field.
+func (_u *SyncRunUpdateOne) SetOwnerInstance(v string) *SyncRunUpdateOne {
+	_u.mutation.SetOwnerInstance(v)
+	return _u
+}
+
+// SetNillableOwnerInstance sets the "owner_instance" field if the given value is not nil.
+func (_u *SyncRunUpdateOne) SetNillableOwnerInstance(v *string) *SyncRunUpdateOne {
+	if v != nil {
+		_u.SetOwnerInstance(*v)
+	}
+	return _u
+}
+
+// ClearOwnerInstance clears the value of the "owner_instance" field.
+func (_u *SyncRunUpdateOne) ClearOwnerInstance() *SyncRunUpdateOne {
+	_u.mutation.ClearOwnerInstance()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *SyncRunUpdateOne) SetProjectID(id int) *SyncRunUpdateOne {
 	_u.mutation.SetProjectID(id)
@@ -500,6 +551,11 @@ func (_u *SyncRunUpdateOne) check() error {
 			return &ValidationError{Name: "error", err: fmt.Errorf(`ent: validator failed for field "SyncRun.error": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OwnerInstance(); ok {
+		if err := syncrun.OwnerInstanceValidator(v); err != nil {
+			return &ValidationError{Name: "owner_instance", err: fmt.Errorf(`ent: validator failed for field "SyncRun.owner_instance": %w`, err)}
+		}
+	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "SyncRun.project"`)
 	}
@@ -561,6 +617,12 @@ func (_u *SyncRunUpdateOne) sqlSave(ctx context.Context) (_node *SyncRun, err er
 	}
 	if _u.mutation.FinishedAtCleared() {
 		_spec.ClearField(syncrun.FieldFinishedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.OwnerInstance(); ok {
+		_spec.SetField(syncrun.FieldOwnerInstance, field.TypeString, value)
+	}
+	if _u.mutation.OwnerInstanceCleared() {
+		_spec.ClearField(syncrun.FieldOwnerInstance, field.TypeString)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{

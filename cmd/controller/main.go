@@ -10,12 +10,9 @@
 // api.Dispatcher and api.LogStreamer) gets its first real, running,
 // non-test caller here.
 //
-// Deliberately out of scope: a Postgres-backed store. PLAN.md Section 16
-// names PostgreSQL as the v1 default, but no ent Postgres migration path
-// exists anywhere in this repository yet (internal/ent/embedded.go only
-// has a SQLite embedded-migration path), and adding one is not a Phase 2
-// checklist item; this composition root uses the same embedded SQLite
-// path cmd/pleiades (the Crawl-tier CLI) already does.
+// The store is whatever DB_DSN names, PostgreSQL or SQLite, opened and
+// migrated through internal/ent.OpenDatabase. Any number of controllers may
+// migrate one database at once (internal/ent/migrate's package comment).
 //
 // This is also Phase 4's own composition root: exactly one running
 // controller replica must hold the "pleiades-scheduler-leader" lease at
@@ -439,8 +436,8 @@ func loadRateLimiter() (*api.RateLimiter, error) {
 //
 // maxOpenConns is 16 rather than a larger round number because the ceiling
 // that matters is not this process. Postgres allows 100 connections by
-// default and every replica draws from that one pool, so a chart installed
-// at its default two replicas takes 32 and leaves room for the migrations,
+// default and every replica draws from that one pool, so a chart scaled to
+// two replicas takes 32 and leaves room for the migrations,
 // psql sessions and whatever else an operator runs; a value like 100 here
 // would let two replicas exhaust the server between them and turn a
 // controller restart into an outage for everything else on it. On SQLite,
@@ -536,6 +533,10 @@ func main() {
 		os.Exit(runSetup(args))
 	case routeBackup:
 		os.Exit(runBackupCommand(args))
+	case routeVersion:
+		os.Exit(runVersion(os.Stdout))
+	case routeMigrate:
+		os.Exit(runMigrateMain(args))
 	case routeAdmin:
 		os.Exit(runAdmin(args))
 	case routeServer:
@@ -691,16 +692,114 @@ func main() {
 		fatal("failed to init envelope encryption", err)
 	}
 
-	client, err := ent.OpenDatabase(ctx, ent.Config{
+	// The drain is read before anything is bound, so a malformed
+	// SHUTDOWN_DRAIN stops the process before it has taken the port.
+	drainer, err := newDrain()
+	if err != nil {
+		fatal("invalid SHUTDOWN_DRAIN", err)
+	}
+
+	// Bound BEFORE the database is opened, because opening it migrates it
+	// and a migration can take longer than any probe would wait for a port
+	// that does not answer (startuphandler.go). The listener serves the
+	// startup handler until the router exists.
+	startup := &startupHandler{}
+
+	// The serving configuration is built complete, before the server value
+	// exists, rather than being reached into afterwards. ServeTLS clones
+	// this config as it starts, so a field written after the goroutine below
+	// launches is a data race with an unhelpfully intermittent symptom.
+	serverTLS := &tls.Config{
+		// The same floor pkg/catalystcenter's outbound client sets, so
+		// this platform makes one statement about acceptable TLS versions
+		// rather than one per direction. TLS 1.0 and 1.1 are the versions
+		// this excludes; every browser and every client library that can
+		// reach this UI has spoken 1.2 for years.
+		MinVersion: tls.VersionTLS12,
+	}
+	if servingPair != nil {
+		// Exactly the material prepareServingCertificate verified, so the
+		// listener cannot end up presenting something else that appeared on
+		// disk in between.
+		serverTLS.Certificates = []tls.Certificate{*servingPair}
+	}
+
+	srv := &http.Server{
+		Addr: listenAddr,
+		// The startup handler answers the probes while the database is
+		// migrated and the rest of this process is wired, and hands every
+		// request to the router once it exists (startup.serve below).
+		Handler: startup,
+		// ReadHeaderTimeout bounds how long a client can trickle in
+		// request headers before the server gives up, which is what
+		// prevents a Slowloris-style attack from exhausting the
+		// connection pool with connections that never finish sending
+		// their headers.
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         serverTLS,
+	}
+
+	scheme := "http"
+	if tlsCfg.ServesTLS() {
+		scheme = "https"
+	}
+
+	// Bound here, synchronously, and NOT inside the goroutine below. The
+	// listening line used to be printed before ListenAndServeTLS was called,
+	// so every failure to bind (a port already taken, a permission denial on
+	// a low port) printed "controller listening" and then killed the
+	// process. An operator reading that log had been told the opposite of
+	// what happened. Binding first makes the line a report of something that
+	// already succeeded.
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		fatal("failed to bind the controller listener", err)
+	}
+	// listener.Addr(), not listenAddr, so a configured port of 0 is logged
+	// as the port that was actually chosen.
+	slog.Info("controller listening", slog.String("addr", listener.Addr().String()), slog.String("scheme", scheme))
+
+	go func() {
+		// Both TLS modes take this branch and serve the same way. What
+		// differs is only where the pair came from: an operator's own
+		// certificate, or the one this process provisioned above. Both are
+		// already in srv.TLSConfig.Certificates, which is why the two path
+		// arguments are empty.
+		if tlsCfg.ServesTLS() {
+			if err := srv.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
+				fatal("server failed", err)
+			}
+			return
+		}
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			fatal("server failed", err)
+		}
+	}()
+
+	// SchemaServe: a database a newer build migrated further is still
+	// served when that build recorded it as within this one's window, which
+	// is what keeps a previous build serving through a rolling upgrade and
+	// lets one be rolled back to.
+	client, schema, err := ent.OpenDatabaseReporting(ctx, ent.Config{
 		DSN:             dbDSN,
 		MaxOpenConns:    maxOpenConns,
 		MaxIdleConns:    maxIdleConns,
 		ConnMaxLifetime: connMaxLifetime,
+		Schema:          ent.SchemaServe,
 	})
 	if err != nil {
 		fatal("failed to open the controller database", err)
 	}
 	defer client.Close()
+	logSchemaOutcome(ctx, logger, schema)
+
+	// Heartbeat before anything can claim a sync: every sync this controller
+	// owns must have a live heartbeat behind it from the moment it exists,
+	// or another controller's sweep would take it for abandoned.
+	members, err := joinFleet(ctx, client, logger)
+	if err != nil {
+		fatal("failed to record this controller's heartbeat", err)
+	}
 
 	// Envelope encryption is installed before the client is used for
 	// anything else, so no Device write or read anywhere in this process
@@ -843,7 +942,16 @@ func main() {
 	// a later release adds a type or corrects one. See
 	// credstore.ReconcileManaged for why a failure here warns rather than
 	// stopping the controller.
-	if err := credstore.ReconcileManaged(ctx, credentialStore, managed.Types(), logger); err != nil {
+	//
+	// Not when a newer build migrated this database further. The newer
+	// build's own reconcile installed ITS types, which may correct these
+	// ones, and an older build serving inside the compatibility window
+	// would otherwise revert those corrections on every start of every old
+	// replica during a rolling upgrade or after a rollback.
+	if len(schema.Newer) > 0 {
+		logger.InfoContext(ctx, "managed credential types left as a newer build installed them",
+			"reason", "the database was migrated by a newer build", "newer_migrations", len(schema.Newer))
+	} else if err := credstore.ReconcileManaged(ctx, credentialStore, managed.Types(), logger); err != nil {
 		logger.WarnContext(ctx, "some managed credential types are not installed", "error", err)
 	}
 
@@ -921,16 +1029,20 @@ func main() {
 			slog.Bool("local_paths", allowLocalSource))
 	}
 
-	projectStore := project.NewEntStore(client, sourcePolicy)
+	projectStore := project.NewEntStore(client, sourcePolicy, project.WithOwner(members.id()))
 	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver}, sourcePolicy)
 
 	// projectRunner clones asynchronously, so a slow fetch no longer holds a
-	// page or an API call open while it runs. RecoverInterrupted, run once
-	// here at startup, clears any sync a previous process was killed
-	// mid-clone: a sync runs in memory, so such a row would otherwise stay
-	// running forever and refuse every future Sync of that project.
+	// page or an API call open while it runs. RecoverInterrupted clears any
+	// sync no live controller owns, here at startup and then on every
+	// heartbeat: a sync runs in memory, so a row whose process is gone
+	// would otherwise stay running forever and refuse every future Sync of
+	// that project. A sync a LIVE peer is running is left alone, which is
+	// what a rolling upgrade's new pods used to get wrong.
 	projectRunner := project.NewRunner(projectStore, projectSyncer, logger)
-	projectRunner.RecoverInterrupted(ctx)
+	members.recoverSyncs = projectRunner.RecoverInterrupted
+	members.sweep(ctx)
+	go members.run(ctx)
 
 	// One list, for the reason the catalog comment further down states: a
 	// definition that can be CHOSEN has to be one that can be RUN, or a
@@ -1577,7 +1689,7 @@ func main() {
 		Tracer:      tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api"),
 		Propagator:  tracerProvider.Propagator(),
 		Registry:    metricsRegistry,
-		Readiness:   readinessChecks(nc, client),
+		Readiness:   append(readinessChecks(nc, client), members.schemaCheck(), drainer.check()),
 		RateLimiter: rateLimiter,
 		// Two credential kinds, in this order. An Authorization header is
 		// an unambiguous statement of intent; a cookie is ambient, so
@@ -1603,73 +1715,10 @@ func main() {
 		fatal("failed to build router", err)
 	}
 
-	// The serving configuration is built complete, before the server value
-	// exists, rather than being reached into afterwards. ServeTLS clones
-	// this config as it starts, so a field written after the goroutine below
-	// launches is a data race with an unhelpfully intermittent symptom.
-	serverTLS := &tls.Config{
-		// The same floor pkg/catalystcenter's outbound client sets, so
-		// this platform makes one statement about acceptable TLS versions
-		// rather than one per direction. TLS 1.0 and 1.1 are the versions
-		// this excludes; every browser and every client library that can
-		// reach this UI has spoken 1.2 for years.
-		MinVersion: tls.VersionTLS12,
-	}
-	if servingPair != nil {
-		// Exactly the material prepareServingCertificate verified, so the
-		// listener cannot end up presenting something else that appeared on
-		// disk in between.
-		serverTLS.Certificates = []tls.Certificate{*servingPair}
-	}
-
-	srv := &http.Server{
-		Addr:    listenAddr,
-		Handler: r,
-		// ReadHeaderTimeout bounds how long a client can trickle in
-		// request headers before the server gives up, which is what
-		// prevents a Slowloris-style attack from exhausting the
-		// connection pool with connections that never finish sending
-		// their headers.
-		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig:         serverTLS,
-	}
-
-	scheme := "http"
-	if tlsCfg.ServesTLS() {
-		scheme = "https"
-	}
-
-	// Bound here, synchronously, and NOT inside the goroutine below. The
-	// listening line used to be printed before ListenAndServeTLS was called,
-	// so every failure to bind (a port already taken, a permission denial on
-	// a low port) printed "controller listening" and then killed the
-	// process. An operator reading that log had been told the opposite of
-	// what happened. Binding first makes the line a report of something that
-	// already succeeded.
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		fatal("failed to bind the controller listener", err)
-	}
-	// listener.Addr(), not listenAddr, so a configured port of 0 is logged
-	// as the port that was actually chosen.
-	slog.Info("controller listening", slog.String("addr", listener.Addr().String()), slog.String("scheme", scheme))
-
-	go func() {
-		// Both TLS modes take this branch and serve the same way. What
-		// differs is only where the pair came from: an operator's own
-		// certificate, or the one this process provisioned above. Both are
-		// already in srv.TLSConfig.Certificates, which is why the two path
-		// arguments are empty.
-		if tlsCfg.ServesTLS() {
-			if err := srv.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
-				fatal("server failed", err)
-			}
-			return
-		}
-		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			fatal("server failed", err)
-		}
-	}()
+	// Every request from here on reaches the real router. Until this line,
+	// the listener bound before the database was opened answered as a
+	// process that is alive and not yet ready (startuphandler.go).
+	startup.serve(r)
 
 	// Runs concurrently with, never before, the HTTP server above: an
 	// adversarial review of this phase found that running this
@@ -1690,9 +1739,23 @@ func main() {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+
+	// Two things end a controller: a signal, or the database moving past
+	// what this build can serve while it ran. The second exits non-zero, so
+	// an orchestrator restarts it, and the restart refuses with the reason.
+	exitCode := 0
+	select {
+	case <-sig:
+	case reason := <-members.stop:
+		slog.Error("stopping: the database moved past this build", slog.String("reason", reason))
+		exitCode = 1
+	}
 
 	slog.Info("shutting down")
+
+	// Report not ready, and keep serving for the drain, before anything is
+	// closed: requests already routed here finish landing (drain.go).
+	drainer.begin(context.Background())
 
 	// Cancel immediately (not only via the deferred cancel() above, which
 	// only fires when main returns) so elector.Run begins its own
@@ -1708,10 +1771,19 @@ func main() {
 
 	// Drain in-flight clones after the HTTP server stops accepting requests.
 	// A clone runs on the runner's own goroutine rather than a request's, so
-	// srv.Shutdown does not reach it; a clone that does not stop in time is
-	// abandoned and cleared by the next startup's RecoverInterrupted.
+	// srv.Shutdown does not reach it.
+	//
+	// Leave the fleet only once this controller's own syncs have stopped, so
+	// none of them is presumed abandoned by a peer while it is still
+	// finishing. When they did not stop in time, stay listed: this
+	// controller's heartbeat then ages out once the process is gone, and only
+	// after that may a peer's sweep fail those syncs, rather than while a
+	// clone may still be writing into its working tree and a user could start
+	// a second one into the same tree. It used to leave either way.
 	if err := projectRunner.Shutdown(shutdownCtx); err != nil {
-		slog.Error("draining project syncs failed", slog.String("error", err.Error()))
+		slog.Error("draining project syncs failed; staying in the fleet so no peer sweeps them while they finish", slog.String("error", err.Error()))
+	} else {
+		members.leave(shutdownCtx)
 	}
 
 	// Wait for both electors' own bounded release (internal/election's own
@@ -1744,6 +1816,9 @@ func main() {
 	defer telemetryCancel()
 	if err := tracerProvider.Shutdown(telemetryCtx); err != nil {
 		slog.Error("telemetry shutdown failed", slog.String("error", err.Error()))
+	}
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 }
 

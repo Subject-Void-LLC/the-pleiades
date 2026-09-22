@@ -43,6 +43,11 @@ func backedUpServer(t *testing.T, key []byte) (dsn, backups, file string) {
 	if testing.Short() {
 		t.Skip("starts a postgres container")
 	}
+	// The controller binary this gate runs finds pg_dump and pg_restore on
+	// PATH, and the machine's default may be newer than the server: a newer
+	// pg_restore sends 15 a setting it rejects (FAILURE_PATTERNS.md #292).
+	// The backup image carries the server's own; here the host must match.
+	testsupport.UsePostgresClientTools(t)
 	for _, name := range []string{"pg_dump", "pg_restore"} {
 		if _, err := exec.LookPath(name); err != nil {
 			t.Skipf("%s is not on PATH; the backup image carries it, and this test needs a copy here", name)

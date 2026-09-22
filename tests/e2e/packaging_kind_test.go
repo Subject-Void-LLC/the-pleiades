@@ -626,8 +626,16 @@ func kindNodeName() string {
 // demonstrably holds.
 func importImagesIntoKindNode(t *testing.T, root string) {
 	t.Helper()
+	importImagesIntoKind(t, root, packagingControllerImage, packagingRunnerImage)
+}
 
-	for _, image := range []string{packagingControllerImage, packagingRunnerImage} {
+// importImagesIntoKind is importImagesIntoKindNode for any list of images,
+// which the upgrade gate needs: it runs the previous release's images and
+// this checkout's in one cluster.
+func importImagesIntoKind(t *testing.T, root string, images ...string) {
+	t.Helper()
+
+	for _, image := range images {
 		started := time.Now()
 
 		save := packagingCommand(t, root, nil, "docker", "save", image)
@@ -659,12 +667,30 @@ func importImagesIntoKindNode(t *testing.T, root string) {
 	// crictl is the kubelet's own view.
 	seen := mustRunPackagingTool(t, root, nil, "",
 		"docker", "exec", kindNodeName(), "crictl", "images")
-	for _, image := range []string{packagingControllerImage, packagingRunnerImage} {
-		repository := strings.SplitN(image, ":", 2)[0]
-		if !strings.Contains(seen, repository) {
+	for _, image := range images {
+		if !crictlLists(seen, image) {
 			t.Fatalf("the kubelet cannot see %s after the import:\n%s", image, seen)
 		}
 	}
+}
+
+// crictlLists reports whether `crictl images` output lists image, repository
+// and tag on the same line. Searching the whole listing for each separately
+// passed for an image the node did not have, whenever another image supplied
+// its repository and a third its tag, which is the ordinary case once one
+// repository is imported as both :dev and :previous.
+func crictlLists(listing, image string) bool {
+	repository, tag, _ := strings.Cut(image, ":")
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(line)
+		// The first two columns are IMAGE and TAG, with whatever registry
+		// the runtime resolved in front of the repository.
+		if len(fields) >= 2 && fields[1] == tag &&
+			(fields[0] == repository || strings.HasSuffix(fields[0], "/"+repository)) {
+			return true
+		}
+	}
+	return false
 }
 
 // kubeEnv is the environment every kubectl and helm invocation runs with,

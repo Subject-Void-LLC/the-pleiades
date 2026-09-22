@@ -80,6 +80,25 @@ func helmInstallFromSetup(t *testing.T, root, kubeconfig, dir string, wait bool)
 	return runPackagingTool(t, root, kubeEnv(kubeconfig), "", "helm", args...)
 }
 
+// logControllerRestarts logs how often pod's controller container has
+// restarted and, when it has, why the last one ended and what it last said,
+// which kubectl logs alone would never show.
+func logControllerRestarts(t *testing.T, root, kubeconfig, pod string) {
+	t.Helper()
+	status := mustRunPackagingTool(t, root, kubeEnv(kubeconfig), "",
+		"kubectl", "-n", setupNamespace, "get", "pod", pod,
+		"-o", `jsonpath={.status.containerStatuses[?(@.name=="controller")].restartCount} {.status.containerStatuses[?(@.name=="controller")].lastState.terminated.reason} {.status.containerStatuses[?(@.name=="controller")].lastState.terminated.exitCode}`)
+	fields := strings.Fields(status)
+	if len(fields) == 0 || fields[0] == "0" {
+		t.Logf("the controller container has not restarted")
+		return
+	}
+	previous, _ := runPackagingTool(t, root, kubeEnv(kubeconfig), "",
+		"kubectl", "-n", setupNamespace, "logs", pod, "-c", "controller", "--previous", "--tail", "15")
+	t.Logf("the controller container restarted %s time(s); the last one ended %s:\n%s",
+		fields[0], strings.Join(fields[1:], " exit "), previous)
+}
+
 // controllerPodName returns the name of the release's one controller pod.
 func controllerPodName(t *testing.T, root, kubeconfig string) string {
 	t.Helper()
@@ -123,9 +142,18 @@ func assertInstallFromSetupOutput(t *testing.T, root, kubeconfig string) {
 	if !strings.Contains(out, "is ready") {
 		t.Fatalf("bootstrap-admin on the release installed from setup's output did not succeed:\n%s", out)
 	}
-	logs := mustRunPackagingTool(t, root, kubeEnv(kubeconfig), "", "kubectl", "-n", setupNamespace, "logs", deployment)
-	if !strings.Contains(logs, "recorded the master key as first used by this database") {
-		t.Errorf("the controller did not record the key it first ran with:\n%s", logs)
+	// The registry row, not the log line reporting it. kubectl logs shows
+	// only the running container, so a controller that restarted after
+	// recording the key (the one that recorded it can still die later in
+	// startup, waiting on the broker) had written the line somewhere this
+	// check could no longer see (FAILURE_PATTERNS.md #295).
+	pod := controllerPodName(t, root, kubeconfig)
+	logControllerRestarts(t, root, kubeconfig, pod)
+	origins := mustRunPackagingTool(t, root, kubeEnv(kubeconfig), "",
+		"kubectl", "-n", setupNamespace, "exec", setupFullname+"-postgres-0", "-c", "postgres", "--",
+		"psql", "-U", "pleiades", "-d", "pleiades", "-tAc", "SELECT origin FROM encryption_keys")
+	if got := strings.Fields(origins); len(got) != 1 || got[0] != "first_use" {
+		t.Errorf("the key registry holds origins %q; want exactly one key, recorded by the controller as first used", got)
 	}
 
 	assertANewSecretChecksumRestartsTheController(t, root, kubeconfig, dir)

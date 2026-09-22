@@ -90,6 +90,11 @@ func FinishedAt(v time.Time) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldEQ(FieldFinishedAt, v))
 }
 
+// OwnerInstance applies equality check predicate on the "owner_instance" field. It's identical to OwnerInstanceEQ.
+func OwnerInstance(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEQ(FieldOwnerInstance, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldEQ(FieldCreatedAt, v))
@@ -483,6 +488,81 @@ func FinishedAtIsNil() predicate.SyncRun {
 // FinishedAtNotNil applies the NotNil predicate on the "finished_at" field.
 func FinishedAtNotNil() predicate.SyncRun {
 	return predicate.SyncRun(sql.FieldNotNull(FieldFinishedAt))
+}
+
+// OwnerInstanceEQ applies the EQ predicate on the "owner_instance" field.
+func OwnerInstanceEQ(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEQ(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceNEQ applies the NEQ predicate on the "owner_instance" field.
+func OwnerInstanceNEQ(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNEQ(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceIn applies the In predicate on the "owner_instance" field.
+func OwnerInstanceIn(vs ...string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldIn(FieldOwnerInstance, vs...))
+}
+
+// OwnerInstanceNotIn applies the NotIn predicate on the "owner_instance" field.
+func OwnerInstanceNotIn(vs ...string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNotIn(FieldOwnerInstance, vs...))
+}
+
+// OwnerInstanceGT applies the GT predicate on the "owner_instance" field.
+func OwnerInstanceGT(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldGT(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceGTE applies the GTE predicate on the "owner_instance" field.
+func OwnerInstanceGTE(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldGTE(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceLT applies the LT predicate on the "owner_instance" field.
+func OwnerInstanceLT(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldLT(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceLTE applies the LTE predicate on the "owner_instance" field.
+func OwnerInstanceLTE(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldLTE(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceContains applies the Contains predicate on the "owner_instance" field.
+func OwnerInstanceContains(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldContains(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceHasPrefix applies the HasPrefix predicate on the "owner_instance" field.
+func OwnerInstanceHasPrefix(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldHasPrefix(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceHasSuffix applies the HasSuffix predicate on the "owner_instance" field.
+func OwnerInstanceHasSuffix(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldHasSuffix(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceIsNil applies the IsNil predicate on the "owner_instance" field.
+func OwnerInstanceIsNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldIsNull(FieldOwnerInstance))
+}
+
+// OwnerInstanceNotNil applies the NotNil predicate on the "owner_instance" field.
+func OwnerInstanceNotNil() predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldNotNull(FieldOwnerInstance))
+}
+
+// OwnerInstanceEqualFold applies the EqualFold predicate on the "owner_instance" field.
+func OwnerInstanceEqualFold(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldEqualFold(FieldOwnerInstance, v))
+}
+
+// OwnerInstanceContainsFold applies the ContainsFold predicate on the "owner_instance" field.
+func OwnerInstanceContainsFold(v string) predicate.SyncRun {
+	return predicate.SyncRun(sql.FieldContainsFold(FieldOwnerInstance, v))
 }
 
 // HasProject applies the HasEdge predicate on the "project" edge.

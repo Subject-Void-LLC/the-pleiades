@@ -2037,6 +2037,114 @@ deletes them, and nothing purges them on a schedule. The broker's retention is t
 one exception, derived from the outage budget (see
 [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)).
 
+## Upgrading and rolling back
+
+Upgrading is starting a newer build against the same database. The new controller
+brings the database's schema forward when it starts, one migration at a time.
+Migrations only run forward: nothing ever runs one backwards.
+
+### Ask the new build first
+
+Before an upgrade, run the NEW build's plan against the live database:
+
+```bash
+controller migrate --plan          # or: --json, the same answer as data
+```
+
+It changes nothing. It says which migrations the new build would apply, whether any
+of them is a *contract* (see below), and which controllers the database has seen
+recently, with their versions. Its exit code is its answer, so a script can act on
+it:
+
+| Exit | Meaning |
+|---|---|
+| 0 | The database is new, or already current. Nothing to apply. |
+| 3 | Starting this build upgrades a database that holds data. Take a backup first. |
+| 4 | A newer build already migrated this database, and this build can still serve it. |
+| 1 | This build must not use this database, or it could not be read. It says why. |
+
+Compose does this for you: `make up` runs the new build's plan, and on exit 3 it
+stops the controller and the runner, takes a backup, and only then starts the new
+build. If that backup fails, nothing is upgraded and nothing is started.
+
+### What each way of upgrading keeps
+
+| How you run it | How you upgrade | Data and key | Sessions | Certificate | Downtime |
+|---|---|---|---|---|---|
+| One controller binary | Stop it, replace the file, start it | Kept | Kept | Kept | The restart plus the migration |
+| Compose | Check out the new release, then `make up` | Kept, and backed up first | Kept | Kept | From the stop to the new controller being ready |
+| Helm, one replica (the default) | `helm upgrade` with the same values file | Kept | Kept | Kept | Short: the chart replaces the pod (Recreate) |
+| Helm, two or more replicas | `helm upgrade` with the same values file | Kept | Kept | Kept | None: the old pods serve while the new one migrates |
+
+Sessions are rows in the database, so a browser stays signed in across an upgrade
+as long as the outage is shorter than the 30 minute idle limit. API tokens stay valid
+because `JWT_SECRET` does not change. The certificate a controller made for itself
+lives on its volume, which an upgrade keeps.
+
+Three things to know about Helm:
+
+- Pass the same values file again rather than `--reuse-values`. A newer chart can add
+  a setting, and `--reuse-values` leaves it unset.
+- The chart takes no backups. Back up the database with `pg_dump` before an upgrade
+  that `controller migrate --plan` says will change it.
+- More than one replica needs a volume every replica can mount
+  (`persistence.accessMode=ReadWriteMany`) or no volume at all
+  (`persistence.enabled=false`, with `tls.mode=secret`). A stopping controller keeps
+  serving for `controller.shutdownDrainSeconds` after it reports itself not ready, so
+  the Service stops routing to it before it closes its port.
+
+### Many controllers at once
+
+Any number of controllers can start against one database at the same time, and every
+one of them comes up. Each migration is applied once: the first controller to reach
+it does the work, and the others wait for it and carry on. A controller that dies
+part way releases the migration, and another one applies it.
+
+Two limits come with that:
+
+- Each controller keeps up to 16 database connections. PostgreSQL allows 100 by
+  default, so raise `max_connections` before running more than about five replicas.
+- A migration waits at most 10 seconds for a table another session holds. Then the
+  controller exits, and its restart tries again. A long report query against a busy
+  table can therefore delay an upgrade, but it cannot make every other query wait
+  behind the migration.
+
+### Old and new builds at the same time
+
+During a rolling upgrade the old controllers keep serving while the new one migrates.
+That is safe because of a rule every migration follows: it only *expands* the schema,
+by adding tables, columns that may be empty or have a default, and indexes that are
+not unique, so the build before it keeps working. A migration that removes or narrows
+something, including a unique index over columns that already hold data, is a
+*contract*, and is declared as one along with the oldest build that can still serve
+the schema it leaves. Tests enforce both halves: every migration's real effect on the
+schema is checked against its declaration, and an upgrade test runs the previous
+build against the newly migrated database and makes it do its ordinary work.
+
+Every migration records that oldest build. So:
+
+- A controller from this release on, started against a database a newer build
+  migrated, serves it if every newer migration left a schema it can still serve, and
+  says so in its log. Otherwise it refuses to start and says which build it needs.
+- A running controller rechecks every 15 seconds. If a newer build has contracted the
+  schema past it, it stops being ready, stops, and exits with an error.
+
+What no check can see: a column whose meaning changes while its shape does not, the
+shape of messages on the broker, and a new value in a field stored as text. Those are
+reviewed by hand.
+
+### Rolling back
+
+- **Within the window**, start the previous build again: `helm rollback`, the previous
+  image, or the previous binary. The database stays as it is. Anything the newer
+  build added is still there, unused.
+- **Past the window**, when a contract lies between the two builds, the previous build
+  refuses the database. Restore the backup taken before the upgrade, with the
+  previous release: `make restore BACKUP=<the file make up named>` from its checkout.
+  Everything done since that backup is lost, which is what rolling back past a
+  contract means. That is why `make up` takes the backup, and why a Helm upgrade
+  should be preceded by one.
+
 ## Observability and troubleshooting
 
 Prometheus metrics are exposed at `/metrics`. Structured logging exists throughout

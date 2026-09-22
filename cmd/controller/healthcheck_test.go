@@ -514,6 +514,19 @@ func TestRouteFor(t *testing.T) {
 			want: routeBackup,
 		},
 		{
+			// The admin guard matches this too, and would open the database
+			// through OpenDatabase, which migrates: the command that exists
+			// to ask before an upgrade would perform it.
+			name: "migrate wins over the admin guard that also matches it",
+			args: []string{migrateCommand, "--plan"},
+			want: routeMigrate,
+		},
+		{
+			name: "version wins over the admin guard that also matches it",
+			args: []string{versionCommand},
+			want: routeVersion,
+		},
+		{
 			name: "no arguments runs the server",
 			args: nil,
 			want: routeServer,

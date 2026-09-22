@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"embed"
+	"sort"
 	"testing"
 )
 
@@ -48,6 +49,12 @@ func TestCheckGate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "missing prefix: a later migration is applied but the first one is not",
+			known:   []string{"0001_a.sql", "0002_b.sql", "0003_c.sql"},
+			applied: map[string]bool{"0002_b.sql": true},
+			wantErr: true,
+		},
+		{
 			name:    "unrecognized applied version not in the known set",
 			known:   []string{"0001_a.sql"},
 			applied: map[string]bool{"0001_a.sql": true, "9999_future.sql": true},
@@ -63,7 +70,7 @@ func TestCheckGate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkGate(tt.known, tt.applied)
+			_, err := checkGate(tt.known, rowsOf(tt.applied), gateStrict)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("checkGate(%v, %v) error = %v, wantErr %v", tt.known, tt.applied, err, tt.wantErr)
 			}
@@ -92,4 +99,18 @@ func TestMigrationNames_SkipsSubdirectories(t *testing.T) {
 			t.Fatalf("migrationNames = %v, want %v", names, want)
 		}
 	}
+}
+
+// rowsOf turns a set of applied versions into history rows with no floor, in
+// a fixed order, the shape readHistory returns for a database written before
+// the floor column existed.
+func rowsOf(applied map[string]bool) []appliedRow {
+	rows := make([]appliedRow, 0, len(applied))
+	for version, ok := range applied {
+		if ok {
+			rows = append(rows, appliedRow{version: version})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].version < rows[j].version })
+	return rows
 }

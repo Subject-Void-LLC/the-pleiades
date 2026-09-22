@@ -48,6 +48,47 @@ type Config struct {
 	// ConnMaxLifetime retires a connection after this long. Zero means
 	// connections are reused forever, which is the database/sql default.
 	ConnMaxLifetime time.Duration
+
+	// Schema says what OpenDatabase does with the database's migration
+	// history. The zero value is SchemaStrict.
+	Schema SchemaPolicy
+}
+
+// SchemaPolicy says what OpenDatabase does with a database whose migration
+// history differs from this build's own migrations.
+type SchemaPolicy int
+
+const (
+	// SchemaStrict applies every pending migration and refuses a database a
+	// newer build migrated further. It is the default, and what restore and
+	// every offline tool use: they must never proceed against a schema they
+	// were not built for.
+	SchemaStrict SchemaPolicy = iota
+
+	// SchemaServe applies every pending migration, and also serves a
+	// database a newer build migrated further when that build recorded it
+	// as within this build's compatibility window. It is the controller
+	// server's policy, and what lets a previous build keep serving, or be
+	// rolled back to, during an upgrade.
+	SchemaServe
+
+	// SchemaNoUpgrade migrates a new database but refuses to upgrade one
+	// that already holds history, and serves a newer one within the window.
+	// It is the controller's admin commands' policy: upgrading is the
+	// server's job, and compose's make up takes a backup before it.
+	SchemaNoUpgrade
+)
+
+// options turns a policy into the migration runner's options.
+func (p SchemaPolicy) options() migrate.Options {
+	switch p {
+	case SchemaServe:
+		return migrate.Options{AllowNewerWithinWindow: true}
+	case SchemaNoUpgrade:
+		return migrate.Options{AllowNewerWithinWindow: true, RefuseToUpgrade: true}
+	default:
+		return migrate.Options{}
+	}
 }
 
 // resolvedDSN is a Config.DSN after the dialect has been decided: the
@@ -101,14 +142,23 @@ type resolvedDSN struct {
 // The returned Client must be closed by the caller (Client.Close) once it
 // is no longer needed.
 func OpenDatabase(ctx context.Context, cfg Config) (*Client, error) {
+	client, _, err := OpenDatabaseReporting(ctx, cfg)
+	return client, err
+}
+
+// OpenDatabaseReporting is OpenDatabase, also reporting what migrating the
+// database found and did: which migrations this call applied, which another
+// starter applied first, and which newer migrations this build is serving
+// under the compatibility window.
+func OpenDatabaseReporting(ctx context.Context, cfg Config) (*Client, migrate.Outcome, error) {
 	resolved, err := resolveDSN(cfg.DSN)
 	if err != nil {
-		return nil, err
+		return nil, migrate.Outcome{}, err
 	}
 
 	if resolved.prepare != nil {
 		if err := resolved.prepare(); err != nil {
-			return nil, err
+			return nil, migrate.Outcome{}, err
 		}
 	}
 
@@ -116,7 +166,7 @@ func OpenDatabase(ctx context.Context, cfg Config) (*Client, error) {
 	// against it before any ent-generated query touches the connection.
 	db, err := stdsql.Open(resolved.driver, resolved.dsn)
 	if err != nil {
-		return nil, fmt.Errorf("ent: opening database %s: %w", resolved.describe, err)
+		return nil, migrate.Outcome{}, fmt.Errorf("ent: opening database %s: %w", resolved.describe, err)
 	}
 
 	if cfg.MaxOpenConns > 0 {
@@ -129,20 +179,21 @@ func OpenDatabase(ctx context.Context, cfg Config) (*Client, error) {
 		db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
 
-	if err := migrate.Apply(ctx, resolved.driver, db); err != nil {
+	outcome, err := migrate.ApplyWith(ctx, resolved.driver, db, cfg.Schema.options())
+	if err != nil {
 		// Close the half-opened database on the error path so its file
 		// descriptor is not leaked back to the caller.
 		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("ent: migrating database %s: %w (also failed to close: %v)", resolved.describe, err, cerr)
+			return nil, migrate.Outcome{}, fmt.Errorf("ent: migrating database %s: %w (also failed to close: %v)", resolved.describe, err, cerr)
 		}
-		return nil, fmt.Errorf("ent: migrating database %s: %w", resolved.describe, err)
+		return nil, migrate.Outcome{}, fmt.Errorf("ent: migrating database %s: %w", resolved.describe, err)
 	}
 
 	// Wrap the same, already-migrated connection in the ent client rather
 	// than opening a second one, so migration and every later query share
 	// one connection pool against the same database.
 	drv := entsql.OpenDB(resolved.driver, db)
-	return NewClient(Driver(drv)), nil
+	return NewClient(Driver(drv)), outcome, nil
 }
 
 // resolveDSN decides which dialect dsn names. It is the single place a

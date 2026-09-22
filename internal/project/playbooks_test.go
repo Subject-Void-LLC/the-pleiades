@@ -45,7 +45,7 @@ func (s stubStore) BeginSync(_ context.Context, id int, _ string) (project.Claim
 	p, err := s.Get(context.Background(), id)
 	return project.Claim{Project: p, RunID: id, StartedAt: time.Now()}, err
 }
-func (s stubStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, nil }
+func (s stubStore) ResetInterruptedSyncs(context.Context, []string) (int, error) { return 0, nil }
 
 func (s stubStore) ByLaunchable(_ context.Context, launchableID int) (project.Project, error) {
 	return s.Get(context.Background(), launchableID)

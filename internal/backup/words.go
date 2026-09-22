@@ -32,6 +32,23 @@ func takenSummary(w taken, dir *store, keys keySet) string {
 			"the key somewhere this file is not: either one alone restores nothing, and the two together are",
 			"everything this deployment stores.")
 	}
+	if len(w.newer) > 0 {
+		// Every recorded migration this build does not know, which is a newer
+		// build's work inside the window and may be another lineage's outside
+		// it, so the words claim only what is true of both. The newest is
+		// named whole rather than the list cut short, since a name cut
+		// midway identifies nothing.
+		newest := w.newer[0]
+		for _, name := range w.newer[1:] {
+			if name > newest {
+				newest = name
+			}
+		}
+		lines = append(lines,
+			"",
+			fmt.Sprintf("This database records %d migration(s) this build does not know, the newest %s.", len(w.newer), printable(newest)),
+			"Restore this backup with the build that applied them, or a later one: this one would refuse it.")
+	}
 	return strings.Join(append(lines,
 		"",
 		"It does not hold messages waiting on the broker, the controller's self-signed certificate, or the",

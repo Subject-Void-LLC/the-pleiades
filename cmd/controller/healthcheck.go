@@ -114,6 +114,15 @@ const (
 	// them opens the database under a key the environment holds: they read
 	// the key from .env, and a restore onto a clean machine has none yet.
 	routeBackup
+
+	// routeVersion prints the build's version (version.go).
+	routeVersion
+
+	// routeMigrate is `migrate --plan` (migrateplan.go). It must never reach
+	// the admin route, which opens the database through OpenDatabase and so
+	// migrates it: the one command that exists to ask before upgrading would
+	// then perform the upgrade.
+	routeMigrate
 )
 
 // routeFor resolves an argument vector to exactly one route.
@@ -146,6 +155,14 @@ func routeFor(args []string) commandRoute {
 	// Before the admin guard for the same reason setup is.
 	if isBackupCommand(args) {
 		return routeBackup
+	}
+	// Before the admin guard for the same reason, and for migrate a worse
+	// one: see routeMigrate.
+	if isVersionCommand(args) {
+		return routeVersion
+	}
+	if isMigrateCommand(args) {
+		return routeMigrate
 	}
 	if isAdminCommand(args) {
 		return routeAdmin

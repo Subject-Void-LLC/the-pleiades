@@ -46,7 +46,7 @@ import (
 // Go constant, and reading this one back out of the environment would put
 // caller-controlled text into an exec.Command argument for no benefit.
 // TestGoTestTimeoutMatchesMakefile keeps the two copies honest.
-const goTestTimeout = "20m"
+const goTestTimeout = "30m"
 
 // flakyPackagesPath is the repo-relative path to the waiver file, a
 // constant rather than a flag: this tool has exactly one caller (the

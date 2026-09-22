@@ -111,6 +111,47 @@ the real `pleiades forge` CLI, never hand-edited. If generated output looks wron
 the data in `internal/forge/catalogdata` or the template in
 `internal/forge/collectionscaffold`/`devicescaffold`, not the generated file itself.
 
+### Schema changes
+
+The controller's schema comes from `internal/ent/schema`. After changing it, run
+`go generate ./internal/ent`, then generate a migration for EACH dialect:
+
+```bash
+go run internal/ent/migrate/gen/main.go sqlite   <name>
+go run internal/ent/migrate/gen/main.go postgres <name>   # starts a throwaway container
+```
+
+A migration must *expand* the schema: add tables, columns that may be empty or have a
+default, and indexes that are not unique. The build before it then keeps working
+against the schema it leaves, which is what lets old controllers keep serving during
+a rolling upgrade and lets a controller be rolled back.
+
+A migration that removes or narrows something (drops a table or column, changes a
+type, adds or removes NOT NULL, changes a foreign key's delete action, adds a unique
+index over existing columns, adds a trigger or function) is a *contract*. Declare it
+in `internal/ent/migrate/compat.go`, for both dialects, with the oldest migration
+whose build can still serve after it and a sentence saying what the build before it
+would do wrong. Better still, split it: expand in one release, stop using the old
+shape, and contract in a later one.
+
+Three tests hold you to this:
+
+- `TestEveryMigrationIsClassifiedAsDeclared` migrates each dialect one migration at a
+  time and fails when a migration contracts without a declaration, or is declared a
+  contract and changes nothing.
+- `TestANewContractNeedsTheGuard` fails the first time a new contract is declared: a
+  contract also needs the apply-time guard that refuses to run it while an older
+  controller is still alive, and that guard is built with the first real contract.
+- The upgrade gate in `tests/e2e/upgrade_binary_gate_test.go` runs the previous
+  build's controller against your migrated database and makes it do its ordinary
+  work.
+
+What none of them can see is reviewed by hand: a column whose meaning changes while its
+shape does not (declare it with `semantic` set), the shape of messages on the broker,
+and a new value in a field stored as text. A new table's foreign key onto an existing
+table should be `ON DELETE CASCADE` or `SET NULL`, or an older build deleting the
+parent can be refused.
+
 ### Code style
 
 - No em-dashes, in code, comments, or documentation.

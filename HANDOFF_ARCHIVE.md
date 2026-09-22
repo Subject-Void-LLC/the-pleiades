@@ -1,5 +1,349 @@
 # Handoff Document Archive
 
+## Session of 2026-09-22, morning: taking over Phase 84 and Part XVI after WSL died
+
+**Two workstreams, both UNCOMMITTED, on branch `feature/upgrade-rollback-restore` (cut from main at
+`642e626`).** At about 23:38 UTC on 2026-09-21, WSL died under the combined load of the Phase 84
+session's kind Helm gate and a twelve-agent roadmap workflow. On 2026-09-22 one session took over
+both. Nothing was lost from the tree; `/tmp` was wiped by the reboot.
+
+**Resume from `part16-work/RESUME.md` in this session's directory under
+`~/.claude/projects/-home-noot-auto-roboto/`.** It holds the exact Part XVI workflow resume
+command (with `args.json` beside it; the cache matches only identical arguments), the state of the
+`make ci` run, and the watchdog's expiry.
+
+### Machine rule (saved to memory)
+
+This box (VENGEANCE) has 9.7 GiB RAM and 20 CPUs. At most TWO concurrent workers. Every heavy
+command runs under `~/.local/bin/capped <limit> <cmd...>`, a `systemd-run --user --scope` with a hard
+MemoryMax and no swap by default. Never add MemoryHigh: the cgroup is charged for page cache, and a
+MemoryHigh band throttled `make gosec` 253,604 times with no progress. `make gosec` needs about 4.5
+GiB. Docker's containers share the same VM, so the kind gate and `make ci` run alone.
+
+### Workstream 1: Phase 84, upgrade, rollback and restore
+
+The tracker reads 1/12 because nothing is ticked yet. Each item is ticked only with evidence from
+THIS tree.
+
+- **Passed on 2026-09-21, per the dead session's transcript, not yet rerun here:**
+  `TestControllersStartedTogetherOnAnUnmigratedDatabaseAllServe` (its mutation control went red),
+  `TestControllerServesWithinItsWindowAndStopsPastIt`,
+  `TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates` (its drain-off control fails,
+  as a control should), `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack`, the archtests
+  `TestMigrationsTakeNoLock` and `TestNothingTakesAnAdvisoryLock`, and the backup suite with the test
+  client tools pinned to PostgreSQL 15.
+- **Written:** Book 10 "Upgrading and rolling back", the compatibility window in docs/13,
+  CONTRIBUTING "Schema changes", five changelog fragments, FAILURE_PATTERNS 276 to 281, LESSONS 212
+  and 213, the backup control in SECURITY_ATTESTATION.md, and the chart's `shutdownDrainSeconds` and
+  termination grace period.
+- **Rerun on 2026-09-22:** `make gosec` clean (22 findings, all individually waived; the dead
+  session's last edit, making the heartbeat SQL compile-time constants, was the fix it needed),
+  `make govulncheck` clean (0 reachable), archtests pass, gopls reports no build errors, and
+  `go test -race -short` passes for all six touched packages (`internal/ent/migrate`, `internal/ent`,
+  `internal/backup`, `internal/project`, `internal/api`, `cmd/controller`). Short mode skips every
+  Postgres half, so this is partial evidence only. Four new Go files lacked the file docstring the
+  commit gate requires (`fleet_test.go`, `startup_test.go`, `open_sqlite_internal_test.go`,
+  `schema/controller_instance.go`); each now has one.
+- **Adversarial review, 2026-09-22.** Six area reviewers in sequence, each serious finding sent
+  to a second agent told to refute it: 8 major findings confirmed, 1 refuted, 1 uncertain, and 21
+  minor. Every confirmed one is fixed and recorded (FAILURE_PATTERNS 282 to 291, LESSONS 214):
+  the fleet's failed heartbeat read no longer sweeps (282); the sync sweep decides in one
+  `UPDATE` (283) and finally has a real-store test of the owner-aware path; `make -n up`,
+  `up-plan` and `restore` refuse instead of stopping the stack (284); `make up` builds the
+  runner (285); the compose gate runs the documented rollback, with a transitional branch for a
+  pre-84 previous release that must first prove the old restore refuses (286); the binary gate
+  probes the previous build during the migration (287); the Postgres claim is explicitly
+  unbounded before it waits (288, new test `TestApply_ARoleTimeoutDoesNotEndTheClaimWait`, NOT
+  yet run: needs Postgres); the no-hard-link fallback creates a 0600 file (289); the chart's drain
+  default is 20s (290); a controller whose clones did not stop stays in the fleet (291). Minor
+  fixes without entries: the concurrent-start gate compares the history with this build's own
+  migrations, the kind image check matches repository and tag on one line, the kind watcher
+  cannot outlive its subtest, the compose gate builds the previous images itself, docs 10 and
+  13 match the code on unique indexes, and the backup summary says only what is true.
+  Mutation-checked where they run without Docker: 282, 283, 289. After the fixes: `go test -race
+  -short` passes for all seven touched packages (archtest included), `helm-lint`, `docs-lint` and
+  `go vet -tags integration ./tests/e2e/` are clean, and `make gosec` is clean (22 findings, all
+  waived). The fixes add ONE inline suppression, `#nosec G304` on the 0600 fallback's
+  `os.OpenFile` in `internal/ent/open_sqlite.go` (the operator's configured path, as
+  `internal/crypto/key_resolve.go` does); `gosec-waivers.json`'s header counts inline
+  suppressions and was not re-measured.
+- **Docker-backed runs, 2026-09-22, one at a time under `capped`:** `go test -race` in full passes
+  for `internal/ent/migrate` (103s; `TestApply_APartitionedWinnerReleasesItsClaim` held a partitioned
+  claim 1m15s before the server ended it), `internal/ent`, `internal/backup`, `internal/project`,
+  `internal/api` and `cmd/controller`. Two failures on the way, both fixed: a backup test still
+  pinned the summary's old wording (mine), and `cmd/controller`'s backup gate ran the machine's
+  PostgreSQL 18 client against a 15 server (FAILURE_PATTERNS 292; the pinning moved to
+  `internal/testsupport/pgclient.go`). `TestApply_ARoleTimeoutDoesNotEndTheClaimWait` passes, and
+  on the exact pre-fix order fails after 1.006s on the claim's statement timeout (#288 reproduced).
+  `TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates` passes: 110 requests to the
+  previous build during a migration held for three seconds by a SHARE lock on `schema_migrations`,
+  none failed, and 261 through the drain; with the lock removed its end-of-hold check fails
+  (`current answered /readyz with 200`). `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` passes
+  (90s); its transitional branch first proved the pre-84 restore refuses with the set-aside
+  message, then rolled back from a dropped stack and logged that it did. The gate now builds the
+  previous release's images one at a time, since three parallel Go builds in containers sit
+  outside any cap this session can set. `TestUpgradeReleaseGate_HelmUpgrade` (kind, run alone,
+  nothing else on the machine) passes in 233s: Recreate 92s with a 31s outage by design, and
+  RollingUpdate 94s with a previous-build pod Ready while this build's existed. Its first run
+  failed in both subtests at one test helper, never before reached, that listed credentials
+  without the organization the API requires (400); the helper now lists within the organization
+  it seeded. Peak load 2.5, never under 5.4 GiB available. It took 4 minutes, not the 15 to 20
+  estimated, so the e2e timeout concern below may not bite; `make ci` will say.
+- **Deliberately left, with reasons:** the dirty check in `previousRef` ignoring untracked files
+  (including them makes any stray file compare a committed tree with itself, which is worse);
+  a crash-orphaned `.pleiades-new-*.db` temporary (a few KB, only on a first-ever create); a
+  SQLite history key declared `ON CONFLICT IGNORE` (needs a tampered schema); a clone wedged on a
+  live owner is never recovered (a sync timeout is the fix, and is new scope); the drain-off
+  control exists only as a manual run; the binary and kind gates check no browser session.
+- **Uncertain, needs Docker to settle:** all e2e gates share `test-integration`'s 20 minute
+  `-race` timeout, and the kind upgrade gate alone was estimated at 15 to 20 minutes. A timeout
+  panics without running cleanup. Time `tests/e2e` under `make test-integration` first; if it
+  overruns, raise the container packages' timeout in the Makefile, `tools/testgate` and
+  `tools/coverage-check` together (`TestGoTestTimeoutMatchesMakefile` keeps them equal).
+- **Not done:** the kind Helm upgrade gate (`tests/e2e/packaging_kind_upgrade_test.go`) started at
+  23:36 UTC and never finished; the Postgres halves of the race suites; the binary and compose gates
+  rerun in this tree; `make ci`; ticking IMPLEMENTATION.md with evidence; the commit message. All
+  need Docker, which is not running after the reboot. Once it is, check `kind get clusters` for a
+  cluster the interrupted gate left behind.
+
+### Workstream 2: Part XVI, the agentic control plane (roadmap planning, no code)
+
+The user asked for an architecture that joins inventory metadata, advertised modules, just in time
+access and MCP, and added that agent ad-hoc access is "a new enrollment/entitlement/access level on
+top of the standard RBAC" needing "extreme control". A survey (eight agents) mapped the substrate. A
+workflow (run `wf_89d8b2bf-497`) is drafting twelve new phases, 107a to 107l, one agent at a time,
+each drafted, linted for the tracker's format traps, and verified adversarially, then a cross-phase
+critic. Briefs, the survey and a preamble draft live in the session directory's `part16-work/`
+(under `~/.claude/projects/-home-noot-auto-roboto/`).
+
+Nothing is written into IMPLEMENTATION.md or PLAN.md yet. After the workflow: write Part XVI; add a
+dated correction to Phase 71 (its natural mount seam, `RouterConfig.UI`, is outside authentication
+and rate limiting, and it becomes one of two MCP tool families); add PLAN.md addenda to 21.3, 18.5,
+28.1, 32.3, 34 and 15; confirm the tracker adds no problems (baseline: 3 phases without an
+Implements line, 4 attestation problems). IMPLEMENTATION.md was also edited by another writer at
+18:19 on 2026-09-21, so append with a targeted edit, never a whole-file rewrite.
+
+### Next steps, in order
+
+1. The user starts Docker Desktop.
+2. Phase 84: the Postgres race suites, one package at a time under `capped`; rerun the binary and
+   compose gates; the kind gate alone; `make ci` alone, asking first; tick items with evidence; the
+   commit message.
+3. Part XVI: finish the workflow, then write it in and check the tracker.
+
+## Previous session: Phase 84 stages 1 to 6, concurrent migrations and the rollback window (uncommitted; the session died with WSL on 2026-09-21)
+
+**Branch `feature/upgrade-rollback-restore`, cut from main at `642e626` (78d merged as PR #35).
+Phase 84 is PART BUILT and UNCOMMITTED; the user asked to pause. `go build ./...`, `go vet ./...` and
+gofmt are clean. `make ci` has NOT run.** The approved plan is
+`/home/noot/.claude/plans/plan-phase-84-upgrade-linear-shell.md` (stages 1 to 10); stages 1 to 6 are
+largely done, 7 to 10 are not started.
+
+### A standing rule the user set this session (saved to memory)
+
+Nothing is deployed yet, migrations are forward only, and old databases matter from the 1.0.0 golden
+image (which squashes the migration history). Keep only what 1.0 gold reuses; write no docs about
+"builds before Phase 84". Three transitional pieces are marked in code for removal at gold:
+`ensureFloorColumn` (internal/ent/migrate/history.go), the six grandfathered entries in
+`internal/ent/migrate/compat.go`, and (still to build) the merge-base "previous release" default.
+
+### What is built and tested
+
+- **Race-safe migrations** (`internal/ent/migrate`, split into apply/transaction/history/gate/compat/
+  plan.go). Claim-first: each migration's transaction records its version FIRST, so a second starter
+  waits on the primary key and then fails on it; the loop reloads after every attempt and continues
+  when the version is recorded. Postgres prelude after the claim: idle-in-transaction 60s, lock
+  timeout 10s, statement timeout off. SQLite busy timeout raised to 30 min on the pinned connection.
+  Tests: three deterministic interleavings on both dialects; `TestApplyAcrossRealProcesses` (2/4/16/32
+  processes, both dialects, each migration applied exactly once); a broken-migration control; a
+  Toxiproxy chaos test (partitioned winner released after about 68s); `BenchmarkApply`.
+  Mutation-checked: dropping the reload turns the race tests red; dropping the idle timeout makes the
+  chaos test stall for 3 minutes and fail.
+- **Gate fixes.** `checkGate` accepted a missing FIRST migration ({0002} with 0001 absent): fixed
+  (FAILURE_PATTERNS #276, not yet written). Now also refuses malformed names, duplicate numbers, a
+  history table whose primary key is not `version`, and NULL versions (SQLite allows those).
+  `FuzzCheckGate` against an independent oracle (found a real ordering ambiguity with same-numbered
+  floors, fixed), `FuzzVersionNumber`, and `FuzzApplyTamperedHistory` (DB-level, about 5 exec/s).
+- **SQLite fresh-file race** (FAILURE_PATTERNS #277, not yet written). Two processes opening a NEW
+  SQLite file both switch it to WAL and one gets SQLITE_BUSY with no busy wait. Fixed in
+  `internal/ent/open_sqlite.go` `ensureSQLiteWAL`: create privately in WAL, publish with a hard link
+  (a new file is now mode 0600). `TestOpenDatabase_ManyProcessesOpenOneNewDatabase`, mutation-checked.
+- **Rollback window.** `schema_migrations.compatible_from` (the floor), the relaxed gate
+  (`Options.AllowNewerWithinWindow`, `ent.SchemaServe`), and `migrate.Inspect`/`Plan` (read-only).
+  Admin commands use `ent.SchemaNoUpgrade` and refuse to upgrade a database with history.
+- **Compatibility policy enforced statically.** `compat.go` contract table plus
+  `TestEveryMigrationIsClassifiedAsDeclared`: its first run flagged exactly the six known contracting
+  migrations and nothing else. `TestANewContractNeedsTheGuard` is a tripwire (the apply-time guard is
+  deferred until a real post-84 contract exists).
+- **Fleet table.** New entity `controller_instances` (sqlite 0033 / pg 0030) and `sync_runs.owner_instance`
+  (sqlite 0034 / pg 0031), both classified expand. Raw-SQL heartbeat on the database clock
+  (`internal/ent/instances.go`). `RecoverInterrupted` is now liveness-aware (FAILURE_PATTERNS #278,
+  not yet written: a starting replica used to fail live peers' syncs).
+- **Controller.** `controller version`, `controller migrate --plan [--json]` (exit 0/3/4/1),
+  `fleet.go` (15s heartbeat, schema recheck that shuts down past the window, sync recovery, prune),
+  `drain.go` (SHUTDOWN_DRAIN, default 5s), `startuphandler.go` (listener bound BEFORE migrating),
+  `ReconcileManaged` skipped on a newer schema. Unit tests for all of them.
+- **Backup.** Restore clears heartbeat rows; a backup of a database a newer build migrated is taken
+  and says which build restores it. `toc_migrated.txt`/`toc_planted.txt` recaptured by the documented
+  procedure (38 tables, 269 entries).
+
+### Next steps, in order
+
+1. Run the full touched suites once more with `-race` (migrate, ent, backup, project, api, cmd/controller
+   including its release gates), then `make ci`.
+2. Stage 6 gate: `cmd/controller/migration_race_release_gate_test.go` (N real controller binaries on
+   one UNMIGRATED Postgres plus NATS, all reach `/readyz`).
+3. Stages 7 to 9: `make up` runs `migrate --plan` and backs up on exit 3; compose, binary-level and
+   kind upgrade gates from the previous ref (main, via `git archive`).
+4. Stage 10: Book 10 "Upgrading and rolling back", docs/13, CONTRIBUTING "Schema changes", changelog
+   fragments, FAILURE_PATTERNS #276 to #278, a LESSONS entry ("put the arbiter write first"), the
+   SECURITY_ATTESTATION backup control, IMPLEMENTATION.md ticks with evidence, commit message.
+
+### Findings to raise with the user
+
+1. The tampered-history fuzzer found a limit, not a bug: a planted row claiming an unapplied migration
+   of this build is believed. Nothing at startup compares the schema with the history (restore does).
+   It is no new exposure (it needs write access to every table), and a startup schema check is
+   candidate later work.
+2. The plan's step to move `internal/backup/shape.go` into `internal/dbshape` was dropped: the
+   classifier needs structured facts, not equality lines, so it has its own reader in migrate's tests.
+
+## Previous session: Phase 78d, the certificate path (committed, merged as PR #35)
+
+**Branch `feature/Phase-78d-Certificate-Path`, cut from `feature/Phase-46-Simulation-Modes` at
+`2bc2b5c`. Phase 78d is BUILT and the work is UNCOMMITTED. `make ci` has NOT been run end to end.**
+The user asked for Phase 78 next; 78a, 78b and 78c were already in this history, so the whole of the
+work was 78d, the one stage never built.
+
+### What 78d is, in one paragraph
+
+Section 17.4 wants a PFX bundle unlocked just in time to present a client certificate. 78b found that
+blocked and recorded why: nothing in this platform could present a client certificate to anything, so
+a decoder would have had no caller. Re-verified this session, still true before the change: the only
+`Certificates` assignment in non-test code was the Controller's own listener. So the certificate path
+was built FIRST taking PEM, and PKCS#12 landed LAST as an input adapter into a path already tested.
+
+### What was built, in build order
+
+- **One secret-key vocabulary.** `pkg/wire`, `internal/credential` and `internal/credtype` each
+  declared the same literals; the latter two now ALIAS `pkg/wire`. Two keys added:
+  `certificate_pem` and `pfx_base64`. `machine_test.go` became tautological and now pins the literal
+  values instead, which is the property that still matters (this is a wire format queued JetStream
+  messages already agree on).
+- **`pkg/winrmexec` client-certificate authentication** in a sibling file, `certauth.go`, because the
+  main file was already 508 lines. `Auth` gained the pair, the guard became "exactly one complete
+  credential" with a separate refusal per shape, and a third `TransportDecorator` branch returns
+  this package's OWN `certificateTransport` (`pkg/winrmexec/certtransport.go`, ~250 lines).
+  It started as `masterzen/winrm`'s `ClientAuthRequest`, which was already in the module and never
+  referenced, and had to be replaced: that transport builds its `tls.Config` on an unexported field,
+  so there was no seam to cap the TLS version through, and the cap is what makes this work at all
+  (see finding 4). The replacement also carries the error reporting, the Insecure refusal and the
+  version cap, none of which the library's version has, so it is the thing to review rather than a
+  thin wrapper.
+  `AuthFromSecrets` is new and is now the single place the key vocabulary is read. Its three callers
+  are the three catalog packages; `pkg/winrmsvc` and `pkg/winrmdism` were NOT changed and do not
+  call it, they carry an `Auth` their caller fills.
+- **`machineTarget` accepts `KindCryptography`**, so a certificate becomes the machine identity.
+- **An input can be filled from a linked credential's field** (`source_field` metadata), which is
+  what 78b wrongly recorded as already built.
+- **`pkg/pfx`**, the PKCS#12 decoder, unlocked in the Runner's per-task child.
+- **`add-credential --certificate/--pfx`**, without which the Crawl tier could store no certificate
+  and the new `Credential` fields would have been unfillable.
+
+### Findings: report each to the user as its own item
+
+1. **Four of the roadmap's own 78d claims were stale** (LESSONS 210), and they did not all point the
+   same way. Three made the work BIGGER: the three catalog packages did not inherit the capability
+   for free; the secret key landed in three places, not two, and the third had no drift test; and
+   `internal/catalog/http` is a worse fallback than the thing it was offered as an alternative to.
+   One made it SMALLER: the AWX parity test walks shipped types only, so the certificate type needs
+   no exemption and the reserved-prefix question stays deferred. Since they point both ways, "check
+   the claims that would cost me" would not have been the right filter.
+2. **A latent correctness bug, fixed** (FAILURE_PATTERNS 273). `Unflatten` used `[]byte("")`, which
+   is non-nil, so it was never the inverse of `Flatten` that its own test claimed, and the test had
+   written the workaround into its expectations. Fixed at the cause.
+3. **Two things the plan did not predict, both load bearing.** Certificate authentication is HTTPS
+   only (the transport sends no Basic header), so HTTPS is selected from the credential rather than
+   by a caller flag. And a Windows device's port defaults to 5985, the cleartext listener,
+   indistinguishably from a deliberate choice, so the ordinary path to certificate authentication
+   hits the wrong port; that is refused by name rather than attempted, because the TLS error it would
+   otherwise produce reads like a broken certificate.
+4. **The AWX parity blocker 78b predicted does not exist.** The parity test walks shipped types only,
+   so the first mTLS type can be user-defined. No exemption, no reserved prefix, no new kind.
+5. **`golang.org/x/crypto/pkcs12` was already in the module and cannot serve**, and the REASON I
+   first wrote down was wrong. It exports `Decode` and `ToPEM` only, so it returns one certificate
+   and cannot return a chain, and it refuses a safe holding more than two items. `pkg/pfx` emits the
+   leaf plus intermediates, which that API cannot express. My original justification said Windows
+   defaults `Export-PfxCertificate` to AES-256, which the older library cannot read. Testing a real
+   Windows 11 export disproved it: the default is 3DES, which it CAN read. Corrected in the source,
+   the roadmap and the commit message rather than quietly dropped.
+
+### Verified, and how
+
+- **Both Release Gate halves written; one passed, one is OPEN.**
+  `TestReleaseGate_TheCertificateIsPresentedAndVerified` passes and runs anywhere: the real
+  `certificateTransport` against a real TLS server with `RequireAndVerifyClientCert`, three acts
+  including two negative controls, plus `TestReleaseGate_ABundlePresentsTheSameCertificateAsThePEMPath`.
+  `TestWinRMGate_ACertificateAuthenticatesAndAStrangerDoesNot` needs a real Windows host with a
+  cert-mapped account and SKIPS here, so its checkbox stays open per checkbox rule 1. That is the
+  same call 78b made, and 78b's gate then passed first try once it could run.
+- **Four mutations, each turned a named test red**, then reverted and re-confirmed green: the
+  certificate transport branch dropped; HTTPS no longer forced; the blanket `KindExternal` refusal
+  restored; the decoder ignoring its passphrase.
+- **Fuzz and benchmark**, per checkbox rule 2: `FuzzDecode` 15,273,485 executions, 77 new interesting
+  inputs, 60s, clean. `BenchmarkDecode` 533,106 ns/op, 101,105 B/op, 2,374 allocs/op.
+- Green: `go build ./...`, `go vet ./...`, `gofmt`, `go test ./internal/... ./pkg/...` in full,
+  `-race` on every touched package, `internal/archtest`, `tools/docs-lint`, `make gosec`.
+- Coverage floors RAISED: `internal/credential` 91.6 to 92.0 (measured 92.2),
+  `internal/credstore/resolve` 96.0 to 97.0 (measured 97.1). New: `pkg/pfx` 91.0 (measured 91.7),
+  `pkg/winrmexec` 85.0 (measured 85.2, and it had NO floor at all before, so it was unratcheted).
+
+### What has NOT been run, and the one expected failure
+
+- **`make ci` has not run end to end.** It should, before this is called verified.
+- **`tools/coverage-check` has not run**, because it runs the full suite internally.
+- **`make docs-gen-check` passes.** It does `git diff --exit-code -- docs/reference`, which compares
+  the working tree against the INDEX rather than against HEAD, so staging is what satisfies it and
+  the work is staged. An earlier note here said it fails until committed, which was wrong about
+  which git comparison the target makes.
+
+### The reviews found what review is for, and the second one is the more interesting
+
+Two adversarial multi-agent reviews ran over this work. The first, before any gate was ticked, raised
+27 findings of which 17 survived verification, including three CRITICAL ones sharing a root cause:
+`add-credential --certificate/--pfx` reported success and stored nothing.
+
+The second ran over the FINISHED tree and hunted one thing specifically: claims corrected in one
+place and not another. It found four, three of them exactly that shape. A Release Gate header and
+three handoff sentences still named `masterzen/winrm`'s `ClientAuthRequest` as the shipped transport,
+a week after it was replaced; the changelog still said the server-side TLS 1.3 workaround "sidesteps
+the problem entirely" while two other documents correctly noted the cap makes it not yet help; and
+the lab setup script destroyed any pre-existing HTTPS listener while its teardown carefully preserved
+foreign ones and its own docstring claimed it touched nothing else. All four are fixed.
+
+**Read the second review's coverage honestly: 78 of its 109 agents died on session limits.** Two of
+its four lenses report zero survivors, and that is NOT evidence they were clean, because a finding
+whose verifiers all failed is indistinguishable from a refuted one in that workflow's own logic. The
+`code-vs-prose` and `gaps-honesty` lenses raised 8 and 6 findings respectively and none were verified
+either way. Re-running those two is worth doing before anyone treats this tree as audited.
+
+### Two residuals, both recorded in the roadmap rather than left implicit
+
+1. **`winrmexec.Options` is unreachable.** `HTTPS`, `Insecure` and `CACert` have never been settable
+   from a runbook or a device, and 78d added a TLS version cap in the same place. The Release Gate hit
+   both consequences: it needed `SSL_CERT_FILE` to trust the lab authority, and a target configured
+   for upfront certificate negotiation still could not be reached over TLS 1.3. The fix is device
+   properties, the way `port` already works. Its own piece of work, deliberately not smuggled in here.
+2. **A `crypto/tls` fork is the only route to TLS 1.3 on this path.** Go issue #40521 is on Hold and a
+   native fix is unlikely. The user wants a fork eventually; nothing in this phase depends on it.
+
+### Next step
+
+Run `make ci`, commit, and decide whether the Windows gate can be run against a lab host. Phase 78 is
+complete except that one checkbox. The exposure Phase 78's own preamble names is unchanged and is
+Phase 105's: a resolved secret still rides JetStream. This stage deliberately did not widen it, which
+is why the PFX unlock happens in the Runner's child and the sealed bundle is what crosses the broker.
+
 ## Previous session: Phase 21's launchable seam (schedules bound to anything launchable)
 
 **Branch `feature/Phase-46-Simulation-Modes`, on top of the 19 committed check-mode and external

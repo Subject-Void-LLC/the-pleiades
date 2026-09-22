@@ -9,17 +9,10 @@ package migrate
 
 import (
 	"io/fs"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 )
-
-// migrationFilePattern is the naming convention every migration file
-// follows: a four-digit zero-padded version, an underscore, a descriptive
-// suffix, and the .sql extension. Apply relies on this shape, since it
-// orders migrations by a plain lexicographic sort of their filenames.
-var migrationFilePattern = regexp.MustCompile(`^(\d{4})_[a-z0-9_]+\.sql$`)
 
 // TestEveryDialectHasMigrations proves no dialect is registered in
 // migrationSources with an unreadable or empty migration directory.
@@ -66,7 +59,7 @@ func TestMigrationsAreContiguouslyNumbered(t *testing.T) {
 				t.Fatalf("reading migrations for dialect %q: %v", dialectName, err)
 			}
 			for i, name := range names {
-				match := migrationFilePattern.FindStringSubmatch(name)
+				match := versionPattern.FindStringSubmatch(name)
 				if match == nil {
 					t.Fatalf("migration %q does not match the required NNNN_name.sql convention", name)
 				}
@@ -99,7 +92,7 @@ func TestMigrationDirectoriesHoldOnlySQL(t *testing.T) {
 				if e.IsDir() {
 					t.Fatalf("unexpected subdirectory %q in %q", e.Name(), src.dir)
 				}
-				if !migrationFilePattern.MatchString(e.Name()) {
+				if !versionPattern.MatchString(e.Name()) {
 					t.Fatalf("unexpected non-migration file %q in %q; Apply would execute it as SQL", e.Name(), src.dir)
 				}
 			}
@@ -120,8 +113,8 @@ func TestEveryDialectRecordsVersionsParameterized(t *testing.T) {
 	// wantPlaceholders maps a dialect to the placeholder spelling its
 	// driver accepts.
 	wantPlaceholders := map[string]string{
-		"sqlite3":  "VALUES (?, ?)",
-		"postgres": "VALUES ($1, $2)",
+		"sqlite3":  "VALUES (?, ?, ?)",
+		"postgres": "VALUES ($1, $2, $3)",
 	}
 
 	for dialectName, src := range migrationSources {

@@ -1,0 +1,1 @@
+The controller now refuses a database whose migration history is missing its FIRST migration; before, it accepted one and would have run the first migration on top of later ones. It also refuses a history table that has lost its primary key, holds a row with no version, or records two migrations under one number.

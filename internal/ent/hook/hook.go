@@ -45,6 +45,18 @@ func (f ContactFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ContactMutation", m)
 }
 
+// The ControllerInstanceFunc type is an adapter to allow the use of ordinary
+// function as ControllerInstance mutator.
+type ControllerInstanceFunc func(context.Context, *ent.ControllerInstanceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ControllerInstanceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ControllerInstanceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ControllerInstanceMutation", m)
+}
+
 // The CredentialFunc type is an adapter to allow the use of ordinary
 // function as Credential mutator.
 type CredentialFunc func(context.Context, *ent.CredentialMutation) (ent.Value, error)

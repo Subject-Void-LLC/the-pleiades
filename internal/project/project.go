@@ -180,13 +180,14 @@ type Store interface {
 	// and every caller has an identity to hand.
 	BeginSync(ctx context.Context, id int, actor string) (Claim, error)
 
-	// ResetInterruptedSyncs moves every running project to failed, fails
-	// the history row of every attempt still marked running, and reports
-	// how many projects it moved. A sync runs in memory, so a running row
-	// at process start is a clone whose process is gone; left as it is, its
-	// project could never be synced again, because BeginSync's swap would
-	// never match. It is meant to run once at startup.
-	ResetInterruptedSyncs(ctx context.Context) (int, error)
+	// ResetInterruptedSyncs fails every running attempt whose owner is not
+	// in alive (or that records no owner), moves every running project with
+	// no live-owned attempt to failed, and reports how many projects it
+	// moved. A sync runs in memory, so a claim whose process is gone would
+	// otherwise leave its project unsyncable for good, because BeginSync's
+	// swap would never match. A controller runs it at startup and on every
+	// heartbeat, with the instance ids it knows to be alive.
+	ResetInterruptedSyncs(ctx context.Context, alive []string) (int, error)
 
 	// ListSyncRuns returns a project's sync attempts, newest first, capped
 	// at limit. It is the history behind the latest outcome the project row
