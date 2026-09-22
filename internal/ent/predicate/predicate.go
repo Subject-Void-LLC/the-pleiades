@@ -15,6 +15,9 @@ type Announcement func(*sql.Selector)
 // Contact is the predicate function for contact builders.
 type Contact func(*sql.Selector)
 
+// ControllerInstance is the predicate function for controllerinstance builders.
+type ControllerInstance func(*sql.Selector)
+
 // Credential is the predicate function for credential builders.
 type Credential func(*sql.Selector)
 

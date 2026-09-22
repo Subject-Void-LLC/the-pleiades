@@ -34,6 +34,8 @@ type SyncRun struct {
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// FinishedAt holds the value of the "finished_at" field.
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// OwnerInstance holds the value of the "owner_instance" field.
+	OwnerInstance *string `json:"owner_instance,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the SyncRunQuery when eager-loading is set.
 	Edges             SyncRunEdges `json:"edges"`
@@ -68,7 +70,7 @@ func (*SyncRun) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case syncrun.FieldID:
 			values[i] = new(sql.NullInt64)
-		case syncrun.FieldStatus, syncrun.FieldActor, syncrun.FieldRevision, syncrun.FieldError:
+		case syncrun.FieldStatus, syncrun.FieldActor, syncrun.FieldRevision, syncrun.FieldError, syncrun.FieldOwnerInstance:
 			values[i] = new(sql.NullString)
 		case syncrun.FieldCreatedAt, syncrun.FieldUpdatedAt, syncrun.FieldStartedAt, syncrun.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -144,6 +146,13 @@ func (_m *SyncRun) assignValues(columns []string, values []any) error {
 				_m.FinishedAt = new(time.Time)
 				*_m.FinishedAt = value.Time
 			}
+		case syncrun.FieldOwnerInstance:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field owner_instance", values[i])
+			} else if value.Valid {
+				_m.OwnerInstance = new(string)
+				*_m.OwnerInstance = value.String
+			}
 		case syncrun.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field project_sync_runs", value)
@@ -216,6 +225,11 @@ func (_m *SyncRun) String() string {
 	if v := _m.FinishedAt; v != nil {
 		builder.WriteString("finished_at=")
 		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.OwnerInstance; v != nil {
+		builder.WriteString("owner_instance=")
+		builder.WriteString(*v)
 	}
 	builder.WriteByte(')')
 	return builder.String()

@@ -8545,3 +8545,218 @@ Two things made this harder to find than it should have been. `masterzen/winrm`'
 **The corollary about blame direction.** "Their software is broken" is a conclusion that should require more evidence than "our client cannot do this yet", not less, because it is the one that stops you looking. The wrong version of this entry would have told the next reader that a whole protocol version was unavailable to them, when what was actually true is that one client library made a deliberate design choice.
 
 **And the corollary about temporariness.** Having found the right cause, the first write-up still called the fix a workaround pending an upstream fix, because that is the comfortable shape for "we cannot do this yet". Check whether upstream actually intends to close the gap before writing a re-entry condition. A removal note that will never fire is worse than none: it tells the next person to wait, and they will.
+
+## 276. The migration gate accepted a history missing its first migration
+
+**Symptom.** Found 2026-09-21 while planning Phase 84, by reading `checkGate` rather than by any failure. A database whose `schema_migrations` recorded `0002_...` and not `0001_...` passed the startup gate, and `Apply` would then have run 0001 on top of a schema 0002 had already changed.
+
+**Root cause.** The gap check only started looking for a hole after the first applied name it met: `haveAppliedOne` became true at 0002, and the gap flag was only raised by a missing migration *after* that point. A missing prefix is a gap before the first applied row, which the loop was built never to see. `TestCheckGate` had six cases and none with the first migration missing, so the test agreed with the code rather than with the doc comment, which said "no migration may be applied while an earlier one in filename order is not".
+
+**Fix.** `internal/ent/migrate/gate.go` computes the longest prefix of the known set that is recorded, and refuses any recorded known name beyond it. The missing-prefix case is in `TestCheckGate` (it failed before the fix, run first), and `FuzzCheckGate` compares the gate with an independently written oracle; that fuzzer then found a second ambiguity (two floors sharing a number, one from another lineage, decided by row order), fixed the same day.
+
+**Lesson.** A "no gaps" rule has two edges, and a loop that tracks "have I started" only guards one of them. When a test table for an ordering rule has no case at position zero, the rule has not been tested at position zero. An oracle-based fuzzer is cheap for a pure decision like this one and finds exactly this class.
+
+## 277. Two processes opening a brand-new SQLite file failed each other at open
+
+**Symptom.** Found 2026-09-21 by Phase 84's real-process race test: roughly one run in three, one of two or more processes opening a SQLite database that did not exist yet failed its very first connection with `database is locked`, before a single migration ran. A controller and an admin command started together against a new install are exactly that pair.
+
+**Root cause.** Every connection asks for WAL through its DSN (`_journal_mode=WAL`). On a file already in WAL that is a no-op; on a new file, switching needs exclusive access. Two connections each holding a shared lock and each wanting an exclusive one is a deadlock, and SQLite breaks it by failing one of them at once with SQLITE_BUSY, without consulting the busy timeout. The DSN's own `_busy_timeout` was set first and did not help, because SQLite deliberately bypasses the busy handler for deadlocks.
+
+A read-back ("did the other process switch it?") was tried first and was not enough: the loser can read the mode while the winner is still mid-switch and see the old one. A retry would have worked often enough to look fixed.
+
+**Fix.** `internal/ent/open_sqlite.go`'s `ensureSQLiteWAL` creates a new database privately under a temporary name, switches it to WAL there, and publishes it with one hard link, which fails if the name is taken; a taken name means another process published first, which is success. `link(2)` rather than `rename(2)`, because a rename would replace a database the winner may already be writing to. A new file is created 0600. `TestOpenDatabase_ManyProcessesOpenOneNewDatabase` (16 processes, three rounds, both backends) failed without it.
+
+**Lesson.** When a platform resolves contention by failing one side immediately rather than making it wait, "read it back" and "retry" are both races against the winner's progress. Make the contended step uncontended instead: do it where nobody can see it, then publish the result atomically. It is the same move the certificate bundle made.
+
+## 278. A starting controller failed every live peer's project sync
+
+**Symptom.** Found 2026-09-21 by the Phase 84 design review. `RecoverInterrupted` ran at every controller's startup and moved EVERY running project sync to failed. In a deployment of several controllers, every new pod of a rolling upgrade failed its peers' in-flight syncs, and offered Sync again on a working tree still being cloned into.
+
+**Root cause.** The recovery assumed it ran in the only process. "Running at startup" means "abandoned" only when nothing else is running; the code's own comment noted that a live peer's `RecordSync` would correct its row later, which is true for the row and does nothing for the second clone a user can start in between.
+
+**Fix.** A sync records the instance that owns it (`sync_runs.owner_instance`), every controller heartbeats into `controller_instances` on the database's clock, and recovery fails only running syncs whose owner is missing or silent for three heartbeats. It now also runs on every heartbeat, so a sync abandoned by a controller that died is recovered without waiting for some other controller to restart.
+
+**Lesson.** A startup sweep of shared state is a claim that nobody else is alive. In a replicated service, write down who owns each claim, and sweep only claims whose owner you can prove is gone.
+
+## 279. The backup tests trusted any newer PostgreSQL client, until the machine's default became 18
+
+**Symptom.** 2026-09-21, mid-session, with no change to the code: every restore test in `internal/backup` failed inside `pg_restore` with `unrecognized configuration parameter`. A system upgrade had installed `postgresql-client-18` and made it the default, so `pg_dump` and `pg_restore` on PATH became 18.6 against the tests' pinned 15.19 server.
+
+**Root cause.** The fixture's own comment said the tests run "whichever programs this machine has, of any release that reads 15.19 archives". Reading the archive was never the question. 18's `pg_restore` reads it and then sets `transaction_timeout`, which a 15 server does not have, so every restore failed before loading a row.
+
+**Fix.** A `TestMain` in the package puts the pinned major version's client programs first on PATH when the machine has them (`/usr/lib/postgresql/<major>/bin`), and the fixture's comment now says what it depends on.
+
+**Lesson, and an open product question.** A test that shells out to a host tool is pinned to that tool's version whether it says so or not. The product side of this is not fixed and is raised with the user: the compose stack's backup image carries 15.19's own programs, so it never meets this, but `controller backup|restore` run anywhere else uses whatever PATH finds, and a newer `pg_restore` cannot restore into the older server it came from.
+
+## 280. A zero-failure drain test passed with the drain switched off
+
+**Symptom.** 2026-09-21, Phase 84's binary upgrade gate. Its step 4 stops a controller behind a client that routes by readiness and asserts that no request fails. It passed. The control run, with `SHUTDOWN_DRAIN=0s`, also passed, so the assertion proved nothing about the drain.
+
+**Root cause.** Two things. The balancer polled readiness every 100 ms, far faster than a real load balancer drops an endpoint, so a controller that closed its port at once was noticed before most requests reached it. And, decisively, the balancer's poll loop and the test's `time.Sleep` before the stop started at the same instant, so the stop always landed exactly on a poll: the controller vanished between two requests and was marked not ready before the next one.
+
+**Fix.** The balancer polls once a second (the chart's readiness probe runs every five), and the stop is placed halfway between two polls. With the drain on, 282 requests passed a drain and a stop with none failing; with it off, 10 of 169 failed with `connection refused`.
+
+**Lesson.** See LESSONS_LEARNED.md #213. A test of a protection is not finished until a run with the protection removed fails it. Here the first control run found that the test's own timing had quietly removed the thing it was testing.
+
+## 281. `make -n` started a compose stack
+
+**Symptom.** 2026-09-21: checking that the new `up-plan` target parsed, `make -n up-plan` created the default `pleiades` compose project's network and database volume, started its PostgreSQL container and built an image. Nothing was lost (the volume and network were new, and the three objects were removed at once), but a "dry run" changed the machine.
+
+**Root cause.** Make executes any recipe line that contains `$(MAKE)` even under `-n`, so that a recursive make can print its own plan. `up-plan`'s one shell line calls `$(MAKE) backup`, so the whole line ran.
+
+**Fix.** The Makefile says so above `up-plan`. Check a target's syntax with `make -pn | grep`, or by reading it, not by `make -n` on a recipe that recurses.
+
+**Lesson.** `make -n` is only a dry run for recipes that do not recurse; one `$(MAKE)` anywhere in a shell line runs the line.
+
+**Superseded (2026-09-22).** A comment was not a fix. The same mechanism also stopped a live stack; see #284, which refuses the dry run instead.
+
+## 282. A failed heartbeat read made every live peer's sync look abandoned
+
+**Symptom.** Found 2026-09-22 by an adversarial review of the uncommitted Phase 84 change, before it shipped. `fleet.alive` answered a failed read of `controller_instances` with this controller's own id alone. The sync recovery sweep, which now runs at startup and on every 15 second heartbeat, then treated every other owner as gone and failed each live peer's in-flight project sync. One transient database error was enough.
+
+**Root cause.** The fallback was written on the reasoning that a live owner's own outcome corrects its row when its clone finishes. That is #278's root cause word for word: true for the row, and it does nothing for the second clone a user can start into the same working tree in between. #278 was fixed; its fallback path quietly kept the bug.
+
+**Fix.** `alive` reports whether it knows (`cmd/controller/fleet.go`), and one `sweep` method, used at startup and on every tick, does nothing when it does not. `TestFleet_SweepsNothingWhenItCannotTellWhoIsAlive` renames the heartbeat table away and proves neither a direct sweep nor a tick runs the recovery, with a control proving the sweep does run while the table is readable; a mutation that reports the failed read as known turns it red.
+
+**Lesson.** A fallback inherits the fix's obligations. When the fix is "act only on what you can prove", the error path must prove nothing and do nothing, not return a default that means "everyone else is gone".
+
+## 283. The sync sweep read who was live, then failed projects in a second statement
+
+**Symptom.** Found 2026-09-22 by the same review. `ResetInterruptedSyncs` read the projects a live controller was syncing in one query, then failed every other running project in a separate `UPDATE`, with no transaction. A sync claimed between the two statements was failed while its live owner was still cloning it. With the sweep on every heartbeat of every replica, the window opened four times a minute per controller.
+
+**Root cause.** A decision spread over two statements is only as current as the first one. The exclusion list was a snapshot, and the update applied it to rows that had changed since.
+
+**Fix.** The live-owner exclusion moved inside the one `UPDATE`, as a `NOT EXISTS` over the project's running, live-owned attempts (`internal/project/ent_store.go`). It holds on both dialects: a project claimed concurrently was not running in the statement's snapshot, so it never matches, and a project that matches cannot be claimed meanwhile, because `BeginSync` claims only a project that is not running. `TestResetInterruptedSyncs_FailsOnlyWhatNoLiveOwnerRuns` also closes the gap that no test had run the owner-aware sweep against a real store at all: five projects (live owner, gone owner, no owner, no attempt row, idle), and only the live one survives. Dropping the exclusion turns it red.
+
+**Lesson.** When a write depends on a read of other rows, put the read in the write's own `WHERE`. Two statements are a race even when each is correct.
+
+## 284. `make -n up` stopped the live controller and runner and took no backup
+
+**Symptom.** Found 2026-09-22 by an adversarial review of the uncommitted Phase 84 change. When the checked-out build was due to upgrade the database, `make -n up`, which reads as a harmless preview, stopped the running controller and runner, took no backup, and started nothing, leaving a live deployment down. `make -n restore` reached the same place through its closing `$(MAKE) up`.
+
+**Root cause.** #281's mechanism, one level deeper. `up` names `$(MAKE) up-plan`, so under `-n` make runs that line and hands `-n` to the sub-make. `up-plan`'s one shell line names `$(MAKE) backup`, so the sub-make runs that whole line too: the real `migrate --plan`, and on exit 3 the real `docker compose stop controller runner`. Only `$(MAKE) backup` itself, and the final `docker compose up`, obeyed `-n` and printed. #281 had been closed with a comment warning about it.
+
+**Fix.** A `refuse-dry-run` expansion is the first recipe line of `up`, `up-plan` and `restore`. It is an `$(error)` inside `$(if $(DRY_RUN),...)`, where `DRY_RUN` reads `-n` from the first word of `MAKEFLAGS`, so it fires while make expands the recipe, before any line is printed or run. A guard written as a command would itself only be printed. Proven in a scratch makefile on GNU Make 4.3: `-n`, `--dry-run`, `--just-print`, `-ns` and `-n --no-print-directory` are refused with no side effect; a plain run, `-s`, `--no-print-directory`, `-j2`, `-k` and `--always-make` run normally; and with the guard removed the recursive line ran for real. Against this Makefile, `make -n up`, `make -n up-plan` and `make -n restore` each stop with the reason.
+
+**Lesson.** Warning about a hazard in a comment is not fixing it. Where a tool's safe-looking mode is not safe, make that mode refuse.
+
+## 285. `make up` never rebuilt the runner image
+
+**Symptom.** Found 2026-09-22 by the same review. docs/10's Compose upgrade is "check out the new release, then `make up`". That rebuilt the controller and the backup image and never the runner, so an upgraded stack ran the new controller beside the previous build's runner.
+
+**Root cause.** `make up` builds nothing on purpose. The controller was rebuilt only by accident, because `setup --check` runs with `--build` and the setup service shares the controller's image tag. The final `docker compose up -d --wait` reused whatever `pleiades/runner:dev` was already present.
+
+**Fix.** The last line of `make up` is `docker compose up -d --wait --build`, which builds exactly the services it starts, from cache when nothing changed. Profile services are not started there, so they are not built there.
+
+**Lesson.** A deployment step that starts a service must also say which build of it runs. Side effects that happen to rebuild one image are not a build step.
+
+## 286. The compose gate proved rollback only after wiping the upgraded stack
+
+**Symptom.** Found 2026-09-22 by the same review, confirmed by tracing the previous build's code. docs/10 rolls back past the window with the previous release's `make restore`, run against the live stack. The gate ran `docker compose down -v` first, so it proved a rollback from an empty machine, and its check that data written after the upgrade was gone could not fail once the volume was gone.
+
+**Root cause.** The previous release is main from before Phase 84. Its restore sets the live database aside first, and its dump check refuses a table it does not know, so on an upgraded database it stops with "could not be backed up first". This build's restore tolerates a newer build's tables in the set-aside copy (`internal/backup/backup.go`), so the documented path works for every build from Phase 84 on. The gate worked around the old build and still read as proof of the documented path.
+
+**Fix.** The gate runs the documented path whenever the previous build has Phase 84's compatibility table (`previousBuild.phase84`). For an older previous build, a transitional branch first requires the documented restore to fail with exactly that refusal, then rolls back from a dropped stack and logs that it did. If the old build ever succeeds, the gate fails and says to remove the branch. The branch goes at 1.0 gold, with the other allowances for builds before Phase 84.
+
+**Lesson.** A gate that works around a limitation must prove the limitation is the reason, and say so in its output. Otherwise the workaround passes for the thing it replaced.
+
+## 287. The binary upgrade gate never asked the old build anything while the new one migrated
+
+**Symptom.** Found 2026-09-22 by the same review. `TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates` started this build, waited for it to be ready, and only then sent the previous build a request. Nothing reached the previous build during the migration its name is about.
+
+**Root cause.** The gate checked the end state, which is what is easy to assert, and named itself after the transition, which is what matters.
+
+**Fix.** A readiness-routed, non-retrying client sends the previous build a request every 25ms from before this build starts until it is ready, and a moment when the previous build is not ready counts as a failure. The first run of that check found the second half of the problem: 3 requests in the whole overlap, because this phase's migrations apply in milliseconds on an empty database, so no window existed to observe. The gate now makes the migration take as long as a real one does, by holding a SHARE lock on `schema_migrations` for three seconds, which stops any migration at its first claim, and it requires this build to answer `/readyz` with 503 both when its listener first answers and again at the end of the hold. Run 2026-09-22: 110 requests to the previous build during the held migration, none failed. With the lock removed, the end-of-hold check fails (`current answered /readyz with 200`), so the window is the migration and not only the sleep.
+
+**Lesson.** A test named for a transition must observe during it. If every assertion runs after the event, the name promises more than the test proves.
+
+## 288. A role's timeout ended the one migration wait that must never end
+
+**Symptom.** Found 2026-09-22 by an adversarial review of the uncommitted Phase 84 change. On a PostgreSQL role carrying a `statement_timeout` or `lock_timeout`, which managed PostgreSQL commonly sets, a second controller starting beside a first one whose migration ran longer than the timeout was cancelled while it waited, failed to start, and crash-looped until the first committed.
+
+**Root cause.** The design states that recording a migration's version is the one wait that must be unbounded, and ran that claim before the prelude that sets any timeout, so the claim inherited whatever the session carried. "Unbounded" was assumed rather than said. The idle-in-transaction timeout sat in the same late prelude, so a winner cut off between its claim and the prelude's first statement held its claim with no idle limit either.
+
+**Fix.** `postgresClaimPrelude` (`internal/ent/migrate/transaction.go`) runs before the claim: the idle timeout, `lock_timeout = 0` and `statement_timeout = 0`. `postgresPrelude`, after the claim, sets `lock_timeout = '10s'` for the script. `TestApply_ARoleTimeoutDoesNotEndTheClaimWait` gives a database one-second defaults, proves with a control that they cut an ordinary statement off, and requires a second starter to wait out a four-second winner and find the work done. Run 2026-09-22 against PostgreSQL 15.19: it passes with the fix (6.4 seconds), and on the exact pre-fix order (nothing before the claim, all three settings after it) the waiting starter fails after 1.006 seconds with `recording 0001_slow.sql as applied: pq: canceling statement due to statement timeout`, which is this defect reproduced. A first, coarser mutation that removed the claim prelude entirely also failed, but on the winner's script, and so proved nothing about the claim; the precise one is the one that counts.
+
+**Lesson.** When correctness needs a setting to be off, turn it off. A default you inherit is somebody else's setting.
+
+## 289. With no hard links, a new embedded database came out readable by everyone
+
+**Symptom.** Found 2026-09-22 by the same review. `ensureSQLiteWAL` promises a new database is 0600. On a filesystem that cannot hard link (some network and container mounts), its fallback returned without creating anything and left creation to the SQLite driver, whose file follows the umask, typically 0644. The file holds sealed secrets and password hashes.
+
+**Root cause.** The fallback was reasoned about as a concurrency fallback only (the #277 race comes back there, as documented), and the file mode, the other thing the function promised, went with it silently.
+
+**Fix.** On a failed link the real name is created empty with `O_EXCL` and mode 0600, and SQLite adopts it on first open; a name another process created first is accepted. A test seam (`hardLink`) stands in for a filesystem with no hard links: `TestEnsureSQLiteWAL_WithoutHardLinksStillCreatesAPrivateFile` requires the fallback's file to be 0600, usable, and alone, and the old fallback turns it red.
+
+**Lesson.** A fallback must keep every promise the fast path makes that it can keep. List them before writing it.
+
+## 290. The chart drained for less time than its own readiness probe needed
+
+**Symptom.** Found 2026-09-22 by the same review. The chart's `controller.shutdownDrainSeconds` defaulted to 10, while its readiness probe needs up to 15 seconds (5 second period, 3 failures) to take a pod out of the Service. A controller that stops by itself, having found the database migrated past it, is never deleted, so only that probe removes it, and it closed its port while still routed to.
+
+**Root cause.** The value was sized for a rolling upgrade, where deleting the pod removes its endpoint at once. The other way a controller stops was not considered, and the comment beside the value said the drain must outlast the probe while the value did not.
+
+**Fix.** The default is 20 seconds, the probe's 15 plus five for the endpoint to go, and the comment states both cases and says to raise it with the probe. The termination grace period follows it (45 seconds).
+
+**Lesson.** A timing value has one case per way the event it covers can start. Size it for the slowest, and write the arithmetic next to it.
+
+## 291. A controller left the fleet while its clones were still running
+
+**Symptom.** Found 2026-09-22 by the same review. On shutdown, when the project runner reported clones still running at its deadline, the controller removed its heartbeat anyway. A peer's next sweep then failed those syncs while the dying process's clones could still be writing, and offered Sync again into the same working tree.
+
+**Root cause.** The comment above the call said to leave only once this controller's syncs had stopped, and the code left whether or not they had.
+
+**Fix.** The controller leaves the fleet only when the runner's shutdown succeeds. Otherwise it stays listed, its heartbeat ages out once the process is gone, and only then may a peer sweep its syncs.
+
+**Lesson.** When a comment states a condition, the code must test it. A comment that describes an `if` the code does not have is a bug report.
+
+## 292. The controller's backup gate restored with the machine's newest PostgreSQL client
+
+**Symptom.** 2026-09-22, the first Docker-backed run of the Phase 84 tree: `TestBackupReleaseGate_RestoreOnACleanMachineTakesTheKeyWithEchoOff` failed with `pg_restore: error: could not execute query: ERROR: unrecognized configuration parameter "(value hidden)"`. The parameter name was masked by the platform's own error redaction; it is `transaction_timeout`, which pg_restore 17 and later send and a PostgreSQL 15 server rejects.
+
+**Root cause.** #279 again, in a second suite. #279's fix put the server's major version first on PATH in a `TestMain` private to `internal/backup`. `cmd/controller`'s gate runs the real `controller restore` binary, which found pg_restore on the untouched PATH, the machine's default 18. The same failure existed on main on this machine; nothing had run the gate since its default client changed.
+
+**Fix.** The pinning moved to `internal/testsupport/pgclient.go` (`PostgresMajor`, `PostgresClientBinDir`, and `UsePostgresClientTools`, which sets PATH for one test so a child process inherits it). `internal/backup`'s `TestMain` and the controller gate's `backedUpServer` both call it. The failing run is its own control: the same gate on the same machine, changed only in PATH, now passes.
+
+**Lesson.** When a fix is an environment arrangement, put it where every suite that needs the same arrangement will find it. A fix private to the package that noticed first leaves the others to fail the same way later.
+
+## 293. A chaos test threw away the error of the one session it was waiting for
+
+**Symptom.** 2026-09-22, `make coverage` on the Phase 84 tree: `TestApply_APartitionedWinnerReleasesItsClaim` failed after 32 seconds with `no session ever ran a query like "%pg_sleep%"`. The same test passed in the same run's `test-integration` pass, where container packages run one at a time, and passed again alone afterwards (the claim held 1m10s before the server ended it).
+
+**Root cause.** The test started the migrating "winner" as `go func() { _, _ = applyPending(...) }()` and then polled `pg_stat_activity` for 30 seconds waiting for the winner's `pg_sleep`. A winner that failed before reaching its migration (a connection through Toxiproxy refused or timed out under the parallel coverage pass is the likely cause, #61's class) left the poll to run out and report a symptom with no cause. What the winner's error actually was is unknown: the test discarded it, which is the defect. `TestApply_ARoleTimeoutDoesNotEndTheClaimWait`, written the same day, had the same shape, though it did read the winner's error once the wait was over.
+
+**Fix.** `awaitQuery` takes the winner's result channel and stops at once, naming the winner's own error, if the winner ends before any session runs the query. Its timeout message says the winner is still running, so the two cases read differently. Both tests pass it their winner. Control: the role-timeout test with the winner's DSN deliberately broken now fails in 2.6 seconds with `the winner ended before any session ran a query like "%pg_sleep%" (its error: ... unsupported sslmode "disablex" ...)`, where it would have spent 30 seconds reporting nothing.
+
+**Lesson.** A test that waits for a background actor to reach a point has to watch that actor finish too. Swallowing its error turns every failure it has into one timeout message, and the next reader of that message debugs the wrong thing.
+
+## 294. `facts.gather`'s check test compared a clock
+
+**Symptom.** 2026-09-22, `make test-integration` on the Phase 84 tree: `TestGatherCheck_OnlyReads` failed with two fact maps identical except `ansible_uptime_seconds:12655` against `12656`. The package was untouched by the change under test.
+
+**Root cause.** The test runs the check, then a real gather, and requires `reflect.DeepEqual` of the two fact maps. Each reads `/proc/uptime` afresh, so whenever the two reads straddle a second boundary the maps differ. The test was written against a property (a check reports what a run reports) that is true of every fact but the one that is a clock.
+
+**Fix.** The uptime fact is compared on its own: present in both, the run's value no earlier than the check's and at most a minute later. Every other fact is still compared exactly. Controls, each by a temporary edit: the run's uptime one second later passes; a changed hostname still fails; the run's uptime five seconds earlier fails.
+
+**Lesson.** Before asserting two reads are equal, ask which of the fields read is time. An equality that holds only when two reads land in the same second fails about as often as the reads take to run.
+
+## 295. The Helm setup gate looked for a durable fact in one container's log
+
+**Symptom.** 2026-09-22, `make test-integration` on the Phase 84 tree: `TestPackagingReleaseGate_KubernetesInstall` failed in its setup subtest with `the controller did not record the key it first ran with`, printing a controller log in which the key record was absent, the database was plainly open, and the serving certificate was `"provisioning":"reused"`, so the container printing it was not the first one.
+
+**Root cause.** The check read `kubectl logs deploy/<controller>`, which shows the running container only. Every Helm install in the gate restarts its controller: rerun with a diagnostic, the setup release's controller restarted three times and the main release's three times, each ending `failed to open the controller database ... lookup pleiades-setup-postgres ... no such host`, because the controller exits when the database's Service name does not resolve yet, and `main` does the same. The key is recorded once, by whichever container first gets past the database, and a container that recorded it and then died later in startup takes the only copy of the line with it. Nothing about the product was wrong: the registry row was there. The check tested a log retention detail rather than the fact it names.
+
+**Fix.** The gate now reads the fact itself: `SELECT origin FROM encryption_keys` through `psql` in the release's own PostgreSQL pod, requiring exactly one key, recorded as `first_use`. It also logs how often the controller container restarted and, when it did, the previous container's last lines and exit, so the next failure of this kind names its cause. Rerun alone after the change: three restarts logged with their cause, one `first_use` row, gate passes.
+
+**Lesson.** Assert a durable fact where it is stored. A log line is evidence that one process said something, and in Kubernetes the process that said it may already be gone. Separately, and not fixed here: a controller that exits until its database resolves costs every Helm install about a minute of back-off.
+
+## 296. A control was attested before anything ran it
+
+**Symptom.** 2026-09-22, reading `SECURITY_ATTESTATION.md` while ticking Phase 84: control ISO 27001 A.8.13 claimed, ticked and dated, that "if the backup fails, nothing is upgraded", citing the `Makefile` and the compose upgrade gate. The Makefile does implement it: `up-plan` runs `make backup` on plan exit 3 and stops with its own message if that backup fails. No test ran that branch. The gate cited beside it only ever took a backup that worked.
+
+**Root cause.** The claim was true of the code and untrue of the evidence. An attestation entry names the mechanism and the test in one breath, which reads as "this is enforced and proven"; here the second half was supplied by the first. It survived a review because the branch is three lines of shell in a recipe that is otherwise exercised constantly, so every run of the gate looked like coverage of it.
+
+**Fix.** The compose gate now runs `make up` with `BACKUP_DIR` pointing at a directory this user cannot write, and requires it to fail saying the database was NOT upgraded; the next `make up` still reporting an upgrade to back up is what proves nothing was migrated meanwhile. Control, per LESSONS 213: with the recipe's `|| { ...; exit 1; }` replaced by `|| true`, `make up` upgraded anyway and the new check failed the gate in 47 seconds. The attestation entry now says what the gate proves, and where the rollback proof is narrower than the documented path.
+
+**Lesson.** When writing a compliance control, cite the test that fails if the control is removed, not the mechanism that implements it. If naming that test means writing it first, the control was not ready to be claimed.
+

@@ -69,7 +69,7 @@ func (s *recordingStore) ByLaunchable(_ context.Context, launchableID int) (proj
 	}, nil
 }
 
-func (s *recordingStore) ResetInterruptedSyncs(context.Context) (int, error) {
+func (s *recordingStore) ResetInterruptedSyncs(context.Context, []string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetCalled = true
@@ -171,7 +171,7 @@ func TestRunner_RecoverInterruptedClearsStrandedClaims(t *testing.T) {
 	store := &recordingStore{resetN: 2}
 	r := project.NewRunner(store, &controllableSyncer{}, nil)
 
-	r.RecoverInterrupted(context.Background())
+	r.RecoverInterrupted(context.Background(), nil)
 	if !store.resetCalled {
 		t.Error("RecoverInterrupted did not reset interrupted syncs")
 	}

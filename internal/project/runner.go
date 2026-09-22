@@ -9,7 +9,7 @@
 //
 // It owns none of the durability the store provides: a claim is a
 // compare-and-swap in the database (Store.BeginSync), and a claim a crash
-// stranded is cleared at the next startup (RecoverInterrupted). What the
+// stranded is cleared by the next recovery sweep (RecoverInterrupted). What the
 // Runner adds is the concurrency, the lifecycle, and the promise that a
 // background clone's context is the Runner's rather than a request's that
 // is already gone.
@@ -35,7 +35,7 @@ const defaultConcurrency = 4
 type syncStore interface {
 	BeginSync(ctx context.Context, id int, actor string) (Claim, error)
 	RecordSync(ctx context.Context, id int, result Result) error
-	ResetInterruptedSyncs(ctx context.Context) (int, error)
+	ResetInterruptedSyncs(ctx context.Context, alive []string) (int, error)
 
 	// ByLaunchable resolves the launchable reference a schedule fires with
 	// into the project it stands for. It is here rather than on a separate
@@ -255,19 +255,21 @@ func (r *Runner) record(id int, result Result) {
 	}
 }
 
-// RecoverInterrupted clears syncs a previous process left claimed, and is
-// meant to run once at startup. Without it a project a crash caught
-// mid-clone would stay running forever, and BeginSync would refuse every
-// future Sync of it.
-func (r *Runner) RecoverInterrupted(ctx context.Context) {
-	n, err := r.store.ResetInterruptedSyncs(ctx)
+// RecoverInterrupted clears syncs no live process is still running. A
+// controller calls it at startup and on every heartbeat, with the instance
+// ids it knows to be alive, its own included; nil treats every claim as
+// abandoned, which is right for a lone process at startup. Without it a
+// project a crash caught mid-clone would stay running forever, and BeginSync
+// would refuse every future Sync of it.
+func (r *Runner) RecoverInterrupted(ctx context.Context, alive []string) {
+	n, err := r.store.ResetInterruptedSyncs(ctx, alive)
 	if err != nil {
-		r.logger.Error("resetting interrupted syncs at startup failed",
+		r.logger.Error("resetting interrupted syncs failed",
 			slog.String("error", err.Error()))
 		return
 	}
 	if n > 0 {
-		r.logger.Info("cleared syncs a restart interrupted", slog.Int("count", n))
+		r.logger.Info("cleared syncs no running controller owns", slog.Int("count", n))
 	}
 }
 

@@ -4,10 +4,14 @@
 package ent
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"entgo.io/ent/dialect"
 
@@ -40,9 +44,14 @@ const embeddedBusyTimeoutMillis = 5000
 // driver can open it.
 func resolveSQLite(path string) resolvedDSN {
 	return resolvedDSN{
-		driver:   dialect.SQLite,
-		dsn:      embeddedDSN(path),
-		prepare:  func() error { return ensureSQLiteParentDir(path) },
+		driver: dialect.SQLite,
+		dsn:    embeddedDSN(path),
+		prepare: func() error {
+			if err := ensureSQLiteParentDir(path); err != nil {
+				return err
+			}
+			return ensureSQLiteWAL(path)
+		},
 		describe: fmt.Sprintf("%q", path),
 	}
 }
@@ -97,4 +106,111 @@ func embeddedDSN(path string) string {
 	// passed in.
 	escaped := (&url.URL{Path: path}).EscapedPath()
 	return fmt.Sprintf("file:%s?_fk=1&_journal_mode=WAL&_busy_timeout=%d", escaped, embeddedBusyTimeoutMillis)
+}
+
+// ensureSQLiteWAL makes sure a database file that does not exist yet comes
+// into existence already in write-ahead-log mode.
+//
+// Every pooled connection asks for WAL through its DSN, and on a file already
+// in WAL that request is a no-op. On a brand new file it is not: switching
+// needs the file to itself, and when two processes open a new file at the same
+// instant, SQLite sees two connections each holding a shared lock and each
+// wanting an exclusive one. It breaks that deadlock by failing one of them at
+// once with SQLITE_BUSY, without consulting the busy timeout at all, so the
+// loser's very first connection fails with "database is locked" and the
+// process never starts (FAILURE_PATTERNS.md #277). A controller and an admin
+// command started together against a new install are exactly that pair.
+//
+// Retrying the switch would work often enough to look fixed, and is the retry
+// budget internal/tlscert's Ensure explains the case against. So the switch is
+// not contended at all. The database is created privately under a temporary
+// name, switched to WAL there with nobody else able to see it, and published
+// under its real name with one hard link, which fails if the name is taken. A
+// link that finds the name taken means another process published first, and
+// its file is exactly as good: the same doctrine as a certificate bundle,
+// with link(2) standing in for rename(2) because a rename would replace a
+// database the winner may already be writing to.
+//
+// The temporary file is created 0600, so a database this creates is readable
+// by its owner only, where one the driver created used to follow the umask.
+func ensureSQLiteWAL(path string) error {
+	if _, err := os.Lstat(path); err == nil {
+		// It exists already. There is nothing to publish, and the DSN's
+		// own request switches an existing file the way it always has.
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("ent: looking for embedded database %q: %w", path, err)
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".pleiades-new-*.db")
+	if err != nil {
+		return fmt.Errorf("ent: creating embedded database %q: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		// Whatever happens, the private name goes: either the link now
+		// holds the file under its real name, or it was never published.
+		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath + "-wal")
+		_ = os.Remove(tmpPath + "-shm")
+	}()
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("ent: creating embedded database %q: %w", path, err)
+	}
+	if err := switchToWAL(tmpPath); err != nil {
+		return fmt.Errorf("ent: preparing embedded database %q: %w", path, err)
+	}
+
+	err = hardLink(tmpPath, path)
+	switch {
+	case err == nil, errors.Is(err, fs.ErrExist):
+		// Published, by this process or by one that got there first.
+		return nil
+	default:
+		// A filesystem that cannot hard link (some network and container
+		// mounts) creates the real name empty instead, exclusively and
+		// owner-only, and lets the DSN switch it to WAL on first open. Two
+		// processes creating it at the same instant there can still collide
+		// over that switch, which is the case this function removes
+		// everywhere it can. The file is still 0600: this fallback used to
+		// leave creation to the driver, whose file follows the umask, so on
+		// such a mount the database, sealed secrets and all, came out
+		// readable by everyone (FAILURE_PATTERNS.md #289).
+		f, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- path is the operator's configured database file, the one os.Lstat and the link above already name, not untrusted input
+		switch {
+		case createErr == nil:
+			return f.Close()
+		case errors.Is(createErr, fs.ErrExist):
+			// Another process created it first, which is as good.
+			return nil
+		default:
+			return fmt.Errorf("ent: creating embedded database %q (a hard link failed first: %v): %w", path, err, createErr)
+		}
+	}
+}
+
+// hardLink publishes the prepared database under its real name. It is a
+// variable only so a test can stand in for a filesystem with no hard links.
+var hardLink = os.Link
+
+// switchToWAL puts the SQLite file at path into write-ahead-log mode and
+// checks that it took. It is only ever used on a file no other process can
+// see yet, so the switch is uncontended.
+func switchToWAL(path string) error {
+	escaped := (&url.URL{Path: path}).EscapedPath()
+	db, err := sql.Open(dialect.SQLite, fmt.Sprintf("file:%s?_busy_timeout=%d", escaped, embeddedBusyTimeoutMillis))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var mode string
+	if err := db.QueryRow("PRAGMA journal_mode = WAL").Scan(&mode); err != nil {
+		return err
+	}
+	if !strings.EqualFold(mode, "wal") {
+		return fmt.Errorf("journal mode is %q after asking for WAL", mode)
+	}
+	// Closing the only connection checkpoints the log away; the mode itself
+	// is recorded in the file's header and survives.
+	return db.Close()
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entlaunchable "github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	entproject "github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	entsyncrun "github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
@@ -37,12 +38,31 @@ type entStore struct {
 	// all pass through Create and Update, so one check here is a check they
 	// all get. The zero value refuses all but https and ssh.
 	policy SourcePolicy
+
+	// owner is the controller instance this store's claims are recorded as
+	// belonging to (WithOwner). Empty records no owner.
+	owner string
+}
+
+// StoreOption adjusts an entStore.
+type StoreOption func(*entStore)
+
+// WithOwner records instanceID as the owner of every sync this store claims,
+// so that another controller's recovery can tell this one's live clones from
+// a dead process's (ResetInterruptedSyncs). A controller passes its own
+// heartbeat instance id.
+func WithOwner(instanceID string) StoreOption {
+	return func(s *entStore) { s.owner = instanceID }
 }
 
 // NewEntStore returns a Store over the given client, accepting only the
 // sources policy admits.
-func NewEntStore(client *ent.Client, policy SourcePolicy) Store {
-	return &entStore{client: client, policy: policy}
+func NewEntStore(client *ent.Client, policy SourcePolicy, opts ...StoreOption) Store {
+	s := &entStore{client: client, policy: policy}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // checkSource refuses a source this deployment will not fetch from, and a URL
@@ -475,12 +495,15 @@ func (s *entStore) BeginSync(ctx context.Context, id int, actor string) (Claim, 
 	}
 
 	started := time.Now()
-	run, err := tx.SyncRun.Create().
+	create := tx.SyncRun.Create().
 		SetStatus(entsyncrun.Status(SyncRunning)).
 		SetActor(actor).
 		SetStartedAt(started).
-		SetProjectID(id).
-		Save(ctx)
+		SetProjectID(id)
+	if s.owner != "" {
+		create.SetOwnerInstance(s.owner)
+	}
+	run, err := create.Save(ctx)
 	if err != nil {
 		return Claim{}, fmt.Errorf("project: opening a sync history row for %d: %w", id, err)
 	}
@@ -495,22 +518,57 @@ func (s *entStore) BeginSync(ctx context.Context, id int, actor string) (Claim, 
 	return Claim{Project: p, RunID: run.ID, StartedAt: started}, nil
 }
 
-// ResetInterruptedSyncs clears syncs a process restart left mid-flight,
-// moving every running project to failed. It is meant to run once at
-// startup: a sync runs in memory, so a running row at boot is a clone whose
-// process is gone, and leaving it running would refuse every future Sync
-// (BeginSync's compare-and-swap would never match). Marking it failed is
-// both honest and the state from which a Sync is offered again.
+// ResetInterruptedSyncs fails every sync no live process is still running,
+// and reports how many projects it moved to failed.
 //
-// It returns how many it cleared, for the startup log. A completing sync on
-// another live replica that this resets is corrected when that replica's own
-// RecordSync writes the real outcome, which addresses the row by id rather
-// than by a status it must still hold.
-func (s *entStore) ResetInterruptedSyncs(ctx context.Context) (int, error) {
+// A sync runs in memory, so a claim whose process is gone would stay running
+// forever and refuse every future Sync (BeginSync's compare-and-swap would
+// never match). Failing it is both honest and the state from which a Sync is
+// offered again.
+//
+// What decides "gone" is the claim's owner. This used to fail every running
+// sync, on the reasoning that it only ran at startup; but in a deployment of
+// several controllers every replica's startup is somebody else's live clone,
+// so each new pod of a rolling upgrade failed its peers' in-flight syncs and
+// offered Sync again on a working tree still being cloned into
+// (FAILURE_PATTERNS.md #278). Now an attempt is abandoned only when it has no
+// recorded owner, or its owner is not in alive; and a project is failed only
+// when no running attempt of its own has a live owner, which also covers a
+// project left running with no attempt row at all.
+//
+// alive is the instance ids known to be running, the caller's own included.
+// Nil means none, which is the right answer for a single process at startup:
+// every claim is then abandoned, as before.
+func (s *entStore) ResetInterruptedSyncs(ctx context.Context, alive []string) (int, error) {
 	const reason = "The sync was interrupted by a restart. Sync again to retry."
 
+	running := entsyncrun.StatusEQ(entsyncrun.Status(SyncRunning))
+
+	// Every attempt no live process owns: all of them when nobody is alive.
+	abandoned := running
+	if len(alive) > 0 {
+		abandoned = entsyncrun.And(running, entsyncrun.Or(
+			entsyncrun.OwnerInstanceIsNil(),
+			entsyncrun.OwnerInstanceNotIn(alive...),
+		))
+	}
+
+	// Every running project no live process is syncing, decided inside this
+	// one UPDATE. It used to read the live-synced projects first and exclude
+	// them in a second statement, so a sync claimed between the two was failed
+	// while its live owner was still cloning it (FAILURE_PATTERNS.md #283). In
+	// one statement that cannot happen on either dialect: a project claimed
+	// concurrently was not running in the statement's snapshot, so it never
+	// matches, and a project that does match cannot be claimed meanwhile,
+	// because BeginSync only claims a project that is not running. With nobody
+	// alive the exclusion is left out, and every running project is failed.
+	stuck := []predicate.Project{entproject.SyncStatusEQ(entproject.SyncStatus(SyncRunning))}
+	if len(alive) > 0 {
+		stuck = append(stuck, entproject.Not(entproject.HasSyncRunsWith(running, entsyncrun.OwnerInstanceIn(alive...))))
+	}
+
 	n, err := s.client.Project.Update().
-		Where(entproject.SyncStatusEQ(entproject.SyncStatus(SyncRunning))).
+		Where(stuck...).
 		SetSyncStatus(entproject.SyncStatus(SyncFailed)).
 		SetSyncError(reason).
 		Save(ctx)
@@ -522,12 +580,8 @@ func (s *entStore) ResetInterruptedSyncs(ctx context.Context) (int, error) {
 	// the same reason, so they are failed in the same sweep. Without this a
 	// history would show an attempt still cloning weeks after the process
 	// that started it died, and Took would keep counting up.
-	//
-	// Addressed by status rather than by project, so a row whose project
-	// somebody has since re-synced is not missed: the project's own status
-	// would no longer be running, while the abandoned row still is.
 	if _, err := s.client.SyncRun.Update().
-		Where(entsyncrun.StatusEQ(entsyncrun.Status(SyncRunning))).
+		Where(abandoned).
 		SetStatus(entsyncrun.Status(SyncFailed)).
 		SetError(reason).
 		SetFinishedAt(time.Now()).

@@ -1,0 +1,1 @@
+A controller starting up no longer fails the project syncs other, live controllers are running. Each sync now records the controller that owns it, and only a sync whose owner has stopped sending heartbeats is treated as abandoned; such syncs are now also recovered while controllers run, not only when one restarts.

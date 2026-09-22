@@ -92,6 +92,17 @@ func (SyncRun) Fields() []ent.Field {
 		field.Time("finished_at").
 			Optional().
 			Nillable(),
+
+		// owner_instance is the controller_instances.instance_id of the
+		// process running this attempt, so a controller starting up can tell
+		// an attempt a dead process abandoned from one a live peer is still
+		// cloning (FAILURE_PATTERNS.md #278). Nullable, so a build that
+		// predates it keeps opening attempts; an attempt with no owner is
+		// judged the way every attempt used to be.
+		field.String("owner_instance").
+			Optional().
+			Nillable().
+			MaxLen(64),
 	}
 }
 

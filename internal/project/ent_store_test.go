@@ -17,6 +17,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	entproject "github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -172,7 +173,7 @@ func TestResetInterruptedSyncs_ClearsARunningClaim(t *testing.T) {
 		t.Fatalf("BeginSync() = %v", err)
 	}
 
-	n, err := store.ResetInterruptedSyncs(ctx)
+	n, err := store.ResetInterruptedSyncs(ctx, nil)
 	if err != nil {
 		t.Fatalf("ResetInterruptedSyncs() = %v", err)
 	}
@@ -211,6 +212,102 @@ func TestResetInterruptedSyncs_ClearsARunningClaim(t *testing.T) {
 	// that a stuck running row would have blocked forever now matches.
 	if _, err := store.BeginSync(ctx, id, "tester"); err != nil {
 		t.Errorf("BeginSync after a reset = %v, want the claim to succeed again", err)
+	}
+}
+
+// TestResetInterruptedSyncs_FailsOnlyWhatNoLiveOwnerRuns is the owner-aware
+// sweep against a real store: the behavior FAILURE_PATTERNS.md #278's fix
+// exists for, which the test above cannot reach because it passes no live
+// owners. Five projects share one database: one claimed by a live peer, one
+// by a controller that is gone, one claimed with no owner recorded, one left
+// running with no attempt row at all, and one never synced. Only the live
+// peer's project, and its history row, may survive the sweep.
+func TestResetInterruptedSyncs_FailsOnlyWhatNoLiveOwnerRuns(t *testing.T) {
+	client := newStoreClient(t)
+	ctx := context.Background()
+	org := client.Organization.Create().SetName("network").SaveX(ctx)
+	live := project.NewEntStore(client, project.SourcePolicy{}, project.WithOwner("peer-live"))
+	gone := project.NewEntStore(client, project.SourcePolicy{}, project.WithOwner("peer-gone"))
+	unowned := project.NewEntStore(client, project.SourcePolicy{})
+
+	create := func(name string) int {
+		t.Helper()
+		p, err := live.Create(ctx, project.Project{
+			Name:           name,
+			SCMType:        project.SCMGit,
+			SCMURL:         "https://example.invalid/" + name + ".git",
+			OrganizationID: org.ID,
+		})
+		if err != nil {
+			t.Fatalf("creating %s: %v", name, err)
+		}
+		return p.ID
+	}
+	claim := func(s project.Store, id int) project.Claim {
+		t.Helper()
+		c, err := s.BeginSync(ctx, id, "tester")
+		if err != nil {
+			t.Fatalf("BeginSync(%d) = %v", id, err)
+		}
+		return c
+	}
+	liveID, goneID, unownedID, rowlessID, idleID := create("live"), create("gone"), create("unowned"), create("rowless"), create("idle")
+	liveClaim := claim(live, liveID)
+	claim(gone, goneID)
+	claim(unowned, unownedID)
+	// Running with no attempt row: nothing names an owner, so nothing live
+	// can be running it.
+	client.Project.UpdateOneID(rowlessID).SetSyncStatus(entproject.SyncStatus(project.SyncRunning)).ExecX(ctx)
+	idleBefore, err := live.Get(ctx, idleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := live.ResetInterruptedSyncs(ctx, []string{"this-controller", "peer-live"})
+	if err != nil {
+		t.Fatalf("ResetInterruptedSyncs() = %v", err)
+	}
+	if n != 3 {
+		t.Errorf("the sweep failed %d projects; want 3 (gone, unowned, rowless)", n)
+	}
+
+	status := func(id int) project.SyncStatus {
+		t.Helper()
+		p, err := live.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.SyncStatus
+	}
+	if got := status(liveID); got != project.SyncRunning {
+		t.Errorf("the live peer's project is %q after the sweep; want it still running", got)
+	}
+	for name, id := range map[string]int{"gone": goneID, "unowned": unownedID, "rowless": rowlessID} {
+		if got := status(id); got != project.SyncFailed {
+			t.Errorf("the %s project is %q after the sweep; want failed", name, got)
+		}
+	}
+	if got := status(idleID); got != idleBefore.SyncStatus {
+		t.Errorf("the idle project changed from %q to %q; a sweep touches only running syncs", idleBefore.SyncStatus, got)
+	}
+
+	// The live peer's own attempt row is left cloning; the dead owner's and
+	// the unowned one's are failed with it.
+	runs, err := live.ListSyncRuns(ctx, liveID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != liveClaim.RunID || !runs[0].Running() {
+		t.Errorf("the live peer's history = %+v; want its one attempt still running", runs)
+	}
+	for name, id := range map[string]int{"gone": goneID, "unowned": unownedID} {
+		runs, err := live.ListSyncRuns(ctx, id, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(runs) != 1 || runs[0].Running() || runs[0].Status != project.SyncFailed {
+			t.Errorf("the %s project's history = %+v; want its attempt failed", name, runs)
+		}
 	}
 }
 

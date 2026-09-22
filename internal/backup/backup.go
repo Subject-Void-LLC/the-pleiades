@@ -122,19 +122,25 @@ type taken struct {
 	size    int64
 	census  crypto.Census
 	version string
+
+	// newer lists the migrations the database records that this build does
+	// not know: a newer build migrated it (and this one may be serving it
+	// inside the compatibility window, after a rollback, say). Such a backup
+	// is taken, and said to need that newer build to restore.
+	newer []string
 }
 
 // take writes one backup of t into dir under keys' name. Names are to the
 // second, so a backup that finds its name taken, by one started in the same
 // second, waits for the next second and takes that name instead, once.
 func take(ctx context.Context, t target, keys keySet, dir *store, now time.Time, beforeRestore bool) (taken, error) {
-	census, version, err := countLive(ctx, t, keys)
+	census, version, newer, err := countLive(ctx, t, keys)
 	if err != nil {
 		return taken{}, err
 	}
 	name := newName(now, keys.key, beforeRestore)
 	for attempt := 0; ; attempt++ {
-		size, err := dir.write(ctx, t, name.String())
+		size, err := dir.write(ctx, t, name.String(), len(newer) > 0)
 		if errors.Is(err, fs.ErrExist) && attempt == 0 {
 			time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second)))
 			name = newName(now.Add(time.Second), keys.key, beforeRestore)
@@ -143,13 +149,15 @@ func take(ctx context.Context, t target, keys keySet, dir *store, now time.Time,
 		if err != nil {
 			return taken{}, err
 		}
-		return taken{name: name, size: size, census: census, version: version}, nil
+		return taken{name: name, size: size, census: census, version: version, newer: newer}, nil
 	}
 }
 
 // write dumps t into a new file named final, and returns its size. It
-// returns an error wrapping fs.ErrExist when final is already taken.
-func (s *store) write(ctx context.Context, t target, final string) (int64, error) {
+// returns an error wrapping fs.ErrExist when final is already taken. newer
+// says the live database holds a newer build's tables, which the read-back
+// check then accepts (see check).
+func (s *store) write(ctx context.Context, t target, final string, newer bool) (int64, error) {
 	partial := "." + final + ".partial"
 	f, err := s.root.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -168,7 +176,7 @@ func (s *store) write(ctx context.Context, t target, final string) (int64, error
 	if err != nil {
 		return 0, fmt.Errorf("backup: the database could not be dumped, and no backup was written: %w", err)
 	}
-	if err := s.check(ctx, partial); err != nil {
+	if err := s.check(ctx, partial, newer); err != nil {
 		return 0, fmt.Errorf("backup: what pg_dump wrote does not read back as a backup this command could restore, so it was deleted: %w", err)
 	}
 	info, err := s.root.Stat(partial)
@@ -192,25 +200,35 @@ func (s *store) write(ctx context.Context, t target, final string) (int64, error
 }
 
 // countLive reads the live database's migration history and counts what
-// keys open in it. A database with no history is ErrNothingToBackUp.
-func countLive(ctx context.Context, t target, keys keySet) (crypto.Census, string, error) {
+// keys open in it. A database with no history is ErrNothingToBackUp. It also
+// returns the migrations a newer build recorded that this one does not know.
+//
+// Such a database is still backed up. A dump does not depend on the build
+// that takes it, and refusing would leave an operator with no backup at the
+// moment they reached for one; restoring is where the build has to match,
+// and restore refuses a history it does not know.
+func countLive(ctx context.Context, t target, keys keySet) (crypto.Census, string, []string, error) {
 	db, err := ent.OpenExisting(ctx, t.dsn())
 	if err != nil {
-		return crypto.Census{}, "", fmt.Errorf("backup: cannot reach the database: %w", err)
+		return crypto.Census{}, "", nil, fmt.Errorf("backup: cannot reach the database: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 	version, err := latestMigration(ctx, db)
 	if err != nil {
-		return crypto.Census{}, "", err
+		return crypto.Census{}, "", nil, err
 	}
 	if version == "" {
-		return crypto.Census{}, "", ErrNothingToBackUp
+		return crypto.Census{}, "", nil, ErrNothingToBackUp
+	}
+	plan, err := db.SchemaPlan(ctx)
+	if err != nil {
+		return crypto.Census{}, "", nil, fmt.Errorf("backup: reading the migration history: %w", err)
 	}
 	census, err := crypto.TakeCensus(ctx, db, keys.candidates())
 	if err != nil {
-		return crypto.Census{}, "", fmt.Errorf("backup: counting what the database holds: %w", err)
+		return crypto.Census{}, "", nil, fmt.Errorf("backup: counting what the database holds: %w", err)
 	}
-	return census, version, nil
+	return census, version, plan.Unknown, nil
 }
 
 // latestMigration is the newest migration db records, or empty when it
@@ -228,8 +246,9 @@ func latestMigration(ctx context.Context, db *ent.ExistingDatabase) (string, err
 }
 
 // check reads name back through pg_restore and refuses it unless it is a
-// custom-format archive of this schema.
-func (s *store) check(ctx context.Context, name string) error {
+// custom-format archive of this schema, or, when newer is set, of this
+// schema plus tables a newer build created.
+func (s *store) check(ctx context.Context, name string, newer bool) error {
 	f, err := s.root.Open(name)
 	if err != nil {
 		return err
@@ -243,7 +262,21 @@ func (s *store) check(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	return toc.Check(knownTables())
+	known := knownTables()
+	if newer {
+		// The live database holds tables a newer build created. They are
+		// that build's to know, not this one's, so
+		// each table the archive names is accepted as a table; every other
+		// refusal (another schema, a kind this schema never creates, no
+		// history table) stands, and restoring the file is still that newer
+		// build's job, which says so when this one is asked.
+		for _, e := range toc.Entries {
+			if e.Kind == "TABLE" && e.Namespace == "public" {
+				known[e.Tag] = true
+			}
+		}
+	}
+	return toc.Check(known)
 }
 
 // sync flushes the directory entry for a new name to disk. A failure is

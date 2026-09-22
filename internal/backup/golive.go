@@ -51,6 +51,13 @@ func (s *scratch) prepare(archive string) (failed, ended int, err error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("backup: ending the backup's sessions: %w", err)
 	}
+	// The heartbeats in the backup are the controllers that were running
+	// when it was taken. None of them is running against this database, and
+	// left in place they would read as alive for their last minute, or as
+	// the fleet's history to an operator asking what is running now.
+	if _, err := client.ControllerInstance.Delete().Exec(s.ctx); err != nil {
+		return 0, 0, fmt.Errorf("backup: clearing the backup's controller heartbeats: %w", err)
+	}
 	if err := activity.NewEntStore(client).Record(s.ctx, activity.Entry{
 		Actor: restoreActor, Action: activity.ActionRestored, ObjectKind: activity.KindDatabase,
 		ObjectID: 1, ObjectName: s.admin.database + " from " + printable(archive),

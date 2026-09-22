@@ -207,5 +207,5 @@ func (s *store) checkArchive(ctx context.Context, name string) error {
 	if err != nil || string(magic) != "PGDMP" {
 		return fmt.Errorf("%w: %s is not a PostgreSQL custom-format archive", ErrNotABackup, printablePath(s.show(name)))
 	}
-	return s.check(ctx, name)
+	return s.check(ctx, name, false)
 }

@@ -14,6 +14,8 @@ import (
 	"regexp"
 
 	"entgo.io/ent/dialect"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
 
 // ErrNoDatabase is returned by OpenExisting when a SQLite DSN names a file
@@ -30,9 +32,8 @@ var ErrNoDatabase = errors.New("ent: the database file does not exist")
 // OpenDatabase make it the wrong tool for that:
 //
 //   - OpenDatabase migrates. A count must not change the thing it counts,
-//     and a migration run from a setup command could race a controller
-//     migrating the same database, which migrate.Apply does not lock
-//     against.
+//     and a setup command must not be the thing that upgrades a database
+//     under a running controller.
 //   - OpenDatabase creates. It makes a SQLite file's parent directory and
 //     the file itself, so asking "is there anything here" would answer by
 //     putting something there.
@@ -225,4 +226,30 @@ func (d *ExistingDatabase) hasTable(ctx context.Context, table string) (bool, er
 		return false, fmt.Errorf("ent: checking for table %s in %s: %w", table, d.describe, err)
 	}
 	return n > 0, nil
+}
+
+// SchemaPlan says what this build would do with the database's migration
+// history, without migrating it (internal/ent/migrate.Inspect). It is what
+// controller migrate --plan reports, and what compose's make up reads to
+// decide whether an upgrade needs a backup first.
+func (d *ExistingDatabase) SchemaPlan(ctx context.Context) (migrate.Plan, error) {
+	return migrate.Inspect(ctx, d.driver, d.db)
+}
+
+// Instances lists every controller heartbeat the database holds, or nil when
+// the database predates the heartbeat table: "no table" and "no controllers"
+// are different answers, and only the second is an empty list.
+func (d *ExistingDatabase) Instances(ctx context.Context) ([]Instance, error) {
+	exists, err := d.hasTable(ctx, "controller_instances")
+	if err != nil || !exists {
+		return nil, err
+	}
+	instances, err := listInstances(ctx, d.db, d.driver)
+	if err != nil {
+		return nil, err
+	}
+	if instances == nil {
+		instances = []Instance{}
+	}
+	return instances, nil
 }

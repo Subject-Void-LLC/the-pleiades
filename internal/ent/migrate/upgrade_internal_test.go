@@ -49,9 +49,8 @@ func openUpgradeDB(t *testing.T) *sql.DB {
 func applyThrough(t *testing.T, db *sql.DB, name string) {
 	t.Helper()
 	ctx := context.Background()
-	src := migrationSources["sqlite3"]
 
-	names, err := migrationNames(src)
+	names, err := migrationNames(migrationSources["sqlite3"])
 	if err != nil {
 		t.Fatalf("listing migrations: %v", err)
 	}
@@ -66,14 +65,7 @@ func applyThrough(t *testing.T, db *sql.DB, name string) {
 		t.Fatalf("no migration named %q; the set was renumbered and this test needs rewriting", name)
 	}
 
-	if err := ensureVersionTable(ctx, db); err != nil {
-		t.Fatalf("creating the version table: %v", err)
-	}
-	applied, err := appliedVersions(ctx, db)
-	if err != nil {
-		t.Fatalf("reading applied versions: %v", err)
-	}
-	if err := applyPending(ctx, db, src, names, applied, name); err != nil {
+	if _, err := applyPending(ctx, db, migrationSources["sqlite3"], names, name, gateStrict); err != nil {
 		t.Fatalf("applying through %s: %v", name, err)
 	}
 }
@@ -255,7 +247,8 @@ func TestApply_LeavesForeignKeyEnforcementOn(t *testing.T) {
 func TestApplyOne_RefusesAMigrationThatLeavesARowReferencingNothing(t *testing.T) {
 	db := openUpgradeDB(t)
 	ctx := context.Background()
-	if err := ensureVersionTable(ctx, db); err != nil {
+	src := migrationSources["sqlite3"]
+	if _, err := prepareHistory(ctx, db, src); err != nil {
 		t.Fatalf("creating the version table: %v", err)
 	}
 	exec(t, db, `CREATE TABLE parents (id integer NOT NULL PRIMARY KEY AUTOINCREMENT)`)
@@ -265,8 +258,7 @@ func TestApplyOne_RefusesAMigrationThatLeavesARowReferencingNothing(t *testing.T
 	exec(t, db, `INSERT INTO parents (id) VALUES (1)`)
 	exec(t, db, `INSERT INTO children (parent_id) VALUES (1)`)
 
-	src := migrationSources["sqlite3"]
-	err := applyOne(ctx, db, src, "0999_breaks_a_reference.sql", "DELETE FROM parents;")
+	err := applyOne(ctx, db, src, "0999_breaks_a_reference.sql", "DELETE FROM parents;", "0001_initial.sql")
 	if err == nil {
 		t.Fatal("a migration that orphaned a row was accepted")
 	}
@@ -278,11 +270,11 @@ func TestApplyOne_RefusesAMigrationThatLeavesARowReferencingNothing(t *testing.T
 	if got := countRows(t, db, "parents"); got != 1 {
 		t.Errorf("parents = %d, want 1: the refused migration was not rolled back", got)
 	}
-	applied, err := appliedVersions(ctx, db)
+	history, err := readHistory(ctx, db, src)
 	if err != nil {
 		t.Fatalf("reading applied versions: %v", err)
 	}
-	if applied["0999_breaks_a_reference.sql"] {
+	if recorded(history, "0999_breaks_a_reference.sql") {
 		t.Error("the refused migration was recorded as applied")
 	}
 }
@@ -514,7 +506,7 @@ func TestApplyOne_AClosedDatabaseIsReported(t *testing.T) {
 	}
 
 	err := applyOne(context.Background(), db, migrationSources["sqlite3"],
-		"0999_never_applied.sql", "SELECT 1;")
+		"0999_never_applied.sql", "SELECT 1;", "0001_initial.sql")
 	if err == nil {
 		t.Fatal("applying a migration to a closed database was accepted")
 	}

@@ -117,6 +117,20 @@ func (_c *SyncRunCreate) SetNillableFinishedAt(v *time.Time) *SyncRunCreate {
 	return _c
 }
 
+// SetOwnerInstance sets the "owner_instance" field.
+func (_c *SyncRunCreate) SetOwnerInstance(v string) *SyncRunCreate {
+	_c.mutation.SetOwnerInstance(v)
+	return _c
+}
+
+// SetNillableOwnerInstance sets the "owner_instance" field if the given value is not nil.
+func (_c *SyncRunCreate) SetNillableOwnerInstance(v *string) *SyncRunCreate {
+	if v != nil {
+		_c.SetOwnerInstance(*v)
+	}
+	return _c
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_c *SyncRunCreate) SetProjectID(id int) *SyncRunCreate {
 	_c.mutation.SetProjectID(id)
@@ -221,6 +235,11 @@ func (_c *SyncRunCreate) check() error {
 	if _, ok := _c.mutation.StartedAt(); !ok {
 		return &ValidationError{Name: "started_at", err: errors.New(`ent: missing required field "SyncRun.started_at"`)}
 	}
+	if v, ok := _c.mutation.OwnerInstance(); ok {
+		if err := syncrun.OwnerInstanceValidator(v); err != nil {
+			return &ValidationError{Name: "owner_instance", err: fmt.Errorf(`ent: validator failed for field "SyncRun.owner_instance": %w`, err)}
+		}
+	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "SyncRun.project"`)}
 	}
@@ -281,6 +300,10 @@ func (_c *SyncRunCreate) createSpec() (*SyncRun, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FinishedAt(); ok {
 		_spec.SetField(syncrun.FieldFinishedAt, field.TypeTime, value)
 		_node.FinishedAt = &value
+	}
+	if value, ok := _c.mutation.OwnerInstance(); ok {
+		_spec.SetField(syncrun.FieldOwnerInstance, field.TypeString, value)
+		_node.OwnerInstance = &value
 	}
 	if nodes := _c.mutation.ProjectIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

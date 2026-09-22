@@ -26,9 +26,35 @@ types exist and are ready to record one the first time it happens.
 
 ## Versioning and deprecation policy
 
-Not decided yet. `pleiades version` reports `dev` until a real release process
-exists to set it at build time. No semver commitment, support window, or
-deprecation notice period has been published.
+Not decided yet. Every binary reports its version (`pleiades version`, `runner
+version`, `controller version`): a release build's own version, or
+`0.0.0-dev+<commit>` for anything else, until a real release process sets it at
+build time. No semver commitment, support window, or deprecation notice period has
+been published.
+
+### The database schema's compatibility window
+
+The second versioned contract is the database schema, between two builds of the
+controller running against one database. The rule is written and enforced now, and
+it becomes a promise to deployments from the first release on:
+
+- **A migration expands the schema by default.** It adds tables, columns that may be
+  empty or have a default, and indexes that are not unique, so the build before it
+  keeps working against the schema it leaves. That is what lets the old controllers
+  of a rolling upgrade keep serving, and a controller be rolled back without touching
+  the database.
+- **A migration that removes or narrows something is a contract**, declared with the
+  oldest build that can still serve after it. Builds older than that refuse the
+  database, and a running one stops.
+- **Both are tested, not trusted.** Every migration's real effect on each dialect's
+  schema is compared with its declaration, and an upgrade test runs the previous
+  build against the newly migrated database and makes it do its ordinary work.
+
+Until the first release, the history behind this rule is squashed rather than
+carried: the 1.0.0 release starts from one baseline migration, and the compatibility
+window is measured from there. [Running in
+production](10-running-in-production.md#upgrading-and-rolling-back) has what this
+means for an upgrade.
 
 ### The one versioned extension contract
 

@@ -377,6 +377,12 @@
             }
           }
         },
+        "shutdownDrainSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "description": "Seconds a stopping controller keeps serving after it reports itself not ready (SHUTDOWN_DRAIN)."
+        },
         "podAnnotations": {
           "type": "object"
         },

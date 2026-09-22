@@ -1,3 +1,6 @@
 {
-  "enabledMcpjsonServers": ["gopls"]
+  "enabledMcpjsonServers": ["gopls"],
+  "permissions": {
+    "allow": ["mcp__gopls"]
+  }
 }

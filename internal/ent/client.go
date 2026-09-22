@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/controllerinstance"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
@@ -58,6 +59,8 @@ type Client struct {
 	Announcement *AnnouncementClient
 	// Contact is the client for interacting with the Contact builders.
 	Contact *ContactClient
+	// ControllerInstance is the client for interacting with the ControllerInstance builders.
+	ControllerInstance *ControllerInstanceClient
 	// Credential is the client for interacting with the Credential builders.
 	Credential *CredentialClient
 	// CredentialInputSource is the client for interacting with the CredentialInputSource builders.
@@ -126,6 +129,7 @@ func (c *Client) init() {
 	c.ActivityEntry = NewActivityEntryClient(c.config)
 	c.Announcement = NewAnnouncementClient(c.config)
 	c.Contact = NewContactClient(c.config)
+	c.ControllerInstance = NewControllerInstanceClient(c.config)
 	c.Credential = NewCredentialClient(c.config)
 	c.CredentialInputSource = NewCredentialInputSourceClient(c.config)
 	c.CredentialType = NewCredentialTypeClient(c.config)
@@ -248,6 +252,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ActivityEntry:         NewActivityEntryClient(cfg),
 		Announcement:          NewAnnouncementClient(cfg),
 		Contact:               NewContactClient(cfg),
+		ControllerInstance:    NewControllerInstanceClient(cfg),
 		Credential:            NewCredentialClient(cfg),
 		CredentialInputSource: NewCredentialInputSourceClient(cfg),
 		CredentialType:        NewCredentialTypeClient(cfg),
@@ -297,6 +302,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ActivityEntry:         NewActivityEntryClient(cfg),
 		Announcement:          NewAnnouncementClient(cfg),
 		Contact:               NewContactClient(cfg),
+		ControllerInstance:    NewControllerInstanceClient(cfg),
 		Credential:            NewCredentialClient(cfg),
 		CredentialInputSource: NewCredentialInputSourceClient(cfg),
 		CredentialType:        NewCredentialTypeClient(cfg),
@@ -353,7 +359,7 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
+		c.ActivityEntry, c.Announcement, c.Contact, c.ControllerInstance, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
 		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
 		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
@@ -368,7 +374,7 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
+		c.ActivityEntry, c.Announcement, c.Contact, c.ControllerInstance, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
 		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
 		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
@@ -388,6 +394,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Announcement.mutate(ctx, m)
 	case *ContactMutation:
 		return c.Contact.mutate(ctx, m)
+	case *ControllerInstanceMutation:
+		return c.ControllerInstance.mutate(ctx, m)
 	case *CredentialMutation:
 		return c.Credential.mutate(ctx, m)
 	case *CredentialInputSourceMutation:
@@ -891,6 +899,139 @@ func (c *ContactClient) mutate(ctx context.Context, m *ContactMutation) (Value, 
 		return (&ContactDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Contact mutation op: %q", m.Op())
+	}
+}
+
+// ControllerInstanceClient is a client for the ControllerInstance schema.
+type ControllerInstanceClient struct {
+	config
+}
+
+// NewControllerInstanceClient returns a client for the ControllerInstance from the given config.
+func NewControllerInstanceClient(c config) *ControllerInstanceClient {
+	return &ControllerInstanceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `controllerinstance.Hooks(f(g(h())))`.
+func (c *ControllerInstanceClient) Use(hooks ...Hook) {
+	c.hooks.ControllerInstance = append(c.hooks.ControllerInstance, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `controllerinstance.Intercept(f(g(h())))`.
+func (c *ControllerInstanceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ControllerInstance = append(c.inters.ControllerInstance, interceptors...)
+}
+
+// Create returns a builder for creating a ControllerInstance entity.
+func (c *ControllerInstanceClient) Create() *ControllerInstanceCreate {
+	mutation := newControllerInstanceMutation(c.config, OpCreate)
+	return &ControllerInstanceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ControllerInstance entities.
+func (c *ControllerInstanceClient) CreateBulk(builders ...*ControllerInstanceCreate) *ControllerInstanceCreateBulk {
+	return &ControllerInstanceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ControllerInstanceClient) MapCreateBulk(slice any, setFunc func(*ControllerInstanceCreate, int)) *ControllerInstanceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ControllerInstanceCreateBulk{err: fmt.Errorf("calling to ControllerInstanceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ControllerInstanceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ControllerInstanceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ControllerInstance.
+func (c *ControllerInstanceClient) Update() *ControllerInstanceUpdate {
+	mutation := newControllerInstanceMutation(c.config, OpUpdate)
+	return &ControllerInstanceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ControllerInstanceClient) UpdateOne(_m *ControllerInstance) *ControllerInstanceUpdateOne {
+	mutation := newControllerInstanceMutation(c.config, OpUpdateOne, withControllerInstance(_m))
+	return &ControllerInstanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ControllerInstanceClient) UpdateOneID(id int) *ControllerInstanceUpdateOne {
+	mutation := newControllerInstanceMutation(c.config, OpUpdateOne, withControllerInstanceID(id))
+	return &ControllerInstanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ControllerInstance.
+func (c *ControllerInstanceClient) Delete() *ControllerInstanceDelete {
+	mutation := newControllerInstanceMutation(c.config, OpDelete)
+	return &ControllerInstanceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ControllerInstanceClient) DeleteOne(_m *ControllerInstance) *ControllerInstanceDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ControllerInstanceClient) DeleteOneID(id int) *ControllerInstanceDeleteOne {
+	builder := c.Delete().Where(controllerinstance.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ControllerInstanceDeleteOne{builder}
+}
+
+// Query returns a query builder for ControllerInstance.
+func (c *ControllerInstanceClient) Query() *ControllerInstanceQuery {
+	return &ControllerInstanceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeControllerInstance},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ControllerInstance entity by its id.
+func (c *ControllerInstanceClient) Get(ctx context.Context, id int) (*ControllerInstance, error) {
+	return c.Query().Where(controllerinstance.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ControllerInstanceClient) GetX(ctx context.Context, id int) *ControllerInstance {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ControllerInstanceClient) Hooks() []Hook {
+	return c.hooks.ControllerInstance
+}
+
+// Interceptors returns the client interceptors.
+func (c *ControllerInstanceClient) Interceptors() []Interceptor {
+	return c.inters.ControllerInstance
+}
+
+func (c *ControllerInstanceClient) mutate(ctx context.Context, m *ControllerInstanceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ControllerInstanceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ControllerInstanceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ControllerInstanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ControllerInstanceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ControllerInstance mutation op: %q", m.Op())
 	}
 }
 
@@ -5640,19 +5781,19 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
-		JournalEntry, Launchable, LocalCredential, MeshSigningKey, Organization,
-		Project, Revision, RoleBinding, SavedLaunchConfig, Schedule,
-		ScheduleOccurrence, Session, SurveyQuestion, SyncRun, Team, Template,
-		User []ent.Hook
+		ActivityEntry, Announcement, Contact, ControllerInstance, Credential,
+		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact, Group,
+		Inventory, Job, JobTask, JournalEntry, Launchable, LocalCredential,
+		MeshSigningKey, Organization, Project, Revision, RoleBinding,
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
+		SyncRun, Team, Template, User []ent.Hook
 	}
 	inters struct {
-		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, EncryptionKey, Fact, Group, Inventory, Job, JobTask,
-		JournalEntry, Launchable, LocalCredential, MeshSigningKey, Organization,
-		Project, Revision, RoleBinding, SavedLaunchConfig, Schedule,
-		ScheduleOccurrence, Session, SurveyQuestion, SyncRun, Team, Template,
-		User []ent.Interceptor
+		ActivityEntry, Announcement, Contact, ControllerInstance, Credential,
+		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact, Group,
+		Inventory, Job, JobTask, JournalEntry, Launchable, LocalCredential,
+		MeshSigningKey, Organization, Project, Revision, RoleBinding,
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
+		SyncRun, Team, Template, User []ent.Interceptor
 	}
 )

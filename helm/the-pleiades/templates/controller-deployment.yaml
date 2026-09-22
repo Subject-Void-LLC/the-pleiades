@@ -84,6 +84,11 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "the-pleiades.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- /* The drain, then the shutdown's own bounded steps (the HTTP
+           server's ten seconds, project syncs, lease releases), then room.
+           Shorter than that and the kubelet kills a controller that was
+           stopping correctly. */}}
+      terminationGracePeriodSeconds: {{ add (int .Values.controller.shutdownDrainSeconds) 25 }}
       {{- with .Values.controller.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
@@ -157,6 +162,8 @@ spec:
               value: {{ include "the-pleiades.natsURL" . | quote }}
             - name: PLEIADES_MAX_OUTAGE
               value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
+            - name: SHUTDOWN_DRAIN
+              value: {{ printf "%ds" (int .Values.controller.shutdownDrainSeconds) | quote }}
             {{- if and .Values.secrets.existingSecret .Values.postgresql.enabled }}
             {{- /* An operator-managed Secret with the in-chart database: the
                  chart composes the connection string itself, from the password

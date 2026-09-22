@@ -39,9 +39,10 @@ type server struct {
 // requireTools skips unless pg_dump and pg_restore are on PATH.
 //
 // Production runs PostgreSQL 15.19's own programs from the backup image,
-// and tests/e2e's backup gate runs that image. These tests run whichever
-// programs this machine has, of any release that reads 15.19 archives,
-// because what they prove is this package's behavior around the programs.
+// and tests/e2e's backup gate runs that image. These tests run the programs
+// this machine has at the server's major version: this package's TestMain
+// puts them first on PATH (clienttools_internal_test.go), because a newer
+// pg_restore sends a 15 server a setting it rejects.
 func requireTools(t testing.TB) {
 	t.Helper()
 	for _, name := range []string{"pg_dump", "pg_restore"} {

@@ -855,7 +855,7 @@ func (f *failingStore) BeginSync(context.Context, int, string) (project.Claim, e
 }
 
 // ResetInterruptedSyncs fails.
-func (f *failingStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, f.err }
+func (f *failingStore) ResetInterruptedSyncs(context.Context, []string) (int, error) { return 0, f.err }
 
 // routerOverStore mounts every project route over the given store.
 func routerOverStore(t *testing.T, store project.Store, syncer project.Syncer) http.Handler {

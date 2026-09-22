@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/controllerinstance"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
@@ -57,6 +58,7 @@ const (
 	TypeActivityEntry         = "ActivityEntry"
 	TypeAnnouncement          = "Announcement"
 	TypeContact               = "Contact"
+	TypeControllerInstance    = "ControllerInstance"
 	TypeCredential            = "Credential"
 	TypeCredentialInputSource = "CredentialInputSource"
 	TypeCredentialType        = "CredentialType"
@@ -2603,6 +2605,779 @@ func (m *ContactMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Contact edge %s", name)
+}
+
+// ControllerInstanceMutation represents an operation that mutates the ControllerInstance nodes in the graph.
+type ControllerInstanceMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int
+	created_at        *time.Time
+	updated_at        *time.Time
+	instance_id       *string
+	version           *string
+	migration_head    *string
+	host              *string
+	started_unix      *int64
+	addstarted_unix   *int64
+	last_seen_unix    *int64
+	addlast_seen_unix *int64
+	clearedFields     map[string]struct{}
+	done              bool
+	oldValue          func(context.Context) (*ControllerInstance, error)
+	predicates        []predicate.ControllerInstance
+}
+
+var _ ent.Mutation = (*ControllerInstanceMutation)(nil)
+
+// controllerinstanceOption allows management of the mutation configuration using functional options.
+type controllerinstanceOption func(*ControllerInstanceMutation)
+
+// newControllerInstanceMutation creates new mutation for the ControllerInstance entity.
+func newControllerInstanceMutation(c config, op Op, opts ...controllerinstanceOption) *ControllerInstanceMutation {
+	m := &ControllerInstanceMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeControllerInstance,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withControllerInstanceID sets the ID field of the mutation.
+func withControllerInstanceID(id int) controllerinstanceOption {
+	return func(m *ControllerInstanceMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ControllerInstance
+		)
+		m.oldValue = func(ctx context.Context) (*ControllerInstance, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ControllerInstance.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withControllerInstance sets the old ControllerInstance of the mutation.
+func withControllerInstance(node *ControllerInstance) controllerinstanceOption {
+	return func(m *ControllerInstanceMutation) {
+		m.oldValue = func(context.Context) (*ControllerInstance, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ControllerInstanceMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ControllerInstanceMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ControllerInstanceMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ControllerInstanceMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ControllerInstance.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ControllerInstanceMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ControllerInstanceMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ControllerInstanceMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ControllerInstanceMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ControllerInstanceMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ControllerInstanceMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetInstanceID sets the "instance_id" field.
+func (m *ControllerInstanceMutation) SetInstanceID(s string) {
+	m.instance_id = &s
+}
+
+// InstanceID returns the value of the "instance_id" field in the mutation.
+func (m *ControllerInstanceMutation) InstanceID() (r string, exists bool) {
+	v := m.instance_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInstanceID returns the old "instance_id" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldInstanceID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInstanceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInstanceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInstanceID: %w", err)
+	}
+	return oldValue.InstanceID, nil
+}
+
+// ResetInstanceID resets all changes to the "instance_id" field.
+func (m *ControllerInstanceMutation) ResetInstanceID() {
+	m.instance_id = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *ControllerInstanceMutation) SetVersion(s string) {
+	m.version = &s
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *ControllerInstanceMutation) Version() (r string, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldVersion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *ControllerInstanceMutation) ResetVersion() {
+	m.version = nil
+}
+
+// SetMigrationHead sets the "migration_head" field.
+func (m *ControllerInstanceMutation) SetMigrationHead(s string) {
+	m.migration_head = &s
+}
+
+// MigrationHead returns the value of the "migration_head" field in the mutation.
+func (m *ControllerInstanceMutation) MigrationHead() (r string, exists bool) {
+	v := m.migration_head
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMigrationHead returns the old "migration_head" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldMigrationHead(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMigrationHead is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMigrationHead requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMigrationHead: %w", err)
+	}
+	return oldValue.MigrationHead, nil
+}
+
+// ResetMigrationHead resets all changes to the "migration_head" field.
+func (m *ControllerInstanceMutation) ResetMigrationHead() {
+	m.migration_head = nil
+}
+
+// SetHost sets the "host" field.
+func (m *ControllerInstanceMutation) SetHost(s string) {
+	m.host = &s
+}
+
+// Host returns the value of the "host" field in the mutation.
+func (m *ControllerInstanceMutation) Host() (r string, exists bool) {
+	v := m.host
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHost returns the old "host" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldHost(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHost: %w", err)
+	}
+	return oldValue.Host, nil
+}
+
+// ResetHost resets all changes to the "host" field.
+func (m *ControllerInstanceMutation) ResetHost() {
+	m.host = nil
+}
+
+// SetStartedUnix sets the "started_unix" field.
+func (m *ControllerInstanceMutation) SetStartedUnix(i int64) {
+	m.started_unix = &i
+	m.addstarted_unix = nil
+}
+
+// StartedUnix returns the value of the "started_unix" field in the mutation.
+func (m *ControllerInstanceMutation) StartedUnix() (r int64, exists bool) {
+	v := m.started_unix
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStartedUnix returns the old "started_unix" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldStartedUnix(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStartedUnix is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStartedUnix requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStartedUnix: %w", err)
+	}
+	return oldValue.StartedUnix, nil
+}
+
+// AddStartedUnix adds i to the "started_unix" field.
+func (m *ControllerInstanceMutation) AddStartedUnix(i int64) {
+	if m.addstarted_unix != nil {
+		*m.addstarted_unix += i
+	} else {
+		m.addstarted_unix = &i
+	}
+}
+
+// AddedStartedUnix returns the value that was added to the "started_unix" field in this mutation.
+func (m *ControllerInstanceMutation) AddedStartedUnix() (r int64, exists bool) {
+	v := m.addstarted_unix
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStartedUnix resets all changes to the "started_unix" field.
+func (m *ControllerInstanceMutation) ResetStartedUnix() {
+	m.started_unix = nil
+	m.addstarted_unix = nil
+}
+
+// SetLastSeenUnix sets the "last_seen_unix" field.
+func (m *ControllerInstanceMutation) SetLastSeenUnix(i int64) {
+	m.last_seen_unix = &i
+	m.addlast_seen_unix = nil
+}
+
+// LastSeenUnix returns the value of the "last_seen_unix" field in the mutation.
+func (m *ControllerInstanceMutation) LastSeenUnix() (r int64, exists bool) {
+	v := m.last_seen_unix
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSeenUnix returns the old "last_seen_unix" field's value of the ControllerInstance entity.
+// If the ControllerInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ControllerInstanceMutation) OldLastSeenUnix(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSeenUnix is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSeenUnix requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSeenUnix: %w", err)
+	}
+	return oldValue.LastSeenUnix, nil
+}
+
+// AddLastSeenUnix adds i to the "last_seen_unix" field.
+func (m *ControllerInstanceMutation) AddLastSeenUnix(i int64) {
+	if m.addlast_seen_unix != nil {
+		*m.addlast_seen_unix += i
+	} else {
+		m.addlast_seen_unix = &i
+	}
+}
+
+// AddedLastSeenUnix returns the value that was added to the "last_seen_unix" field in this mutation.
+func (m *ControllerInstanceMutation) AddedLastSeenUnix() (r int64, exists bool) {
+	v := m.addlast_seen_unix
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLastSeenUnix resets all changes to the "last_seen_unix" field.
+func (m *ControllerInstanceMutation) ResetLastSeenUnix() {
+	m.last_seen_unix = nil
+	m.addlast_seen_unix = nil
+}
+
+// Where appends a list predicates to the ControllerInstanceMutation builder.
+func (m *ControllerInstanceMutation) Where(ps ...predicate.ControllerInstance) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ControllerInstanceMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ControllerInstanceMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ControllerInstance, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ControllerInstanceMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ControllerInstanceMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ControllerInstance).
+func (m *ControllerInstanceMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ControllerInstanceMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, controllerinstance.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, controllerinstance.FieldUpdatedAt)
+	}
+	if m.instance_id != nil {
+		fields = append(fields, controllerinstance.FieldInstanceID)
+	}
+	if m.version != nil {
+		fields = append(fields, controllerinstance.FieldVersion)
+	}
+	if m.migration_head != nil {
+		fields = append(fields, controllerinstance.FieldMigrationHead)
+	}
+	if m.host != nil {
+		fields = append(fields, controllerinstance.FieldHost)
+	}
+	if m.started_unix != nil {
+		fields = append(fields, controllerinstance.FieldStartedUnix)
+	}
+	if m.last_seen_unix != nil {
+		fields = append(fields, controllerinstance.FieldLastSeenUnix)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ControllerInstanceMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case controllerinstance.FieldCreatedAt:
+		return m.CreatedAt()
+	case controllerinstance.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case controllerinstance.FieldInstanceID:
+		return m.InstanceID()
+	case controllerinstance.FieldVersion:
+		return m.Version()
+	case controllerinstance.FieldMigrationHead:
+		return m.MigrationHead()
+	case controllerinstance.FieldHost:
+		return m.Host()
+	case controllerinstance.FieldStartedUnix:
+		return m.StartedUnix()
+	case controllerinstance.FieldLastSeenUnix:
+		return m.LastSeenUnix()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ControllerInstanceMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case controllerinstance.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case controllerinstance.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case controllerinstance.FieldInstanceID:
+		return m.OldInstanceID(ctx)
+	case controllerinstance.FieldVersion:
+		return m.OldVersion(ctx)
+	case controllerinstance.FieldMigrationHead:
+		return m.OldMigrationHead(ctx)
+	case controllerinstance.FieldHost:
+		return m.OldHost(ctx)
+	case controllerinstance.FieldStartedUnix:
+		return m.OldStartedUnix(ctx)
+	case controllerinstance.FieldLastSeenUnix:
+		return m.OldLastSeenUnix(ctx)
+	}
+	return nil, fmt.Errorf("unknown ControllerInstance field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ControllerInstanceMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case controllerinstance.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case controllerinstance.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case controllerinstance.FieldInstanceID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInstanceID(v)
+		return nil
+	case controllerinstance.FieldVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case controllerinstance.FieldMigrationHead:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMigrationHead(v)
+		return nil
+	case controllerinstance.FieldHost:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHost(v)
+		return nil
+	case controllerinstance.FieldStartedUnix:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStartedUnix(v)
+		return nil
+	case controllerinstance.FieldLastSeenUnix:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSeenUnix(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ControllerInstance field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ControllerInstanceMutation) AddedFields() []string {
+	var fields []string
+	if m.addstarted_unix != nil {
+		fields = append(fields, controllerinstance.FieldStartedUnix)
+	}
+	if m.addlast_seen_unix != nil {
+		fields = append(fields, controllerinstance.FieldLastSeenUnix)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ControllerInstanceMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case controllerinstance.FieldStartedUnix:
+		return m.AddedStartedUnix()
+	case controllerinstance.FieldLastSeenUnix:
+		return m.AddedLastSeenUnix()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ControllerInstanceMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case controllerinstance.FieldStartedUnix:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStartedUnix(v)
+		return nil
+	case controllerinstance.FieldLastSeenUnix:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLastSeenUnix(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ControllerInstance numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ControllerInstanceMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ControllerInstanceMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ControllerInstanceMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ControllerInstance nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ControllerInstanceMutation) ResetField(name string) error {
+	switch name {
+	case controllerinstance.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case controllerinstance.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case controllerinstance.FieldInstanceID:
+		m.ResetInstanceID()
+		return nil
+	case controllerinstance.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case controllerinstance.FieldMigrationHead:
+		m.ResetMigrationHead()
+		return nil
+	case controllerinstance.FieldHost:
+		m.ResetHost()
+		return nil
+	case controllerinstance.FieldStartedUnix:
+		m.ResetStartedUnix()
+		return nil
+	case controllerinstance.FieldLastSeenUnix:
+		m.ResetLastSeenUnix()
+		return nil
+	}
+	return fmt.Errorf("unknown ControllerInstance field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ControllerInstanceMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ControllerInstanceMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ControllerInstanceMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ControllerInstanceMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ControllerInstanceMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ControllerInstanceMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ControllerInstanceMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ControllerInstance unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ControllerInstanceMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ControllerInstance edge %s", name)
 }
 
 // CredentialMutation represents an operation that mutates the Credential nodes in the graph.
@@ -27910,6 +28685,7 @@ type SyncRunMutation struct {
 	error          *string
 	started_at     *time.Time
 	finished_at    *time.Time
+	owner_instance *string
 	clearedFields  map[string]struct{}
 	project        *int
 	clearedproject bool
@@ -28330,6 +29106,55 @@ func (m *SyncRunMutation) ResetFinishedAt() {
 	delete(m.clearedFields, syncrun.FieldFinishedAt)
 }
 
+// SetOwnerInstance sets the "owner_instance" field.
+func (m *SyncRunMutation) SetOwnerInstance(s string) {
+	m.owner_instance = &s
+}
+
+// OwnerInstance returns the value of the "owner_instance" field in the mutation.
+func (m *SyncRunMutation) OwnerInstance() (r string, exists bool) {
+	v := m.owner_instance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerInstance returns the old "owner_instance" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldOwnerInstance(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerInstance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerInstance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerInstance: %w", err)
+	}
+	return oldValue.OwnerInstance, nil
+}
+
+// ClearOwnerInstance clears the value of the "owner_instance" field.
+func (m *SyncRunMutation) ClearOwnerInstance() {
+	m.owner_instance = nil
+	m.clearedFields[syncrun.FieldOwnerInstance] = struct{}{}
+}
+
+// OwnerInstanceCleared returns if the "owner_instance" field was cleared in this mutation.
+func (m *SyncRunMutation) OwnerInstanceCleared() bool {
+	_, ok := m.clearedFields[syncrun.FieldOwnerInstance]
+	return ok
+}
+
+// ResetOwnerInstance resets all changes to the "owner_instance" field.
+func (m *SyncRunMutation) ResetOwnerInstance() {
+	m.owner_instance = nil
+	delete(m.clearedFields, syncrun.FieldOwnerInstance)
+}
+
 // SetProjectID sets the "project" edge to the Project entity by id.
 func (m *SyncRunMutation) SetProjectID(id int) {
 	m.project = &id
@@ -28403,7 +29228,7 @@ func (m *SyncRunMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SyncRunMutation) Fields() []string {
-	fields := make([]string, 0, 8)
+	fields := make([]string, 0, 9)
 	if m.created_at != nil {
 		fields = append(fields, syncrun.FieldCreatedAt)
 	}
@@ -28427,6 +29252,9 @@ func (m *SyncRunMutation) Fields() []string {
 	}
 	if m.finished_at != nil {
 		fields = append(fields, syncrun.FieldFinishedAt)
+	}
+	if m.owner_instance != nil {
+		fields = append(fields, syncrun.FieldOwnerInstance)
 	}
 	return fields
 }
@@ -28452,6 +29280,8 @@ func (m *SyncRunMutation) Field(name string) (ent.Value, bool) {
 		return m.StartedAt()
 	case syncrun.FieldFinishedAt:
 		return m.FinishedAt()
+	case syncrun.FieldOwnerInstance:
+		return m.OwnerInstance()
 	}
 	return nil, false
 }
@@ -28477,6 +29307,8 @@ func (m *SyncRunMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldStartedAt(ctx)
 	case syncrun.FieldFinishedAt:
 		return m.OldFinishedAt(ctx)
+	case syncrun.FieldOwnerInstance:
+		return m.OldOwnerInstance(ctx)
 	}
 	return nil, fmt.Errorf("unknown SyncRun field %s", name)
 }
@@ -28542,6 +29374,13 @@ func (m *SyncRunMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFinishedAt(v)
 		return nil
+	case syncrun.FieldOwnerInstance:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerInstance(v)
+		return nil
 	}
 	return fmt.Errorf("unknown SyncRun field %s", name)
 }
@@ -28578,6 +29417,9 @@ func (m *SyncRunMutation) ClearedFields() []string {
 	if m.FieldCleared(syncrun.FieldFinishedAt) {
 		fields = append(fields, syncrun.FieldFinishedAt)
 	}
+	if m.FieldCleared(syncrun.FieldOwnerInstance) {
+		fields = append(fields, syncrun.FieldOwnerInstance)
+	}
 	return fields
 }
 
@@ -28597,6 +29439,9 @@ func (m *SyncRunMutation) ClearField(name string) error {
 		return nil
 	case syncrun.FieldFinishedAt:
 		m.ClearFinishedAt()
+		return nil
+	case syncrun.FieldOwnerInstance:
+		m.ClearOwnerInstance()
 		return nil
 	}
 	return fmt.Errorf("unknown SyncRun nullable field %s", name)
@@ -28629,6 +29474,9 @@ func (m *SyncRunMutation) ResetField(name string) error {
 		return nil
 	case syncrun.FieldFinishedAt:
 		m.ResetFinishedAt()
+		return nil
+	case syncrun.FieldOwnerInstance:
+		m.ResetOwnerInstance()
 		return nil
 	}
 	return fmt.Errorf("unknown SyncRun field %s", name)

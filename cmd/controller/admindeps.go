@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
@@ -58,8 +60,16 @@ func openAdminDepsWith(ctx context.Context, dsn string, envelopeSvc *crypto.Enve
 	// claim that stops being true the first time somebody adds a field.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, redact.Shared().HandlerOptions(slog.LevelWarn)))
 
-	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dsn})
+	// SchemaNoUpgrade: an admin command migrates a brand new database (the
+	// setup chain's first bootstrap-admin needs one) but never upgrades one
+	// that holds data. That is the server's job, and compose's make up takes
+	// a backup before it; a password reset run from a newer binary must not
+	// be the thing that moves a database past that backup.
+	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dsn, Schema: ent.SchemaNoUpgrade})
 	if err != nil {
+		if errors.Is(err, migrate.ErrUpgradeRequired) {
+			return nil, nil, fmt.Errorf("%w; start the controller from this build first (compose: make up), which upgrades the database, then run this command again", err)
+		}
 		return nil, nil, fmt.Errorf("failed to open the controller database: %w", err)
 	}
 

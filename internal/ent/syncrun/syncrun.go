@@ -31,6 +31,8 @@ const (
 	FieldStartedAt = "started_at"
 	// FieldFinishedAt holds the string denoting the finished_at field in the database.
 	FieldFinishedAt = "finished_at"
+	// FieldOwnerInstance holds the string denoting the owner_instance field in the database.
+	FieldOwnerInstance = "owner_instance"
 	// EdgeProject holds the string denoting the project edge name in mutations.
 	EdgeProject = "project"
 	// Table holds the table name of the syncrun in the database.
@@ -55,6 +57,7 @@ var Columns = []string{
 	FieldError,
 	FieldStartedAt,
 	FieldFinishedAt,
+	FieldOwnerInstance,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "sync_runs"
@@ -95,6 +98,8 @@ var (
 	DefaultError string
 	// ErrorValidator is a validator for the "error" field. It is called by the builders before save.
 	ErrorValidator func(string) error
+	// OwnerInstanceValidator is a validator for the "owner_instance" field. It is called by the builders before save.
+	OwnerInstanceValidator func(string) error
 )
 
 // Status defines the type for the "status" enum field.
@@ -167,6 +172,11 @@ func ByStartedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByFinishedAt orders the results by the finished_at field.
 func ByFinishedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFinishedAt, opts...).ToFunc()
+}
+
+// ByOwnerInstance orders the results by the owner_instance field.
+func ByOwnerInstance(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOwnerInstance, opts...).ToFunc()
 }
 
 // ByProjectField orders the results by project field.

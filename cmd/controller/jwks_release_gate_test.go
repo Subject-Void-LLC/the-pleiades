@@ -73,18 +73,28 @@ func signRS256Token(t *testing.T, key *rsa.PrivateKey, kid, issuer, audience str
 	return signed
 }
 
+// waitForHealthz waits until the controller is READY, not merely alive.
+//
+// It used to return on the first answer from /healthz, which was the same
+// moment as ready while the listener was bound last. The listener is now
+// bound before the database is migrated (startuphandler.go), so /healthz
+// answers while nothing else can, and a test that took it as "ready" would
+// call an API that is not there yet.
 func waitForHealthz(t *testing.T, client *http.Client, baseURL string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(baseURL + "/healthz")
+		resp, err := client.Get(baseURL + "/readyz")
 		if err == nil {
+			ready := resp.StatusCode == http.StatusOK
 			resp.Body.Close()
-			return
+			if ready {
+				return
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("controller did not become healthy within 15s")
+	t.Fatal("controller did not become ready within 15s")
 }
 
 // trustControllerCertificate waits for the certificate the controller

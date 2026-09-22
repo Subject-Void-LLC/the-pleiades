@@ -278,6 +278,27 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 273. A round trip was not a round trip, and the test wrote the workaround into its own expectation
 274. A field was added to a type, to its wire format and to a CLI flag, but not to the store, so the command reported success and wrote nothing
 275. Go cannot do TLS 1.3 client-certificate authentication against Windows, and the empty 503 that results names nothing
+276. The migration gate accepted a history missing its first migration
+277. Two processes opening a brand-new SQLite file failed each other at open
+278. A starting controller failed every live peer's project sync
+279. The backup tests trusted any newer PostgreSQL client, until the machine's default became 18
+280. A zero-failure drain test passed with the drain switched off
+281. `make -n` started a compose stack
+282. A failed heartbeat read made every live peer's sync look abandoned
+283. The sync sweep read who was live, then failed projects in a second statement
+284. `make -n up` stopped the live controller and runner and took no backup
+285. `make up` never rebuilt the runner image
+286. The compose gate proved rollback only after wiping the upgraded stack
+287. The binary upgrade gate never asked the old build anything while the new one migrated
+288. A role's timeout ended the one migration wait that must never end
+289. With no hard links, a new embedded database came out readable by everyone
+290. The chart drained for less time than its own readiness probe needed
+291. A controller left the fleet while its clones were still running
+292. The controller's backup gate restored with the machine's newest PostgreSQL client
+293. A chaos test threw away the error of the one session it was waiting for
+294. `facts.gather`'s check test compared a clock
+295. The Helm setup gate looked for a durable fact in one container's log
+296. A control was attested before anything ran it
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
