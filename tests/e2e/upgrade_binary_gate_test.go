@@ -371,6 +371,22 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 	prev := requirePreviousBuild(t)
 	t.Logf("previous release %s; this build adds %d migrations: %v", prev.ref, len(prev.crossed), prev.crossed)
 
+	// This gate's whole subject is the previous build serving WHILE THIS ONE
+	// MIGRATES, and the mechanism below depends on there being a migration to
+	// hold: it takes a SHARE lock on schema_migrations to stall this build at
+	// its first claim of whatever the previous release lacks. When the two
+	// builds share a schema there is no such claim, nothing stalls, the
+	// controller becomes ready in milliseconds, and requireMigrating fails on
+	// a 200 that is the correct answer.
+	//
+	// So this is a skip rather than a pass or a failure. The third instance of
+	// this shape found in one session (FAILURE_PATTERNS.md 300 and this one),
+	// and the reason all three hid is the same: Phase 84's own branch added a
+	// migration, so no run from it could reach the empty case.
+	if len(prev.crossed) == 0 {
+		t.Skipf("this build adds no migration over %s, so there is no migration phase to observe; the overlap this gate measures cannot exist without one", prev.ref)
+	}
+
 	stack := upgradeStack{
 		dsn:         startPostgres(t, t.Context()),
 		natsURL:     startNATS(t, t.Context()),
