@@ -36,7 +36,7 @@ import (
 // against internal/testsupport.NATSCommand, and a listener block is
 // additive information rather than a different way of saying the same
 // thing.
-func natsWithConfig(t *testing.T, conf string, extraFiles []testcontainers.ContainerFile, port string) string {
+func natsWithConfig(t testing.TB, conf string, extraFiles []testcontainers.ContainerFile, port string) string {
 	t.Helper()
 	ctx := context.Background()
 

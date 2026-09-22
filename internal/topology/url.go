@@ -23,6 +23,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 )
 
 // natsSchemes are the URL schemes nats.go actually implements, and
@@ -202,7 +204,16 @@ func TLSFromEnv(rawURL, caPath string, logger *slog.Logger) (*tls.Config, error)
 		return nil, fmt.Errorf("NATS_CA_FILE %q contains no PEM certificate this build could parse", caPath)
 	}
 
-	// The same floor this module states once for every direction, rather
-	// than a second opinion about acceptable TLS versions.
-	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	// Consumed rather than written. WithTLS's own doc comment has told
+	// callers since Phase 96d to take the configuration from
+	// internal/tlscert rather than hand-rolling one, because a hand-rolled
+	// one is where InsecureSkipVerify gets typed and where the version
+	// floor gets forgotten; this is that function taking its own advice.
+	// The floor arrives with it, stated once for every direction rather
+	// than restated here as a second opinion.
+	//
+	// internal/archtest's TestOnlyTlscertBuildsAMeshTLSConfig is what
+	// keeps this true: it fails the build if any file under
+	// internal/topology constructs a tls.Config of its own.
+	return tlscert.ClientConfig(pool), nil
 }

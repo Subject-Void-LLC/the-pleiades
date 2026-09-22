@@ -704,7 +704,9 @@
       "additionalProperties": false,
       "properties": {
         "url": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^$|^(nats|tls|ws|wss)://.+",
+          "description": "The broker to use when nats.enabled is false. The scheme selects the TRANSPORT: nats is plaintext TCP, tls encrypts it, ws and wss tunnel the protocol over WebSocket to reach a broker through an HTTP proxy or an egress filter. A value with no scheme is treated as plaintext by the client library, so the pattern refuses one rather than letting a bare host and port silently stop encrypting. Empty is allowed because it is the default and means the bundled broker is in use; the chart refuses an empty value separately when nats.enabled is false, which is where it actually matters. This is deliberately a subset of the check the binaries make at startup: a JSON Schema pattern cannot express the comma separated list they accept, nor their refusal of a list mixing encrypted and plaintext members."
         }
       }
     },

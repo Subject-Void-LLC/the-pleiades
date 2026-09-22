@@ -24,6 +24,11 @@ func checkManifests(profile string, objects []manifest, wantScheme string) []fin
 	var findings []finding
 	sawController := false
 
+	// Cross-object rather than per-workload: it follows a container's
+	// mount back to the ConfigMap it projects, so it needs the whole
+	// render rather than one object at a time.
+	findings = append(findings, checkConfiguredFilesAreMounted(profile, objects)...)
+
 	for _, obj := range objects {
 		if !workloadKinds[obj.Kind] {
 			continue

@@ -272,19 +272,45 @@ func (c ServingCert) AnchorFile() (string, bool) {
 	return c.CertFile, c.CertFile != "" && c.CertFile != c.KeyFile
 }
 
-// TLSClientConfig returns the client configuration for reaching a server
-// presenting this certificate.
+// ClientConfig returns the TLS configuration for verifying a server
+// against roots.
 //
-// This exists so that no caller has to write a tls.Config by hand, which
-// is where InsecureSkipVerify gets typed. Skipping verification would turn
-// every test that uses it into a test that proves nothing about the
-// certificate, and it would trade a clean scan for a gosec G402 finding.
-func (c ServingCert) TLSClientConfig() *tls.Config {
+// It is the one place in this module a client tls.Config is written, and
+// that single-owner property is enforced rather than conventional:
+// internal/archtest's TestOnlyTlscertBuildsAMeshTLSConfig fails the build
+// if internal/topology writes a second one, and
+// TestEveryTLSConfigStatesAVersionFloor fails it if any literal anywhere
+// leaves MinVersion at its zero value, which is TLS 1.0.
+//
+// A nil pool means the system certificate pool, which is what crypto/tls
+// already does with a nil RootCAs. That is a real mode rather than a
+// degenerate one: a publicly signed broker or Vault server legitimately
+// verifies against the system trust store, and expressing it as
+// ClientConfig(nil) keeps that case inside this function instead of being
+// the reason somebody writes a literal.
+//
+// What it deliberately does NOT do is set InsecureSkipVerify or take a
+// parameter that could. This function existing is the argument that no
+// caller needs one: skipping verification turns every test that uses it
+// into a test that proves nothing about the certificate, and trades a
+// clean scan for a gosec G402 finding.
+func ClientConfig(roots *x509.CertPool) *tls.Config {
 	return &tls.Config{
-		RootCAs: c.Roots,
+		RootCAs: roots,
 		// The same floor cmd/controller sets on the serving side, so a
 		// client from this helper and the server it dials cannot disagree
 		// about which protocol versions are acceptable.
 		MinVersion: tls.VersionTLS12,
 	}
+}
+
+// TLSClientConfig returns the client configuration for reaching a server
+// presenting this certificate.
+//
+// It is ClientConfig above with this certificate's own root pool, and it
+// stays a separate method because it is the spelling almost every caller
+// wants: the pool and the server are the same fact here, since Generate
+// writes a self-signed certificate that is its own root.
+func (c ServingCert) TLSClientConfig() *tls.Config {
+	return ClientConfig(c.Roots)
 }

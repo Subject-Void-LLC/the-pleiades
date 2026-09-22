@@ -118,6 +118,35 @@ var profiles = []profile{
 		wantDisruptionBudgets: 2,
 	},
 	{
+		// The broker reachable over wss:// through an ingress, with the
+		// client listener left plaintext inside the cluster. That pairing
+		// is the whole point of Phase 96d's websocket support and it is
+		// the branch that used to render a broker which could not start:
+		// the nats.conf named /etc/nats/tls/tls.crt while the volume and
+		// the mount were both gated on nats.tls.enabled, which is false
+		// here. It applied cleanly and died on a file nothing had
+		// mounted.
+		//
+		// TWO THINGS HAD TO EXIST FOR THIS TO BE CAUGHT, and the profile
+		// alone is only one of them. checkVolumeMounts would not have
+		// caught it: with tls.enabled false there was no dangling mount
+		// either, both the mount and the volume being absent together,
+		// and the only thing left pointing at the missing file was a
+		// string inside a ConfigMap. checkConfiguredFilesAreMounted is
+		// the rule that reads that string. This profile is what renders
+		// the combination for it to read, and neither half finds the
+		// defect without the other; both were verified against the
+		// unfixed chart.
+		name: "the broker serving wss:// with a plaintext client listener",
+		values: []string{
+			"--set", "nats.websocket.enabled=true",
+			"--set", "nats.websocket.tls=true",
+			"--set", "nats.tls.secretName=pleiades-broker-cert",
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+	},
+	{
 		// The arrangement any install that manages real devices needs, and
 		// the one nothing rendered until now: the runners get the host keys
 		// they verify against. Without this mount every SSH task fails

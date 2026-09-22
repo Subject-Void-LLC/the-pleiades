@@ -31,7 +31,6 @@ package hashivault
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -43,6 +42,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 )
 
 // Namespace is the credential type namespace this factory serves. It is
@@ -148,9 +148,12 @@ func clientFor(cacert string) (*http.Client, error) {
 	}
 	transport = transport.Clone()
 
-	// The same TLS floor this module states once for every direction,
-	// rather than a second opinion about acceptable versions.
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	// A nil pool, which is how crypto/tls spells "the system trust store",
+	// and the mode a publicly signed Vault legitimately runs in. The
+	// configuration comes from internal/tlscert rather than being written
+	// here, so the TLS floor is stated once for every direction and there
+	// is no literal in this file for an InsecureSkipVerify to be added to.
+	transport.TLSClientConfig = tlscert.ClientConfig(nil)
 
 	if pem := strings.TrimSpace(cacert); pem != "" {
 		pool := x509.NewCertPool()

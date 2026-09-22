@@ -129,6 +129,29 @@ const NATSImage = "nats:2.14.4-alpine"
 // duplication was the whole of the problem.
 const ToxiproxyImage = "ghcr.io/shopify/toxiproxy:2.12.0"
 
+// NginxImage is the terminating proxy tests/e2e stands in front of the
+// broker, and it is a real one for a reason RULE 0 decides rather than
+// taste.
+//
+// A wss:// client's whole claim is that it reaches a broker through
+// something that TERMINATES TLS and then speaks HTTP: an ingress, a CDN
+// edge, a corporate egress proxy that only allows 443. ToxiproxyImage
+// above cannot stand in for that. It forwards TCP bytes, which is exactly
+// what a direct listener already proves, so a gate built on it would
+// restate what internal/topology's transport gate says and call it
+// traversal. nginx is the smallest real one available: a single
+// configuration file, no runtime to install, and the same
+// proxy_http_version/Upgrade/Connection triple every real ingress
+// controller emits.
+//
+// Pinned to a release whose `nginx -v` was read rather than assumed:
+// nginx/1.28.1, the stable branch. Like ToxiproxyImage, it appears in no
+// deployment artifact, so there is no compose or chart pin for it to
+// match and it is deliberately absent from pinnedImages() below; it lives
+// here because this package is where a pinned image lives, and because
+// TestPinsNameAnExactVersion is what stops it becoming :latest.
+const NginxImage = "nginx:1.28.1-alpine"
+
 // NATSCommand returns the argument list docker-compose.yml passes to the
 // NATS server, so a developer tool that starts its own broker starts the
 // deployment's broker rather than one that merely shares its version.

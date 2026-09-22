@@ -629,6 +629,45 @@ func main() {
 	// unmasked exactly when things are going wrong.
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
 
+	// The mesh configuration, checked HERE: after the masking logger is
+	// installed, and before this process binds a port, provisions a
+	// certificate or migrates a database.
+	//
+	// Both halves used to be checked at the dial, which is on the far side
+	// of net.Listen and ent.OpenDatabaseReporting. A typo'd scheme
+	// therefore cost a bound listener, a 200 on /healthz and a full schema
+	// migration before this process exited 1, which means an operator's
+	// liveness probe went green on a controller that was already doomed.
+	// resolveTLS below already follows this rule for the Controller's OWN
+	// listener; this is the same rule for the connection it makes.
+	//
+	// NOT moved further up, to the env read, and the reason is not style.
+	// fatal() logs through slog, the masking ruleset is installed on that
+	// handler eight lines above, and a NATS URL may carry embedded
+	// credentials that internal/redact's url_userinfo rule exists to hide.
+	// A check that ran before the logger would print them on the one path
+	// where things are already going wrong.
+	//
+	// ValidateNatsURL now runs twice on the healthy path, which is
+	// deliberate rather than redundant. This call is the fail-fast, and it
+	// only covers a composition root that remembers to make it. The call
+	// inside topology.Connect is the one no dial can evade, including
+	// cmd/demo's, which reads no environment at all.
+	if err := topology.ValidateNatsURL(natsURL); err != nil {
+		fatal("invalid NATS_URL", err)
+	}
+	// Client TLS for the mesh, if the broker speaks it. A CA file named
+	// for a plaintext URL is refused rather than ignored: the dangerous
+	// reading of that pair is that the connection is protected.
+	meshTLS, err := topology.TLSFromEnv(natsURL, os.Getenv("NATS_CA_FILE"), logger)
+	if err != nil {
+		fatal("invalid NATS TLS configuration", err)
+	}
+	var meshConnOpts []topology.ConnectOption
+	if meshTLS != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
+	}
+
 	// Said out loud at every start, not only when somebody sets it. A
 	// permission an operator granted once and forgot is the failure mode
 	// this whole shape is exposed to, and a startup line is the one place
@@ -819,18 +858,6 @@ func main() {
 	if err != nil {
 		fatal("failed to init auth evaluator", err)
 	}
-	// Client TLS for the mesh, if the broker speaks it. A CA file named
-	// for a plaintext URL is refused rather than ignored: the dangerous
-	// reading of that pair is that the connection is protected.
-	meshTLS, err := topology.TLSFromEnv(natsURL, os.Getenv("NATS_CA_FILE"), logger)
-	if err != nil {
-		fatal("invalid NATS TLS configuration", err)
-	}
-	var meshConnOpts []topology.ConnectOption
-	if meshTLS != nil {
-		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
-	}
-
 	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner, outageBudget, allowRetentionDiscard, meshConnOpts...)
 	if err != nil {
 		fatal("failed to connect event bus", err)

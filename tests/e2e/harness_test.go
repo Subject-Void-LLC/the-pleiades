@@ -206,6 +206,20 @@ type harness struct {
 	baseURL    string
 	runbookDir string
 
+	// natsCert is the certificate presented by whatever terminates TLS in
+	// front of the broker, when a harness put something there, and
+	// therefore also the authority every client in that mesh verifies it
+	// against: internal/tlscert writes a self-signed certificate with
+	// IsCA set, so cert.pem is both the leaf and the root.
+	//
+	// The zero value is the ordinary case and means "the broker is dialed
+	// directly, in plaintext", which is every harness in this package but
+	// the wss:// traversal gate. Both seams that read it key off CertFile
+	// being empty, so a harness that does not set it produces byte for
+	// byte the dial options and the subprocess environment it produced
+	// before the field existed.
+	natsCert testsupport.ServingCert
+
 	nc *nats.Conn
 	js jetstream.JetStream
 
@@ -297,7 +311,15 @@ func startHarness(tb testing.TB, opts ...harnessOption) *harness {
 	// default, which is the reason internal/testsupport centralizes these
 	// values at all.
 	h.dsn = startPostgres(tb, ctx)
-	h.natsURL = startNATS(tb, ctx)
+	// Only when an option did not already stand one up. The wss://
+	// traversal gate starts its own broker behind a terminating proxy,
+	// and options run before this line precisely so that it can: the
+	// alternative is a second copy of startHarness, which is what
+	// startChaosHarness had to write and what cost that file its goleak
+	// check and its option loop.
+	if h.natsURL == "" {
+		h.natsURL = startNATS(tb, ctx)
+	}
 
 	h.wire(tb)
 	return h
@@ -318,7 +340,7 @@ func (h *harness) wire(tb testing.TB) {
 	// 2. The test process's own broker connection, and the single stream
 	// every subject in this platform lives under. Created here so the
 	// observers below exist before any publisher process is running.
-	nc, err := nats.Connect(h.natsURL)
+	nc, err := nats.Connect(h.natsURL, h.natsDialOptions()...)
 	if err != nil {
 		tb.Fatalf("connecting to nats: %v", err)
 	}
@@ -444,7 +466,7 @@ func (h *harness) startController(tb testing.TB) {
 		// __Host- prefix on the real cookie rather than around them.
 		"TLS_CERT_FILE=" + harnessCert.CertFile,
 		"TLS_KEY_FILE=" + harnessCert.KeyFile,
-	}, h.playbookEnv(false)...))
+	}, h.subprocessEnv(false)...))
 
 	// /healthz proves the socket is bound. /readyz is the stronger claim
 	// and the one worth waiting on: it runs a real NATS connectivity
@@ -481,7 +503,7 @@ func (h *harness) startRunner(tb testing.TB) {
 		"RUNBOOK_DIR=" + h.runbookDir,
 		"RUNNER_WAL_DIR=" + tb.TempDir(),
 		"OTEL_TRACES_EXPORTER=none",
-	}, h.playbookEnv(true)...))
+	}, h.subprocessEnv(true)...))
 
 	// Readiness is the durable consumer existing, not a log line: that
 	// consumer is the exact resource a dispatch has to land on, so
@@ -504,6 +526,58 @@ func (h *harness) startRunner(tb testing.TB) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// natsDialOptions is the TLS half of this harness's own broker
+// connection, and it is empty unless a harness put something terminating
+// TLS in front of the broker.
+//
+// Empty matters more than it looks: nats.Connect(url) and
+// nats.Connect(url, nil...) are the same call, so no existing harness
+// changes behavior at all. The alternative considered and rejected was
+// routing this through topology.Connect, which would be more
+// representative and would ALSO change the connection name, the reconnect
+// policy and the post-connect wait for every test in this package at
+// once. That is a separate change owing its own evidence.
+//
+// nats.Secure with a configuration from the generator, rather than a
+// tls.Config written here: that generator is the one place this module
+// writes one, which is where InsecureSkipVerify would otherwise get
+// typed. internal/archtest's TestOnlyTlscertBuildsAMeshTLSConfig enforces
+// the same rule for shipping code.
+func (h *harness) natsDialOptions() []nats.Option {
+	if h.natsCert.CertFile == "" {
+		return nil
+	}
+	return []nats.Option{nats.Secure(h.natsCert.TLSClientConfig())}
+}
+
+// subprocessEnv is every optional variable a harness option added, for
+// one of the two binaries.
+//
+// It exists so there is exactly ONE append seam rather than an arbitrary
+// one, and that is the property that matters: both binaries must be given
+// the same broker configuration, and two independent appends at two call
+// sites is how one of them ends up without NATS_CA_FILE while the failure
+// reads as a broker problem. playbookEnv keeps its own function because
+// its pair travels together for a reason of its own; this composes them.
+func (h *harness) subprocessEnv(runner bool) []string {
+	return append(h.playbookEnv(runner), h.natsTLSEnv()...)
+}
+
+// natsTLSEnv is the broker-TLS half of both binaries' environment.
+//
+// NATS_CA_FILE names the certificate the proxy presents, which is also
+// the root that signed it, because the generator writes a self-signed CA
+// and one file is therefore both. Nothing here sets NATS_URL: that is
+// already carried by h.natsURL, and this pair is exactly what
+// topology.TLSFromEnv refuses when the two contradict each other, which
+// the refusal gates in cmd/ assert separately.
+func (h *harness) natsTLSEnv() []string {
+	if h.natsCert.CertFile == "" {
+		return nil
+	}
+	return []string{"NATS_CA_FILE=" + h.natsCert.CertFile}
 }
 
 // playbookEnv is the Ansible half's environment, empty when the harness

@@ -72,6 +72,16 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 	// Both servers get a network alias, which is the address Toxiproxy
 	// uses upstream. Neither publishes a host port of its own: the only
 	// way in is through the proxy.
+	//
+	// That claim used to be false of the broker, which declared
+	// ExposedPorts 4222 out of habit. testcontainers publishes every
+	// exposed port to a random host port, so there was a second route in
+	// the whole time. Nothing here read it, so nothing broke, but the
+	// identical claim is load bearing in the wss:// traversal gate, where
+	// a second route would make every assertion pass without proving
+	// anything. Container to container traffic on a user-defined network
+	// needs no exposed port, so removing it costs nothing and makes the
+	// sentence above true.
 	pgContainer, err := testpg.Run(ctx,
 		testsupport.PostgresImage,
 		testpg.WithDatabase("pleiades"),
@@ -87,11 +97,10 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 
 	natsContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        testsupport.NATSImage,
-			ExposedPorts: []string{"4222/tcp"},
-			Cmd:          []string{"-js"},
-			WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-			Networks:     []string{nw.Name},
+			Image:      testsupport.NATSImage,
+			Cmd:        []string{"-js"},
+			WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
+			Networks:   []string{nw.Name},
 			NetworkAliases: map[string][]string{
 				nw.Name: {"nats"},
 			},
@@ -247,26 +256,6 @@ func TestChaos_PostgresSeverance(t *testing.T) {
 
 	ch.waitForHTTPStatus(t, "/readyz", http.StatusOK, "readiness to recover after the database returned")
 	ch.completeOneDispatch(t, token, "after the database returned")
-}
-
-// completeOneDispatch launches a runbook and asserts it reaches a
-// completed state with the expected fan-out, labelling any failure with
-// which phase of the chaos run it happened in.
-func (ch *chaosHarness) completeOneDispatch(t *testing.T, token, phase string) {
-	t.Helper()
-
-	status, body := ch.launch(t, token)
-	if status != http.StatusAccepted {
-		t.Fatalf("[%s] dispatch returned %d, want 202. Body: %s\n%s", phase, status, body, ch.controller.output())
-	}
-
-	job := ch.pollJobUntilTerminal(t, token, requireStringField(t, body, "job_id"))
-	if job.State != "completed" {
-		t.Fatalf("[%s] job state = %q, want completed. Tasks: %s", phase, job.State, describeTasks(job))
-	}
-	if job.Dispatched != 2 {
-		t.Fatalf("[%s] job dispatched %d devices, want 2. Tasks: %s", phase, job.Dispatched, describeTasks(job))
-	}
 }
 
 // waitForHTTPStatusNot polls path until it answers with anything other

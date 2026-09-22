@@ -156,6 +156,24 @@ func main() {
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
 	logger.Info("starting runner", "version", buildinfo.Version())
 
+	// The mesh URL, checked at startup: after the masking logger above and
+	// before the collections loader, telemetry or any dial.
+	//
+	// A Runner has no listener and no database, so this buys less here
+	// than the identical check buys in cmd/controller, where the old
+	// position cost a bound port and a whole schema migration. It is here
+	// anyway, because a rule stated in one composition root and not the
+	// other is how the two drift.
+	//
+	// The placement, not the check, is the load-bearing part. log.Fatalf
+	// reaches the masking writer installed one line above, and
+	// ValidateNatsURL's messages quote the URL back, which may carry
+	// embedded credentials that internal/redact's url_userinfo rule exists
+	// to hide. Checking before that line would print them.
+	if err := topology.ValidateNatsURL(natsURL); err != nil {
+		log.Fatalf("invalid NATS_URL: %v", err)
+	}
+
 	// External Collections: programs built outside this repository with
 	// pkg/external, loaded from the directory PLEIADES_COLLECTIONS_DIR
 	// names and registered like built-in methods. A directory that fails to

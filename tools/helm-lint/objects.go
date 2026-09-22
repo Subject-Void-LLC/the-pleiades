@@ -22,6 +22,11 @@ type manifest struct {
 	Kind     string       `yaml:"kind"`
 	Metadata objectMeta   `yaml:"metadata"`
 	Spec     manifestSpec `yaml:"spec"`
+
+	// Data is a ConfigMap's contents, read by the rule that requires
+	// every file path a mounted configuration names to be a path that is
+	// really mounted. Empty for every other kind.
+	Data map[string]string `yaml:"data"`
 }
 
 // objectMeta carries the metadata a finding needs to name an object, plus the
@@ -224,6 +229,16 @@ type execAction struct {
 type volume struct {
 	Name     string      `yaml:"name"`
 	HostPath *hostPathes `yaml:"hostPath"`
+
+	// ConfigMap names the ConfigMap this volume projects, when it
+	// projects one. Read so a rule can follow a mount back to the
+	// configuration text it carries.
+	ConfigMap *configMapSource `yaml:"configMap"`
+}
+
+// configMapSource names the ConfigMap a volume projects.
+type configMapSource struct {
+	Name string `yaml:"name"`
 }
 
 // hostPathes is a mount of a path from the node itself.
