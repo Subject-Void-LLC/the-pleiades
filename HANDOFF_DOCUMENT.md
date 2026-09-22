@@ -4,169 +4,183 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 84 (upgrade, rollback and restore) is COMPLETE and UNCOMMITTED on branch
-`feature/upgrade-rollback-restore`, cut from main at `642e626`.** The roadmap reads 12 of 12 with no
-open gate. The commit message is at the bottom of this section; nothing is committed, by the user's
-standing rule. Part XVI (the agentic control plane, roadmap planning only) is paused mid workflow and
-resumes from `part16-work/RESUME.md` in this session's directory under
-`~/.claude/projects/-home-noot-auto-roboto/`.
+**Phase 96d (path traversal and wire confidentiality) is COMPLETE and COMMITTED on branch
+`feature/Path-Traversal-and-Wire-Confidentiality`, cut from `3b60a80` (Phase 84's merge), pending
+`make ci` and a push.** The roadmap reads 10 of 10 with no open gate, and 96d is no longer in the
+tracker's `phases_without_implements`. The user explicitly asked for this branch to be committed and
+pushed, which is why the standing do-not-commit rule does not apply to it.
 
-### Machine rule (saved to memory)
+Four commits, deliberately separate rather than one bundle:
 
-This box (VENGEANCE) has 9.7 GiB RAM and 20 CPUs. At most TWO concurrent workers. Every heavy command
-runs under `~/.local/bin/capped <limit> <cmd...>`, a `systemd-run --user --scope` with a hard
-MemoryMax and no swap by default. Never add MemoryHigh: the cgroup is charged for page cache, and a
-MemoryHigh band throttled `make gosec` 253,604 times with no progress. `make gosec` needs about 4.5
-GiB. Docker's own containers share the same VM, so the kind gate and `make ci` run alone.
+1. `feat(topology): prove wss:// traversal and validate the mesh URL` (Phase 96d itself)
+2. `fix(e2e): stop the upgrade gates asserting on state that is absent` (two Phase 84 test defects
+   this branch surfaced; the user approved them riding along)
+3. `docs(readme): describe the work that shipped and drop an em dash`
+4. the living documents
 
-### What `make ci` says, honestly
+**`commitgate` refuses a `Co-Authored-By` trailer naming an AI**, citing AGENTS.md's Licensing
+section on intellectual-property ambiguity. The session's own attribution instruction asked for one;
+the project rule wins and the trailer is absent from every commit here. Expect this on every future
+session.
 
-**It has NOT passed as one strict run on this machine, and the reason is the machine, not the tree.**
-Every target passes; each full run loses a different container package to Docker contention
-(FAILURE_PATTERNS 61), and `coverage` tolerates nothing by design.
+**The roadmap resequencing is NOT in these commits and cannot be**: `.SPECIFICATION/` is gitignored,
+so `IMPLEMENTATION.md` and `SECURITY_ATTESTATION.md` changes live only in this working copy. See
+"Roadmap and spec changes" below for what was done there, because a fresh clone will not have it.
 
-- `build`, `devtools`, `vet` (both tag sets), `fmt`, `tidy-check`, `test-repeat`, `gosec` (22
-  findings, every one individually waived), `govulncheck` (0 reachable), `docs-lint`,
-  `docs-gen-check`, `helm-lint`, `templ-gen-check`: all pass.
-- `test-race`: one failure, `internal/event`'s toxiproxy container failing to provision. That test
-  passed alone in 10s. No change in this branch touches that package.
-- `test-integration`: two failures, both real defects in tests, both fixed and rerun (below).
-- `coverage`: three container packages failed in the first run and two different ones in the second,
-  every one a container that would not start or a first NATS connection that timed out. The tolerant
-  run (`go run ./tools/coverage-check -tolerant`, what `push-gate` uses, which reruns a failure alone
-  before believing it) completed and evaluated every floor. It caught one real regression, now fixed.
-- No gate receipt exists or can: the tree is dirty until this work is committed.
+### What this session did
 
-### Phase 84, the evidence behind the ticks
+96d was 7 of 10 when it started. The three open items were one claim: a direct listener does not
+prove traversal. Closing them turned up four more things inside the phase's own territory sitting
+under items already ticked `[x]`, and the user asked for all four to be folded in.
 
-Each gate below ran in THIS tree, alone, on real infrastructure.
+**The Release Gate (`tests/e2e/mesh_wss_release_gate_test.go`).** A real `nats-server` with a real
+`websocket {}` block and no host route to its client port, a real nginx terminating real TLS in
+front of it, and the real `cmd/controller` and `cmd/runner` reaching it over `wss://` with
+`NATS_CA_FILE`. Passes under `-race` in about 50s. Four layered proofs: real work completes; the
+broker publishes no bypass route (asserted against the live container); nginx logs a real `101
+Switching Protocols` carrying `upgrade="websocket"` and `proto=HTTP/1.1`; and the broker's own
+`/connz`, fetched through the proxy, reports all seven client connections as type `websocket` from
+the proxy's address. Two negative controls: a raw `tls://` dial at the same address must fail (a
+proxy that answered it would be forwarding bytes, not terminating HTTP), and an unrelated root must
+be refused. **Every proof was observed failing under a deliberate inversion before being trusted**,
+which is the part worth repeating if any of this is revised.
 
-- **Concurrency.** `TestApplyAcrossRealProcesses` at 2, 4, 16 and 32 real processes per dialect;
-  `TestControllersStartedTogetherOnAnUnmigratedDatabaseAllServe` at 2, 4 and 8 real controller
-  binaries against one PostgreSQL; `TestApply_APartitionedWinnerReleasesItsClaim` (a real Toxiproxy
-  partition, the claim released after 1m10s); `TestApply_ARoleTimeoutDoesNotEndTheClaimWait` (fails
-  after 1.006s on the exact pre-fix order).
-- **Compatibility window.** `compat_shape_internal_test.go` (every migration's real effect per
-  dialect against its declaration); `TestControllerServesWithinItsWindowAndStopsPastIt`;
-  `TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates` (110 requests to the previous
-  build during a migration held three seconds by a SHARE lock, none failed, 261 more through the
-  drain; with the lock removed its end-of-hold check fails).
-- **Upgrade paths.** Compose: `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` (99s), which now
-  also proves a backup it cannot write stops `make up` before anything migrates. Helm:
-  `TestUpgradeReleaseGate_HelmUpgrade` on kind (233s: Recreate 92s with a 31s outage by design,
-  RollingUpdate 94s with a previous-build pod Ready while this build's existed). Binary: the upgrade
-  gate above. Install unaffected: `TestPackagingReleaseGate_KubernetesInstall` (339s).
-- **Fuzzing, this tree.** `FuzzCheckGate` 1,759,988 executions clean; `FuzzVersionNumber` 1,178,398
-  clean; `FuzzApplyTamperedHistory` 4,358 clean. The two inputs those found on 2026-09-21 are kept as
-  seeds in `testdata/fuzz`.
-- **Coverage.** `internal/ent/migrate` 87.2% against its 86.5% floor; `internal/backup` 88.1%.
+**Three shipping changes**, not just tests:
 
-### Fixed today, after the adversarial review and the gate runs
+1. `topology.ValidateNatsURL` and `TLSFromEnv` moved into the configuration block of both
+   composition roots. They used to sit ~280 lines past the env read, past `net.Listen`, past the
+   `controller listening` line and past the schema migration, so a typo'd scheme bound a port,
+   answered 200 on `/healthz`, migrated a database and then exited 1 (FAILURE_PATTERNS 297). The
+   shipped changelog already claimed "checked at startup"; it is true now.
+2. `tlscert.ClientConfig(roots)` added as the one place a client `tls.Config` is written.
+   `TLSFromEnv` and the Vault lookup both consume it. The phase's first commit message claimed
+   `TLSFromEnv` did this and it did not.
+3. The chart gated the broker's certificate volume and mount on `nats.tls.enabled` alone while the
+   rendered `nats.conf` named the files unconditionally, so `nats.websocket.tls` without
+   `nats.tls.enabled` produced a manifest that applies cleanly and a broker that dies on a file
+   nothing mounted. Both are now gated on `or tls.enabled websocket.tls`.
 
-Each with a control that fails without the fix, where one can be run:
+**New guards.** `internal/archtest/tlsconfig_test.go` (zero `tls.Config` literals under
+`internal/topology`, with `internal/tlscert` as a positive control so the zero assertion cannot pass
+vacuously; plus a module-wide `MinVersion` ratchet, no allowlist). `tools/helm-lint`'s
+`checkConfiguredFilesAreMounted` (every file path a mounted configuration names must fall inside one
+of that container's mounts) plus the profile that renders the combination: neither half finds the
+chart defect without the other, and both were verified against the unfixed chart.
 
-- **FAILURE_PATTERNS 293:** the partition chaos test discarded the winner's error, so any early
-  failure of that process read as "no session ever ran pg_sleep" after 30 seconds. It now reports the
-  winner's own error at once.
-- **294:** `TestGatherCheck_OnlyReads` compared `ansible_uptime_seconds` between two reads and failed
-  whenever they straddled a second. Uptime is now compared as a clock; three mutations confirm the
-  rest is still exact.
-- **295:** the Helm setup gate read the key-record line from `kubectl logs`, which shows the running
-  container only. Every Helm install restarts its controller about three times, because it exits
-  until the database's Service name resolves (main does the same), so the container that recorded the
-  key could already be gone. The gate now reads the `encryption_keys` row, and logs restart counts
-  and the previous container's exit.
-- **296:** `SECURITY_ATTESTATION.md` claimed "if the backup fails, nothing is upgraded" with no test
-  behind it. The compose gate now runs `make up` against a `BACKUP_DIR` this user cannot write;
-  control: with the recipe's guard replaced by `|| true`, the upgrade proceeded and the gate failed
-  in 47s. That control entry now also says where the rollback proof is narrower than the documented
-  path.
-- **LESSONS 215:** `tests/e2e` took 1099s of the 20 minute per-package timeout, and a package timeout
-  panics without running any cleanup, stranding a kind cluster and a compose stack. Raised to 30m in
-  all three copies (`Makefile`, `tools/coverage-check`, `tools/testgate`), with a control proving the
-  equality test catches drift.
-- **Coverage ratchet:** `internal/ent/migrate` had fallen to 85.0% because this phase's
-  `PlanForNewDatabase` was used by `cmd/controller` and tested nowhere in its own package. It now has
-  a test requiring it to answer exactly what an empty database answers; control: a plan missing one
-  migration fails it.
+**The benchmark the Fuzz/Stress item asked for and never got.** `BenchmarkTransportConnect`, four
+schemes rather than two so the cost decomposes: `nats` 609us/145 allocs, `ws` 615us/190, `tls`
+1245us/577, `wss` 1207us/625. The "strictly more work" claim holds, and the decomposition corrects
+what the prose implies: almost none of it is the WebSocket upgrade, the TLS handshake is essentially
+all of it.
 
-Also corrected: a comment in `tamper_fuzz_internal_test.go` claimed a startup schema check was
-"recorded as its own later work". Nothing records it, so the comment now says it is not built.
+### Two findings worth reading before touching this again
 
-### Known and deliberately left
+- **`ValidateNatsURL` must stay AFTER the masking logger.** Its messages quote the URL back,
+  `internal/redact` has a `url_userinfo` rule for `scheme://user:pass@host`, and in both roots the
+  env read happens before `slog.SetDefault` and `log.SetOutput(redact...)`. Moving the check "up
+  beside the env read" looks like a harmless cleanup and prints passwords on a fatal path
+  (FAILURE_PATTERNS 298).
+- **An empty `ExposedPorts` publishes MORE, not fewer.** testcontainers inspects the IMAGE and
+  publishes everything its `EXPOSE` declares. The nats image declares three ports, so the gate's
+  "no other way in" fixture initially published all of them. `tests/e2e/integration_chaos_test.go`
+  had carried the same claim as a comment, untrue, for months; corrected in this change
+  (FAILURE_PATTERNS 299).
 
-- **A planted history row is believed.** A row claiming a migration of this build that was never
-  applied makes Apply skip it and succeed onto a schema missing it. Only someone who can already
-  write every table can plant one. The check that closes it (comparing the live schema with the
-  history at startup, as restore already does) is NOT built and is owned by NO phase. It is stated in
-  Phase 84's Fuzz item; giving it a phase is a decision for the user.
-- **No new contract can ship** until the apply-time guard that refuses to contract while an older
-  controller runs is built (`TestANewContractNeedsTheGuard` is the tripwire).
-- **A browser session** is asserted across an upgrade only by the compose gate. The Helm and binary
-  gates assert the database rows and an API token minted before the upgrade, not a browser.
-- **The compose rollback** follows the documented path only once the previous release is itself a
-  Phase 84 build; the TRANSITIONAL branch is marked and dated.
-- **`gosec-waivers.json`'s header inline-suppression count is stale** (it says 56 to 58; the tree has
-  97 outside tests). It has been stale since 2026-08-15 across many phases; not this phase's doing.
-- Earlier deliberate omissions stand: the dirty check in `previousRef` ignores untracked files; a
-  crash-orphaned `.pleiades-new-*.db` temporary; a SQLite history key declared `ON CONFLICT IGNORE`;
-  a clone wedged on a live owner is never recovered (a sync timeout is new scope).
+### Roadmap and spec changes (gitignored, this working copy only)
 
-### Part XVI, the agentic control plane (roadmap planning, no code)
+- **v0.4.0 is now the security release.** Phase 103a and Phase 105 moved there from v0.8.0, and 45
+  phases cascaded down one version to make room. The cascade STOPS at v0.9.0, which absorbed
+  v0.8.0's remainder: v1.0.0 holds the Secure Development Compliance block and is a real boundary,
+  not a number. Phase 101 deliberately stayed at v0.3.0 because it is over half done.
+- **Phase 105 carries the zero-trust linkage**, including a publication embargo: no documentation,
+  datasheet or sales material may call this platform zero trust until 105 merges, because until then
+  a compromised broker yields every credential dispatched inside the retention window (seven days at
+  the default outage budget, 168 at the maximum). Also records why `needed_by` stays empty: the
+  tracker DERIVES it from other phases' `Depends on:` lines, so do not manufacture a fake dependency
+  to populate it.
+- **Phase 105's Pattern Entry Gate now settles the payload question**: `Secrets` and `Injected` leave
+  the SERIALIZED form, not the Go struct. The Runner repopulates them after redeeming. That holds the
+  blast radius to about six sites instead of the 61 that reference those fields, and leaves the
+  Crawl tier, which has no broker, untouched.
+- **SSDF PW.9 was split** so 96d ticks what it proved and "encrypted and authorized BY DEFAULT" stays
+  open against Phase 101 and 106d.
 
-Paused deliberately while the Docker gates ran. Nothing is written into IMPLEMENTATION.md or PLAN.md
-yet. `part16-work/RESUME.md` holds the exact workflow resume call, `args.json` beside it (the cache
-matches only identical arguments), and the post-workflow steps: write Part XVI (107a to 107l), apply
-the Phase 71 correction and the PLAN.md addenda, then confirm the tracker adds no problems. Current
-baseline, measured after Phase 84's edits: phases without an Implements line are 12, 70 and 96d;
-security summary problems is 4; IMPLEMENTATION.md holds 35 em dashes, all pre-existing.
+### Verification run
 
-### The commit message
+Green: `go build ./...`, `make fmt`, `vet` under both tag sets, `tidy-check`, `gosec` (22 findings,
+all pre-existing and individually waived), `govulncheck` (0 reachable), `docs-lint`,
+`docs-gen-check`, `helm-lint`, `templ-gen-check`, and the wss gate under `-race`.
 
-```text
-feat(controller): upgrade and roll back a schema change (Phase 84)
+`make test-race`: one failure, `internal/backup`, classified as contention by the isolation re-run
+(60s failing under load, 3.8s alone, 36s for the whole package alone). Not stash-baselined.
 
-Any number of controllers may now start against one database at the same
-instant. Each migration's transaction records its version before it runs a
-statement, so a second starter waits on that uncommitted row, fails on it
-holding nothing, reads the history again and carries on: the same
-lose-then-reload reasoning internal/tlscert applies to certificates, with
-the one difference that a loser here waits, because two runs of a migration
-are not interchangeable. The claim wait is explicitly unbounded, since a
-role's statement_timeout would otherwise end the one wait that must never
-end, and a winner cut off by a partition is released by the server's
-idle-in-transaction timeout rather than by TCP keepalive hours later.
+`make test-integration`: 166 packages green. Three real failures, all in tests rather than the
+product, two fixed here and verified by re-running each gate alone, one recorded and left alone
+(FAILURE_PATTERNS 301, a check test in `internal/catalog/file/line` comparing an mtime for equality,
+which is #294 recurring in a package this branch does not own).
 
-The schema now has a written, enforced compatibility window. A migration
-expands by default; one that removes or narrows is a contract, declared with
-the oldest build that can still serve after it, and every applied migration
-records that floor. A build refuses a database past its floor at startup and
-stops serving one that contracts under it, so a rolling upgrade overlaps two
-builds and a rollback within the window leaves the database alone. Three
-things enforce this rather than stating it: a shape test comparing each
-migration's real effect per dialect with its declaration, a gate checked at
-every start and every heartbeat, and an upgrade gate that runs the previous
-release's real binary against the newly migrated schema while this build
-migrates it.
+**Still to run: `make ci` in full**, which is the remaining step before this is verified, and which
+on this machine has to run alone.
 
-The controller binds its listener and answers probes before it opens the
-database, so a long migration is no longer a port that does not answer. It
-drains for SHUTDOWN_DRAIN after reporting itself not ready, and the chart
-derives its termination grace period from that. Controllers record a
-heartbeat, and a sync is swept only when no live controller owns it, which
-is what a rolling upgrade's new pods used to get wrong.
+### Next
 
-controller migrate --plan answers what an upgrade would do without doing it,
-and compose's make up acts on its exit code: it stops the controller and the
-runner, takes a backup, and starts the new build only if that backup
-succeeded. make -n up, up-plan and restore now refuse rather than stopping a
-live stack, and make up rebuilds the runner image it had been leaving stale.
+The tracker's repo-wide `next_item` is Phase 101 (Mesh Identity: NKey/JWT, subject-scoped
+authorization), which is the honest successor: 96d encrypts the wire and authenticates the server,
+and deliberately does not authenticate clients. `SECURITY_ATTESTATION.md`'s SSDF PW.9 was split to
+say exactly that: what 96d proves is ticked, and "encrypted and authorized BY DEFAULT" is left open
+against 101 and 106d.
 
-Proven on real infrastructure: 2, 4, 8, 16 and 32 starters against one
-database; a partitioned winner's claim released by the server; the previous
-release serving 110 requests without a failure while this build migrated
-under a held lock; a compose stack upgraded, refusing an unwritable backup,
-and rolled back; a kind cluster upgraded by Recreate and by RollingUpdate;
-and the migration history fuzzed against an independent oracle and through
-the whole apply path over tampered histories.
+### Commit message
+
+```
+feat(topology): prove wss:// traversal and refuse a bad mesh URL at startup
+
+Phase 96d's last three items, which were one claim: a direct listener does
+not prove traversal. The existing gate reached a real broker over ws:// and
+tls://, but dialed it directly from the test process, which says the client
+speaks the protocol and nothing about the thing wss:// exists for.
+
+tests/e2e now stands a real nginx terminating real TLS in front of a real
+nats-server with a real websocket block, and drives it with the real
+controller and runner binaries over wss://, under -race. Four layered
+proofs: work completes, the broker publishes no route this host could use to
+bypass the proxy, nginx logs a real 101 Switching Protocols carrying the
+Upgrade header and HTTP/1.1, and the broker's own /connz reports all seven
+client connections as type websocket from the proxy's address. Two controls:
+a raw tls:// dial at the same address must fail, since a proxy that answered
+it would be forwarding bytes rather than terminating HTTP, and an unrelated
+root must be refused. Each proof was watched failing under a deliberate
+inversion before being trusted.
+
+NATS_URL was checked at the dial, roughly 280 lines past where it is read
+and on the far side of net.Listen and the schema migration, so a typo'd
+scheme bound a port, answered 200 on /healthz, migrated a database and then
+exited 1. Both composition roots now check it while reading configuration.
+It goes after the masking logger rather than beside the env read, because
+the validator quotes the URL back and a URL can carry a password.
+
+tlscert.ClientConfig is now the one place a client tls.Config is written,
+consumed by TLSFromEnv and by the Vault lookup, and an archtest requires
+zero literals under internal/topology with internal/tlscert as a positive
+control. A module-wide rule requires every tls.Config anywhere to state a
+version floor, since the zero value is TLS 1.0.
+
+The chart gated the broker's certificate volume and mount on
+nats.tls.enabled while the rendered nats.conf named those files whenever
+nats.websocket.tls was set, so serving wss:// with a plaintext in-cluster
+listener produced a manifest that applies cleanly and a broker that dies on
+a file nothing mounted. Both are gated on either now, and helm-lint gained a
+general rule that every file a mounted configuration names must be inside
+one of that container's mounts. externalNats.url gained the scheme pattern
+the first commit named as a defect and did not fix.
+
+Benchmarked rather than asserted: wss:// costs about twice what nats:// does
+per connect, and almost none of that is the upgrade. The TLS handshake is
+essentially all of it, so tls:// and wss:// measure the same.
+
+Recorded: FAILURE_PATTERNS.md 297, 298 and 299, LESSONS_LEARNED.md 216 and
+217. 299 is worth reading before writing another container fixture: an empty
+ExposedPorts publishes every port the IMAGE declares, so "name nothing to
+publish nothing" is backwards, and a sibling test had carried that claim in
+a comment, untrue, for months.
 ```
