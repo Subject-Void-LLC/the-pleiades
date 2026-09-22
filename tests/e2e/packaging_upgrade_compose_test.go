@@ -144,7 +144,32 @@ func TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack(t *testing.T) {
 			t.Fatalf("make up left %d backups; want the one taken before the upgrade", n)
 		}
 	}
-	preUpgrade := filepath.Join(g.backupDir, g.backups(t)[0])
+	// The rollback half below restores the backup the upgrade took, and
+	// `make up` takes one only when there is a migration to cross. When the
+	// previous build and this one share a schema there is no such backup,
+	// which is correct behavior and not something to roll back from.
+	//
+	// This used to be an unguarded index and it panicked. The two
+	// assertions above are already conditioned on prev.crossed; this line
+	// was not, so it was reachable exactly when they were skipped. It needs
+	// a DIRTY tree with no migration in it to happen, which is why it
+	// survived Phase 84: that phase's own branch added a migration, so its
+	// author could not reach this path. Every later session working
+	// uncommitted, which this repository's own rule makes the normal state,
+	// reaches it.
+	taken := g.backups(t)
+	if len(taken) == 0 {
+		// Distinguish the legitimate case from the defect it would
+		// otherwise hide: no backup WITH a crossed migration means the
+		// upgrade skipped a backup it owed, which is the whole thing this
+		// gate exists to catch.
+		if len(prev.crossed) > 0 {
+			t.Fatalf("make up crossed %v and left no backup; the upgrade must back up before it migrates", prev.crossed)
+		}
+		t.Logf("the previous build %s shares this build's schema (no migrations crossed), so make up correctly took no backup and there is no pre-upgrade state to restore; the upgrade half above still ran in full", prev.ref)
+		return
+	}
+	preUpgrade := filepath.Join(g.backupDir, taken[0])
 
 	// What an upgrade keeps: the data, the key (every sealed value still
 	// opens under it, counted by a backup in this build's image), the JWT
