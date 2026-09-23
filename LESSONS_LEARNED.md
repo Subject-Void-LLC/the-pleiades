@@ -261,6 +261,10 @@ story, per `.AGENTS/AGENTS.md`.
 
 227. **When one record juxtaposes two values whose ordering implies a claim, derive both from one function or write the check that compares them: the roadmap showed a phase's release beside its position in the suggested working order, each correct alone, and 46 of 67 unfinished phases sat below a release the order had already passed (2026-09-23).**
 228. **A value called a placeholder that a real code path will one day evaluate is a scheduled failure, so name the code that reads it and the condition under which that code first runs: every Collection manifest required `>=1.0.0` while the first release is 0.2.0, and the loader could not notice because no build is a release build (2026-09-23).**
+229. **A lexical guard confines a name, not a file: when a check exists to see through symlinks, compute it from facts that describe the filesystem (SFTP `LSTAT` and `READLINK` walked on the client, the kernel's `cd -P`), never from a server's canonicalization, which `pkg/sftp`'s own server does lexically (2026-09-23).**
+230. **Make "refused before any network call" a property of a type whose only constructor performs no I/O, and hold that constructor's package to an import allowlist, rather than a check each caller must remember to make first (2026-09-23).**
+231. **A test harness standing in for a server must end a session when that server would; re-check it whenever a new kind of client arrives, because the first client to depend on a behavior is the one the harness was never tested against (2026-09-23).**
+232. **Read a fuzz run's execution count only from a run that ended cleanly: minimization freezes the counter and can end a time-bounded run as a failure with no crasher, so bound minimization or bound the run by count (2026-09-23).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

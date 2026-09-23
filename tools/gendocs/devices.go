@@ -26,17 +26,45 @@ import (
 // an audit found an earlier version of this comment claiming a completeness
 // gate that had never been built, which is why they are named here: a
 // comment that points at a specific test can be checked.
+//
+// Conditional lists what a type declares only when one of its own
+// properties says so. The two could not be told apart until Phase 77, so
+// cisco_router's NetconfCapable (declared when netconf_enabled is true)
+// was simply missing from the generated page; the completeness test now
+// checks a conditional capability in both directions, absent from a bare
+// record and present once its property is set.
 var handWrittenDevices = []struct {
 	Vendor       string
 	TypeKey      string
 	Capabilities []string
+	Conditional  []conditionalCapability
 }{
-	{Vendor: "cisco", TypeKey: "cisco_router", Capabilities: []string{"SSHTransportCapable", "CiscoIOSCapable", "NetworkAddressableCapable"}},
-	{Vendor: "linux", TypeKey: "linux_server", Capabilities: []string{
-		"SSHTransportCapable", "LinuxCapable", "ShellExecCapable",
-		"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
-		"NetworkAddressableCapable",
-	}},
+	{
+		Vendor: "cisco", TypeKey: "cisco_router",
+		Capabilities: []string{"SSHTransportCapable", "CiscoIOSCapable", "NetworkAddressableCapable"},
+		Conditional:  []conditionalCapability{{Name: "NetconfCapable", Property: "netconf_enabled", Value: true}},
+	},
+	{
+		Vendor: "linux", TypeKey: "linux_server",
+		Capabilities: []string{
+			"SSHTransportCapable", "LinuxCapable", "ShellExecCapable",
+			"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
+			"NetworkAddressableCapable",
+		},
+		Conditional: []conditionalCapability{{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"}},
+	},
+}
+
+// conditionalCapability is a capability a hand-written type declares
+// only when Property holds a value like Value.
+type conditionalCapability struct {
+	// Name is the capability.
+	Name string
+	// Property is the inventory property that enables it.
+	Property string
+	// Value is an example value that enables it, which the completeness
+	// test hydrates with.
+	Value any
 }
 
 // generateDevices emits outDir/devices.md: every registered device type,
@@ -53,7 +81,11 @@ func generateDevices(outDir string) error {
 	rows := make([][]string, 0, len(catalogdata.Devices)+len(handWrittenDevices))
 	var conditional bool
 	for _, d := range handWrittenDevices {
-		caps, marked := markConditional(d.TypeKey, d.Capabilities)
+		names := append([]string(nil), d.Capabilities...)
+		for _, c := range d.Conditional {
+			names = append(names, c.Name)
+		}
+		caps, marked := markConditional(d.TypeKey, names)
 		conditional = conditional || marked
 		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "hand-written, predates the Forge"})
 	}
@@ -83,7 +115,9 @@ const conditionalNote = "A capability list marked with an asterisk is what that 
 	"every instance declares: the type decides per device, from that device's own properties. " +
 	"`console_device` is the case this exists for, because a local serial line, a console server " +
 	"port and a bare Telnet session are alternative ways to reach one device rather than three " +
-	"facts about it, so a device configured for one must not claim the others. See that type's " +
+	"facts about it, so a device configured for one must not claim the others. `cisco_router` " +
+	"declares `NetconfCapable` only when `netconf_enabled` is true, and `linux_server` declares " +
+	"`FileTransferCapable` only when `file_transfer_root` names a directory. See each type's " +
 	"package documentation for which property enables which capability."
 
 // markConditional renders a type's capability list, appending an asterisk

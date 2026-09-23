@@ -274,16 +274,23 @@ func TestUnreachableCapabilitiesDetectsAnOrphan(t *testing.T) {
 // separate from acceptedUnsatisfiableCapabilities because the two answer
 // different questions. That map holds capabilities a real method
 // requires but no device satisfies (a live refusal, disclosed). This one
-// holds capabilities nothing requires at all, which refuse nothing and
-// mislead only a reader.
+// holds capabilities nothing requires at all AND no device satisfies,
+// which refuse nothing and mislead only a reader.
 //
 // Every entry cites the disclosure in the capability's own declaration,
 // not in this file: removing the map and reading the cited comment must
 // tell the same story.
-var acceptedUnreachableCapabilities = map[capability.Name]string{
-	capability.NameFileTransfer: `pkg/capability/capabilities_network.go's FileTransferCapable doc comment: "No device type in this repository structurally implements FileTransferRoot today, and no Collection method or transport fqcn requires this capability ... It exists as the declared name for the file-moving transports pkg/tftpxfer already implements and Phase 77's SFTP work will join," which docs/10-running-in-production.md already discloses as having no production consumer.`,
-	capability.NameRFC2217:      `pkg/capability/capabilities_serial.go's RFC2217Capable doc comment, and docs/10-running-in-production.md's transport reference, which states plainly that RFC 2217 is "a real, tested client with no runbook task yet": line control is not a command string, so it deliberately has no TransportBinding and therefore no engine.ActionCapability entry. console_device does satisfy it structurally, so this entry guards only the no-consumer half.`,
-}
+//
+// It is empty, and that is its correct state today. It held two entries
+// until Phase 77. FileTransferCapable's became dead when linux.Server
+// gained FileTransferRoot; RFC2217Capable's had been dead since
+// console_device began satisfying it, and its own text admitted as much
+// ("guards only the no-consumer half"). Neither was ever consulted once
+// its capability was satisfiable, because unreachableCapabilities skips
+// a satisfiable capability before it looks here, and the staleness guard
+// below only noticed an entry that had become satisfiable AND required.
+// It now notices either, so an entry can no longer outlive its reason.
+var acceptedUnreachableCapabilities = map[capability.Name]string{}
 
 // TestAcceptedUnreachableCapabilitiesAreNotStale is the allowlist's own
 // drift guard, the same role TestAcceptedUnsatisfiableCapabilitiesAreNotStale
@@ -293,9 +300,46 @@ func TestAcceptedUnreachableCapabilitiesAreNotStale(t *testing.T) {
 	satisfiable := satisfiableCapabilities(t)
 	required := requiredCapabilities(t)
 
-	for name := range acceptedUnreachableCapabilities {
-		if satisfiable[name] && required[name] {
-			t.Errorf("capability %q is allowlisted as unreachable, but a device type now satisfies it AND something now requires it -- remove the stale entry and the disclosure it cites", name)
+	for _, name := range staleUnreachableEntries(acceptedUnreachableCapabilities, satisfiable, required) {
+		t.Errorf("capability %q is allowlisted as unreachable, but a device type now satisfies it or something now requires it, so the entry is never consulted -- remove it, and update the disclosure it cites", name)
+	}
+}
+
+// staleUnreachableEntries returns, sorted, every allowlisted capability
+// that is no longer unreachable. An entry excuses a capability that is
+// neither satisfiable nor required, so it goes stale the moment EITHER
+// becomes true: from then on unreachableCapabilities never reads it.
+//
+// It is a separate function for the same reason unreachableCapabilities
+// is, so its rule can be run against data this file controls
+// (TestStaleUnreachableEntriesDetectsEitherDirection).
+func staleUnreachableEntries(allow map[capability.Name]string, satisfiable, required map[capability.Name]bool) []string {
+	var stale []string
+	for name := range allow {
+		if satisfiable[name] || required[name] {
+			stale = append(stale, string(name))
 		}
+	}
+	sort.Strings(stale)
+	return stale
+}
+
+// TestStaleUnreachableEntriesDetectsEitherDirection is the negative
+// control for the staleness guard. The guard it replaced required BOTH
+// conditions and so missed both of the entries it was later found to
+// be carrying.
+func TestStaleUnreachableEntriesDetectsEitherDirection(t *testing.T) {
+	const (
+		nowSatisfied = capability.Name("ArchtestNowSatisfiedCapable")
+		nowRequired  = capability.Name("ArchtestNowRequiredCapable")
+		stillOrphan  = capability.Name("ArchtestStillOrphanCapable")
+	)
+	allow := map[capability.Name]string{nowSatisfied: "x", nowRequired: "x", stillOrphan: "x"}
+	got := staleUnreachableEntries(allow,
+		map[capability.Name]bool{nowSatisfied: true},
+		map[capability.Name]bool{nowRequired: true},
+	)
+	if len(got) != 2 || got[0] != string(nowRequired) || got[1] != string(nowSatisfied) {
+		t.Fatalf("staleUnreachableEntries() = %v, want exactly [%s %s]", got, nowRequired, nowSatisfied)
 	}
 }

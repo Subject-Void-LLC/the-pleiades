@@ -8969,3 +8969,137 @@ comparison against a stamped release, which is the only way to ask the question 
 exists.
 
 **Lesson.** See `LESSONS_LEARNED.md` #228.
+
+## 313. A containment check that trusted SFTP's REALPATH would have passed the symlink escape it existed to catch
+
+**Symptom.** None shipped; caught while building Phase 77. The approved design resolved a transfer's
+parent directory with the server's `REALPATH` and compared the answer with the root, on the
+assumption that `REALPATH` follows symlinks, as OpenSSH's does.
+
+**Root cause.** `REALPATH` returns whatever the server chooses to canonicalize to. `github.com/pkg/sftp`'s
+own server answers it with `filepath.Abs` plus a lexical clean (`server.go`, the `sshFxpRealpathPacket`
+case), and its request server does the same by default (`cleanPathWithBase`). Any SFTP server built on
+that library would have returned the lexical path for `root/link/f` with `link` pointing out of the
+root, the comparison would have passed, and the write would have followed the link. The check would
+have been green against OpenSSH, the one server the release gate runs, and open against the others.
+
+**Fix.** `pkg/sftpxfer/confine.go` resolves the path on the client: `LSTAT` on each component without
+following it, `READLINK` to follow a symlink itself, `..` applied to the physical directory reached so
+far, bounded at 40 hops. The answer is built from the device's filesystem, never from the server's
+canonicalization. `TestConfine_PhysicalEscapesAreRefusedBeforeAnyContent` runs against pkg/sftp's own
+server, which is exactly the server that would have fooled the first design, and
+`TestSFTPReleaseGate/PhysicalEscapeIsRefusedBeforeAnyContent` against OpenSSH. Falsified: with the
+containment comparison disabled the gate fails and `Get` reads the planted key back out.
+
+**Lesson.** See `LESSONS_LEARNED.md` #229.
+
+## 314. remoteexectest ended a session when the client closed its input, not when the command exited
+
+**Symptom.** Three `pkg/scpxfer` tests hung until the test binary's deadline: a Put under a missing
+root, one under a missing parent, and one into a read-only directory. Each device script exited
+early, by design, and the client waited forever for its output to end.
+
+**Root cause.** The in-process SSH server set `cmd.Stdin = channel`. With a non-file standard input,
+`os/exec`'s `Wait` also waits for its own copy of that input to reach end-of-file, so a command that
+exited without reading its input left the session open until the client closed its side. OpenSSH's
+sshd ends the session when the command exits. The harness differed from the server it stands in
+for, in the exact case a protocol that refuses early exercises.
+
+**Fix.** `serveSession` now passes standard input through `cmd.StdinPipe()`, which `Wait` closes once
+the command exits, so the session ends when the command does. All 32 packages whose tests use the
+harness pass under `-race -short` afterward. Separately, `pkg/scpxfer`'s `receive` closes its input
+once it has nothing more to send, so a server that does wait for input end-of-file cannot deadlock it
+either.
+
+**Lesson.** See `LESSONS_LEARNED.md` #231.
+
+## 315. The unreachable-capability allowlist's staleness guard needed both conditions, so dead entries lived on
+
+**Symptom.** `acceptedUnreachableCapabilities` held two entries that `TestRegisteredCapabilitiesAreReachable`
+never consulted. RFC2217Capable's had been dead since `console_device` began satisfying it, and its own
+text said so ("guards only the no-consumer half"). FileTransferCapable's became dead the moment
+`linux.Server` gained `FileTransferRoot`. Meanwhile `FileTransferCapable`'s doc comment said the guard
+"fails if this comment ever stops being true in either direction", and cited a disclosure of SFTP in
+docs/10 that had never been written.
+
+**Root cause.** An allowlisted capability excuses one that is neither satisfiable nor required, so the
+entry is dead as soon as EITHER becomes true, because `unreachableCapabilities` skips a satisfiable or
+required capability before it reads the allowlist. `TestAcceptedUnreachableCapabilitiesAreNotStale`
+checked `satisfiable && required`. The doc's claim and its citation were never checked by anything.
+
+**Fix.** The guard is `staleUnreachableEntries`, which flags `satisfiable || required`, with a negative
+control (`TestStaleUnreachableEntriesDetectsEitherDirection`). Both entries were removed; the
+allowlist is empty and says why. Falsified: restoring the two entries makes the guard name both. The
+capability doc was rewritten to what is true, and docs/10 now carries the SFTP and SCP disclosure it
+cites.
+
+**Lesson.** A guard whose condition is a conjunction should be asked what it misses when only one half
+holds; see also #228 for a doc comment asserting a check that did not exist.
+
+## 316. The generated device reference could not say a hand-written type's capability was conditional
+
+**Symptom.** `docs/reference/devices.md` never listed `cisco_router`'s `NetconfCapable`, which the type
+declares whenever `netconf_enabled` is true.
+
+**Root cause.** `tools/gendocs`' `handWrittenDevices` table recorded one capability list per type, and
+`TestHandWrittenDeviceCapabilitiesMatchTheirTypes` required it to equal what a bare record hydrates
+with. A capability a property enables could not satisfy both, so it was left out. Generated types
+already had the asterisk marking; hand-written ones could not reach it.
+
+**Fix.** The table gained `Conditional`, naming the property that enables each such capability, and
+the test checks both directions: absent from a bare record, present once the property is set.
+`cisco_router` gained `NetconfCapable`, and `linux_server` gained `FileTransferCapable`, both marked
+conditional, in the same change.
+
+**Lesson.** When a completeness test compares against one fixed input, ask what the input cannot
+express.
+
+## 317. pkg/tftpxfer accepts NUL in a remote filename, and its fuzz test asserts only that nothing panics
+
+**Symptom.** Found by reading while designing Phase 77's path guard; not fixed, because whether and
+how is the user's decision. `validateFilename` (`pkg/tftpxfer/tftpxfer.go`) refuses `..`, absolute
+paths and drive letters but not NUL. `pin/tftp` v3.2.0's `packRQ` copies the filename verbatim ahead
+of its own NUL terminator, so a name like `x\x00netascii` would inject a transfer mode or option into
+the request packet. `FuzzValidateFilename`'s doc says it proves every seeded traversal "is refused",
+while its body discards the return value.
+
+**Root cause.** The guard was written against path traversal only, and the fuzz target was written to
+catch panics only; its doc claimed more.
+
+**Fix.** Proposed, one line plus a table row: refuse NUL (and, as `pkg/filexfer` does, every control
+character) in `validateFilename`, and make the fuzz target assert refusals. No consumer of
+`pkg/tftpxfer` exists yet, so nothing is exposed today.
+
+**Lesson.** A fuzz target's doc must say what it asserts, and a guard for a wire format must be written
+against that format's own delimiters, not only against the filesystem's.
+
+## 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
+
+**Symptom.** `FuzzResolve` ran at about 200,000 executions a second for 15 seconds, then reported the
+same count, 2,088,252, for the remaining 45, and passed. Memory was flat at 138 MiB, so it was not the
+cgroup cap. A second target (`FuzzContained`) ended its 60 seconds with `--- FAIL ... context deadline
+exceeded` and no failing input saved.
+
+**Root cause.** Go's fuzzer minimizes each new interesting input for up to `-fuzzminimizetime`
+(default 60 seconds) and does not count those executions, so the counter freezes. When the run's time
+budget expires during a minimization, the run can end as a failure with no crasher.
+
+**Fix.** Run with `-fuzzminimizetime 2s` (FuzzResolve then reached 7,841,805 executions in 45 seconds),
+and bound a run by count (`-fuzztime 10000000x`) when a clean pass is the evidence wanted (FuzzContained
+then passed at exactly 10,000,000).
+
+**Lesson.** See `LESSONS_LEARNED.md` #232.
+
+## 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
+
+**Symptom.** Every connection in the first SFTP release gate run failed with `knownhosts: key mismatch`,
+then with `EOF` once the server began penalizing the failed handshakes.
+
+**Root cause.** `testsupport.SSHD.KnownHosts` wrote only the container's ed25519 key. The client and
+server negotiated a different host key algorithm, and `knownhosts` treats a host known under one key
+type as a mismatch, not as unknown, when another is presented. Verification failed closed, exactly as
+it should.
+
+**Fix.** The fixture lists every one of the container's host keys under every address a test dials.
+
+**Lesson.** When a test pins host keys, pin all of the server's key types, or pin the algorithm too.

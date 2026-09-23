@@ -315,6 +315,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 310. Every postgres and toxiproxy container waited for readiness under a sixty second deadline nobody chose
 311. The roadmap's own "what to build next" ranked on the phase number and contradicted the release beside it
 312. Every Collection manifest required an engine version no release before 1.0.0 could have met
+313. A containment check that trusted SFTP's REALPATH would have passed the symlink escape it existed to catch
+314. remoteexectest ended a session when the client closed its input, not when the command exited
+315. The unreachable-capability allowlist's staleness guard needed both conditions, so dead entries lived on
+316. The generated device reference could not say a hand-written type's capability was conditional
+317. pkg/tftpxfer accepts NUL in a remote filename, and its fuzz test asserts only that nothing panics
+318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
+319. A known_hosts fixture naming one host key type refused every connection as a mismatch
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
