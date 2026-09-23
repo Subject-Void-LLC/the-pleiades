@@ -3,8 +3,10 @@ package line_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file/line"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -75,6 +77,7 @@ func TestLineChecks_PredictWhatARealRunLeaves(t *testing.T) {
 			}
 
 			runPath := lineWriteFile(t, start, 0o640)
+			beforeRun := lineMtime(t, runPath)
 			runRC := newLineContext(server)
 			ran, err := tc.run(context.Background(), runRC, newLineTarget(server), params(runPath))
 			if err != nil {
@@ -88,8 +91,49 @@ func TestLineChecks_PredictWhatARealRunLeaves(t *testing.T) {
 				t.Fatal("the check predicted nothing")
 			}
 			for key, want := range predicted {
+				// mtime is a clock, and it is the clock of a DIFFERENT
+				// file. The check acts on checkPath and the run on runPath,
+				// written a moment apart by lineWriteFile, so when nothing
+				// changes the prediction reports the check file's own mtime
+				// and the run leaves the run file's own. Equality held only
+				// when both writes landed in the same second, which is
+				// FAILURE_PATTERNS.md #294 in facts.gather and #301 here,
+				// where it was recorded and left because the branch that
+				// found it did not own this package.
+				//
+				// Compared as a bound instead, the way #294 was fixed: the
+				// run's file is written after the check's, so its mtime is
+				// no earlier, and a minute is far more than the gap between
+				// two local writes. For a CHANGE, mtime never reaches this
+				// loop at all, because PredictApply leaves it out of the
+				// prediction rather than guessing a future write time.
+				if key == "mtime" {
+					assertMtimeFollows(t, want, actual[key])
+					continue
+				}
 				if actual[key] != want {
 					t.Errorf("predicted %s = %v, the run left %v", key, want, actual[key])
+				}
+			}
+
+			// The guarantee the bound above would otherwise give away. A
+			// relaxed comparison is only safe while something still holds
+			// the property equality was standing in for, which is that a
+			// run that changes nothing does not touch the file.
+			//
+			// READ FROM THE DISK, NOT FROM THE DIFF, and the difference is
+			// not a matter of taste. The first version of this compared
+			// the run's own recorded before and after, and a deliberate
+			// fault walked straight past it: for a run that changes
+			// nothing, sdk.Unchanged records Diff{Before: state, After:
+			// state}, the SAME map for both halves. The "after" of a no-op
+			// is not observed at all, it is the "before" reused, so that
+			// comparison set a map beside itself and could never fail. The
+			// diff therefore cannot say whether a no-op touched the file.
+			// Only the file can.
+			if !ran.Changed {
+				if afterRun := lineMtime(t, runPath); !afterRun.Equal(beforeRun) {
+					t.Errorf("the run reported no change but the file's mtime moved from %v to %v", beforeRun, afterRun)
 				}
 			}
 			for _, key := range []string{"msg", "found"} {
@@ -138,4 +182,55 @@ func TestLineChecks_FailWhenTheyCannotRecord(t *testing.T) {
 			}
 		})
 	}
+}
+
+// assertMtimeFollows checks that the run's mtime is no earlier than the
+// check's and at most a minute later.
+//
+// Both values arrive as whatever the diff map holds, which is a whole
+// number of Unix seconds, so each is read through asUnixSeconds rather
+// than asserted to one Go type: the diff is built for humans and JSON, and
+// a test pinned to int64 would break the first time it round trips.
+func assertMtimeFollows(t *testing.T, checked, ran any) {
+	t.Helper()
+	c, okC := asUnixSeconds(checked)
+	r, okR := asUnixSeconds(ran)
+	if !okC || !okR {
+		t.Errorf("mtime is not a whole number of seconds: check %v (%T), run %v (%T)", checked, checked, ran, ran)
+		return
+	}
+	if r < c {
+		t.Errorf("the run left mtime %d, earlier than the check's %d, though its file was written second", r, c)
+	}
+	if r-c > 60 {
+		t.Errorf("the run left mtime %d, %d seconds after the check's %d; two local writes a moment apart cannot be that far apart", r, r-c, c)
+	}
+}
+
+// asUnixSeconds reads a diff field as a whole number of seconds.
+func asUnixSeconds(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), n == float64(int64(n))
+	default:
+		return 0, false
+	}
+}
+
+// lineMtime reads a file's modification time from the disk it is on.
+//
+// It exists so a test can observe whether a run touched a file without
+// trusting the run's own record of that, which for a no-op is the prior
+// state repeated rather than anything read afterwards.
+func lineMtime(t *testing.T, path string) time.Time {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return info.ModTime()
 }
