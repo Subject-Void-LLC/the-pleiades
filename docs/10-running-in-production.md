@@ -1739,8 +1739,20 @@ absolute path, or a Windows drive letter is refused before a request is ever
 sent, which defends against an accidentally or maliciously constructed
 traversal on the *remote* filename; it says nothing about the *local* side,
 since this package only ever writes to a caller-supplied `io.Writer` and
-never constructs a local path itself. Like RFC 2217, this is a library
-(`FileTransferCapable`) with no runbook task wired to it yet.
+never constructs a local path itself. A filename is also refused if one
+request cannot carry it whole: one holding a control or format character
+(a NUL would rewrite the transfer mode), one that is not valid UTF-8, or one
+longer than 493 bytes. A block size is accepted only from 512 to 65464.
+Like RFC 2217, this is a library (`FileTransferCapable`) with no runbook
+task wired to it yet.
+
+TFTP has no integrity check, and one case of that is worth knowing before
+setting a block size. A server may answer a block size request with a smaller
+size, and the TFTP library this package uses ignores an answer below 512, so
+the download ends at the first block and reports success with a truncated
+file. Leave the block size unset unless every server it will reach is known
+to accept 512 or more, and verify a transferred image's checksum on the
+device before using it.
 
 **SFTP and SCP.** `pkg/sftpxfer` and `pkg/scpxfer` move a file's bytes to or
 from a device over the SSH connection `pkg/remoteexec` already opens, so they

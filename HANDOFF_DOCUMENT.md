@@ -4,8 +4,10 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 77 (SFTP/SCP) is COMPLETE at 12 of 12, UNCOMMITTED, on `feature/sftp-scp`**, cut from `265a38d`
-(main after PR #39 merged Phase 101 and the dependabot otel bump). It was the last open phase in
+**Phase 77 (SFTP/SCP) is COMPLETE at 12 of 12 and COMMITTED on `feature/sftp-scp`** as `662ffb1`,
+`5a89ecc` and `4f6f5a2`, cut from `265a38d` (main after PR #39 merged Phase 101 and the dependabot otel
+bump). **The `pkg/tftpxfer` fix for FAILURE_PATTERNS 317 is done and UNCOMMITTED** on the same
+branch, meant as a fourth, separate `fix(tftpxfer)` commit (below). Phase 77 was the last open phase in
 v0.2.0, which the tracker now reports as 636 of 636: **v0.2.0 is cuttable.** Cutting it, and moving
 `buildinfo.CurrentRelease` to `0.3.0`, is a separate change the user has not asked for.
 
@@ -83,12 +85,35 @@ From building it:
 5. **A fuzz counter froze during minimization** and one time-bounded run ended FAIL with no crasher;
    both were rerun properly before any count was recorded (FAILURE_PATTERNS 318, LESSONS 232).
 
-### Open decision for the user (security finding, not fixed)
+### `pkg/tftpxfer` fix (FAILURE_PATTERNS 317), done after the phase, uncommitted
 
-**`pkg/tftpxfer` accepts NUL in a remote filename**, which `pin/tftp`'s `packRQ` copies verbatim into
-the request packet ahead of its own terminator, so a filename could inject a transfer mode or option.
-No consumer exists. The fix is one refusal plus a table row, and its fuzz test should assert refusals
-rather than only "no panic" (FAILURE_PATTERNS 317). Reasoned from both sources, not exploited.
+The user approved five changes, and all five are in. `validateFilename`, now in `filename.go`, refuses
+control and format characters, invalid UTF-8 and names over `MaxFilenameBytes` (493), and every
+refusal wraps the new `ErrInvalidFilename`. `Get` and `Put` recover a panic inside `pin/tftp` into an
+error (`panic.go`), and a panic in the caller's own reader or writer is raised again unchanged.
+`FuzzValidateFilename` asserts properties of both verdicts. The existing rules are unchanged, and a
+backslash is still allowed.
+
+One addition the cap needed: `Options.BlockSize` must now be 0 or 512 to 65464. Its digits share the
+same 516-byte buffer, so without that bound the 493 cap would not hold. The old refusal tests dialed
+port 1 with no server, so a network error also passed them. They were replaced by
+`TestRefusedFilenamesNeverLeaveTheProcess`, which proves no datagram leaves.
+
+### Open decision for the user (found while fixing 317, not fixed)
+
+**A server that answers a block size request with less than 512 truncates a download silently.**
+`pin/tftp` ignores such an answer and keeps reading 512-byte blocks, so the server's first smaller
+block reads as the last one. Measured with a throwaway probe: a server answering a request for 1024
+with 256 (RFC 2348 allows 8 and up) made `Get` return 256 bytes of 1024 with a nil error. The new
+512 floor stops this package from asking for such a size, but a server may still answer smaller.
+tftpd-hpa's floor is 512, so the common Linux server does not do this. Two possible fixes:
+
+- Request `tsize` on `Get` and compare it with the bytes received. This catches every server that
+  supports `tsize`, but costs 8 bytes of the name budget (493 becomes 485).
+- Report upstream that the client should abort with error 8 when it rejects an OACK value, as RFC 2347
+  says.
+
+docs/10 now tells operators about this. Whether to report it upstream is the user's call.
 
 Also recorded, out of scope: `sdk.Connect` dials a device directly and ignores its bastion route, so
 the first Collection method built on these libraries cannot reach a device behind a bastion until
@@ -106,14 +131,18 @@ executions, no crashers. Four falsifications, each failing as it should.
 `make docs-gen-check` differs from the last commit by exactly the intended `devices.md` change, so it
 passes once this is committed.
 
+For the `pkg/tftpxfer` fix: `go test -race` green at 96.6% (floor 93.5), `FuzzValidateFilename` 20.4
+million executions in 90 seconds with no failure, and eight mutations each killed by the test
+written for it (control and format check, UTF-8 check, length cap, cap one byte too high, block size
+range, recovery in `receive`, caller panic swallowed, caller panic relabeled).
+
 **NOT yet run: `make ci` in full**, which on this machine has to run alone and is the user's call.
 
 ### Next
 
-Commit this as the three commits in the session report (the `remoteexec` streaming change, the
-file-transfer feature, then the archtest and device-reference fixes with these records), then run
-`make ci` alone. After that, v0.2.0 can be cut.
-The tracker's next phase in the walk is Phase 35.
+Commit the `pkg/tftpxfer` fix as its own `fix(tftpxfer)` commit (message in the session report),
+then run `make ci` alone. After that, v0.2.0 can be cut. The user decides the open block-size item
+above. The tracker's next phase in the walk is Phase 35.
 
 ### Files changed this session
 
@@ -127,3 +156,8 @@ New: `pkg/filexfer/` (with `filexfertest/`), `pkg/sftpxfer/`, `pkg/scpxfer/`, `p
 `docs/reference/devices.md`, `docs/10-running-in-production.md`, `docs/11-extending-pleiades.md`,
 `Makefile`, `coverage-floor.json`, `go.mod`, `go.sum`, and the four FAILURE_PATTERNS/LESSONS files.
 Gitignored: `.SPECIFICATION/IMPLEMENTATION.md`, `.SPECIFICATION/SECURITY_ATTESTATION.md`.
+
+The `pkg/tftpxfer` fix, uncommitted: new `pkg/tftpxfer/filename.go`, `panic.go`, `filename_test.go`,
+`panic_test.go` and `changelog/tftp-filename-limits.security.md`; changed `pkg/tftpxfer/tftpxfer.go`,
+`tftpxfer_test.go`, `tftpxfer_fuzz_test.go`, `docs/10-running-in-production.md`, this file, and
+FAILURE_PATTERNS 317 in the archive. Gitignored: RV.2 in `.SPECIFICATION/SECURITY_ATTESTATION.md`.

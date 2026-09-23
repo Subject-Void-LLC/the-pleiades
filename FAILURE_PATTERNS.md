@@ -319,7 +319,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 314. remoteexectest ended a session when the client closed its input, not when the command exited
 315. The unreachable-capability allowlist's staleness guard needed both conditions, so dead entries lived on
 316. The generated device reference could not say a hand-written type's capability was conditional
-317. pkg/tftpxfer accepts NUL in a remote filename, and its fuzz test asserts only that nothing panics
+317. pkg/tftpxfer passes NUL and over-long remote filenames to pin/tftp, which injects the first into the request and panics on the second
 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
 320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated

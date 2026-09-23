@@ -9054,7 +9054,7 @@ conditional, in the same change.
 **Lesson.** When a completeness test compares against one fixed input, ask what the input cannot
 express.
 
-## 317. pkg/tftpxfer accepts NUL in a remote filename, and its fuzz test asserts only that nothing panics
+## 317. pkg/tftpxfer passes NUL and over-long remote filenames to pin/tftp, which injects the first into the request and panics on the second
 
 **Symptom.** Found by reading while designing Phase 77's path guard; not fixed, because whether and
 how is the user's decision. `validateFilename` (`pkg/tftpxfer/tftpxfer.go`) refuses `..`, absolute
@@ -9063,15 +9063,44 @@ of its own NUL terminator, so a name like `x\x00netascii` would inject a transfe
 the request packet. `FuzzValidateFilename`'s doc says it proves every seeded traversal "is refused",
 while its body discards the return value.
 
-**Root cause.** The guard was written against path traversal only, and the fuzz target was written to
-catch panics only; its doc claimed more.
+**Measured afterward, and worse (2026-09-23).** `packRQ` builds the request in a 516-byte buffer
+(`datagramLength`), copies the filename into `p[2:len(p)-10]`, then writes the mode, each option and
+their NUL terminators with unchecked indexes. A throwaway probe calling `tftpxfer.Get` with
+`Options.BlockSize` set panicked with `index out of range [516] with length 516` for every filename
+length tried from 495 bytes up (400 did not). Nothing recovers it, so a caller handing a runbook-sized
+filename to this package would crash its whole process. Without `BlockSize` there is no option to
+overrun, and a name over 504 bytes is instead silently truncated, so a different file is requested.
+`pin/tftp` v3.2.0 is its newest release.
 
-**Fix.** Proposed, one line plus a table row: refuse NUL (and, as `pkg/filexfer` does, every control
-character) in `validateFilename`, and make the fuzz target assert refusals. No consumer of
-`pkg/tftpxfer` exists yet, so nothing is exposed today.
+**Found while fixing it (2026-09-23).** Three more things, each read in the library's source first:
+
+1. `Options.BlockSize` was passed through unchecked, and its decimal digits share the same 516-byte
+   buffer, so a 493-byte cap alone would not hold: a six-digit block size overruns it again.
+2. `pin/tftp`'s client ignores a server's `blksize` answer below 512 (`setBlockSize` fails and the
+   loop `continue`s) and keeps its 512-byte buffer, so the server's first smaller block reads as the
+   final short one. Measured with a throwaway probe: a server that answered a request for 1024 with
+   256, which RFC 2348 allows, made `Get` return 256 bytes of a 1024-byte file with a nil error.
+3. `TestGet_RefusesPathTraversalFilenames` and its `Put` twin said a server would catch a name that
+   got through, but they dialed port 1 with no server listening, so a network error also passed them.
+
+**Root cause.** The guard was written against path traversal only, and the fuzz target was written to
+catch panics only; its doc claimed more. Neither asked what the request packet itself can hold, and
+nothing asked which other inputs share that packet.
+
+**Fix.** Applied on 2026-09-23 as its own commit. `validateFilename` (now `pkg/tftpxfer/filename.go`)
+refuses control and format characters, invalid UTF-8 and names over `MaxFilenameBytes` (493, derived
+in its doc comment), with every refusal wrapping `ErrInvalidFilename`. `Options.BlockSize` must be 0
+or from `MinBlockSize` (512) to `MaxBlockSize` (65464). `Get` and `Put` recover a panic inside the
+library into an error, while a panic in the caller's own reader or writer is raised again unchanged
+(`pkg/tftpxfer/panic.go`). `FuzzValidateFilename` now asserts properties of both verdicts, and
+`TestRefusedFilenamesNeverLeaveTheProcess` proves each refusal sends no datagram, over a real UDP
+socket. Eight mutations, each reverting one guard, were each killed by the test written for it.
+Not fixed: a server may still answer a request of 512 or more with a smaller size and truncate a
+download the same way as item 2; that needs a design change and is the user's decision.
 
 **Lesson.** A fuzz target's doc must say what it asserts, and a guard for a wire format must be written
-against that format's own delimiters, not only against the filesystem's.
+against that format's own delimiters, not only against the filesystem's. When a fix bounds one input
+into a fixed buffer, bound every input that shares the buffer, or the measured bound does not hold.
 
 ## 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
 
