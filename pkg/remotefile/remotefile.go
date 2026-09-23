@@ -22,6 +22,13 @@
 // which matters because a path is the most likely value in this whole
 // namespace to arrive from a runbook variable.
 //
+// That makes this package the right tool for a file's metadata and for
+// content small enough to be a module parameter. Moving a file's bytes
+// in bulk, a firmware image or an archive, is a different job with a
+// different port: pkg/filexfer, carried by SFTP (pkg/sftpxfer) or
+// legacy SCP (pkg/scpxfer), which stream a file of any size and confine
+// every path to the device's file_transfer_root.
+//
 // Every path is quoted with remoteexec.QuoteArg before it reaches the
 // remote shell, so a path containing a space, a semicolon or a dollar
 // sign is a path rather than syntax.

@@ -24,8 +24,11 @@ func init() {
 // Server implements InventoryItem plus, structurally,
 // capability.SSHTransportCapable, capability.LinuxCapable,
 // capability.ShellExecCapable (which embeds
-// capability.CommandExecCapable) and capability.SystemdCapable (which
-// embeds capability.ServiceManagerCapable).
+// capability.CommandExecCapable), capability.SystemdCapable (which
+// embeds capability.ServiceManagerCapable),
+// capability.POSIXFileSystemCapable, capability.FactGathererCapable,
+// capability.NetworkAddressableCapable and
+// capability.FileTransferCapable (filetransfer.go).
 type Server struct {
 	*record.Base
 }
@@ -50,20 +53,24 @@ type Server struct {
 // exec.command and refuse exec.shell on a device that plainly has a
 // shell. It is also the honest claim: a Linux server does have /bin/sh,
 // which is exactly what ShellPath reports.
+//
+// FileTransferCapable joins the baseline only when the record sets a
+// valid file_transfer_root, and an invalid one is refused here; see
+// fileTransferBaseline.
 func NewServer(rec record.Record) (inventory.InventoryItem, error) {
-	caps := policy.UnionSlices(
-		[]capability.Name{
-			capability.NameSSHTransport,
-			capability.NameLinux,
-			capability.NameShellExec,
-			capability.NameSystemd,
-			capability.NamePOSIXFileSystem,
-			capability.NameFactGatherer,
-			capability.NameNetworkAddressable,
-		},
-		rec.Capabilities,
-	)
-	base := record.NewBase(rec, caps)
+	baseline, err := fileTransferBaseline(rec, []capability.Name{
+		capability.NameSSHTransport,
+		capability.NameLinux,
+		capability.NameShellExec,
+		capability.NameSystemd,
+		capability.NamePOSIXFileSystem,
+		capability.NameFactGatherer,
+		capability.NameNetworkAddressable,
+	})
+	if err != nil {
+		return nil, err
+	}
+	base := record.NewBase(rec, policy.UnionSlices(baseline, rec.Capabilities))
 	return &Server{Base: base}, nil
 }
 
