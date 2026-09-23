@@ -9,11 +9,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
 	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // TestNatsBus_SurvivesConnectionSeverance is this phase's Chaos Testing
@@ -43,16 +40,9 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 	}
 	t.Cleanup(func() { nw.Remove(context.Background()) })
 
-	natsContainer, err := tcnats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-		network.WithNetwork([]string{"nats"}, nw),
-	)
-	if err != nil {
-		t.Fatalf("failed to start nats container: %v", err)
-	}
-	t.Cleanup(func() { natsContainer.Terminate(context.Background()) })
+	// The alias is what the proxy's upstream resolves, so it is passed
+	// explicitly rather than defaulted: "nats:4222" below is this line.
+	testsupport.StartNATS(t, testsupport.WithNATSNetwork(nw, "nats"))
 
 	// The proxy's upstream is "nats:4222" (the container's network alias
 	// and NATS's default client port), reachable from the toxiproxy

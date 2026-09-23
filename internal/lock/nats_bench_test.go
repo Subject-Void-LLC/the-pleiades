@@ -8,9 +8,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // startBenchNats starts one real NATS container and lock.Manager, shared
@@ -20,20 +17,7 @@ func startBenchNats(b *testing.B) (context.Context, lock.Manager) {
 	b.Helper()
 	ctx := context.Background()
 
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		b.Fatalf("failed to start nats: %v", err)
-	}
-	b.Cleanup(func() { _ = natsContainer.Terminate(ctx) })
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		b.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(b).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {

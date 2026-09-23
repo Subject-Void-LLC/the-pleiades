@@ -1,7 +1,6 @@
 package main_test
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -23,9 +22,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // This file is Phase 8's own real, end-to-end proof (RULE 0) that the
@@ -168,20 +164,7 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start NATS container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsContainer.Terminate(context.Background()) })
-	natsURL, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get NATS connection string: %v", err)
-	}
+	natsURL := testsupport.StartNATS(t).URL()
 
 	// The real, published signing key, and a second, unrelated key that
 	// is never published anywhere: an attacker with no access to the

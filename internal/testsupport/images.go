@@ -96,11 +96,16 @@ const (
 // topology packages depend on directly, which is exactly why a test must
 // not silently run a different one from the deployment.
 //
-// One deliberate exception exists and must stay: internal/lock's own
-// TestNatsLockManager bucket-config case pins nats:2.10 inline, because
-// that specific version rejects a bucket config the test asserts is
-// rejected. That is a version-specific regression test, not drift, and
-// it names its version at the call site with a comment saying why.
+// One deliberate exception exists and must stay:
+// internal/lock's TestNewNatsLockManagerRejectsOldServer starts an older
+// server and asserts NewNatsLockManager REFUSES it, because that version
+// rejects a bucket configuration this platform requires. That is a
+// version-specific regression test, not drift.
+//
+// It used to name "nats:2.10" as a literal at the call site, which meant
+// the pin rule below could not see it. It is NATSImageBeforeLimitMarkerTTL
+// now, declared beside the broker starter and checked by the same rule as
+// every other image here.
 //
 // The `-alpine` suffix is load bearing and is not a style choice. It
 // carries the identical nats-server v2.14.4 binary, so nothing about
@@ -189,10 +194,13 @@ const NginxImage = "nginx:1.28.1-alpine"
 // for the image: the two copies are unavoidable, so the link between them
 // has to be a test.
 //
-// The container-backed tests do not call this. They start NATS through
-// testcontainers' own NATS module, which supplies its own arguments and
-// probes readiness on the client port, so there is nothing for them to
-// keep in step here. The caller this exists for is tools/uidev.
+// EVERY container-backed test calls this, through
+// testsupport.StartNATS, and that was not always true. Until Phase 101c
+// they started NATS through testcontainers' own NATS module with "-js"
+// alone, so a test broker and the deployed one agreed about the image and
+// about nothing else. They now run the identical flag list, which is what
+// makes this function a single source of truth rather than one of two
+// copies. tools/uidev calls it too.
 func NATSCommand() []string {
 	return []string{"-js", "-sd", "/data", "-m", "8222"}
 }

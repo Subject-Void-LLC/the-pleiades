@@ -10,7 +10,6 @@ package main_test
 
 import (
 	"bufio"
-	"context"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -24,9 +23,6 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 )
 
@@ -231,21 +227,7 @@ func TestControllerLeaderElection_ReleaseGate(t *testing.T) {
 	// reaped, and its own draining goroutine has fully returned.
 	t.Cleanup(func() { goleak.VerifyNone(t) })
 
-	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsContainer.Terminate(context.Background()) })
-
-	natsURL, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	natsURL := testsupport.StartNATS(t).URL()
 
 	const jwtSecret = "release-gate-jwt-secret-not-a-real-credential"
 	// A 32-byte key, base64-encoded exactly as an operator would set

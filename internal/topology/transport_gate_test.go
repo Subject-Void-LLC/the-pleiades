@@ -9,8 +9,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // This file is Phase 96d's Release Gate: the transports this module claims
@@ -35,48 +33,41 @@ import (
 // them, deliberately: the deployment's flag list is pinned by a real test
 // against internal/testsupport.NATSCommand, and a listener block is
 // additive information rather than a different way of saying the same
-// thing.
-func natsWithConfig(t testing.TB, conf string, extraFiles []testcontainers.ContainerFile, port string) string {
+// thing. Since Phase 101c that rule lives in testsupport.StartNATS, which
+// is the only thing that writes a broker's command line, so this helper
+// now only says which port it wants back.
+//
+// It returns a bare host:port with no scheme, because its callers put
+// four different schemes in front of it.
+func natsWithConfig(t testing.TB, conf, port string, extra ...testsupport.NATSOption) string {
 	t.Helper()
-	ctx := context.Background()
+	opts := append([]testsupport.NATSOption{
+		testsupport.WithNATSConfig(conf),
+		testsupport.WithNATSExposedPorts(port),
+	}, extra...)
+	return testsupport.StartNATS(t, opts...).Endpoint(port)
+}
 
-	dir := t.TempDir()
-	confPath := filepath.Join(dir, "nats.conf")
-	if err := os.WriteFile(confPath, []byte(conf), 0o600); err != nil {
-		t.Fatalf("writing the broker config: %v", err)
+// servingCertOptions mounts a generated certificate and key where the
+// configurations above name them.
+//
+// The files are read into memory here rather than bind mounted, which is
+// the one cost of testsupport.StartNATS taking bytes. It is worth paying:
+// a key that only ever exists inside a container that is thrown away
+// cannot be left behind in a temp directory, and these are keys.
+func servingCertOptions(t testing.TB, dir string) []testsupport.NATSOption {
+	t.Helper()
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("reading %s for the broker: %v", name, err)
+		}
+		return b
 	}
-
-	files := append([]testcontainers.ContainerFile{{
-		HostFilePath:      confPath,
-		ContainerFilePath: "/etc/nats/nats.conf",
-		FileMode:          0o644,
-	}}, extraFiles...)
-
-	req := testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        testsupport.NATSImage,
-			Cmd:          append([]string{"-c", "/etc/nats/nats.conf"}, testsupport.NATSCommand()...),
-			Files:        files,
-			ExposedPorts: []string{port + "/tcp"},
-			WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-		},
-		Started: true,
+	return []testsupport.NATSOption{
+		testsupport.WithNATSFile("/etc/nats/tls/cert.pem", read(tlscert.CertFileName), 0o644),
+		testsupport.WithNATSFile("/etc/nats/tls/key.pem", read(tlscert.KeyFileName), 0o600),
 	}
-	c, err := testcontainers.GenericContainer(ctx, req)
-	if err != nil {
-		t.Fatalf("starting nats with a config file: %v", err)
-	}
-	t.Cleanup(func() { testcontainers.TerminateContainer(c) })
-
-	mapped, err := c.MappedPort(ctx, port+"/tcp")
-	if err != nil {
-		t.Fatalf("mapped port: %v", err)
-	}
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("host: %v", err)
-	}
-	return host + ":" + mapped.Port()
 }
 
 // TestConnectOverWebSocket proves the ws:// transport works end to end
@@ -93,7 +84,7 @@ websocket {
   no_tls: true
 }
 `
-	endpoint := natsWithConfig(t, conf, nil, "8080")
+	endpoint := natsWithConfig(t, conf, "8080")
 
 	nc, err := topology.Connect(context.Background(), "ws://"+endpoint, nil, "gate")
 	if err != nil {
@@ -129,11 +120,7 @@ tls {
   key_file: "/etc/nats/tls/key.pem"
 }
 `
-	files := []testcontainers.ContainerFile{
-		{HostFilePath: filepath.Join(dir, tlscert.CertFileName), ContainerFilePath: "/etc/nats/tls/cert.pem", FileMode: 0o644},
-		{HostFilePath: filepath.Join(dir, tlscert.KeyFileName), ContainerFilePath: "/etc/nats/tls/key.pem", FileMode: 0o600},
-	}
-	endpoint := natsWithConfig(t, conf, files, "4222")
+	endpoint := natsWithConfig(t, conf, "4222", servingCertOptions(t, dir)...)
 
 	// The client trusts exactly the generated root, so a handshake that
 	// succeeds proves verification rather than tolerance. TLSClientConfig
@@ -184,11 +171,7 @@ tls {
   key_file: "/etc/nats/tls/key.pem"
 }
 `
-	files := []testcontainers.ContainerFile{
-		{HostFilePath: filepath.Join(serverDir, tlscert.CertFileName), ContainerFilePath: "/etc/nats/tls/cert.pem", FileMode: 0o644},
-		{HostFilePath: filepath.Join(serverDir, tlscert.KeyFileName), ContainerFilePath: "/etc/nats/tls/key.pem", FileMode: 0o600},
-	}
-	endpoint := natsWithConfig(t, conf, files, "4222")
+	endpoint := natsWithConfig(t, conf, "4222", servingCertOptions(t, serverDir)...)
 
 	nc, err := topology.Connect(context.Background(), "tls://"+endpoint, nil, "gate",
 		topology.WithTLS(other.TLSClientConfig()))

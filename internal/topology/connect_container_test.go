@@ -11,9 +11,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
-	"github.com/testcontainers/testcontainers-go"
-	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // startNats starts a real nats-server and returns its client URL.
@@ -21,23 +18,7 @@ import (
 // broker instead of hand-rolling a second copy of the setup.
 func startNats(t testing.TB) string {
 	t.Helper()
-	ctx := context.Background()
-
-	natsC, err := tcnats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { natsC.Terminate(context.Background()) })
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
-	return url
+	return testsupport.StartNATS(t).URL()
 }
 
 // TestConnectReturnsAUsableConnection proves the whole point of Connect:

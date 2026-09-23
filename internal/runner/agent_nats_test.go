@@ -19,9 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/testcontainers/testcontainers-go"
-	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // alwaysFailAdapter is a runner.ExecutionAdapter that always errors, so
@@ -53,20 +50,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsC.Terminate(ctx)
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
@@ -238,20 +222,7 @@ func TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsC.Terminate(ctx)
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {

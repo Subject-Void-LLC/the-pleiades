@@ -230,11 +230,47 @@ func TestPkgNeverImportsInternal(t *testing.T) {
 	}
 }
 
+// nonShippingPackages are the internal/ packages that are not production
+// code at all, so Section 25's rule about who may own a concrete driver
+// does not apply to them.
+//
+// This is NOT a second adapter allowlist and must not be used as one. The
+// adapter allowlist answers "which shipping package is allowed to own a
+// driver", and every entry there is a real design decision about the
+// deployed binary. This answers a different question: whether the package
+// reaches a deployed binary at all. Neither of these does, and that is not
+// asserted here on trust. It is proved by
+// TestAuthtestNeverImportedByProductionCode and
+// TestTestsupportNeverImportedByProductionCode in testonly_test.go, which
+// fail if any production package imports either one.
+//
+// The membership is spelled with those tests' OWN constants rather than
+// with fresh string literals, so this set cannot come to name a package
+// that the proof no longer covers. TestNonShippingPackagesAreProvedNonShipping
+// below is the guard on the other direction.
+//
+// internal/testsupport is why this exists. It starts real containers for
+// the tests of nine packages, so it imports testcontainers-go from an
+// ordinary file rather than a _test.go one, which is the case
+// concreteDriverPrefixes' own comment records itself as not having
+// anticipated. Putting it on the adapter allowlist instead would have
+// filed a package that never ships beside internal/event and
+// internal/lock, which do, and that conflation is the thing worth
+// avoiding: the next reader of that list would reasonably conclude a
+// shipped binary opens a Docker client.
+var nonShippingPackages = map[string]bool{
+	authtestImportPath:    true,
+	testsupportImportPath: true,
+}
+
 // TestOnlyDesignatedAdaptersImportConcreteDrivers asserts every internal/
 // package directly importing a concrete driver (NATS, the SQL driver
 // ent's embedded store opens) is on the allowlist above.
 func TestOnlyDesignatedAdaptersImportConcreteDrivers(t *testing.T) {
 	for _, pkg := range goList(t, false, modulePath+"/internal/...") {
+		if nonShippingPackages[pkg.ImportPath] {
+			continue
+		}
 		for _, imp := range pkg.Imports {
 			if !hasPrefix(imp, concreteDriverPrefixes) {
 				continue
@@ -243,6 +279,24 @@ func TestOnlyDesignatedAdaptersImportConcreteDrivers(t *testing.T) {
 				t.Errorf("%s imports concrete driver %q but is not in the adapter allowlist (archtest's adapterAllowlist)", pkg.ImportPath, imp)
 			}
 		}
+	}
+}
+
+// TestNonShippingPackagesAreProvedNonShipping stops the exemption above
+// from becoming a way to silence the driver rule.
+//
+// An exemption is only honest while something else proves the thing it
+// assumes. If a package is listed as non-shipping and nothing forbids
+// production code importing it, the listing is a hole rather than a
+// distinction, so this asserts every member really is unreachable from a
+// shipped binary, by the same query the two tests in testonly_test.go run.
+func TestNonShippingPackagesAreProvedNonShipping(t *testing.T) {
+	if len(nonShippingPackages) == 0 {
+		t.Fatal("nonShippingPackages is empty, so this guard is asserting nothing")
+	}
+	for path := range nonShippingPackages {
+		assertNotImportedByProductionCode(t, path,
+			"listed in archtest's nonShippingPackages, which exempts it from the concrete driver rule; that exemption is only sound while no production package imports it")
 	}
 }
 
