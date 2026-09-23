@@ -70,7 +70,7 @@ func TestAgent_SuppressesADispatchThatAlreadyExecuted(t *testing.T) {
 	firstMsg := &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-1"))}
 	firstAgent := runner.NewAgent(&MockConsumer{PayloadMsgs: []jetstream.Msg{firstMsg}}, first, nil,
 		lock.NewInProcessManager(), 5, slog.Default(), nil, runner.WithDedupStore(store, time.Hour))
-	runAgentUntil(t, firstAgent, firstMsg.ack.Load, 10*time.Second)
+	runAgentUntil(t, firstAgent, firstMsg.ack.Load, agentSettleTimeout)
 	if got := first.total(); got != 1 {
 		t.Fatalf("the first arrival ran %d times, want 1: the suppression below would prove nothing", got)
 	}
@@ -83,7 +83,7 @@ func TestAgent_SuppressesADispatchThatAlreadyExecuted(t *testing.T) {
 		runner.WithDedupStore(store, time.Hour))
 
 	// Acked, because a duplicate is settled rather than left to redeliver.
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	if got := adapter.total(); got != 0 {
 		t.Fatalf("the adapter ran %d times for a dispatch that had already executed, want 0", got)
@@ -102,7 +102,7 @@ func TestAgent_RunsAndRecordsAFirstDispatch(t *testing.T) {
 	agent := runner.NewAgent(consumer, adapter, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 		runner.WithDedupStore(store, time.Hour))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	if got := adapter.total(); got != 1 {
 		t.Fatalf("the adapter ran %d times for a first dispatch, want 1", got)

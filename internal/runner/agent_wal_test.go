@@ -93,6 +93,30 @@ func subscribeResultEntries(t *testing.T, bus event.Bus, jobID string) <-chan ru
 // concrete completion signal this package's own handleMessage already
 // gives (Ack, or a tracked Nak) removes the race entirely, independent of
 // how loaded the machine is.
+// agentSettleTimeout bounds how long these tests wait for one message to
+// reach a terminal disposition.
+//
+// It is NOT a performance assertion, and the previous value accidentally
+// was one. Every one of these tests asserts a correctness property, that
+// the entry was durably recorded and then acknowledged, and the path it
+// waits on fsyncs twice: once in fileWAL.Append and once in the temp file
+// rewrite Acknowledge performs. On an idle machine that is milliseconds.
+//
+// Under `make test-race` it is not. That target runs 211 packages in
+// parallel and twenty seven of them provision Docker containers, so the
+// disk these fsyncs land on is the busiest thing on the box. Four of
+// these tests timed out together at exactly the old ten second bound
+// while passing in twenty five seconds when the package ran alone, which
+// is the signature of a durability wait competing with container
+// provisioning rather than of anything wrong with the agent.
+//
+// Sixty seconds, therefore, with the margin written down as
+// LESSONS_LEARNED.md #215 requires rather than tuned until green. A
+// genuinely stuck agent still fails well inside the thirty minute package
+// timeout, and a slow one no longer fails a test that was never asking
+// about speed.
+const agentSettleTimeout = 60 * time.Second
+
 func runAgentUntil(t *testing.T, agent *runner.Agent, done func() bool, timeout time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -100,12 +124,18 @@ func runAgentUntil(t *testing.T, agent *runner.Agent, done func() bool, timeout 
 	runErr := make(chan error, 1)
 	go func() { runErr <- agent.Run(ctx) }()
 
+	// A ticker rather than a two millisecond sleep. The old spin woke
+	// five hundred times a second on the same starved processors as the
+	// workers it was waiting for, which is a strange way to wait for
+	// somebody else to finish.
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) && !done() {
-		time.Sleep(2 * time.Millisecond)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !done() && time.Now().Before(deadline) {
+		<-tick.C
 	}
 	if !done() {
-		t.Fatal("timed out waiting for the message to be handled")
+		t.Fatalf("timed out after %v waiting for the message to be handled", timeout)
 	}
 
 	cancel()
@@ -140,7 +170,7 @@ func TestAgent_ReportResult_SuccessfulExecutionFlushesToWAL(t *testing.T) {
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 		runner.WithResultWAL(wal, bus))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	// event.Bus.Publish (both adapters, including the in-process one)
 	// delivers to subscribers asynchronously on their own goroutine and
@@ -203,7 +233,7 @@ func TestAgent_ReportResult_UsesStableIdempotencyKeyAcrossRedelivery(t *testing.
 		consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 		agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 			runner.WithResultWAL(wal, bus))
-		runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+		runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 	}
 
 	var ids []string
@@ -247,7 +277,7 @@ func TestAgent_ReportResult_FailedExecutionRecordsFailedOutcome(t *testing.T) {
 	// A genuine (non-contention) execution failure is Nak'd (retried via
 	// the Dead Letter Queue path), not Acked, so completion is polled via
 	// the Nak signal, not msg.ack.
-	runAgentUntil(t, agent, msg.naked.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.naked.Load, agentSettleTimeout)
 
 	select {
 	case entry := <-received:
@@ -290,7 +320,7 @@ func TestAgent_ReportResult_ContentionIsNeverRecorded(t *testing.T) {
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, locks, 5, slog.Default(), nil,
 		runner.WithResultWAL(wal, bus))
 
-	runAgentUntil(t, agent, msg.naked.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.naked.Load, agentSettleTimeout)
 
 	// Proving absence needs a real wait, not an instant check: Publish
 	// dispatches to subscribers asynchronously (see the identical note
@@ -339,7 +369,7 @@ func TestAgent_ReportResult_LogsAppendFailureWithoutPanicking(t *testing.T) {
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 		runner.WithResultWAL(wal, bus))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 }
 
 // failingAcknowledgeWAL wraps a real ResultWAL, forcing every
@@ -373,7 +403,7 @@ func TestAgent_FlushOne_LogsAcknowledgeFailureAfterSuccessfulPublish(t *testing.
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 		runner.WithResultWAL(wal, bus))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	select {
 	case <-received:
@@ -422,7 +452,7 @@ func TestAgent_FlushWAL_LogsPendingFailureWithoutPanicking(t *testing.T) {
 	// does), a stuck or panicking fetch loop would also fail to have
 	// acked it in the first place, so this is still a meaningful proof
 	// that the Pending failure did not take the whole loop down.
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 }
 
 // TestAgent_ReportResult_SurvivesShutdownDuringExecution is the
@@ -585,7 +615,7 @@ func TestAgent_ReportResult_AnIncompleteCheckSaysSo(t *testing.T) {
 	agent := runner.NewAgent(consumer, incompleteCheckAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
 		runner.WithResultWAL(nil, bus))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	select {
 	case entry := <-received:
