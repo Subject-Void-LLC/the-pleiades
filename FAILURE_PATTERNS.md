@@ -306,6 +306,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 301. A check test compared a clock, again, in a different package
 302. The Helm upgrade gate counted pods Kubernetes had already finished with
 303. A new test reached into a Linux-gated file and broke the build on two operating systems
+304. A configuration file repeated a flag the deployment already passed, and the broker exited at boot
+305. A shared test helper's cleanup ran after the test's own defers, so a leak check inspected a live container
+306. An assertion that a key was absent from the database searched for plaintext the schema always encrypts
+307. A signature-forgery test flipped base64 padding bits again, in a different package, and caught a forgery that had never been forged
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

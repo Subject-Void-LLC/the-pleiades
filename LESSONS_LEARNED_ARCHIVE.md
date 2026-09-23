@@ -4845,3 +4845,67 @@ The Helm half of the same gate failed for an unrelated reason with the same flav
 **The rule.** When a test builds its fixture from repository or cluster state rather than from a literal, list the values that state can take and decide what each one means, before writing the assertion. Two questions catch most of it. Which of these states can my own branch not produce, and therefore cannot test? And for each state, is the correct outcome a pass, a failure, or a skip with a reason? An empty list is a state. A pod being deleted is a state. Neither is an error, and neither may be indexed or counted as though it were the ordinary case.
 
 **The corollary about diagnosis.** Stashing the branch's work made the first failure pass, which read as "this branch broke it" and was wrong: a clean tree simply selects a different previous ref. A bisect-by-stash is a real control and it answers a narrower question than it appears to, because the working tree is itself an input to what these tests build. Read what the test derived, printed in its own log, before concluding from whether it passed.
+
+## 219. `git branch -d` guards against the branch's own upstream, not against the branch you actually merged into, so its refusal is not evidence of unmerged work
+
+**The incident.** 2026-09-23, clearing 116 local branches down to 2. `git branch --merged origin/main` listed `feature/Phase-101c-Mesh-Enforcement`, `feature/Phase-74a-NETCONF` and `feature/cisco-cli-buildout` as merged, and `git merge-base --is-ancestor` confirmed each tip was an ancestor of `origin/main`. `git branch -d` nevertheless refused all three: "not deleting branch ... that is not yet merged to `refs/remotes/origin/<branch>`, even though it is merged to HEAD."
+
+The cause is that each had been pushed once, then had further commits land in `main` by another route, leaving the local branch ahead of its own remote-tracking ref by 7, 1 and 2 commits. Git's `-d` check consults the upstream when one is configured, and a stale remote-tracking ref makes a fully merged branch look unmerged.
+
+The trap is what the message invites. It names `-D` as the remedy, and `-D` does not check a narrower condition, it checks nothing at all. Reaching for it converts a false alarm into a blanket disabling of the one guard standing between a bulk delete and real work, across every branch in the same command.
+
+**The rule.** Decide deletion safety from an explicit ancestry test against the integration branch, `git merge-base --is-ancestor <branch> origin/main`, and treat `-d` as a second opinion rather than the authority. When `-d` refuses a branch that ancestry says is merged, clear the stale association with `git branch --unset-upstream <branch>` and let `-d` run its check again against HEAD. That keeps the guard live for every other branch in the batch. Reserve `-D` for branches ancestry says are genuinely unmerged, and tag them before deleting so the commits stay reachable.
+
+**The corollary.** Run bulk deletes through `xargs` over a list git itself produces at execution time, never a list transcribed into a plan. Between planning and running, refs move.
+
+## 220. A case-variant remote branch is invisible in `git branch -r`, so a branch inventory is not complete until the branches it hides are deleted
+
+**The incident.** Same session. The cleanup was planned against a listing of 45 remote branches and ran to completion, deleting 43. The `git fetch --prune` that followed reported a *new* branch: `origin/Feature/path-traversal-and-wire-confidentiality`, capital `F`, which had never appeared in any listing taken while planning.
+
+It had been on the remote the whole time. Git stores remote-tracking refs as loose files, so `refs/remotes/origin/feature/` and `refs/remotes/origin/Feature/` are two directories that a case-insensitive path lookup cannot hold at once. Only the first fetched materialized; the second was silently not created. Deleting `feature/Path-Traversal-and-Wire-Confidentiality` freed the path, and the next fetch finally wrote its case-variant sibling.
+
+It turned out to be a duplicate sitting at `origin/main`'s exact tip with zero unique commits, so nothing was at risk. That is luck, not a property of the situation: the hidden ref could equally have been the only copy of unmerged work, and a cleanup that had reported "done" would have left it undiscovered.
+
+**The rule.** After any bulk remote-branch deletion, run `git fetch --prune` and re-list before declaring the inventory final, because refs hidden by a case collision surface only once the colliding name is gone. More generally, never treat `git branch -r` as the authority on what the remote holds; it reports what this clone managed to write down. `git ls-remote --heads origin` asks the server and is immune to local path collisions, which makes it the right source for any count a decision rests on.
+
+## 221. A shared helper that cleans up with `tb.Cleanup` changes the ordering every `defer` in the test depended on
+
+Phase 101c moved 33 container starts onto one `testsupport.StartNATS`. A helper that returns a value cannot clean up with `defer`, so it must register `tb.Cleanup`, and `tb.Cleanup` runs AFTER every deferred call in the test function. Any test whose own `defer` depended on running after the resource was released silently inverts.
+
+`internal/election`'s three-replica gate is the case that caught it. It opens `defer goleak.VerifyNone(t)` and used to terminate its container with a `defer` registered later; defers run last-in-first-out, so termination happened first, by accident, with nothing written down. Under the helper the leak check began inspecting a live container and reported testcontainers' own reaper goroutine.
+
+The diagnosis is the part worth repeating. That failure's signature is IDENTICAL to a known flake this repository already records by name for another package, so the cheap reading was "known flake, ignore". Running the unmigrated file proved otherwise: it passed every time. A failure that matches a known-flake signature is still a regression until the unchanged code is shown to pass.
+
+The rule: when a refactor moves a `defer` into a helper's `tb.Cleanup`, list every other `defer` in each affected test and ask which of them assumed it ran second. Where the order matters, make it explicit by registering the dependent check with `t.Cleanup` BEFORE the helper runs, so cleanup's own last-added-first-called order puts it last, and say in a comment why, because the working version and the broken version look identical.
+
+The same applies to any repository-wide check that runs at the end of a test: a leak detector, a container-count assertion, a temp-directory sweep.
+
+## 222. An assertion that a secret is ABSENT from storage must be structural, because encrypted storage never contains the plaintext it searches for
+
+A release gate asserted that `controller mesh init` never stores the operator key by reading the database file and searching it for the key's bytes. It passed, and it also passed with a deliberate leak planted, because the column is sealed before it is written: the plaintext can never appear there whether or not the key was stored. It was a test that could not fail, guarding the property the whole key hierarchy exists for.
+
+The general shape: any "X is not in the store" assertion written as a substring search is vacuous the moment that store encrypts, compresses or encodes. Worse, it reads as the strongest possible evidence, because searching the raw bytes sounds like it bypasses every abstraction.
+
+What works instead is an assertion over something the storage keeps in the clear ON PURPOSE. nkeys prefixes a public key by its kind, and the public key is stored beside the sealed seed precisely so questions about it need no decryption, so "every stored row names an account-kind key and none names the operator's" is checkable however the seed is encrypted. Structure survives encryption; substrings do not.
+
+The corollary is `LESSONS_LEARNED.md` #95's rule with a sharper edge: falsify an absence assertion by PLANTING the thing it denies, not by reasoning about it. Planting it here also uncovered a protection nobody had designed deliberately, a custody function that refuses a non-account seed because it derives the public key through a kind check, which is now pinned by its own test rather than left as an accident.
+
+## 223. A subject published under a wildcard stream root is durably stored, so a new subject is a retention decision before it is a routing one
+
+Phase 101c added a credential renewal subject and named it `pleiades.mesh.renew`, under the prefix every other subject in the platform uses. The stream is configured with `pleiades.>`, which matches any subject whose first token is `pleiades`, so a plain core publish to it took the stream from zero messages to one: every renewal in the fleet would have been retained for the outage budget's window, seven days by default and 168 at the maximum, on the stream this phase exists to stop trusting with identity material.
+
+Nothing secret was in a request, which is exactly why it would have survived review. The hazard is that the next field added to it might be, and by then the subject's name is load bearing in grants, documentation and an operator's monitoring rules.
+
+The subject is now `pleiades-mesh.renew`: a different first token, therefore outside the root, therefore stored nowhere. The name reads like a typo and a container test asserts the property so the obvious tidy-up fails loudly rather than quietly re-enabling retention.
+
+The rule: when a stream captures a wildcard namespace, adding a subject under it is a DURABILITY decision, not only a routing one. Measure what the stream does with a publish before choosing the name, because the answer is a property of the server's filter rather than of the code, and the cost of being wrong is paid by the retention window rather than by a failing test.
+
+## 224. Tamper with the FIRST character of a base64 segment, never the last, because the last one is padding
+
+`FAILURE_PATTERNS.md` #75 recorded a JWT forgery test that flipped base64 padding bits instead of the signature and therefore caught a forgery that had never been forged. Phase 101c wrote the identical bug in a different package, in a test whose whole purpose was to prove the broker validates a signature chain.
+
+The arithmetic is why it keeps happening. Base64 encodes three bytes as four characters, so unless a value's length is a multiple of three the final character carries fewer than six meaningful bits. An Ed25519 signature is 64 bytes: 86 base64url characters, 516 bits, four of which decode to nothing. Flip the last character and roughly two thirds of the time you have changed nothing at all.
+
+Both times the failure presented as a security alarm that was false, and both times it was intermittent, which is the worst combination available: alarming, unreproducible on demand, and wrong in the alarming direction. Somebody will eventually "fix" it by loosening the assertion.
+
+The rule: when a test must alter an encoded value by one character, alter the FIRST one. Its bits are always significant regardless of length. Where a test flips a byte inside the decoded value instead, that is better still, because it needs no reasoning about encoding at all. And when a security assertion fails intermittently, suspect the test's own mutation before believing the finding: a forgery check that passes most of the time is usually not forging anything.

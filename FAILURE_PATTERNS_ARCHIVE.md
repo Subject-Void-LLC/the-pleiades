@@ -8834,3 +8834,43 @@ Nothing run locally could have caught it, and that is the point: every local che
 **Fix.** `setupEnv` moved to `cmd/controller/childenv_test.go`, which carries no build constraint, with a doc comment recording why it is not beside the gate that used to own it. The refusal gate stays unconstrained and now compiles everywhere. Verified across six combinations before pushing again: `GOOS` of linux, windows and darwin, each with the default tags and with `-tags integration`.
 
 **Lesson.** Before calling a Go change verified, vet it for every operating system CI builds, not only the host: `GOOS=windows go vet ./...` and `GOOS=darwin go vet ./...`, under both tag sets, takes seconds. And when reaching for a helper in another test file, read that file's FIRST LINE. A build constraint on a file is a constraint on every symbol in it, including the ones that have no reason to be platform-specific and are only there because a neighbor needed a terminal.
+
+## 304. A configuration file repeated a flag the deployment already passed, and the broker exited at boot
+
+**Symptom.** Found while giving every NATS test container the deployment's own flag list in Phase 101c. Two Release Gates that had passed for weeks began failing with `starting an operator-mode broker: container exited with code 1`, which names nothing. The broker's own log, once the start helper was made to print it, said: `nats-server: /etc/nats/nats.conf:10:3: Duplicate 'store_dir' configuration`.
+
+**Root cause.** The gate's configuration file carried `jetstream: { store_dir: /data }` because its broker had been started with `-c` ALONE, replacing the flags rather than adding to them. Once the shared helper passed `NATSCommand()` as well, the flag list already carried `-sd /data` and nats-server 2.14.4 refused the file for stating it twice. A configuration file and a flag list are additive for settings that appear in only one of them and FATAL for a setting that appears in both, which is not how "additive" reads.
+
+**Fix.** The block was deleted from the gate's configuration, and the rule is now stated where it will be read: a setting expressible as a flag belongs in the flag list and nowhere else, so a configuration file carries only what nats-server accepts from nowhere else. The same rule is written into the Helm chart's `nats-config.yaml`, `controller mesh init`'s generated output and `testsupport.WithNATSConfig`'s doc comment, because all three now emit such a file. It was also the independent confirmation of a design decision already taken for the chart on other grounds.
+
+**Lesson.** See `LESSONS_LEARNED.md` #221.
+
+## 305. A shared test helper's cleanup ran after the test's own defers, so a leak check inspected a live container
+
+**Symptom.** Migrating 33 container starts onto one helper turned `internal/election`'s three-replica gate red with `found unexpected goroutines`, naming testcontainers' OWN reaper connection. That is the exact signature `flaky-packages.json` already records for a different package, so the obvious reading was the known flake. Running the UNMIGRATED file proved otherwise: it passed, every time.
+
+**Root cause.** The test opens with `defer goleak.VerifyNone(t)`, and the original terminated its container with a `defer` registered LATER. Deferred calls run last-in-first-out, so termination happened first, entirely by accident and with nothing written down about it. A shared helper cannot use `defer`, because it returns; it must register cleanup with `tb.Cleanup`, which runs after every defer in the test. So the leak check began running while the container, and the reaper connection it holds open, were still alive.
+
+**Fix.** The test registers `t.Cleanup(func() { goleak.VerifyNone(t) })` BEFORE starting the broker, so cleanup's own last-added-first-called order runs it after termination. `cmd/controller`'s leader election gate already had exactly this shape with a comment explaining it; `internal/election` now matches. The comment records why the old form worked, so the next person does not restore it.
+
+**Lesson.** See `LESSONS_LEARNED.md` #221.
+
+## 306. An assertion that a key was absent from the database searched for plaintext the schema always encrypts
+
+**Symptom.** A Release Gate for `controller mesh init` asserted that the operator key is never stored, by reading the SQLite file and searching it for the key's bytes. It passed. Falsifying it, by planting a deliberate leak, ALSO passed.
+
+**Root cause.** The column is sealed by the envelope hook before it is written, so the plaintext seed never appears in the file whether or not the key was stored. The assertion was searching for something that can never be there. It was a test that could not fail, and it was guarding the single most important property in the phase: that a Controller compromise is an account compromise rather than a mesh compromise.
+
+**Fix.** The assertion is now structural rather than textual. nkeys prefixes a public key by its kind, `O` for an operator and `A` for an account, and the public key is stored beside the sealed seed precisely so questions about it need no decryption. So the gate asserts every stored row names an account-kind key and none names the operator's, which is visible however the seed is encrypted. Re-falsified: the planted leak now fails with both messages. The same attempt also revealed a real protection nobody had designed deliberately, `meshkey.Save` refusing a non-account seed because it derives the public key through a kind check, now pinned by its own test.
+
+**Lesson.** See `LESSONS_LEARNED.md` #222.
+
+## 307. A signature-forgery test flipped base64 padding bits again, in a different package, and caught a forgery that had never been forged
+
+**Symptom.** Phase 101c's `TestReleaseGate_ACredentialEditedAfterSigningIsRefused` passed when written and passed on several runs afterwards, then failed under a `-race` sweep with "a credential edited after signing was ACCEPTED; the signature chain is not being checked". The failing subtest was always `the signature is altered`, and it failed in 0.00s where a passing run takes 0.27s, which is the shape of a connection that succeeded immediately rather than one that was refused. Run five more times it failed roughly one run in three.
+
+**Root cause.** This is `FAILURE_PATTERNS.md` #75 recurring in a different package, and the mechanism is the one that entry names: the test tampered with base64 PADDING BITS rather than with the signature. The helper flipped the LAST character of a segment. An Ed25519 signature is 64 bytes, which base64url encodes as 86 characters carrying 516 bits, so the final character holds four bits that decode to nothing at all. Flipping it frequently leaves the decoded signature byte for byte identical, so the broker was handed a credential nobody had actually altered and correctly accepted it. The test then reported a security hole that did not exist, intermittently, which is the worst available combination: it is alarming, it is not reproducible on demand, and the alarming reading is wrong.
+
+**Fix.** Flip the FIRST character instead. Its six bits are always significant, in every segment, whatever the segment's length. Five consecutive runs green, where the previous version failed about one in three. The reason is written into the helper's own doc comment with a pointer to #75, because the broken version and the correct version differ by one index and look equally reasonable.
+
+**Lesson.** See `LESSONS_LEARNED.md` #224.
