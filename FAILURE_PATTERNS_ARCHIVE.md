@@ -8874,3 +8874,37 @@ Nothing run locally could have caught it, and that is the point: every local che
 **Fix.** Flip the FIRST character instead. Its six bits are always significant, in every segment, whatever the segment's length. Five consecutive runs green, where the previous version failed about one in three. The reason is written into the helper's own doc comment with a pointer to #75, because the broken version and the correct version differ by one index and look equally reasonable.
 
 **Lesson.** See `LESSONS_LEARNED.md` #224.
+
+## 308. Two WAL tests leaked a NATS bus each, and a durability wait was bounded as if it were a performance claim
+
+**Symptom.** `make ci` failed with `TestAgent_ReportResult_SuccessfulExecutionFlushesToWAL` and three siblings in `internal/runner` timing out together at exactly ten seconds, the output full of `connect: connection refused` for ports no running test owned. The package passed alone in twenty five seconds. It is listed in `flaky-packages.json`, and the first instinct recorded in this session was to tolerate it as contention.
+
+**Root cause.** Two separate defects. `agent_nats_test.go` created a NATS bus twice and closed neither, and `topology.DialOptions` sets `MaxReconnects(-1)` on purpose, so each went on dialling a container that had died at the end of its test, for the rest of the package run. And the WAL path those four tests wait on fsyncs twice, in `fileWAL.Append` and in the temp file rewrite `Acknowledge` performs; on an idle disk that is milliseconds, and under `make test-race` beside twenty seven container packages it is not, so a ten second wall clock bound was asserting a speed none of the tests meant to assert.
+
+**Fix.** Both buses are closed with `defer`, so the client closes before `StartNATS` terminates the server in its `t.Cleanup`. The bound is `agentSettleTimeout`, sixty seconds, named once and used at all twenty one call sites with the margin written down. The wait stopped being a two millisecond spin.
+
+**Lesson.** The user's instruction was "I don't care whose it is, we fix it", and it was right: a package on the flake list got no protection from a real defect, which is exactly what CLAUDE.md warns the list can become. Two things measured along the way are worth keeping. `GOMAXPROCS=1` reproduced nothing, which ruled out the first theory (CPU starvation) in seconds rather than by argument. And the falsification of the bus fix was INCONCLUSIVE, since an isolated run ends before a leaked bus logs anything, so the fix was kept for being correct rather than claimed as proven.
+
+## 309. `FAILURE_PATTERNS.md` #301 fixed, and the compensating assertion written with it compared a map with itself
+
+**Symptom.** `make ci` failed `TestLineChecks_PredictWhatARealRunLeaves` with `predicted mtime = 1790183117, the run left 1790183118`, which is #301, recorded eight days earlier and deliberately left because the branch that found it did not own the package.
+
+**Root cause.** #294's, applied here: the check acts on `checkPath` and the run on `runPath`, written a moment apart, so for a run that changes nothing the prediction reports one file's mtime and the run leaves another's. Equality held only when both writes landed in the same second.
+
+**Fix.** mtime is compared as a bound, #294's form: the run's no earlier than the check's and at most a minute later. Every other field is still compared exactly.
+
+**The part worth reading.** Relaxing an equality needs something to keep holding the property the equality stood for, here "a run that changes nothing does not touch the file". The first version compared the run's own recorded before and after, and a deliberate fault walked straight past it: `sdk.Unchanged(state)` returns `Diff{Before: state, After: state}`, the SAME map for both halves, so the "after" of a no-op is never observed at all. It is the "before" reused. The assertion now stats the file on disk before and after the run, and the same fault fails it. Four controls, each by a temporary edit: the run one second later passes, five seconds earlier fails, a changed non-clock field fails, and a no-op that touched its file fails.
+
+**Lesson.** See `LESSONS_LEARNED.md` #226.
+
+## 310. Every postgres and toxiproxy container waited for readiness under a sixty second deadline nobody chose
+
+**Symptom.** `make ci` failed `internal/backup`'s `TestRestore_ACutConnectionChangesNothingAndTheNextRunCleansUp` with `wait until ready: external check ... get state ... context deadline exceeded` after 561 polls and exactly sixty seconds. It passed alone. The previous session's handoff had classified the same failure as contention.
+
+**Root cause.** testcontainers' `WithWaitStrategy` and `WithAdditionalWaitStrategy` both build `wait.ForAll(...).WithDeadline(60 seconds)`, and the postgres module's `BasicWaitStrategies` is built on the second. So all thirteen postgres starts and all eight toxiproxy starts in the repository waited under a hardcoded minute, while every NATS start waited under `testsupport.ContainerStartupTimeout`, two. Under full load the readiness loop polls a slow Docker daemon and the shorter one runs out. `flaky-packages.json` had already named this defect for `tests/e2e`'s chaos harness and said "fixable; fix it and remove this name".
+
+**Fix.** `testsupport.PostgresReady` and `ToxiproxyReady` restate each module's own readiness condition under `ContainerStartupTimeout`, and all twenty one sites use them. `TestNoContainerWaitsUnderTheLibraryDeadline` fails if any site calls `BasicWaitStrategies` or starts toxiproxy without the bound; `TestTheLibraryDefaultIsTheDefect` pins the upstream sixty seconds so a dependency bump that removes it is noticed. `TestChaos_PostgresSeverance` came off `flaky-packages.json`.
+
+**Why they REPLACE rather than wrap.** Wrapping the module's strategy in a longer outer deadline is the obvious fix and does nothing: a `ForAll` with a deadline runs its children under `context.WithTimeout` of that deadline, so the inner sixty seconds still fires first. The deadline field is unexported, which is why the tests read it through reflection rather than waiting two minutes for a container that never becomes ready.
+
+**Lesson.** See `LESSONS_LEARNED.md` #225.

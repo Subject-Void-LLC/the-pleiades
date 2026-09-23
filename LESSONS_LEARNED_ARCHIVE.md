@@ -4909,3 +4909,19 @@ The arithmetic is why it keeps happening. Base64 encodes three bytes as four cha
 Both times the failure presented as a security alarm that was false, and both times it was intermittent, which is the worst combination available: alarming, unreproducible on demand, and wrong in the alarming direction. Somebody will eventually "fix" it by loosening the assertion.
 
 The rule: when a test must alter an encoded value by one character, alter the FIRST one. Its bits are always significant regardless of length. Where a test flips a byte inside the decoded value instead, that is better still, because it needs no reasoning about encoding at all. And when a security assertion fails intermittently, suspect the test's own mutation before believing the finding: a forgery check that passes most of the time is usually not forging anything.
+
+## 225. A wait strategy's deadline cannot be extended by wrapping it, because a nested deadline still fires first
+
+testcontainers builds `wait.ForAll(...).WithDeadline(d)`, and `MultiStrategy.WaitUntilReady` runs its children under `context.WithTimeout(ctx, d)`. A child context's deadline is the earlier of its own and its parent's, so an outer two minute `ForAll` wrapped around a module's inner sixty second one gives up at sixty. The fix that looks right does nothing and passes review, because the outer number is the one a reader sees.
+
+The general rule is about any nested timeout: to lengthen a timeout, REPLACE the thing that owns it; never wrap it, since the tighter bound still holds from inside. That costs restating whatever the replaced thing did, here each module's readiness condition, so name the upstream definition and version being mirrored, and pin the upstream value in a test so a dependency bump that changes it is noticed rather than silently kept as a workaround.
+
+And sweep the SHAPE, not the instance: this was found at one postgres start and existed at twenty one, which is `FAILURE_PATTERNS.md` #301's "grep for the shape before closing the entry" in a second package.
+
+## 226. Relaxing an equality needs a compensating assertion, and that assertion must read the world rather than the record
+
+Comparing two clocks for equality is flaky, so the fix is a bound. But the equality was also standing in for a property, here "a run that changes nothing does not touch the file", and a bound gives that away. So a relaxed comparison needs a second assertion that keeps holding the property.
+
+That second assertion was written first against the run's own recorded before and after, and it could not fail: `sdk.Unchanged(state)` records `Diff{Before: state, After: state}`, the same map twice, so a no-op's "after" is never observed. It is the "before" reused, and comparing the two compares a map with itself.
+
+The rule: when checking whether something happened, read the thing it would have happened to (the file on disk), never a record the code under test wrote about itself, because the record may say "nothing changed" by construction rather than by observation. And, as ever, falsify the compensating assertion by planting exactly the fault it exists to catch.
