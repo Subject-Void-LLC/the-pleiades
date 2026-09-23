@@ -38,23 +38,6 @@ import (
 
 const setupTestPassword = "a-long-enough-admin-password"
 
-// setupEnv is the child environment: this process's, minus every variable
-// setup owns (a developer's shell might export one), plus DB_PATH.
-func setupEnv(dbPath string) []string {
-	owned := map[string]bool{"DB_DSN": true, "DB_PATH": true}
-	for _, n := range setup.ComposeVariables() {
-		owned[n] = true
-	}
-	var env []string
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if !owned[name] {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "DB_PATH="+dbPath, "OTEL_TRACES_EXPORTER=none")
-}
-
 // readKeyFile returns the key and JWT secret setup wrote in dir.
 func readKeyFile(t *testing.T, dir string) (key []byte, jwt string) {
 	t.Helper()

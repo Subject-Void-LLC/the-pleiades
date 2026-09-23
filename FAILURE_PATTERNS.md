@@ -305,6 +305,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 300. The compose upgrade gate indexed a backup that correctly did not exist
 301. A check test compared a clock, again, in a different package
 302. The Helm upgrade gate counted pods Kubernetes had already finished with
+303. A new test reached into a Linux-gated file and broke the build on two operating systems
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
