@@ -164,6 +164,53 @@ var profiles = []profile{
 		probeScheme:           "HTTPS",
 		wantDisruptionBudgets: 1,
 	},
+	{
+		// The whole point of Phase 101: a broker that authenticates its
+		// clients, and clients that hold a credential to present.
+		//
+		// It has to be a profile rather than a unit assertion for the
+		// reason the host keys one gives, with an extra turn. The broker's
+		// configuration names no file, so the linter's
+		// configured-files-are-mounted rule does not fire here; what needs
+		// rendering is the pair of credential volumes, each written in two
+		// places tens of lines apart in two different templates. A
+		// volumeMount naming a volume that no longer exists renders
+		// perfectly and is rejected by the API server.
+		//
+		// The JWTs are obvious placeholders. Nothing here verifies a
+		// signature: this asserts what the chart RENDERS, and a real
+		// operator JWT in a repository would be a key nobody rotated.
+		name: "the broker authenticating its clients",
+		values: []string{
+			"--set", "nats.auth.enabled=true",
+			"--set", "nats.auth.operatorJWT=eyJ0eXAiOiJKV1QifQ.render-only",
+			"--set", "nats.auth.systemAccountSubject=ACSYSRENDERONLY",
+			"--set", "nats.auth.resolverPreload.ACSYSRENDERONLY=eyJ0eXAiOiJKV1QifQ.sys",
+			"--set", "nats.auth.resolverPreload.ACAPPRENDERONLY=eyJ0eXAiOiJKV1QifQ.app",
+			"--set", "mesh.credentials.enabled=true",
+			"--set", "mesh.credentials.controllerSecret=pleiades-controller-creds",
+			"--set", "mesh.credentials.runnerSecret=pleiades-runner-creds",
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+	},
+	{
+		// Pointing at somebody else's already-authenticating broker, which
+		// is why mesh.credentials sits under mesh rather than under nats:
+		// the clients need credentials while the chart deploys no broker
+		// at all. A credential parked under a disabled block would be a
+		// trap.
+		name: "an external broker that authenticates, with no broker deployed",
+		values: []string{
+			"--set", "nats.enabled=false",
+			"--set", "externalNats.url=tls://nats.example.com:4222",
+			"--set", "mesh.credentials.enabled=true",
+			"--set", "mesh.credentials.controllerSecret=pleiades-controller-creds",
+			"--set", "mesh.credentials.runnerSecret=pleiades-runner-creds",
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+	},
 }
 
 // refusal is a configuration the chart must NOT render, and the words its
@@ -179,6 +226,35 @@ type refusal struct {
 }
 
 var refusals = []refusal{
+	{
+		// The combination that installs cleanly and produces a broker
+		// refusing its own controller. Nothing about it looks wrong: both
+		// halves are real values and each is valid alone.
+		name: "an enforcing broker whose own clients hold no credential",
+		values: []string{
+			"--set", "nats.auth.enabled=true",
+			"--set", "nats.auth.operatorJWT=eyJ0eXAiOiJKV1QifQ.render-only",
+			"--set", "nats.auth.systemAccountSubject=ACSYSRENDERONLY",
+			"--set", "nats.auth.resolverPreload.ACSYSRENDERONLY=eyJ0eXAiOiJKV1QifQ.sys",
+		},
+		wantMessage: "mesh.credentials.enabled is false",
+	},
+	{
+		// The refusal that matters most, because the server's own message
+		// for it names nothing an operator set: JetStream exits at boot
+		// with "system account not setup".
+		name: "a system account the resolver does not carry",
+		values: []string{
+			"--set", "nats.auth.enabled=true",
+			"--set", "nats.auth.operatorJWT=eyJ0eXAiOiJKV1QifQ.render-only",
+			"--set", "nats.auth.systemAccountSubject=ACSYSRENDERONLY",
+			"--set", "nats.auth.resolverPreload.ACAPPRENDERONLY=eyJ0eXAiOiJKV1QifQ.app",
+			"--set", "mesh.credentials.enabled=true",
+			"--set", "mesh.credentials.controllerSecret=pleiades-controller-creds",
+			"--set", "mesh.credentials.runnerSecret=pleiades-runner-creds",
+		},
+		wantMessage: "system account",
+	},
 	{
 		name:        "a runner with a playbook directory",
 		values:      []string{"--set", "runner.playbookDir=/playbooks"},

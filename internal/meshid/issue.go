@@ -11,21 +11,56 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// DefaultUserExpiry is how long a minted credential is valid for when a
+// DefaultUserExpiry is how long an EDGE credential is valid for when a
 // caller does not say.
 //
 // Twelve hours is chosen against a real window rather than for roundness.
 // It is longer than any single dispatch this platform runs, so a
 // credential never expires underneath work already in flight, and short
 // enough that a leaked one is useless by the next working day. It is
-// deliberately NOT tuned to a job's duration: a Runner holds one identity
-// across many jobs, and re-minting per job would put the issuance path on
-// the dispatch path, which is exactly the coupling this phase refused when
-// it rejected auth callout.
+// deliberately NOT tuned to a job's duration: re-minting per job would put
+// the issuance path on the dispatch path, which is exactly the coupling
+// this package refused when it rejected auth callout.
 //
-// A Smart Hands engagement wants a much shorter one, passed explicitly.
-// That is the case this parameter exists for.
+// This is the window a Smart Hands engagement wants, and it is the one
+// this constant is named for. It is NOT the right window for a fleet
+// Runner, which is what DefaultFleetExpiry exists to say out loud.
 const DefaultUserExpiry = 12 * time.Hour
+
+// DefaultFleetExpiry is how long a fleet Runner's credential is valid for
+// when a deployment does not say.
+//
+// This constant exists because the obvious answer was measured and was
+// wrong. DefaultUserExpiry's own text used to claim twelve hours suited a
+// Runner, on the reasoning that a Runner holds one identity across many
+// jobs. What that misses is what happens at the END of the window:
+// TestReleaseGate_AnExpiringCredentialEvictsALiveConnection shows the
+// broker evicting a live connection when its credential lapses, and
+// nats.go then abandons reconnection after the same authentication error
+// twice regardless of MaxReconnects(-1). A Runner on a twelve hour
+// credential therefore stops taking work twelve hours after it starts,
+// and it stops QUIETLY: the process is healthy, it is connected to
+// nothing, and it looks exactly like a Runner with no jobs.
+//
+// Thirty days is a deliberately unambitious number, and the reasoning is
+// about what a deployment can be relied on to do rather than about
+// cryptography. A credential must outlive any window in which nothing
+// renews it, because the failure mode of a lapse is a silently idle
+// fleet, and the failure mode of a long window is a bearer token that
+// stays useful if it leaks. Those are not symmetric: the first is
+// invisible and the second requires a compromise first.
+//
+// It is a CEILING rather than a target. Where the renewal path exists, a
+// credential is replaced long before this, and topology.WithCredentialSource
+// is what lets a live connection pick the replacement up without a
+// restart (TestReleaseGate_ARenewedCredentialKeepsALiveConnectionWorking).
+// This is what the fleet falls back to when nothing renews, which is the
+// state every deployment is in until it is configured otherwise.
+//
+// Shorten it wherever something does renew. Do not shorten it on the
+// reasoning that shorter is safer, without first checking that a renewal
+// actually runs, because the thing that breaks is not loud.
+const DefaultFleetExpiry = 30 * 24 * time.Hour
 
 // Issuer mints user credentials for one account.
 //

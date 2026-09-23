@@ -95,9 +95,16 @@ credentials, devices and saved survey answers all rotate under a new master key,
 credential input can be read from HashiCorp Vault or from another credential's own
 field. A credential can also hold a PKCS#12 bundle, which is unlocked at the moment
 it is used rather than on the Controller; that is a value a credential stores, not a
-third place an input can be read from. What is still not built is the mTLS mesh
-between the Controller and the Runners; presenting a client certificate to a managed
-device, which is a different thing, is real.
+third place an input can be read from. The Controller and the Runners can now
+authenticate to the message bus and to each other, with short-lived credentials
+the Controller mints; it is off by default and turning it on is described in
+[Running in production](10-running-in-production.md). It is not mTLS, and that is
+a design choice rather than a shortfall: identity rides in the credential rather
+than in a TLS client certificate, so it survives a proxy that terminates TLS,
+which is what lets the same mesh work over `wss://`. What that does NOT change is
+the payload, which still carries the resolved credential itself. Presenting a
+client certificate to a managed device, which is a different thing again, is
+also real.
 
 **Credential types and injectors are real.** An administrator can define a credential
 type as data, over the API, with an input schema and an injector document, exactly as

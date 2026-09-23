@@ -191,6 +191,7 @@ Kubernetes itself would reject, and a runbook source given twice.
 {{- include "the-pleiades.validate.heartbeat" . -}}
 {{- include "the-pleiades.validate.outagebudget" . -}}
 {{- include "the-pleiades.validate.natstls" . -}}
+{{- include "the-pleiades.validate.meshauth" . -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "controller.podDisruptionBudget" "pdb" .Values.controller.podDisruptionBudget "example" "2") -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "runner.podDisruptionBudget" "pdb" .Values.runner.podDisruptionBudget "example" "1") -}}
 {{- if and .Values.runbooks.configMapName .Values.runbooks.existingClaim -}}
@@ -364,5 +365,46 @@ which is a worse way to learn this than the install refusing.
 {{- end -}}
 {{- if and .Values.nats.websocket.tls (not .Values.nats.websocket.enabled) -}}
 {{- include "the-pleiades.refuse" "nats.websocket.tls is true but nats.websocket.enabled is false, so there is no websocket listener for it to apply to. Enable the listener or unset its tls flag." -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse the mesh authentication combinations that install cleanly and
+produce a deployment that does not work.
+
+Every rule here exists because the failure it prevents is BAD TO DIAGNOSE
+rather than because the value is wrong on its face. A broker that refuses
+to start says "system account not setup" and names nothing an operator
+set; a broker that authenticates while its own controller holds no
+credential looks like a network problem.
+*/}}
+{{- define "the-pleiades.validate.meshauth" -}}
+{{- if and .Values.nats.auth.enabled (not .Values.nats.enabled) -}}
+{{- include "the-pleiades.refuse" "nats.auth.enabled is true but nats.enabled is false, so this configures a broker the chart does not deploy. To authenticate against an external broker, configure that broker yourself and set mesh.credentials.enabled instead." -}}
+{{- end -}}
+{{- if .Values.nats.auth.enabled -}}
+{{- if not .Values.nats.auth.operatorJWT -}}
+{{- include "the-pleiades.refuse" "nats.auth.enabled is true but nats.auth.operatorJWT is empty. Every value this block needs is in the nats.conf that `controller mesh init` writes." -}}
+{{- end -}}
+{{- if not .Values.nats.auth.systemAccountSubject -}}
+{{- include "the-pleiades.refuse" "nats.auth.enabled is true but nats.auth.systemAccountSubject is empty. JetStream refuses to START in operator mode without a system account, so the broker would exit at boot rather than run without one." -}}
+{{- end -}}
+{{- if not .Values.nats.auth.resolverPreload -}}
+{{- include "the-pleiades.refuse" "nats.auth.enabled is true but nats.auth.resolverPreload is empty, so the broker would trust an operator and resolve no accounts. Every client would be refused." -}}
+{{- end -}}
+{{- if and .Values.nats.auth.systemAccountSubject (not (hasKey .Values.nats.auth.resolverPreload .Values.nats.auth.systemAccountSubject)) -}}
+{{- include "the-pleiades.refuse" (printf "nats.auth.systemAccountSubject is %s but that key is not in nats.auth.resolverPreload, so the broker cannot resolve the account it is told to use as its system account. JetStream then refuses to start with 'system account not setup', which names nothing you set. Add its JWT to resolverPreload." .Values.nats.auth.systemAccountSubject) -}}
+{{- end -}}
+{{- if not .Values.mesh.credentials.enabled -}}
+{{- include "the-pleiades.refuse" "nats.auth.enabled is true but mesh.credentials.enabled is false, so the broker would require a credential that neither the controller nor the runners present. Both would fail every dial, which reads as a broken network rather than as a configuration choice." -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.mesh.credentials.enabled -}}
+{{- if not .Values.mesh.credentials.controllerSecret -}}
+{{- include "the-pleiades.refuse" "mesh.credentials.enabled is true but mesh.credentials.controllerSecret is empty. Create a Secret from `controller mesh issue` output and name it here; this chart will not take a credential as a value, because --set values are stored in the Helm release secret." -}}
+{{- end -}}
+{{- if not .Values.mesh.credentials.runnerSecret -}}
+{{- include "the-pleiades.refuse" "mesh.credentials.enabled is true but mesh.credentials.runnerSecret is empty. Create a Secret from `controller mesh issue` output and name it here." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

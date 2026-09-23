@@ -160,6 +160,14 @@ spec:
               value: /app/runbooks
             - name: NATS_URL
               value: {{ include "the-pleiades.natsURL" . | quote }}
+            {{- if .Values.mesh.credentials.enabled }}
+            {{- /* The mesh identity this process authenticates as. A PATH
+                 rather than the credential itself, because this container
+                 execs subprocesses and a process environment is inherited
+                 by every child and readable from /proc/<pid>/environ. */}}
+            - name: NATS_CREDS_FILE
+              value: /etc/pleiades/mesh/{{ .Values.mesh.credentials.controllerSecretKey }}
+            {{- end }}
             - name: PLEIADES_MAX_OUTAGE
               value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
             - name: SHUTDOWN_DRAIN
@@ -291,7 +299,22 @@ spec:
               mountPath: /app/runbooks
               readOnly: true
             {{- end }}
+            {{- if .Values.mesh.credentials.enabled }}
+            - name: mesh-creds
+              mountPath: /etc/pleiades/mesh
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if .Values.mesh.credentials.enabled }}
+        {{- /* 0400, matching the broker's own TLS volume. The kubelet's
+             ownership pass chowns a secret volume to fsGroup and ORs in
+             the group read bit, so the process reads it as its own group
+             without the file ever being writable. */}}
+        - name: mesh-creds
+          secret:
+            secretName: {{ .Values.mesh.credentials.controllerSecret | quote }}
+            defaultMode: 0400
+        {{- end }}
         - name: data
           {{- if .Values.controller.persistence.enabled }}
           persistentVolumeClaim:

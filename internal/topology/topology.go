@@ -84,6 +84,18 @@ const (
 	// JobRequestedSubject.
 	jobRequestedSubject = "pleiades.jobs.requested"
 
+	// meshRenewSubject is where a process asks the control plane for a
+	// fresh mesh credential.
+	//
+	// THE HYPHEN IS LOAD BEARING and is the whole reason this constant
+	// does not read "pleiades.mesh.renew". The stream is configured with
+	// StreamSubjectRoot, "pleiades.>", which matches any subject whose
+	// FIRST TOKEN is exactly "pleiades", so every subject under that root
+	// is durably stored whether or not anyone wanted it to be.
+	// "pleiades-mesh" is a different first token, so this one is not.
+	// See MeshRenewSubject for why that matters here specifically.
+	meshRenewSubject = "pleiades-mesh.renew"
+
 	// DispatchDurableName is the durable consumer name every Runner
 	// replica shares when pulling dispatch jobs, so JetStream's own
 	// "Consumer Group" semantics (PLAN.md Section 26.4) guarantee exactly
@@ -374,6 +386,59 @@ func ControlSubjectAll() string {
 // used to perform inline.
 func JobRequestedSubject() string {
 	return jobRequestedSubject
+}
+
+// MeshRenewSubject returns the subject a process asks for a fresh mesh
+// credential on.
+//
+// # Why this is request/reply and not an HTTP endpoint
+//
+// Because there is no other option, and that is a fact about this
+// codebase rather than a preference. internal/runner has no HTTP client,
+// no controller URL and no database; every byte a Runner moves goes over
+// this bus. So the only way a Runner can ask the control plane for
+// anything is to publish and wait for a reply.
+//
+// That was also the reason this could not be built before mesh identity.
+// A renewal endpoint on an unauthenticated bus hands a working credential
+// to anything that can reach the broker, which is strictly worse than
+// having no endpoint at all. It becomes safe exactly when publishing to
+// this subject requires a credential, which is what makes it this phase's
+// to build and nobody else's.
+//
+// # What it does not put on a stream, and why the name looks odd
+//
+// Neither half of this exchange is durably stored, and getting there
+// took a measurement rather than an assumption.
+//
+// The reply was never a problem: it travels to the requester's own
+// _INBOX, which is outside the stream's subject space and which only that
+// client subscribes to, so the credential itself exists on the wire and
+// nowhere else. That was measured: an _INBOX publish leaves the stream's
+// message count unchanged.
+//
+// The REQUEST was a problem, and the first version of this subject had
+// it. Written as "pleiades.mesh.renew" it fell under StreamSubjectRoot,
+// "pleiades.>", and a plain core publish to it took the stream from zero
+// messages to one. Every renewal in the fleet would have been retained
+// for the outage budget's window, which is seven days by default and 168
+// days at the maximum, on the same stream this phase exists to stop
+// treating as a safe place for identity material. Nothing secret is in a
+// request today, and that is exactly the kind of thing that changes
+// quietly later.
+//
+// So the first token is "pleiades-mesh" rather than "pleiades", which is
+// a different token and therefore outside the root. It reads like a typo
+// and it is not; it is the only part of the name doing any work.
+//
+// # Scope
+//
+// One subject, not one per device. A Runner's credential is fleet
+// scoped, so renewing it is not a per-device question, and a renewal
+// grants nothing the caller did not already hold: only a process that
+// can already publish here has an identity to renew.
+func MeshRenewSubject() string {
+	return meshRenewSubject
 }
 
 // DeadLetterSubject returns the subject a message is republished to once it

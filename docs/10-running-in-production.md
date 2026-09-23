@@ -690,11 +690,14 @@ device lease heartbeat fails. So the honest reading is that the budget governs h
 long the fleet can be out of contact and still pick up where it left off, not how
 long work already in progress keeps running.
 
-**The bus is not authenticated.** Reconnection resilience is not security: any
-client that can reach the broker can publish and subscribe, and a dispatch message
-carries the credentials its job runs with. Restrict network access to the broker
-accordingly, and prefer an external, access-controlled NATS over the in-chart one
-for anything real.
+**The bus can be authenticated, and is not by default.** Reconnection resilience
+is not security. Until you turn authentication on, any client that can reach the
+broker can publish and subscribe, and a dispatch message carries the credentials
+its job runs with. Restrict network access to the broker accordingly.
+
+Turning it on is [Mesh identity](#mesh-identity-authenticating-the-bus) below. It
+is off by default so that an existing deployment upgrades without changing
+anything, not because it is unfinished.
 
 ### Only the controller changes the message stream's shape
 
@@ -819,12 +822,15 @@ HTTP/2 to the client, because an HTTP/2 connection cannot carry an HTTP/1.1
 upgrade. This whole path is exercised end to end by a release gate that stands a
 real nginx in front of a real broker and drives it with the real binaries.
 
-**This encrypts. It does not authenticate.** The broker still accepts any client
-that completes a handshake, and a dispatch message carries the credentials its job
-runs with. TLS stops a network observer reading your traffic and lets a client
-verify it is talking to your broker. It does nothing about which clients may
-connect, or what subjects they may read. Restrict network access to the broker
-regardless of whether TLS is on.
+**This encrypts. It does not authenticate.** TLS stops a network observer reading
+your traffic and lets a client verify it is talking to your broker. It says
+nothing about which clients may connect, or what subjects they may read: with TLS
+alone the broker still accepts any client that completes a handshake, and a
+dispatch message carries the credentials its job runs with.
+
+The two are separate settings and either works without the other. Client identity
+is [Mesh identity](#mesh-identity-authenticating-the-bus) below. Restrict network
+access to the broker regardless of which of them you have on.
 
 Two things worth knowing because they fail quietly. The chart's readiness probe for
 the broker is a plain TCP connect, so it keeps passing even if the TLS
@@ -832,6 +838,126 @@ configuration is wrong, and the first sign of a bad certificate will be clients
 failing rather than the pod. And the compose stack's broker healthcheck connects
 anonymously and without TLS, so turning on broker TLS there needs that probe
 changed too.
+
+### Mesh identity: authenticating the bus
+
+TLS above encrypts the wire and proves the broker is yours. This decides **which
+clients may connect and what subjects each of them may use.** They are separate,
+and neither implies the other.
+
+It is **off by default**, and stays off when you upgrade. That is a compatibility
+choice, not an unfinished one.
+
+#### Turning it on
+
+Three commands and one restart. The first mints the key hierarchy:
+
+```
+controller mesh init --dir ./deploy/mesh
+```
+
+That writes `nats.conf` for the broker, and `operator.nk`, which is the operator
+key. **Move `operator.nk` off the machine.** It can mint a new account, and a new
+account is a new tenant of your mesh. Nothing in a running deployment reads it;
+you need it again only to re-mint an account or to publish a revocation.
+
+Then a credential for each process, and point each at its file with
+`NATS_CREDS_FILE`:
+
+```
+controller mesh issue --out ./deploy/mesh/controller.creds --label controller
+controller mesh issue --out ./deploy/mesh/runner.creds     --label runner
+```
+
+For compose, apply the overlay, which does all of this wiring:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.mesh-auth.yml up -d --wait
+```
+
+For the chart, copy the values out of the generated `nats.conf` into
+`nats.auth`, create Secrets from the two credential files, and set
+`mesh.credentials`. The chart refuses combinations that would install cleanly and
+not work, naming what is missing.
+
+#### What the Controller holds, and what it does not
+
+NATS decentralized authentication has three keys, and which process holds which
+is the entire design:
+
+| Key | Who holds it | What it can do |
+|---|---|---|
+| Operator | Offline, you | Mint a new account, so a new tenant of the mesh |
+| Account identity | Offline, you | Re-mint the account itself |
+| Account signing | The Controller | Mint user credentials for that one account |
+
+The Controller holds the third and only the third, sealed under your
+`MASTER_ENCRYPTION_KEY` in the same envelope every other secret uses. That
+boundary is what keeps a Controller compromise an account compromise rather than
+a mesh compromise, and it is enforced rather than documented: the custody code
+derives a key's kind before storing it and refuses anything that is not an
+account key.
+
+#### What a compromised runner can still do
+
+This is the part worth reading before you rely on any of it. A stolen runner
+credential is scoped, not powerless. Within its scope it can still:
+
+- **Read every dispatch for the whole fleet, including the credentials inside
+  them.** The fleet shares one durable consumer, and scoping delivery per device
+  would need a per-device credential distribution path that does not exist yet.
+  This is the single largest residual risk and it is unchanged by this feature.
+- Publish logs, results and journal entries for any job id, so it can write
+  misleading history.
+- Take and hold the execution lease on any device, so it can stall work.
+
+What it **cannot** do, and could before: forge a job launch, widen the shared
+consumer to read a subject space it was not granted, cancel another job, or
+answer another runner's credential renewal.
+
+So the honest summary is that this shrinks the blast radius of reaching the
+broker, and does not shrink the blast radius of stealing a runner's credential.
+The dispatch payload is unchanged: authentication decides **who may read the
+stream**, not **what is written to it**. Size your broker retention on the
+assumption that the stream holds secrets.
+
+#### Credentials expire, and that is load bearing
+
+A credential is a bearer token valid until it expires. A runner's default window
+is 30 days; an edge or Smart Hands credential defaults to 12 hours and is meant
+to be shorter still.
+
+When one lapses the broker **evicts the connection**, and the client stops
+reconnecting rather than retrying forever. That is correct, and it fails quietly:
+the process is healthy and idle, and looks exactly like a runner with no work.
+Replace a credential before its expiry. `controller mesh issue` prints the date.
+
+#### Revocation is an offline operation
+
+Early revocation means adding the credential's public key to a revocation list
+inside the **account JWT**, re-signing that JWT with the operator or account
+identity key, and reloading the broker. Both of those keys are the ones you moved
+offline, deliberately, so this is a break-glass procedure rather than a control
+plane action. Measured against a real broker: a revoked user's live connection is
+closed, and the credential cannot reconnect.
+
+Two properties to know before planning around it. A revocation entry is a
+timestamp watermark keyed on a public key, so it means "everything issued for
+this key at or before this second" rather than "this one credential", and its
+coverage only ever widens. And the list has to reach the broker's resolver, which
+for the configuration this chart writes means a file and a reload.
+
+**If your exposure window matters, shorten expiry rather than planning to
+revoke.**
+
+#### Why not client certificates
+
+Identity rides in the credential rather than in a TLS client certificate on
+purpose. A client certificate is stripped by any L7 proxy that terminates the
+connection, which would put this feature in direct conflict with reaching the
+broker over `wss://` through exactly such a proxy. Carrying identity in the
+payload means the same credential works whether you reach the broker directly or
+through an ingress that terminates TLS.
 
 ### Blast radius is always computed, never authored
 

@@ -1,6 +1,6 @@
 {{- include "the-pleiades.validate" . -}}
 {{- define "the-pleiades.nats.configVolumes" -}}
-{{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+{{- if include "the-pleiades.nats.needsConfig" . }}
 - name: config
   configMap:
     name: {{ include "the-pleiades.nats.fullname" . }}-config
@@ -102,7 +102,7 @@ spec:
           image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
           imagePullPolicy: {{ .Values.nats.image.pullPolicy | quote }}
           args:
-            {{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+            {{- if include "the-pleiades.nats.needsConfig" . }}
             # Additive, not a replacement: the flags below stay the source
             # of truth for everything that was already a flag, and the file
             # carries only the tls and websocket blocks, which nats-server
@@ -155,11 +155,26 @@ spec:
                  controller and every runner actually dial, so that is what
                  readiness opens the endpoint list on.
 
-                 The honest limit: a TCP connect proves the listener is
-                 accepting, not that a client would be authorized. This chart
-                 configures no authorization at all, so today there is nothing
-                 between the two; a deployment that adds NATS credentials needs
-                 a richer probe than a Kubernetes tcpSocket can express. */}}
+                 The honest limit, and it got worse rather than better when
+                 nats.auth arrived: a TCP connect proves the listener is
+                 accepting, not that a client would be authorized. With
+                 nats.auth.enabled this probe still passes while every client
+                 is refused, so it now proves strictly less than it used to.
+
+                 That is not fixable here, and the reason is worth writing
+                 down so nobody tries. A probe runs INSIDE this container;
+                 authenticating to an operator-mode broker means signing the
+                 server's ed25519 nonce, and this image holds busybox and
+                 nats-server and nothing able to do that. No probe expressible
+                 in this pod can make the stronger claim.
+
+                 Where the claim does live: the controller's own /readyz,
+                 which queries its live NATS connection, so an authentication
+                 misconfiguration surfaces as a controller that never becomes
+                 ready rather than as a broker that reports unhealthy. The
+                 compose stack solves it differently again, by asserting the
+                 broker ADVERTISES auth_required; a Kubernetes probe has no
+                 equivalent. */}}
             tcpSocket:
               port: client
             initialDelaySeconds: 5
@@ -169,7 +184,7 @@ spec:
           resources:
             {{- toYaml .Values.nats.resources | nindent 12 }}
           volumeMounts:
-            {{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+            {{- if include "the-pleiades.nats.needsConfig" . }}
             - name: config
               mountPath: /etc/nats/nats.conf
               subPath: nats.conf
@@ -191,7 +206,7 @@ spec:
       branched on persistence and so silently dropped the config and TLS
       volumes in exactly that, the default, configuration.
       */}}
-      {{- $needsConfig := or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+      {{- $needsConfig := include "the-pleiades.nats.needsConfig" . }}
       {{- $needsData := or (not .Values.nats.persistence.enabled) .Values.nats.persistence.existingClaim }}
       {{- if or $needsConfig $needsData }}
       volumes:

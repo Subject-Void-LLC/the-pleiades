@@ -1,5 +1,5 @@
 {{- include "the-pleiades.validate" . -}}
-{{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+{{- if include "the-pleiades.nats.needsConfig" . }}
 {{/*
 The broker's configuration file, and the first one this chart has ever had.
 
@@ -22,6 +22,27 @@ metadata:
     {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 4 }}
 data:
   nats.conf: |
+    {{- if .Values.nats.auth.enabled }}
+    {{/*
+    Operator mode. Public material only: an operator JWT and the account
+    JWTs a broker needs to verify a credential's signature chain. No
+    private key reaches this ConfigMap, and none needs to, because user
+    credentials are never pushed to a NATS server. That is what makes
+    issuing one need no change here.
+
+    There is deliberately no jetstream block: -js and -sd are flags
+    already, and repeating a flag in this file makes nats-server exit at
+    boot.
+    */}}
+    operator: {{ .Values.nats.auth.operatorJWT }}
+    system_account: {{ .Values.nats.auth.systemAccountSubject }}
+    resolver: MEMORY
+    resolver_preload: {
+    {{- range $subject, $jwt := .Values.nats.auth.resolverPreload }}
+      {{ $subject }}: {{ $jwt }}
+    {{- end }}
+    }
+    {{- end }}
     {{- if .Values.nats.tls.enabled }}
     tls {
       cert_file: "/etc/nats/tls/tls.crt"

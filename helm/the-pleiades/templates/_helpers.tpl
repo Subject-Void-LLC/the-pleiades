@@ -484,3 +484,23 @@ nothing in the other two modes.
 {{- end -}}
 {{- join "," (uniq $names) -}}
 {{- end }}
+
+{{/*
+Whether the broker needs a configuration file mounted at all.
+
+Three features need one, and each of them is expressible ONLY as a file:
+nats-server takes a tls block, a websocket block and an operator-mode
+resolver from nowhere else. Everything else this chart sets stays a
+command line flag, which is deliberate and also load bearing: nats-server
+2.14.4 refuses a file that repeats a flag, so a jetstream block naming
+store_dir beside "-sd /data" exits the server at boot with "Duplicate
+'store_dir' configuration".
+
+Defined once because the same condition decides four separate things in
+nats-statefulset.yaml: the volumes define, the args guard, the volumeMount
+guard and $needsConfig. Four copies of one condition is how a feature gets
+added to three of them.
+*/}}
+{{- define "the-pleiades.nats.needsConfig" -}}
+{{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled .Values.nats.auth.enabled }}true{{ end }}
+{{- end -}}

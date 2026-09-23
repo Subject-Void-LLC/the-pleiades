@@ -347,9 +347,17 @@ services:
       #     refused.
       #
       # The honest limit that remains: this probe connects anonymously,
-      # exactly as the controller and the runner do today. If this stack is
-      # ever given NATS credentials, this probe needs the same ones or it
-      # will report a working broker as unhealthy.
+      # exactly as the controller and the runner do here.
+      #
+      # That is now a CHOICE rather than the only option.
+      # docker-compose.mesh-auth.yml is an overlay that turns this broker
+      # into an authenticating one, and it replaces this probe rather than
+      # trying to authenticate: a shell probe cannot sign the server's
+      # ed25519 nonce, and this image holds nothing that can. Its probe
+      # asserts the opposite instead, that the INFO line carries
+      # "auth_required":true, which is a stronger claim than PING getting
+      # PONG because it says enforcement is live. Measured against
+      # nats-server 2.14.4 rather than assumed.
       #
       # busybox wget and busybox nc both come from the alpine base, which
       # is the whole reason the -alpine tag above is not optional.

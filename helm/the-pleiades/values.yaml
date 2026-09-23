@@ -618,11 +618,34 @@ mesh:
   # the chart refuses to install.
   maxOutageSeconds: 1800
 
+  # -- The mesh credentials the controller and the runners present to the
+  # broker.
+  #
+  # Under mesh rather than under nats, for the same reason the budget is:
+  # these configure the CLIENTS, and pointing them at somebody else's
+  # already-authenticating broker (nats.enabled=false) is a supported
+  # profile. A credential parked under a disabled block would be a trap.
+  #
+  # EXISTING SECRETS ONLY. This chart will not take a credential as a
+  # value, for the reason templates/secret.yaml already writes down about
+  # the master key: anything passed with --set is stored in the Helm
+  # release secret and printed back by `helm get values`. Create the
+  # Secrets from `controller mesh issue` output and name them here.
+  credentials:
+    enabled: false
+    # -- Secret holding the controller's credential.
+    controllerSecret: ""
+    controllerSecretKey: controller.creds
+    # -- Secret holding the credential every runner replica presents.
+    runnerSecret: ""
+    runnerSecretKey: runner.creds
+
 nats:
   # -- Deploy NATS with JetStream as part of this release.
   #
-  # ON by default, single instance, no clustering, and NO AUTHORIZATION: any
-  # pod that can reach the Service can publish and subscribe. That matters
+  # ON by default, single instance, no clustering, and no authorization
+  # UNLESS nats.auth.enabled is set: without it, any pod that can reach the
+  # Service can publish and subscribe. That matters
   # more here than it looks, because a dispatch payload carries the
   # credentials the job runs with, and the stream retains messages. Restrict
   # it with a NetworkPolicy, or point externalNats at a broker with real
@@ -665,6 +688,34 @@ nats:
     enabled: false
     # -- Name of an existing Secret holding tls.crt and tls.key.
     secretName: ""
+
+  # -- Operator-mode authentication: require every client to present a
+  # minted credential, and refuse the ones it does not recognize.
+  #
+  # Everything in this block is PUBLIC material. An operator JWT and two
+  # account JWTs are what a broker needs to verify a credential's
+  # signature chain; no private key passes through Helm, and none needs
+  # to. That is a property of NATS decentralized auth rather than a
+  # convenience: user credentials are never pushed to the server, so
+  # issuing one needs no change here at all.
+  #
+  # `controller mesh init` generates every value below. Copy them from the
+  # nats.conf it writes.
+  #
+  # Turning this on WITHOUT mesh.credentials.enabled produces a broker
+  # that refuses its own controller and runners. The chart refuses that
+  # combination rather than installing it.
+  auth:
+    enabled: false
+    # -- The operator JWT this broker trusts.
+    operatorJWT: ""
+    # -- The system account's public key. JetStream refuses to START in
+    # operator mode without one, and it must also appear as a key of
+    # resolverPreload.
+    systemAccountSubject: ""
+    # -- Account public key to account JWT. Must carry the system account
+    # and this deployment's own account.
+    resolverPreload: {}
 
   service:
     clientPort: 4222
