@@ -322,6 +322,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 317. pkg/tftpxfer accepts NUL in a remote filename, and its fuzz test asserts only that nothing panics
 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
+320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

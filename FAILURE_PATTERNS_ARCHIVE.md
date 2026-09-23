@@ -9103,3 +9103,35 @@ it should.
 **Fix.** The fixture lists every one of the container's host keys under every address a test dials.
 
 **Lesson.** When a test pins host keys, pin all of the server's key types, or pin the algorithm too.
+
+## 320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated
+
+**Symptom.** Found by reading the source on 2026-09-23 while writing Phases 107a to 107c, not by a
+failing run. An interruptible execution is cancelled the first time one lease refresh fails, even with
+most of the lease still left. At the defaults (`execLeaseTTL` 5 minutes, `heartbeatInterval` 1 minute),
+one broker blip at the first tick aborts a run that had four minutes of valid lease remaining. On a
+disrupted link, where blips are the normal case, that turns every short outage into an aborted run.
+
+**Root cause.** `heartbeatInterval`'s doc comment (`internal/runner/agent_exec.go`) says the roughly 1:4
+ratio to the lease TTL is there "so a single missed tick is never mistaken for a genuine, sustained
+heartbeat loss". `Agent.heartbeat` does not implement that: on an interruptible run it logs "lost device
+lease heartbeat, self-aborting execution" and cancels on the first `KeepAlive` error. Nothing below it
+retries either. `natsLease.KeepAlive` (`internal/lock/nats.go`), in exclusive mode, makes one
+`publishWithTTL` call, which is one `PublishMsg` with no retry. The only test,
+`TestAgent_SelfAbort_InterruptibleCancelsExecution`, uses a lease whose `KeepAlive` fails every time, so
+it cannot tell "aborts on the first miss" from "aborts on sustained loss" and passes either way.
+Separately, `execLeaseTTL`'s comment still says `native.Adapter.Execute` "is still simulated", which has
+been false since Phase 16.
+
+**Fix.** Not fixed; recorded only. Fix it when the Runner's lease handling is next touched (Phase 103b
+moves `execLeaseTTL` into `internal/topology` as `DeviceLeaseTTL`, so that is the natural moment).
+Self-abort when the lease's own local deadline is about to pass with no successful refresh, not on the
+first error, so a miss is tolerated for as long as the lease is still valid. Add a test whose
+`KeepAlive` fails exactly once and then succeeds, and assert the run completes; keep the always-failing
+test to show sustained loss still aborts. Correct the stale "still simulated" sentence in the same
+change. The device agent's execution-space mode (Phase 107b) does not use this lease at all, so it
+neither inherits nor fixes the defect.
+
+**Lesson.** A comment that states a tolerance ("a single missed tick is never mistaken for...") is a
+claim, and it needs a test that exercises exactly that tolerance: one failure, then recovery. A test
+that only fails every time proves the alarm is wired, not that it is calibrated.
