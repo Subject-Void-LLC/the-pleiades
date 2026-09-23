@@ -104,6 +104,7 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("sshbastion", "sshbastion:2222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		t.Fatalf("failed to start toxiproxy container: %v", err)

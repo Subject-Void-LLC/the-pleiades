@@ -385,7 +385,7 @@ func startPostgres(tb testing.TB, ctx context.Context) string {
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 	)
 	if err != nil {
 		tb.Fatalf("starting the postgres container: %v", err)

@@ -44,13 +44,13 @@ func startProxied(t *testing.T) proxied {
 	t.Cleanup(func() { _ = nw.Remove(context.Background()) })
 	pg, err := testpg.Run(ctx, testsupport.PostgresImage,
 		testpg.WithDatabase("pleiades"), testpg.WithUsername("pleiades"), testpg.WithPassword("password"),
-		testpg.BasicWaitStrategies(), network.WithNetwork([]string{"postgres"}, nw))
+		testsupport.PostgresReady(), network.WithNetwork([]string{"postgres"}, nw))
 	if err != nil {
 		t.Fatalf("starting postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(pg) })
 	toxi, err := tctoxiproxy.Run(ctx, testsupport.ToxiproxyImage,
-		tctoxiproxy.WithProxy("postgres", "postgres:5432"), network.WithNetwork([]string{"toxiproxy"}, nw))
+		tctoxiproxy.WithProxy("postgres", "postgres:5432"), network.WithNetwork([]string{"toxiproxy"}, nw), testsupport.ToxiproxyReady())
 	if err != nil {
 		t.Fatalf("starting toxiproxy: %v", err)
 	}

@@ -88,6 +88,7 @@ func TestChaos_SeveringTheConnectionMidSession(t *testing.T) {
 		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("netconf", "netconfserver:830"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		t.Skipf("could not start the toxiproxy container: %v", err)

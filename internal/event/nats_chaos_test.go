@@ -51,6 +51,7 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("nats", "nats:4222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		t.Fatalf("failed to start toxiproxy container: %v", err)

@@ -86,7 +86,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 		network.WithNetwork([]string{"postgres"}, nw),
 	)
 	if err != nil {
@@ -106,6 +106,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		tctoxiproxy.WithProxy("postgres", "postgres:5432"),
 		tctoxiproxy.WithProxy("nats", "nats:4222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		tb.Fatalf("starting the toxiproxy container: %v", err)

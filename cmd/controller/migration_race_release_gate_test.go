@@ -61,7 +61,7 @@ func gatePostgres(t *testing.T) string {
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
 		testcontainers.WithCmdArgs("-c", "max_connections=300"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 	)
 	if err != nil {
 		t.Fatalf("starting postgres: %v", err)
