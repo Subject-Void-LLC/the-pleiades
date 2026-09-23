@@ -16,7 +16,7 @@ Reads every tag the targeted Catalyst Center knows about, and separates the cont
 | Transports | `https` |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

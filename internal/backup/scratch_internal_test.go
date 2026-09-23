@@ -35,7 +35,7 @@ func loadedScratch(t *testing.T) *scratch {
 	ctx := context.Background()
 	pg, err := testpg.Run(ctx, testsupport.PostgresImage,
 		testpg.WithDatabase("pleiades"), testpg.WithUsername("pleiades"), testpg.WithPassword("password"),
-		testpg.BasicWaitStrategies())
+		testsupport.PostgresReady())
 	if err != nil {
 		t.Fatalf("starting postgres: %v", err)
 	}

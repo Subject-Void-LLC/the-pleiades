@@ -31,7 +31,7 @@ func BenchmarkPostgresAdvisoryLock(b *testing.B) {
 		testpg.WithDatabase("pleiades_bench"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("password"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 	)
 	if err != nil {
 		b.Fatalf("failed to start postgres container: %v", err)

@@ -16,7 +16,7 @@ Extracts src into dest, where src is an archive already present on the target --
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

@@ -15,11 +15,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/testcontainers/testcontainers-go"
-	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
 	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // This file is Phase 96a's Release Gate. Both tests are throwaway
@@ -64,21 +61,15 @@ func natsThroughToxiproxy(t testing.TB) (string, *toxiproxyclient.Proxy) {
 	}
 	t.Cleanup(func() { nw.Remove(context.Background()) })
 
-	natsContainer, err := tcnats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-		network.WithNetwork([]string{"nats"}, nw),
-	)
-	if err != nil {
-		t.Fatalf("failed to start nats container: %v", err)
-	}
-	t.Cleanup(func() { natsContainer.Terminate(context.Background()) })
+	// The alias is what the proxy's upstream resolves, so it is passed
+	// explicitly rather than defaulted: "nats:4222" below is this line.
+	testsupport.StartNATS(t, testsupport.WithNATSNetwork(nw, "nats"))
 
 	toxiproxyContainer, err := tctoxiproxy.Run(ctx,
 		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("nats", "nats:4222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		t.Fatalf("failed to start toxiproxy container: %v", err)

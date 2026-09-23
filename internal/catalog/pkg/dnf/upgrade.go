@@ -18,7 +18,7 @@ func init() {
 			RequiredCapabilities: []capability.Name{capability.NameDnf},
 			ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
 			PlatformTargets:      nil,
-			EngineVersion:        ">=1.0.0",
+			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			// It asks rpm before it acts, so a check can predict through the same code (CheckUpgrade).
 			SupportsCheck: true,

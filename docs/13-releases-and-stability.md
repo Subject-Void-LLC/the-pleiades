@@ -26,11 +26,30 @@ types exist and are ready to record one the first time it happens.
 
 ## Versioning and deprecation policy
 
-Not decided yet. Every binary reports its version (`pleiades version`, `runner
-version`, `controller version`): a release build's own version, or
-`0.0.0-dev+<commit>` for anything else, until a real release process sets it at
-build time. No semver commitment, support window, or deprecation notice period has
-been published.
+Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
+(`pleiades version`, `runner version`, `controller version`): a release build's
+version, or `0.0.0-dev+<commit>` for anything else, since no release process stamps
+one at build time yet.
+
+**Before 1.0.0, a minor release may break compatibility**, and each one is a step
+along a planned ladder rather than a point on a support calendar. A patch release
+never breaks anything. What that means in practice:
+
+- Anything documented as `status: beta` or narrower may change shape in the next
+  minor release. Check the badge at the top of a page before depending on what it
+  describes.
+- The two contracts below are the exceptions, and they hold from the first release
+  rather than from 1.0.0: the database schema's compatibility window, and the
+  external Collection protocol version.
+- A Collection method's `engineVersion` constraint names the oldest engine it runs
+  on, so a method built against one release states that release rather than a round
+  number. Today every built-in method declares the release it ships in.
+
+**1.0.0 is the first release whose stored data has to survive an upgrade**, and the
+compatibility promises below are measured from it.
+
+No support window or deprecation notice period has been published yet. When one is,
+it will be here.
 
 ### The database schema's compatibility window
 

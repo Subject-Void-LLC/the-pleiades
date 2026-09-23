@@ -75,7 +75,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// True means this method can ever emit an inverse, not that
 			// every run does. Which inverse it is cannot be declared here,

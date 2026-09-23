@@ -236,6 +236,19 @@ func main() {
 		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
 	}
 
+	// The mesh identity this process authenticates as, when the broker
+	// requires one. Unset is today's arrangement and stays the default,
+	// so an existing deployment upgrades without changing anything; the
+	// credential is refused at startup rather than at some later dial if
+	// it is named and unreadable.
+	meshCreds, err := topology.CredentialsFromEnv(os.Getenv(topology.CredentialsEnv))
+	if err != nil {
+		log.Fatalf("invalid NATS credential: %v", err)
+	}
+	if meshCreds != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithCredentials(meshCreds))
+	}
+
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
 	// Pleiades stream (topology.EnsureStream) exists.

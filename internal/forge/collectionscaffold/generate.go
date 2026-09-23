@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 )
 
 // GeneratedFile is one file Generate produces: a path relative to the
@@ -113,10 +115,17 @@ func renderAndFormat(tmpl *template.Template, data templateData) ([]byte, error)
 //
 // It exists because the alternative was emitting EngineVersion: "", and
 // an empty constraint is not a permissive one, it is a field that says
-// nothing. Every hand-written manifest in this catalog already declares
-// ">=1.0.0", so a generated one that declared nothing was the odd entry
-// out and gave a reader no way to tell "no opinion" from "forgot".
-const DefaultEngineVersion = ">=1.0.0"
+// nothing. Every manifest in this catalog declares this same value, so a
+// generated one that declared nothing was the odd entry out and gave a
+// reader no way to tell "no opinion" from "forgot".
+//
+// It is the release line this tree is on, not a round number. It used to
+// be ">=1.0.0", which read as a harmless placeholder and was not one: the
+// loader refuses a method whose minimum the running build does not meet,
+// so every method in the catalog would have been refused by the first real
+// release, which is 0.2.0 and not 1.0.0. internal/forge/externalscaffold
+// already reasoned its way to this rule for the programs it generates.
+const DefaultEngineVersion = ">=" + buildinfo.CurrentRelease
 
 // engineVersionOrDefault fills in DefaultEngineVersion for an unset
 // constraint, leaving any explicit value alone.

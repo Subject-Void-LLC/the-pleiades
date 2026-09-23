@@ -55,6 +55,7 @@ var adminCommands = map[string]adminCommand{
 	"bootstrap-admin": runBootstrapAdmin,
 	"reset-password":  runResetPassword,
 	"unlock":          runUnlock,
+	"mesh":            runMesh,
 }
 
 // adminDeps is the minimum a subcommand needs.
@@ -140,6 +141,17 @@ Administrative commands, run on the host rather than over HTTP:
                                       revoke all of its sessions
   unlock          --email <address>   clear a lockout without changing the
                                       password
+
+Mesh identity, for authenticating the message bus:
+
+  mesh init       --dir <path>        mint the operator and account keys,
+                                      store the signing key sealed here, and
+                                      write the broker's configuration plus
+                                      the OFFLINE operator key to <path>
+  mesh issue      --out <path>        issue a runner's credential from the
+                                      stored signing key
+  mesh show                           report which account this deployment
+                                      signs for, and with which key
 
 One command that makes the secrets the others need:
 

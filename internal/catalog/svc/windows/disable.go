@@ -21,7 +21,7 @@ func init() {
 				RequiresElevation: true,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// It reads the service before it acts, so a check can predict
 			// through the same code (CheckDisable).

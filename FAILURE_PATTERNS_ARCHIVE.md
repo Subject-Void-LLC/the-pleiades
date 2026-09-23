@@ -8834,3 +8834,138 @@ Nothing run locally could have caught it, and that is the point: every local che
 **Fix.** `setupEnv` moved to `cmd/controller/childenv_test.go`, which carries no build constraint, with a doc comment recording why it is not beside the gate that used to own it. The refusal gate stays unconstrained and now compiles everywhere. Verified across six combinations before pushing again: `GOOS` of linux, windows and darwin, each with the default tags and with `-tags integration`.
 
 **Lesson.** Before calling a Go change verified, vet it for every operating system CI builds, not only the host: `GOOS=windows go vet ./...` and `GOOS=darwin go vet ./...`, under both tag sets, takes seconds. And when reaching for a helper in another test file, read that file's FIRST LINE. A build constraint on a file is a constraint on every symbol in it, including the ones that have no reason to be platform-specific and are only there because a neighbor needed a terminal.
+
+## 304. A configuration file repeated a flag the deployment already passed, and the broker exited at boot
+
+**Symptom.** Found while giving every NATS test container the deployment's own flag list in Phase 101c. Two Release Gates that had passed for weeks began failing with `starting an operator-mode broker: container exited with code 1`, which names nothing. The broker's own log, once the start helper was made to print it, said: `nats-server: /etc/nats/nats.conf:10:3: Duplicate 'store_dir' configuration`.
+
+**Root cause.** The gate's configuration file carried `jetstream: { store_dir: /data }` because its broker had been started with `-c` ALONE, replacing the flags rather than adding to them. Once the shared helper passed `NATSCommand()` as well, the flag list already carried `-sd /data` and nats-server 2.14.4 refused the file for stating it twice. A configuration file and a flag list are additive for settings that appear in only one of them and FATAL for a setting that appears in both, which is not how "additive" reads.
+
+**Fix.** The block was deleted from the gate's configuration, and the rule is now stated where it will be read: a setting expressible as a flag belongs in the flag list and nowhere else, so a configuration file carries only what nats-server accepts from nowhere else. The same rule is written into the Helm chart's `nats-config.yaml`, `controller mesh init`'s generated output and `testsupport.WithNATSConfig`'s doc comment, because all three now emit such a file. It was also the independent confirmation of a design decision already taken for the chart on other grounds.
+
+**Lesson.** See `LESSONS_LEARNED.md` #221.
+
+## 305. A shared test helper's cleanup ran after the test's own defers, so a leak check inspected a live container
+
+**Symptom.** Migrating 33 container starts onto one helper turned `internal/election`'s three-replica gate red with `found unexpected goroutines`, naming testcontainers' OWN reaper connection. That is the exact signature `flaky-packages.json` already records for a different package, so the obvious reading was the known flake. Running the UNMIGRATED file proved otherwise: it passed, every time.
+
+**Root cause.** The test opens with `defer goleak.VerifyNone(t)`, and the original terminated its container with a `defer` registered LATER. Deferred calls run last-in-first-out, so termination happened first, entirely by accident and with nothing written down about it. A shared helper cannot use `defer`, because it returns; it must register cleanup with `tb.Cleanup`, which runs after every defer in the test. So the leak check began running while the container, and the reaper connection it holds open, were still alive.
+
+**Fix.** The test registers `t.Cleanup(func() { goleak.VerifyNone(t) })` BEFORE starting the broker, so cleanup's own last-added-first-called order runs it after termination. `cmd/controller`'s leader election gate already had exactly this shape with a comment explaining it; `internal/election` now matches. The comment records why the old form worked, so the next person does not restore it.
+
+**Lesson.** See `LESSONS_LEARNED.md` #221.
+
+## 306. An assertion that a key was absent from the database searched for plaintext the schema always encrypts
+
+**Symptom.** A Release Gate for `controller mesh init` asserted that the operator key is never stored, by reading the SQLite file and searching it for the key's bytes. It passed. Falsifying it, by planting a deliberate leak, ALSO passed.
+
+**Root cause.** The column is sealed by the envelope hook before it is written, so the plaintext seed never appears in the file whether or not the key was stored. The assertion was searching for something that can never be there. It was a test that could not fail, and it was guarding the single most important property in the phase: that a Controller compromise is an account compromise rather than a mesh compromise.
+
+**Fix.** The assertion is now structural rather than textual. nkeys prefixes a public key by its kind, `O` for an operator and `A` for an account, and the public key is stored beside the sealed seed precisely so questions about it need no decryption. So the gate asserts every stored row names an account-kind key and none names the operator's, which is visible however the seed is encrypted. Re-falsified: the planted leak now fails with both messages. The same attempt also revealed a real protection nobody had designed deliberately, `meshkey.Save` refusing a non-account seed because it derives the public key through a kind check, now pinned by its own test.
+
+**Lesson.** See `LESSONS_LEARNED.md` #222.
+
+## 307. A signature-forgery test flipped base64 padding bits again, in a different package, and caught a forgery that had never been forged
+
+**Symptom.** Phase 101c's `TestReleaseGate_ACredentialEditedAfterSigningIsRefused` passed when written and passed on several runs afterwards, then failed under a `-race` sweep with "a credential edited after signing was ACCEPTED; the signature chain is not being checked". The failing subtest was always `the signature is altered`, and it failed in 0.00s where a passing run takes 0.27s, which is the shape of a connection that succeeded immediately rather than one that was refused. Run five more times it failed roughly one run in three.
+
+**Root cause.** This is `FAILURE_PATTERNS.md` #75 recurring in a different package, and the mechanism is the one that entry names: the test tampered with base64 PADDING BITS rather than with the signature. The helper flipped the LAST character of a segment. An Ed25519 signature is 64 bytes, which base64url encodes as 86 characters carrying 516 bits, so the final character holds four bits that decode to nothing at all. Flipping it frequently leaves the decoded signature byte for byte identical, so the broker was handed a credential nobody had actually altered and correctly accepted it. The test then reported a security hole that did not exist, intermittently, which is the worst available combination: it is alarming, it is not reproducible on demand, and the alarming reading is wrong.
+
+**Fix.** Flip the FIRST character instead. Its six bits are always significant, in every segment, whatever the segment's length. Five consecutive runs green, where the previous version failed about one in three. The reason is written into the helper's own doc comment with a pointer to #75, because the broken version and the correct version differ by one index and look equally reasonable.
+
+**Lesson.** See `LESSONS_LEARNED.md` #224.
+
+## 308. Two WAL tests leaked a NATS bus each, and a durability wait was bounded as if it were a performance claim
+
+**Symptom.** `make ci` failed with `TestAgent_ReportResult_SuccessfulExecutionFlushesToWAL` and three siblings in `internal/runner` timing out together at exactly ten seconds, the output full of `connect: connection refused` for ports no running test owned. The package passed alone in twenty five seconds. It is listed in `flaky-packages.json`, and the first instinct recorded in this session was to tolerate it as contention.
+
+**Root cause.** Two separate defects. `agent_nats_test.go` created a NATS bus twice and closed neither, and `topology.DialOptions` sets `MaxReconnects(-1)` on purpose, so each went on dialling a container that had died at the end of its test, for the rest of the package run. And the WAL path those four tests wait on fsyncs twice, in `fileWAL.Append` and in the temp file rewrite `Acknowledge` performs; on an idle disk that is milliseconds, and under `make test-race` beside twenty seven container packages it is not, so a ten second wall clock bound was asserting a speed none of the tests meant to assert.
+
+**Fix.** Both buses are closed with `defer`, so the client closes before `StartNATS` terminates the server in its `t.Cleanup`. The bound is `agentSettleTimeout`, sixty seconds, named once and used at all twenty one call sites with the margin written down. The wait stopped being a two millisecond spin.
+
+**Lesson.** The user's instruction was "I don't care whose it is, we fix it", and it was right: a package on the flake list got no protection from a real defect, which is exactly what CLAUDE.md warns the list can become. Two things measured along the way are worth keeping. `GOMAXPROCS=1` reproduced nothing, which ruled out the first theory (CPU starvation) in seconds rather than by argument. And the falsification of the bus fix was INCONCLUSIVE, since an isolated run ends before a leaked bus logs anything, so the fix was kept for being correct rather than claimed as proven.
+
+## 309. `FAILURE_PATTERNS.md` #301 fixed, and the compensating assertion written with it compared a map with itself
+
+**Symptom.** `make ci` failed `TestLineChecks_PredictWhatARealRunLeaves` with `predicted mtime = 1790183117, the run left 1790183118`, which is #301, recorded eight days earlier and deliberately left because the branch that found it did not own the package.
+
+**Root cause.** #294's, applied here: the check acts on `checkPath` and the run on `runPath`, written a moment apart, so for a run that changes nothing the prediction reports one file's mtime and the run leaves another's. Equality held only when both writes landed in the same second.
+
+**Fix.** mtime is compared as a bound, #294's form: the run's no earlier than the check's and at most a minute later. Every other field is still compared exactly.
+
+**The part worth reading.** Relaxing an equality needs something to keep holding the property the equality stood for, here "a run that changes nothing does not touch the file". The first version compared the run's own recorded before and after, and a deliberate fault walked straight past it: `sdk.Unchanged(state)` returns `Diff{Before: state, After: state}`, the SAME map for both halves, so the "after" of a no-op is never observed at all. It is the "before" reused. The assertion now stats the file on disk before and after the run, and the same fault fails it. Four controls, each by a temporary edit: the run one second later passes, five seconds earlier fails, a changed non-clock field fails, and a no-op that touched its file fails.
+
+**Lesson.** See `LESSONS_LEARNED.md` #226.
+
+## 310. Every postgres and toxiproxy container waited for readiness under a sixty second deadline nobody chose
+
+**Symptom.** `make ci` failed `internal/backup`'s `TestRestore_ACutConnectionChangesNothingAndTheNextRunCleansUp` with `wait until ready: external check ... get state ... context deadline exceeded` after 561 polls and exactly sixty seconds. It passed alone. The previous session's handoff had classified the same failure as contention.
+
+**Root cause.** testcontainers' `WithWaitStrategy` and `WithAdditionalWaitStrategy` both build `wait.ForAll(...).WithDeadline(60 seconds)`, and the postgres module's `BasicWaitStrategies` is built on the second. So all thirteen postgres starts and all eight toxiproxy starts in the repository waited under a hardcoded minute, while every NATS start waited under `testsupport.ContainerStartupTimeout`, two. Under full load the readiness loop polls a slow Docker daemon and the shorter one runs out. `flaky-packages.json` had already named this defect for `tests/e2e`'s chaos harness and said "fixable; fix it and remove this name".
+
+**Fix.** `testsupport.PostgresReady` and `ToxiproxyReady` restate each module's own readiness condition under `ContainerStartupTimeout`, and all twenty one sites use them. `TestNoContainerWaitsUnderTheLibraryDeadline` fails if any site calls `BasicWaitStrategies` or starts toxiproxy without the bound; `TestTheLibraryDefaultIsTheDefect` pins the upstream sixty seconds so a dependency bump that removes it is noticed. `TestChaos_PostgresSeverance` came off `flaky-packages.json`.
+
+**Why they REPLACE rather than wrap.** Wrapping the module's strategy in a longer outer deadline is the obvious fix and does nothing: a `ForAll` with a deadline runs its children under `context.WithTimeout` of that deadline, so the inner sixty seconds still fires first. The deadline field is unexported, which is why the tests read it through reflection rather than waiting two minutes for a container that never becomes ready.
+
+**Lesson.** See `LESSONS_LEARNED.md` #225.
+
+## 311. The roadmap's own "what to build next" ranked on the phase number and contradicted the release beside it
+
+**Symptom.** The dashboard printed `Phase 35: Ansible Playbook Migration v0.3.0` at position `#5`,
+directly after `Phase 28: The Notification Engine v0.5.0` at `#4`. Two numbers the same row shows,
+saying opposite things about what to build first. Measured across the queue, 46 of the 67 unfinished
+phases sat at a release the order had already passed.
+
+**Root cause.** `todo_order()` in `.SPECIFICATION/implementation.py` is a topological sort over the
+`**Depends on:**` keys, and its `rank()` was `(in progress before not started, phase number)`. The
+release a phase ships in was never a term. So the queue opened with Phases 24, 26, 27 and 28, the
+whole v0.5.0 AWX parity block, for no reason except that 24 is the lowest-numbered phase nothing
+blocks. The `**Version:**` keys themselves were never wrong: all 124 parse, and no phase ships before
+a phase it depends on.
+
+A second fault hid inside the first. The cycle-breaking branch searched the entire pending set, so it
+could only fire once everything else was placed. Phases 75 and 76 depend on each other and are
+therefore never "available", which pushed both past Phase 100 at v1.3.0, five releases beyond where
+they belong.
+
+**Fix.** `rank()` takes the release first, through a new `version_key()` over a new `RELEASE_RE`. The
+cycle break is scoped to the lowest release still pending, so a cycle inside one release is broken
+where it lives. 46 regressions became 0, and Phase 75 is now cycle-broken at position 46 inside its
+own v0.7.0 band. Nothing else moved: no version changed, no phase moved in the file, no phase split.
+
+**What made it invisible.** Both numbers were correct in isolation, and each had its own author. The
+contradiction existed only in their juxtaposition, which no check looked at because nothing read the
+two together. `summary.version_problems` now does, and the suggested-order check is the one entry in
+it with a real before and after.
+
+**Lesson.** See `LESSONS_LEARNED.md` #227.
+
+## 312. Every Collection manifest required an engine version no release before 1.0.0 could have met
+
+**Symptom.** None yet, which is the point: it would have appeared in full on the first stamped release
+build and not one moment earlier. All 75 built-in manifests, `catalogdata`'s shared constant, and
+`collectionscaffold.DefaultEngineVersion` declared `EngineVersion: ">=1.0.0"`, published in 81 entries
+of `docs/reference/schemas/module-catalog.json`. The roadmap reaches v1.0.0 at Phase 106d, and the
+first release is v0.2.0, one phase from done.
+
+**Root cause.** `internal/loader/version.go`'s `checkEngineVersion` refuses a method whose minimum the
+running build does not meet, but it cannot compare against a development build: every unstamped build
+reports `0.0.0-dev`, so the constraint was reported unchecked and loaded with a warning. Nothing in
+the repository is a release build, so nothing ever ran the comparison. Proven after the fact with a
+throwaway test: `checkEngineVersion(">=1.0.0", "0.2.0")` returns `requires engine >=1.0.0, and this
+build is 0.2.0`.
+
+The value was documented as a placeholder in both places that declared it, which is what kept it
+alive. `internal/forge/externalscaffold/config.go` had already reasoned its way to the correct rule
+for the programs it generates, and said in its own comment that a fixed guess "such as >=1.0.0 would
+be refused by the first release that did not meet it". Two scaffolds in one package tree disagreed,
+and one of them explained why the other was wrong.
+
+**Fix.** `buildinfo.CurrentRelease` is the one declared release line this tree is on.
+`collectionscaffold.DefaultEngineVersion` is `">=" + buildinfo.CurrentRelease`, `catalogdata` refers
+to that rather than restating it, and the 75 emitted manifests were rewritten to what a fresh
+generation now produces. `TestDefaultEngineVersionLoadsOnTheCurrentRelease` runs the real unexported
+comparison against a stamped release, which is the only way to ask the question before such a build
+exists.
+
+**Lesson.** See `LESSONS_LEARNED.md` #228.

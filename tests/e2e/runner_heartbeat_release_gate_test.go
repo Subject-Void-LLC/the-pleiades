@@ -41,7 +41,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // heartbeatGateMaxAge is the staleness limit this gate probes with.
@@ -154,28 +153,12 @@ func TestRunnerHeartbeatReleaseGate_SeveredBrokerIsDetected(t *testing.T) {
 // cleanup tolerates a container that is already gone.
 func startDisposableNATS(t *testing.T, ctx context.Context) (testcontainers.Container, string) {
 	t.Helper()
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        testsupport.NATSImage,
-			ExposedPorts: []string{"4222/tcp"},
-			Cmd:          []string{"-js"},
-			WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatalf("starting the nats container: %v", err)
-	}
-	// Terminating an already-terminated container is not an error worth
-	// failing a passing test over: this gate destroys it on purpose.
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
-
-	endpoint, err := container.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("reading the nats endpoint: %v", err)
-	}
-	return container, "nats://" + endpoint
+	// The container handle is returned because this gate destroys the
+	// broker on purpose partway through. Terminating an already
+	// terminated container is not an error worth failing a passing test
+	// over, and StartNATS's own cleanup already tolerates that.
+	b := testsupport.StartNATS(t)
+	return b.Container, b.URL()
 }
 
 // waitForHealthcheck polls the real `runner healthcheck` subcommand until

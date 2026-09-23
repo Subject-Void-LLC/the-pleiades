@@ -10,12 +10,10 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
 )
 
 // This file measures what Phase 96d's prose asserts, because a claim about
@@ -84,17 +82,14 @@ websocket {
   port: 8080
   no_tls: true
 }
-`, nil, "8080")
+`, "8080")
 
 	dir := b.TempDir()
 	cert, err := tlscert.Generate(dir, tlscert.Options{ExtraNames: []string{"localhost"}})
 	if err != nil {
 		b.Fatalf("generating a serving certificate: %v", err)
 	}
-	tlsFiles := []testcontainers.ContainerFile{
-		{HostFilePath: filepath.Join(dir, tlscert.CertFileName), ContainerFilePath: "/etc/nats/tls/cert.pem", FileMode: 0o644},
-		{HostFilePath: filepath.Join(dir, tlscert.KeyFileName), ContainerFilePath: "/etc/nats/tls/key.pem", FileMode: 0o600},
-	}
+	tlsOpts := servingCertOptions(b, dir)
 	secureEndpoint := natsWithConfig(b, `
 tls {
   cert_file: "/etc/nats/tls/cert.pem"
@@ -107,7 +102,7 @@ websocket {
     key_file: "/etc/nats/tls/key.pem"
   }
 }
-`, tlsFiles, "8080")
+`, "8080", tlsOpts...)
 
 	// The plaintext broker's websocket port is the one natsWithConfig
 	// mapped; its client port is not published, so the plaintext pair is
@@ -117,13 +112,13 @@ websocket {
 	// client listener, which is why only the websocket half of each pair
 	// is reachable here and the two plain-client cases go through the
 	// same helper with the client port named instead.
-	plainClient := natsWithConfig(b, "", nil, "4222")
+	plainClient := natsWithConfig(b, "", "4222")
 	secureClient := natsWithConfig(b, `
 tls {
   cert_file: "/etc/nats/tls/cert.pem"
   key_file: "/etc/nats/tls/key.pem"
 }
-`, tlsFiles, "4222")
+`, "4222", tlsOpts...)
 
 	for _, tc := range []struct {
 		name string

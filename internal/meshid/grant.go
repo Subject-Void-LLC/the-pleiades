@@ -126,6 +126,19 @@ func FleetRunnerGrant(name string) Grant {
 			// to the reply subject JetStream stamped on the delivery.
 			ackSpace(topology.StreamName, topology.DispatchDurableName),
 			ackSpace(topology.StreamName, topology.CheckDurableName),
+
+			// Asking the control plane for a fresh credential before this
+			// one lapses. Without it a Runner authenticates perfectly,
+			// works perfectly, and goes permanently silent one credential
+			// window after it started, because the broker evicts an
+			// expired connection and nats.go stops retrying after the
+			// same authentication error twice. That failure looks exactly
+			// like a Runner with no work.
+			//
+			// It grants no authority the holder did not have: only a
+			// process that can already publish here has an identity to
+			// renew at all.
+			topology.MeshRenewSubject(),
 		},
 		Sub: []string{
 			inboxPattern,
@@ -231,8 +244,27 @@ func ControllerGrant(name string) Grant {
 			fmt.Sprintf("$JS.API.CONSUMER.MSG.NEXT.%s.>", topology.StreamName),
 			fmt.Sprintf("$JS.API.CONSUMER.DELETE.%s.>", topology.StreamName),
 			fmt.Sprintf("$JS.ACK.%s.>", topology.StreamName),
+
+			// Answering a renewal. A reply is a PUBLISH to whatever inbox
+			// the requester put in its reply field, so serving a
+			// request/reply service needs publish rights over the inbox
+			// space as well as the subscribe rights below.
+			//
+			// This is the entry most likely to be left out, because
+			// _INBOX already appears under Sub and looks handled. Leaving
+			// it out produces a Controller that receives every renewal
+			// request and answers none of them, which surfaces at the
+			// Runner as a plain timeout naming nothing.
+			inboxPattern,
 		},
-		Sub: []string{inboxPattern},
+		Sub: []string{
+			inboxPattern,
+
+			// Renewal requests from the fleet. The Controller is the only
+			// principal that may read these, because it is the only one
+			// holding a signing key to answer with.
+			topology.MeshRenewSubject(),
+		},
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -148,8 +149,12 @@ func TestRunDoc_JSONFullCatalog(t *testing.T) {
 	if entry.Status != collection.StatusImplemented {
 		t.Errorf("net.catalyst.device_facts Status = %q, want %q", entry.Status, collection.StatusImplemented)
 	}
-	if !strings.Contains(out, ">=1.0.0") {
-		t.Error("runDoc(--json) output should contain a plain, unescaped \">=1.0.0\" engineVersion, not an HTML-escaped one")
+	// The constraint, read from the catalog's own constant rather than written out: the claim
+	// under test is that ">" survives as itself instead of becoming "&gt;", not what the release
+	// line happens to be. A hardcoded copy here is how ">=1.0.0" outlived being correct.
+	if !strings.Contains(out, collectionscaffold.DefaultEngineVersion) {
+		t.Errorf("runDoc(--json) output should contain a plain, unescaped %q engineVersion, not an HTML-escaped one",
+			collectionscaffold.DefaultEngineVersion)
 	}
 }
 

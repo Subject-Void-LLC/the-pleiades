@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
 
@@ -67,21 +68,125 @@ func TestCredentialOptionRejectsAMalformedCredential(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			opt, err := topology.CredentialOptionForTest(tc.creds)
+			// Asserted against validateCredential rather than against
+			// credentialOption, and the move is the point rather than a
+			// convenience. Since a credential may now be supplied as a
+			// SOURCE that is re-read on every reconnect, credentialOption
+			// cannot parse eagerly: there is nothing to parse until a
+			// callback asks. So the refusal moved to where it still
+			// happens before any dial, which is what Connect calls and
+			// what CredentialsFromEnv calls, and both are covered below.
+			err := topology.ValidateCredentialForTest(tc.creds)
 			if err == nil {
-				t.Fatalf("credentialOption(%q) returned an option and no error; a malformed credential must be refused before any dial", tc.creds)
-			}
-			if opt != nil {
-				t.Error("credentialOption returned both an option and an error")
+				t.Fatalf("validateCredential(%q) returned no error; a malformed credential must be refused before any dial", tc.creds)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("credentialOption error = %v, want it to name the %s it could not read", err, tc.want)
+				t.Errorf("error = %v, want it to name the %s it could not read", err, tc.want)
 			}
 			// The one thing the error must never carry is the credential.
 			if len(tc.creds) > 0 && strings.Contains(err.Error(), string(tc.creds)) {
-				t.Errorf("credentialOption error = %v, which quotes the credential body back", err)
+				t.Errorf("error = %v, which quotes the credential body back", err)
 			}
 		})
+	}
+}
+
+// mintTestCredential builds a well formed .creds body with a real user
+// seed and a token unique to this call.
+//
+// The token is not a valid JWT and does not need to be: these tests never
+// reach a broker, and nkeys.ParseDecoratedJWT only strips the armor
+// around a token rather than validating it, which is a property this
+// file's malformed-credential table already pins. What matters is that
+// the seed is real, so signing works, and that two calls differ, so a
+// test can tell one credential from another.
+func mintTestCredential(t *testing.T) []byte {
+	t.Helper()
+	kp, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatalf("creating a user key: %v", err)
+	}
+	defer kp.Wipe()
+	seed, err := kp.Seed()
+	if err != nil {
+		t.Fatalf("reading the seed: %v", err)
+	}
+	pub, err := kp.PublicKey()
+	if err != nil {
+		t.Fatalf("reading the public key: %v", err)
+	}
+	return []byte("-----BEGIN NATS USER JWT-----\n" + "token." + pub + "\n------END NATS USER JWT------\n\n" +
+		"-----BEGIN USER NKEY SEED-----\n" + string(seed) + "\n------END USER NKEY SEED------\n")
+}
+
+// TestCredentialCallbacksRefuseAMalformedCredentialAtReconnectToo covers
+// the branch a pre-dial check cannot reach.
+//
+// A source is re-read on every reconnect, so it can hand back something
+// unusable long after Connect validated the first answer: a file replaced
+// with a truncated one, or a renewal that returned nonsense. The driver
+// calls these two callbacks and nothing else, so they are where that has
+// to be caught, and an error from them must still never carry the body.
+func TestCredentialCallbacksRefuseAMalformedCredentialAtReconnectToo(t *testing.T) {
+	answer := []byte("not a credential")
+	opt, err := topology.CredentialSourceOptionForTest(func() ([]byte, error) {
+		return answer, nil
+	})
+	if err != nil {
+		t.Fatalf("building the option: %v", err)
+	}
+
+	var o nats.Options
+	if err := opt(&o); err != nil {
+		t.Fatalf("applying the option: %v", err)
+	}
+	if o.SignatureCB == nil {
+		t.Fatal("the option set no signature callback, so nothing would sign the server nonce")
+	}
+
+	if _, err := o.SignatureCB([]byte("nonce")); err == nil {
+		t.Error("the signature callback accepted a malformed credential; a reconnect would present garbage")
+	} else if strings.Contains(err.Error(), string(answer)) {
+		t.Errorf("the signature callback error quotes the credential body back: %v", err)
+	}
+}
+
+// TestCredentialSourceIsReReadOnEveryCall is the property
+// WithCredentialSource exists for, and the one WithCredentials cannot
+// have.
+//
+// nats.go calls these callbacks again on every reconnect, so a source
+// that has since been handed a fresh credential must be honored. A dial
+// path that parsed once and cached would return the first answer forever,
+// which is how a rotated credential silently stops being used.
+func TestCredentialSourceIsReReadOnEveryCall(t *testing.T) {
+	first := mintTestCredential(t)
+	second := mintTestCredential(t)
+
+	current := first
+	opt, err := topology.CredentialSourceOptionForTest(func() ([]byte, error) {
+		return current, nil
+	})
+	if err != nil {
+		t.Fatalf("building the option: %v", err)
+	}
+	var o nats.Options
+	if err := opt(&o); err != nil {
+		t.Fatalf("applying the option: %v", err)
+	}
+
+	before, err := o.UserJWT()
+	if err != nil {
+		t.Fatalf("reading the first jwt: %v", err)
+	}
+	current = second
+	after, err := o.UserJWT()
+	if err != nil {
+		t.Fatalf("reading the second jwt: %v", err)
+	}
+
+	if before == after {
+		t.Error("the callback returned the same jwt after the source changed, so a rotated credential would never be presented")
 	}
 }
 

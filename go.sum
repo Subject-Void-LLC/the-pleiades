@@ -336,8 +336,6 @@ github.com/testcontainers/testcontainers-go v0.43.0 h1:oEQx5MW2DGd9z3AeEQfB2lPM0
 github.com/testcontainers/testcontainers-go v0.43.0/go.mod h1:+VxkT2NQnKOZPKi6praMuMKYHYyOGXr0XSBSlSMCzFo=
 github.com/testcontainers/testcontainers-go/modules/localstack v0.43.0 h1:TJDWCR8k3lZQjVIYTUv/04f5NKrU1RQRPjConI1QaWo=
 github.com/testcontainers/testcontainers-go/modules/localstack v0.43.0/go.mod h1:uaz4JTGtRjNy1LNrLMhbo9nB0xZ2qYWxPFcnRrpM05E=
-github.com/testcontainers/testcontainers-go/modules/nats v0.43.0 h1:n1KcDXc18F687ODlTra411qWs+U+SH8VdnMM4kwpGo0=
-github.com/testcontainers/testcontainers-go/modules/nats v0.43.0/go.mod h1:nIBpPkiorwXM5LDOQKTD9Osxr/cWv1W4FcAx43kM7jY=
 github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0 h1:ShNOFYAF4lKHvdIG258hi69bSxC88uXnxJkJvNs/IVs=
 github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0/go.mod h1:vdq5/RqmGfWeefzyfcVI/pID1rzmc1TDvqXa15bPJks=
 github.com/testcontainers/testcontainers-go/modules/redis v0.43.0 h1:qzATMhrltLr07KcGl/d674ouqI0AFtf6wnQb3VnqP7M=

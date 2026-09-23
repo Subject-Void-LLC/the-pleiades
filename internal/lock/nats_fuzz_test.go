@@ -11,9 +11,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // FuzzLockAcquisition fuzzes natsLockManager.Acquire against a single real
@@ -60,20 +57,7 @@ func FuzzLockAcquisition(f *testing.F) {
 	f.Add("router1.example.com", int64(5*time.Second), 0)
 
 	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		f.Fatalf("failed to start container: %v", err)
-	}
-	f.Cleanup(func() { _ = natsContainer.Terminate(ctx) })
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		f.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(f).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {

@@ -27,67 +27,53 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // operatorModeConfig renders the server configuration that makes a broker
-// trust an operator and resolve exactly one account.
+// trust an operator and resolve its accounts.
 //
-// resolver: MEMORY with a preloaded account is the shape this proves.
+// resolver: MEMORY with preloaded accounts is the shape this proves.
 // Nothing about a USER appears here, which is the property act three
 // depends on.
-func operatorModeConfig(op *meshid.Operator, acct *meshid.Account) string {
+//
+// The system account is not optional and was not always here. This gate
+// used to start its broker with "-c" alone, replacing the flag list
+// instead of adding to it, which made it the only NATS container in this
+// repository running without JetStream. Phase 101c gave every test broker
+// the deployment's own flags, and this configuration then stopped the
+// server dead at boot. Measured rather than reasoned about, against
+// nats-server 2.14.4 on 2026-09-23:
+//
+//	[WRN] Trusted Operators should utilize a System Account
+//	[FTL] Can't start JetStream: setting up internal jetstream
+//	      subscriptions failed: system account not setup
+//
+// So an operator-mode deployment of this platform needs TWO accounts
+// minted, and the system account must have JetStream disabled, which is
+// what meshid.NewSystemAccount exists to say at the call site.
+func operatorModeConfig(op *meshid.Operator, sys, acct *meshid.Account) string {
 	return fmt.Sprintf(`
 operator: %s
+system_account: %s
 resolver: MEMORY
 resolver_preload: {
   %s: %s
+  %s: %s
 }
-`, op.JWT, acct.Subject, acct.JWT)
+`, op.JWT, sys.Subject, sys.Subject, sys.JWT, acct.Subject, acct.JWT)
 }
 
 // startOperatorModeBroker brings up a real broker with that configuration.
 //
-// A generic container rather than the nats module, because the module's
-// options cover command-line flags and operator mode is only expressible
-// as a configuration FILE. That is itself a finding worth carrying into
-// the enforcement stage: every existing container start in this repository
-// passes flags alone, so turning authentication on anywhere means giving
-// each of them a config file.
+// Operator mode is only expressible as a configuration FILE, never as
+// flags, which is why this gate needs one at all. Everything about HOW a
+// broker is started now lives in testsupport.StartNATS, including the
+// rule that the file is added to the deployment's flag list rather than
+// replacing it. That rule is the reason this gate stopped being the one
+// broker in the repository running without JetStream.
 func startOperatorModeBroker(t *testing.T, conf string) string {
 	t.Helper()
-	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        testsupport.NATSImage,
-		ExposedPorts: []string{"4222/tcp"},
-		Cmd:          []string{"-c", "/etc/nats/nats.conf"},
-		Files: []testcontainers.ContainerFile{{
-			Reader:            strings.NewReader(conf),
-			ContainerFilePath: "/etc/nats/nats.conf",
-			FileMode:          0o644,
-		}},
-		WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("starting an operator-mode broker: %v", err)
-	}
-	t.Cleanup(func() { c.Terminate(context.Background()) })
-
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := c.MappedPort(ctx, "4222/tcp")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-	return fmt.Sprintf("nats://%s:%s", host, port.Port())
+	return testsupport.StartNATS(t, testsupport.WithNATSConfig(conf)).URL()
 }
 
 // dialWith connects through the REAL dial path, topology.Connect with
@@ -120,6 +106,10 @@ func TestReleaseGate_ARealBrokerAcceptsAMintedIdentityAndEnforcesItsGrant(t *tes
 	if err != nil {
 		t.Fatalf("NewOperator: %v", err)
 	}
+	sys, err := meshid.NewSystemAccount(op, "SYS")
+	if err != nil {
+		t.Fatalf("NewSystemAccount: %v", err)
+	}
 	acct, err := meshid.NewAccount(op, "pleiades")
 	if err != nil {
 		t.Fatalf("NewAccount: %v", err)
@@ -129,7 +119,7 @@ func TestReleaseGate_ARealBrokerAcceptsAMintedIdentityAndEnforcesItsGrant(t *tes
 		t.Fatalf("NewIssuer: %v", err)
 	}
 
-	url := startOperatorModeBroker(t, operatorModeConfig(op, acct))
+	url := startOperatorModeBroker(t, operatorModeConfig(op, sys, acct))
 
 	// ---- Act one: an anonymous client is refused. ----
 	//

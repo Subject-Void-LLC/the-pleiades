@@ -16,7 +16,7 @@ Makes sure one line is present in a text file, which is ansible.builtin.lineinfi
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

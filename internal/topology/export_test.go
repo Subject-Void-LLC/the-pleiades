@@ -21,7 +21,20 @@ func ConnectStateForTest(nc *nats.Conn) (bool, error) { return connectState(nc) 
 // unexercised, and coverage is per package. The parsing failures matter on
 // their own: a malformed .creds body has to produce a clean Go error at
 // dial time rather than a connection that fails later against a broker.
-func CredentialOptionForTest(creds []byte) (nats.Option, error) { return credentialOption(creds) }
+func CredentialOptionForTest(creds []byte) (nats.Option, error) {
+	return credentialOption(func() ([]byte, error) { return creds, nil })
+}
+
+// CredentialSourceOptionForTest exposes credentialOption for a source
+// whose answer changes, which is the property WithCredentialSource exists
+// for and the one a fixed credential cannot demonstrate.
+func CredentialSourceOptionForTest(src CredentialSource) (nats.Option, error) {
+	return credentialOption(src)
+}
+
+// ValidateCredentialForTest exposes validateCredential, which is what
+// Connect and CredentialsFromEnv both refuse a malformed credential with.
+func ValidateCredentialForTest(creds []byte) error { return validateCredential(creds) }
 
 // SettingsForTest applies opts and reports what they produced, so a
 // ConnectOption can be asserted without dialling anything.
@@ -30,5 +43,12 @@ func SettingsForTest(opts ...ConnectOption) (creds []byte) {
 	for _, o := range opts {
 		o(&s)
 	}
-	return s.creds
+	if s.creds == nil {
+		return nil
+	}
+	got, err := s.creds()
+	if err != nil {
+		return nil
+	}
+	return got
 }

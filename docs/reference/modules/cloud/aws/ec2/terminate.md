@@ -16,7 +16,7 @@ Terminates the instance named by instance_id. A no-op if AWS has no record of th
 | Transports | - |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

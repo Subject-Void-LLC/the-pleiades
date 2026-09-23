@@ -16,7 +16,7 @@ Makes sure a user account is present on the target, creating it if absent. This 
 | Transports | `ssh` |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

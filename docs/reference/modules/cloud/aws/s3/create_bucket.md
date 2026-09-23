@@ -16,7 +16,7 @@ Makes sure bucket exists in the account/region, creating it if it does not. Idem
 | Transports | - |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

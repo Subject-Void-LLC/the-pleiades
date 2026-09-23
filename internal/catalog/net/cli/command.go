@@ -34,7 +34,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Mirrors exec.command's own reasoning verbatim: an
 			// arbitrary CLI line's effect on a device is unknown to

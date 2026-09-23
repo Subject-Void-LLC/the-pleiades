@@ -35,7 +35,6 @@ import (
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
 	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // toxiproxyImage is pinned rather than floating, for the same reason
@@ -87,7 +86,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 		network.WithNetwork([]string{"postgres"}, nw),
 	)
 	if err != nil {
@@ -95,22 +94,10 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(pgContainer) })
 
-	natsContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:      testsupport.NATSImage,
-			Cmd:        []string{"-js"},
-			WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-			Networks:   []string{nw.Name},
-			NetworkAliases: map[string][]string{
-				nw.Name: {"nats"},
-			},
-		},
-		Started: true,
-	})
-	if err != nil {
-		tb.Fatalf("starting the nats container: %v", err)
-	}
-	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(natsContainer) })
+	// The alias is what tctoxiproxy.WithProxy's "nats:4222" upstream
+	// below resolves through Docker's embedded DNS, so it is named here
+	// rather than defaulted.
+	testsupport.StartNATS(tb, testsupport.WithNATSNetwork(nw, "nats"))
 
 	// Proxies are allocated listen ports in declaration order starting at
 	// 8666, so postgres is 8666 and nats is 8667.
@@ -119,6 +106,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		tctoxiproxy.WithProxy("postgres", "postgres:5432"),
 		tctoxiproxy.WithProxy("nats", "nats:4222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		tb.Fatalf("starting the toxiproxy container: %v", err)

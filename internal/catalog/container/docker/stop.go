@@ -18,7 +18,7 @@ func init() {
 			RequiredCapabilities: []capability.Name{capability.NameDocker},
 			ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
 			PlatformTargets:      nil,
-			EngineVersion:        ">=1.0.0",
+			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			// A check reads the container with docker inspect and changes nothing.
 			SupportsCheck: true,

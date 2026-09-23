@@ -14,9 +14,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestThunderingHerdLocking(t *testing.T) {
@@ -27,20 +24,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Spin up ephemeral NATS container
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsContainer.Terminate(ctx)
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	// 2. Initialize Lock Manager
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
@@ -168,24 +152,22 @@ func TestNewNatsLockManagerRejectsOldServer(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsContainer.Terminate(ctx)
+	url := testsupport.StartNATS(t, testsupport.WithNATSImage(testsupport.NATSImageBeforeLimitMarkerTTL)).URL()
 
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	_, err = lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
+	_, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err == nil {
 		t.Fatal("expected NewNatsLockManager to fail against a pre-2.11 nats-server, got nil error")
+	}
+
+	// The refusal has to be the BUCKET refusing the configuration, not
+	// the dial failing. Asserting only that some error came back is what
+	// flaky-packages.json's own entry for this package calls out: a
+	// container that never came up produces a connection error, this test
+	// goes green, and it has proved nothing about version handling at
+	// all. That is the exact shape of passing for the wrong reason, and
+	// it is worth one line to close.
+	if strings.Contains(err.Error(), "failed to connect to nats") {
+		t.Fatalf("NewNatsLockManager failed at the dial rather than at the bucket, so this says nothing about the server version: %v", err)
 	}
 }
 
@@ -199,20 +181,7 @@ func TestNatsLockManagerAcquireContextAlreadyCanceled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsContainer.Terminate(ctx)
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
@@ -239,20 +208,7 @@ func TestNatsManagerConformance(t *testing.T) {
 
 	ctx := context.Background()
 
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsContainer.Terminate(ctx)
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
@@ -293,20 +249,7 @@ func TestNatsLockKeyIsASingleSubjectToken(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsContainer.Terminate(ctx) })
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
@@ -389,20 +332,7 @@ func TestNatsLockCorruptedValueFailsCleanly(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsContainer.Terminate(ctx) })
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {

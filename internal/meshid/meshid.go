@@ -37,6 +37,30 @@
 // second artifact being installed, which is the same class of dependency
 // PLAN.md Section 17.4 refuses for PFX unlocking.
 //
+// # Why credentials are minted ahead of time, and auth callout is not used
+//
+// NATS 2.10 and later can delegate authentication to a service that answers
+// at connect time, and nats-io/jwt/v2 ships the whole claim set for it. So
+// this is a refusal to use something available rather than an absence, and
+// the reason belongs beside the code rather than only in a plan.
+//
+// A callout puts a synchronous request and reply on the connect path of
+// EVERY reconnect, over the same degraded link internal/topology's dial
+// options exist to survive, and it makes the callout service a hard
+// availability dependency for the entire mesh. A store-and-forward mesh
+// that reconnects often cannot take that coupling: the one moment the
+// callout is unreachable is the moment everything is trying to reconnect
+// at once.
+//
+// Minting ahead of time has the opposite shape. A credential is issued
+// before it is needed, presented on every reconnect with no third party
+// involved, and expires on its own. Nothing has to be reachable for a
+// reconnect to succeed.
+//
+// Re-entry condition: Phase 80, federated identity providers, where a
+// human's SSO session has to map to a mesh identity at connect time and
+// there is no earlier moment to mint at.
+//
 // # What this package deliberately does not do
 //
 // It does not connect to NATS, it does not read configuration, and it does
@@ -235,6 +259,31 @@ func newAccount(op *Operator, name string, jetStream bool) (*Account, error) {
 	}
 
 	return &Account{Subject: pub, JWT: token, SigningKeySeed: signingSeed, kp: kp}, nil
+}
+
+// SigningKeyPublic returns the public key of an account signing seed.
+//
+// Custody needs this without needing the seed afterwards. The public key
+// is the value that must appear in the account JWT's signing key list for
+// anything this seed signs to be accepted, so an operator checking a
+// deployment against its account JWT is asking a question about public
+// material and should not have to unseal a secret to answer it.
+//
+// It refuses a seed that is not account-kind, for the reason
+// accountSigner gives: nkeys will sign happily with a user or operator
+// key pair, and the resulting user JWT fails at CONNECT time with an
+// error that names none of this.
+func SigningKeyPublic(seed []byte) (string, error) {
+	kp, err := accountSigner(seed)
+	if err != nil {
+		return "", err
+	}
+	defer kp.Wipe()
+	pub, err := kp.PublicKey()
+	if err != nil {
+		return "", fmt.Errorf("meshid: reading the signing key's public key: %w", err)
+	}
+	return pub, nil
 }
 
 // accountSigner parses a signing key seed into a usable key pair, refusing

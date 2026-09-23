@@ -16,7 +16,7 @@ Takes away the region a file.block.set task left in a file, the two marker lines
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

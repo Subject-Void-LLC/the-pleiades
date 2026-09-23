@@ -35,9 +35,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
@@ -46,20 +44,7 @@ import (
 // gateNATS starts a real NATS server with JetStream for one test.
 func gateNATS(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
-	container, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("starting nats: %v", err)
-	}
-	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
-	natsURL, err := container.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("reading the nats URL: %v", err)
-	}
+	natsURL := testsupport.StartNATS(t).URL()
 	return natsURL
 }
 
@@ -76,7 +61,7 @@ func gatePostgres(t *testing.T) string {
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
 		testcontainers.WithCmdArgs("-c", "max_connections=300"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 	)
 	if err != nil {
 		t.Fatalf("starting postgres: %v", err)

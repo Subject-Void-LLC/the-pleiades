@@ -52,7 +52,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 )
 
@@ -386,7 +385,7 @@ func startPostgres(tb testing.TB, ctx context.Context) string {
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 	)
 	if err != nil {
 		tb.Fatalf("starting the postgres container: %v", err)
@@ -403,25 +402,7 @@ func startPostgres(tb testing.TB, ctx context.Context) string {
 // startNATS starts the real broker this mesh dispatches over.
 func startNATS(tb testing.TB, ctx context.Context) string {
 	tb.Helper()
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        testsupport.NATSImage,
-			ExposedPorts: []string{"4222/tcp"},
-			Cmd:          []string{"-js"},
-			WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-		},
-		Started: true,
-	})
-	if err != nil {
-		tb.Fatalf("starting the nats container: %v", err)
-	}
-	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
-
-	endpoint, err := container.Endpoint(ctx, "")
-	if err != nil {
-		tb.Fatalf("reading the nats endpoint: %v", err)
-	}
-	return "nats://" + endpoint
+	return testsupport.StartNATS(tb).URL()
 }
 
 // startController launches the real controller binary and waits until it

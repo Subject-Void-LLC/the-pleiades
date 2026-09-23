@@ -1,0 +1,82 @@
+# Mesh authentication for the compose stack, as an OVERLAY.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mesh-auth.yml up -d --wait
+#
+# # Why an overlay and not a flag in the base file
+#
+# Three reasons, and the first two are mechanical. The base file's
+# `command:` is pinned byte for byte against internal/testsupport's
+# NATSCommand by a real test, so the development broker and the deployed
+# one cannot drift; compose cannot vary a list field on a condition; and a
+# fresh clone has to be able to run `docker compose up` with no generated
+# file, which a permanently mounted nats.conf would prevent.
+#
+# So the base file stays exactly as it is, authentication defaults off,
+# and `tests/e2e/packaging_compose_test.go` still sees the same four
+# healthy services it always did.
+#
+# # What you need before this works
+#
+#   controller mesh init --dir ./deploy/mesh
+#   controller mesh issue --out ./deploy/mesh/controller.creds --label controller
+#   controller mesh issue --out ./deploy/mesh/runner.creds     --label runner
+#
+# `mesh init` writes ./deploy/mesh/nats.conf, which is public material: an
+# operator JWT and two account JWTs, no private key. It also writes
+# operator.nk, which is the operator key. MOVE THAT OFF THIS MACHINE. It
+# can mint a new account, and a new account is a new tenant of this mesh.
+
+services:
+  nats:
+    # -c ADDED to the pinned flag list rather than replacing it, the same
+    # additive shape the chart's StatefulSet and both test fixtures use.
+    # The file carries only what a flag cannot express, and repeating one
+    # is fatal: nats-server 2.14.4 refuses a jetstream block naming
+    # store_dir beside "-sd /data" with "Duplicate 'store_dir'
+    # configuration" and exits at boot.
+    command: ["-c", "/etc/nats/nats.conf", "-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+      - ./deploy/mesh/nats.conf:/etc/nats/nats.conf:ro
+    healthcheck:
+      # The third check is INVERTED compared with the base file's, and
+      # that is the point rather than a workaround.
+      #
+      # The base file asserts that PING gets PONG. Under authentication it
+      # cannot: a probe would have to sign the server's nonce with an
+      # ed25519 key, and this image holds busybox and nats-server and no
+      # client able to do that. The base file's own comment predicted
+      # exactly this.
+      #
+      # So instead of a weaker check, this asserts the OPPOSITE and
+      # therefore a stronger claim: that the broker is refusing
+      # unauthenticated clients. Measured against nats-server 2.14.4
+      # rather than assumed. In operator mode the INFO line carries
+      # "auth_required":true and a bare PING is answered with
+      # -ERR 'Authorization Violation'; with no authentication configured
+      # the field is absent entirely and PING is answered with PONG. So
+      # this probe fails loudly if the overlay is applied to a broker that
+      # is not actually enforcing, which is the misconfiguration nothing
+      # else here would catch.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:8222/healthz ||
+          { echo "monitoring port 8222 did not answer /healthz"; exit 1; };
+          info=$$(printf 'PING\r\n' | nc -w 2 127.0.0.1 4222);
+          echo "$$info" | grep -q '"jetstream":true' ||
+          { echo "client port 4222 is not advertising jetstream"; exit 1; };
+          echo "$$info" | grep -q '"auth_required":true' ||
+          { echo "client port 4222 is NOT requiring authentication, but this stack was started with the mesh-auth overlay"; exit 1; }
+
+  controller:
+    environment:
+      - NATS_CREDS_FILE=/etc/pleiades/mesh/controller.creds
+    volumes:
+      - ./deploy/mesh/controller.creds:/etc/pleiades/mesh/controller.creds:ro
+
+  runner:
+    environment:
+      - NATS_CREDS_FILE=/etc/pleiades/mesh/runner.creds
+    volumes:
+      - ./deploy/mesh/runner.creds:/etc/pleiades/mesh/runner.creds:ro

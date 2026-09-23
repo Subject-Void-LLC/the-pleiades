@@ -8,9 +8,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // startNatsContainer boots an ephemeral NATS container with JetStream
@@ -23,21 +20,7 @@ func startNatsContainer(t *testing.T) string {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { natsContainer.Terminate(context.Background()) })
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 	return url
 }
 

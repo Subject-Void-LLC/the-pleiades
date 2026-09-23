@@ -257,7 +257,7 @@ func startProxiedBroker(tb testing.TB) (*proxiedBroker, testsupport.ServingCert)
 	}
 	tb.Cleanup(func() { _ = nw.Remove(context.Background()) })
 
-	natsC := startBrokerWithWebSocket(tb, nw.Name)
+	natsC := startBrokerWithWebSocket(tb, nw)
 
 	// The docker daemon's host, read from the container that is already
 	// up. The proxy's mapped port lands on this address, so it is what a
@@ -287,9 +287,8 @@ func startProxiedBroker(tb testing.TB) (*proxiedBroker, testsupport.ServingCert)
 
 // startBrokerWithWebSocket starts the real broker with a real websocket
 // block and no route to it from this host.
-func startBrokerWithWebSocket(tb testing.TB, netName string) testcontainers.Container {
+func startBrokerWithWebSocket(tb testing.TB, nw *testcontainers.DockerNetwork) testcontainers.Container {
 	tb.Helper()
-	ctx := context.Background()
 
 	// Exactly the block helm/the-pleiades/templates/nats-config.yaml
 	// renders for nats.websocket.enabled=true with
@@ -297,64 +296,23 @@ func startBrokerWithWebSocket(tb testing.TB, netName string) testcontainers.Cont
 	// of me" mode this gate exists to prove. Writing a different one here
 	// would prove a configuration no chart can produce.
 	conf := "websocket {\n  port: " + brokerWebSocketPort + "\n  no_tls: true\n}\n"
-	confPath := filepath.Join(tb.TempDir(), "nats.conf")
-	if err := os.WriteFile(confPath, []byte(conf), 0o600); err != nil {
-		tb.Fatalf("writing the broker config: %v", err)
-	}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: testsupport.NATSImage,
-			// -c ADDED to the pinned flag list rather than replacing it,
-			// the same additive shape internal/topology's transport gate
-			// and the chart's StatefulSet both use: the flags stay the
-			// single source of truth for everything expressible as a
-			// flag, and the file carries only the listener block that is
-			// not.
-			Cmd: append([]string{"-c", "/etc/nats/nats.conf"}, testsupport.NATSCommand()...),
-			Files: []testcontainers.ContainerFile{{
-				HostFilePath:      confPath,
-				ContainerFilePath: "/etc/nats/nats.conf",
-				FileMode:          0o644,
-			}},
-			// The websocket port and NOTHING ELSE, which is the single
-			// most load-bearing line in this file and reads backwards
-			// until you know why.
-			//
-			// The obvious version is to leave this empty, on the
-			// reasoning that naming no port publishes no port. It does
-			// the opposite, and that was measured here rather than
-			// assumed: when ExposedPorts is empty, testcontainers
-			// inspects the IMAGE and publishes every port the image's own
-			// EXPOSE declares (lifecycle.go's configureExposedPorts). The
-			// nats image declares 4222, 6222 and 8222, so an empty list
-			// published all three to random host ports and put the
-			// broker's plain client port one dial away from this host.
-			// A HostConfigModifier cannot undo it either: the modifier
-			// runs before the port merge, not after.
-			//
-			// So the list has to be non-empty to be narrow, and the one
-			// port named here is the one the proxy forwards to. What
-			// that leaves unpublished is 4222, the plain NATS client
-			// port, which is the route that would let a client skip the
-			// proxy entirely. The gate asserts that below rather than
-			// trusting this comment, and the broker's own account of its
-			// clients closes the remaining gap: nothing in this fixture
-			// dials the published websocket port, and a client that did
-			// would arrive from the docker gateway rather than from the
-			// proxy's container address.
-			ExposedPorts:   []string{brokerWebSocketPort + "/tcp"},
-			Networks:       []string{netName},
-			NetworkAliases: map[string][]string{netName: {"nats"}},
-			WaitingFor:     wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-		},
-		Started: true,
-	})
-	if err != nil {
-		tb.Fatalf("starting the broker with a websocket listener: %v", err)
-	}
-	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(c) })
-	return c
+	// The websocket port and NOTHING ELSE. This is the single most
+	// load-bearing line in this file, and the reason it must be written
+	// out rather than left off lives on WithNATSExposedPorts: an empty
+	// list publishes every port the IMAGE declares, which for this image
+	// is 4222, 6222 and 8222.
+	//
+	// What naming one port leaves unpublished is 4222, the plain client
+	// port, which is the route that would let a client skip the proxy
+	// entirely. The gate asserts that below rather than trusting this
+	// comment, and the broker's own account of its clients closes the
+	// remaining gap.
+	return testsupport.StartNATS(tb,
+		testsupport.WithNATSConfig(conf),
+		testsupport.WithNATSExposedPorts(brokerWebSocketPort),
+		testsupport.WithNATSNetwork(nw, "nats"),
+	).Container
 }
 
 // startTerminatingProxy starts nginx in front of the broker and returns it

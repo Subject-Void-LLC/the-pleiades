@@ -16,7 +16,7 @@ Makes sure a systemd unit is running right now. This is ansible.builtin.systemd 
 | Transports | `ssh` |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

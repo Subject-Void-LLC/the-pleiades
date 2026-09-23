@@ -139,7 +139,7 @@ func requireSharedPostgres(t testing.TB) string {
 			testpg.WithUsername("pleiades"),
 			testpg.WithPassword("pleiades"),
 			testcontainers.WithCmdArgs("-c", "max_connections=300"),
-			testpg.BasicWaitStrategies(),
+			testsupport.PostgresReady(),
 		)
 		if err != nil {
 			sharedPostgresErr = fmt.Errorf("starting the shared postgres container: %w", err)

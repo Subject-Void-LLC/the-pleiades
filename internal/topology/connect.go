@@ -49,7 +49,7 @@ type ConnectOption func(*connectSettings)
 
 type connectSettings struct {
 	tls   *tls.Config
-	creds []byte
+	creds CredentialSource
 }
 
 // WithTLS supplies the client TLS configuration for a tls:// or wss://
@@ -64,8 +64,14 @@ func WithTLS(cfg *tls.Config) ConnectOption {
 	return func(s *connectSettings) { s.tls = cfg }
 }
 
-// WithCredentials supplies the mesh identity this connection
-// authenticates as, as the body of a NATS .creds file.
+// CredentialSource returns the credential a connection should present,
+// as the body of a NATS .creds file.
+//
+// It is called again on EVERY reconnect rather than once at dial, which
+// is the whole reason it is a function. See WithCredentialSource.
+type CredentialSource func() ([]byte, error)
+
+// WithCredentials supplies a fixed mesh identity for this connection.
 //
 // BYTES RATHER THAN A PATH, deliberately, even though nats.UserCredentials
 // takes a filename and would have been less code. The credential contains
@@ -74,35 +80,77 @@ func WithTLS(cfg *tls.Config) ConnectOption {
 // time. Accepting a path would mean every caller first writes key material
 // to a filesystem, where it outlives the process, survives a crash, and
 // lands in whatever backs that directory. internal/meshid returns these
-// bytes and nothing writes them down.
+// bytes and nothing writes them down. A composition root that does read a
+// file uses topology.CredentialsFromEnv and passes the result here.
 //
-// The parsed key pair is retained for the life of the connection, because
-// the signing callback runs again on EVERY reconnect, not once at dial.
-// That is a real cost and it is the right one: a mesh built to survive a
-// long outage reconnects often, and a credential that could not be
-// re-presented would turn one network blip into a permanent disconnection.
+// FIXED, which is a real limitation and is why WithCredentialSource
+// exists beside it. A credential minted with an expiry stops working when
+// it expires, the broker evicts the connection, and nats.go abandons
+// reconnection after the same authentication error twice regardless of
+// MaxReconnects. A process that must outlive one credential cannot use
+// this.
 func WithCredentials(creds []byte) ConnectOption {
-	return func(s *connectSettings) { s.creds = creds }
+	return WithCredentialSource(func() ([]byte, error) { return creds, nil })
 }
 
-// credentialOption turns a .creds body into the dial option that presents
-// it, keeping the JWT and the seed in memory only.
-func credentialOption(creds []byte) (nats.Option, error) {
-	userJWT, err := nkeys.ParseDecoratedJWT(creds)
-	if err != nil {
-		return nil, fmt.Errorf("topology: reading the user jwt from the credential: %w", err)
-	}
-	kp, err := nkeys.ParseDecoratedUserNKey(creds)
-	if err != nil {
-		return nil, fmt.Errorf("topology: reading the user key from the credential: %w", err)
-	}
+// WithCredentialSource supplies a credential that is re-read on every
+// reconnect.
+//
+// The distinction from WithCredentials is not stylistic and was measured.
+// nats.go invokes the JWT and signature callbacks again on EVERY
+// reconnect, not once at dial, so whatever they return the second time is
+// what the broker sees. nats.UserCredentials(path) exploits that by
+// re-reading its file each time, which is how a rotated credential is
+// picked up without a restart. Handing over fixed bytes gives that up:
+// the same expired JWT is presented forever.
+//
+// So a long-lived process takes a source. The Controller's mints a fresh
+// credential from the signing key it already holds. A Runner's returns
+// whatever its renewal has most recently obtained, falling back to
+// re-reading its file.
+//
+// src must be safe to call from another goroutine, because the reconnect
+// that calls it is the driver's, not the caller's.
+func WithCredentialSource(src CredentialSource) ConnectOption {
+	return func(s *connectSettings) { s.creds = src }
+}
 
+// credentialOption turns a credential source into the dial option that
+// presents it, keeping the JWT and the seed in memory only.
+//
+// Both callbacks call src rather than closing over a parsed credential,
+// so a source whose answer changes is honored on the next reconnect. The
+// key pair is parsed per call and wiped immediately afterwards, which
+// costs a base32 decode on each reconnect and is the right trade: the
+// alternative is a seed held for the life of the process.
+func credentialOption(src CredentialSource) (nats.Option, error) {
 	// Neither callback's error is wrapped with the credential in it. A
 	// signing failure reaches the client's error handler and the logs, and
 	// the one thing that must never arrive there is the key material.
 	return nats.UserJWT(
-		func() (string, error) { return userJWT, nil },
-		func(nonce []byte) ([]byte, error) { return kp.Sign(nonce) },
+		func() (string, error) {
+			creds, err := src()
+			if err != nil {
+				return "", fmt.Errorf("topology: obtaining the mesh credential: %w", err)
+			}
+			jwt, err := nkeys.ParseDecoratedJWT(creds)
+			if err != nil {
+				return "", fmt.Errorf("topology: reading the user jwt from the credential: %w", err)
+			}
+			return jwt, nil
+		},
+		func(nonce []byte) ([]byte, error) {
+			creds, err := src()
+			if err != nil {
+				return nil, fmt.Errorf("topology: obtaining the mesh credential: %w", err)
+			}
+			kp, err := nkeys.ParseDecoratedUserNKey(creds)
+			if err != nil {
+				return nil, fmt.Errorf("topology: reading the user key from the credential: %w", err)
+			}
+			defer kp.Wipe()
+			return kp.Sign(nonce)
+		},
 	), nil
 }
 
@@ -123,7 +171,21 @@ func Connect(ctx context.Context, url string, logger *slog.Logger, component str
 	}
 
 	dialOpts := DialOptions(logger, component)
-	if len(settings.creds) > 0 {
+	if settings.creds != nil {
+		// Obtained AND parsed once here, before dialling, so a credential
+		// that cannot be fetched or does not hold both halves is a clean
+		// error from Connect rather than an authentication failure against
+		// the broker later. Checking only that the source returned without
+		// error would let malformed bytes straight through, since a source
+		// handed fixed bytes has nothing to fail at. The dial path then
+		// calls the source again on every reconnect.
+		creds, err := settings.creds()
+		if err != nil {
+			return nil, fmt.Errorf("topology: obtaining the mesh credential: %w", err)
+		}
+		if err := validateCredential(creds); err != nil {
+			return nil, fmt.Errorf("topology: the mesh credential is unusable: %w", err)
+		}
 		credOpt, err := credentialOption(settings.creds)
 		if err != nil {
 			return nil, err
@@ -147,6 +209,33 @@ func Connect(ctx context.Context, url string, logger *slog.Logger, component str
 	if err := WaitForConnect(waitCtx, nc); err != nil {
 		nc.Close()
 		return nil, err
+	}
+
+	// The one misconfiguration that is otherwise completely silent, and
+	// the reverse of the one everybody expects.
+	//
+	// A process with no credential against a broker that requires one
+	// fails the dial, loudly, and nobody is confused. A process WITH a
+	// credential against a broker that requires nothing succeeds, does
+	// all its work, and looks exactly like a correctly secured
+	// deployment. An operator who has distributed credentials and
+	// believes the mesh is closed has no way to find out that it is not,
+	// because every healthy signal is present. The server tells us in its
+	// INFO, so this asks.
+	//
+	// A warning rather than a refusal, deliberately: distributing
+	// credentials BEFORE turning the broker on is a legitimate and
+	// sensible rollout order, and refusing it would force operators to
+	// flip the broker first, which is the order that causes an outage.
+	if settings.creds != nil && !nc.AuthRequired() {
+		l := logger
+		if l == nil {
+			l = slog.Default()
+		}
+		l.Warn("this process presented a mesh credential but the broker does not require one",
+			"component", component,
+			"meaning", "the broker accepts any client that can reach it, so the credential is proving nothing",
+			"fix", "enable authentication on the broker, or unset "+CredentialsEnv+" if this is deliberate")
 	}
 	return nc, nil
 }

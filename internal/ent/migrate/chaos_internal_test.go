@@ -54,7 +54,7 @@ func TestApply_APartitionedWinnerReleasesItsClaim(t *testing.T) {
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("pleiades"),
-		testpg.BasicWaitStrategies(),
+		testsupport.PostgresReady(),
 		network.WithNetwork([]string{"postgres"}, nw),
 	)
 	if err != nil {
@@ -70,6 +70,7 @@ func TestApply_APartitionedWinnerReleasesItsClaim(t *testing.T) {
 		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("postgres", "postgres:5432"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
+		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
 		t.Fatalf("starting toxiproxy: %v", err)

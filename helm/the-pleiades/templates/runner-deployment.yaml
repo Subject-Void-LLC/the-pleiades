@@ -173,6 +173,16 @@ spec:
           env:
             - name: NATS_URL
               value: {{ include "the-pleiades.natsURL" . | quote }}
+            {{- if .Values.mesh.credentials.enabled }}
+            {{- /* The mesh identity this runner authenticates as. A PATH
+                 rather than the credential itself, and that matters more
+                 here than anywhere: this container execs ssh and an
+                 Ansible runner, and a process environment is inherited by
+                 every child and readable from /proc/<pid>/environ, so a
+                 seed in the environment is a seed every job can read. */}}
+            - name: NATS_CREDS_FILE
+              value: /etc/pleiades/mesh/{{ .Values.mesh.credentials.runnerSecretKey }}
+            {{- end }}
             - name: PLEIADES_MAX_OUTAGE
               value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
             {{- /* The same path the controller sets, for the reason written
@@ -258,6 +268,11 @@ spec:
               mountPath: /app/runbooks
               readOnly: true
             {{- end }}
+            {{- if .Values.mesh.credentials.enabled }}
+            - name: mesh-creds
+              mountPath: /etc/pleiades/mesh
+              readOnly: true
+            {{- end }}
             {{- if or .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName }}
             {{- /* The host keys every SSH task verifies against. Mounted as a
                  DIRECTORY over the empty /app/ssh the image ships, because a
@@ -275,6 +290,14 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        {{- if .Values.mesh.credentials.enabled }}
+        {{- /* 0400, matching the broker's own TLS volume and the
+             controller's credential. */}}
+        - name: mesh-creds
+          secret:
+            secretName: {{ .Values.mesh.credentials.runnerSecret | quote }}
+            defaultMode: 0400
+        {{- end }}
         - name: tmp
           emptyDir: {}
         {{- if or .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName }}

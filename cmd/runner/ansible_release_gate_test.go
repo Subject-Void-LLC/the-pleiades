@@ -26,7 +26,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"
-	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -154,20 +153,7 @@ func newAnsibleReleaseGateHarnessWithLogger(t *testing.T, playbookYAML string, l
 
 	startSSHDOnNetwork(t, net.Name)
 
-	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start nats container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsC.Terminate(context.Background()) })
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {

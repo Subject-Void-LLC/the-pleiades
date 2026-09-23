@@ -16,9 +16,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -53,21 +50,7 @@ func TestControllerScheduler_FiresExactlyOnce_ReleaseGate(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	t.Cleanup(func() { _ = natsContainer.Terminate(context.Background()) })
-
-	natsURL, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	natsURL := testsupport.StartNATS(t).URL()
 
 	// ONE database file for all three replicas, which is the whole point.
 	// The existing election gate gives each replica its own, because it

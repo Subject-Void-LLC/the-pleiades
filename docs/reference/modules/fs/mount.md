@@ -16,7 +16,7 @@ Makes sure path is mounted from src, creating the mount if it is not already the
 | Transports | `ssh` |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

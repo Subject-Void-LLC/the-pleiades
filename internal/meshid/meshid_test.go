@@ -270,6 +270,7 @@ func TestFleetRunnerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-check":                        "pulls checks",
 		"$JS.ACK.PLEIADES.runner-check.1.2.3.4.5.6":                              "settles a check",
 		topology.DeadLetterSubject(topology.CheckSubject("d")):                   "republishes a check's dead letter after MaxDeliver",
+		topology.MeshRenewSubject():                                              "asks for a fresh credential before this one lapses, or goes silently idle one window after starting",
 	}
 
 	for subject, why := range required {
@@ -298,6 +299,7 @@ func TestControllerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 		"$JS.API.INFO":                                                   "AccountInfo when preparing a bucket",
 		"$JS.API.STREAM.INFO.PLEIADES":                                   "reads the stream before provisioning",
 		"$JS.API.STREAM.CREATE.PLEIADES":                                 "creates the stream, as the only StreamProvisioner",
+		"_INBOX.abc123.1":                                                "answers a renewal request, which is a publish to the requester's own reply inbox rather than to any pleiades subject",
 		"$JS.API.STREAM.UPDATE.PLEIADES":                                 "reshapes the stream when the outage budget changes",
 		"$JS.API.STREAM.INFO.KV_Pleiades_Locks":                          "binds the lock bucket",
 		"$JS.API.STREAM.CREATE.KV_Pleiades_Locks":                        "creates the lock bucket",
@@ -451,5 +453,111 @@ func TestOperatorSeedIsUsableOffline(t *testing.T) {
 	}
 	if pub != op.Subject {
 		t.Fatalf("the seed round-tripped to %q, want the operator's own subject %q", pub, op.Subject)
+	}
+}
+
+// TestTheFleetWindowOutlivesTheEdgeWindow pins the relationship between
+// the two default expiries, because the number that matters is not either
+// one on its own.
+//
+// A credential that lapses does not degrade, it evicts: the broker drops
+// the connection and nats.go stops reconnecting after the same
+// authentication error twice. So the fleet window has to be the one that
+// survives a deployment nothing renews, and the edge window has to be the
+// short one, since that is the case a short window is FOR. Getting these
+// the wrong way round produces a fleet that goes quiet on a timer and an
+// engagement credential that stays useful for a month, which is exactly
+// backwards on both counts.
+func TestTheFleetWindowOutlivesTheEdgeWindow(t *testing.T) {
+	if meshid.DefaultUserExpiry <= 0 {
+		t.Error("DefaultUserExpiry must be positive; Issue refuses a non-positive expiry outright")
+	}
+	if meshid.DefaultFleetExpiry <= 0 {
+		t.Error("DefaultFleetExpiry must be positive; Issue refuses a non-positive expiry outright")
+	}
+	if meshid.DefaultFleetExpiry <= meshid.DefaultUserExpiry {
+		t.Errorf("DefaultFleetExpiry (%v) is not longer than DefaultUserExpiry (%v); a fleet Runner would go silently idle one edge window after starting",
+			meshid.DefaultFleetExpiry, meshid.DefaultUserExpiry)
+	}
+}
+
+// TestBothDefaultExpiriesAreAcceptedByIssue is the guard that neither
+// constant can be set to something the minting path itself refuses.
+//
+// Issue rejects a non-positive expiry, and a constant is exactly the kind
+// of value that gets edited without anyone re-running the one call that
+// would notice.
+func TestBothDefaultExpiriesAreAcceptedByIssue(t *testing.T) {
+	op, err := meshid.NewOperator("expiry-defaults")
+	if err != nil {
+		t.Fatalf("minting the operator: %v", err)
+	}
+	acct, err := meshid.NewAccount(op, "PLEIADES")
+	if err != nil {
+		t.Fatalf("minting the account: %v", err)
+	}
+	issuer, err := meshid.NewIssuer(acct.Subject, acct.SigningKeySeed)
+	if err != nil {
+		t.Fatalf("building the issuer: %v", err)
+	}
+
+	for name, window := range map[string]time.Duration{
+		"DefaultUserExpiry":  meshid.DefaultUserExpiry,
+		"DefaultFleetExpiry": meshid.DefaultFleetExpiry,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cred, err := issuer.Issue(meshid.FleetRunnerGrant("defaults"), window)
+			if err != nil {
+				t.Fatalf("Issue with %s (%v): %v", name, window, err)
+			}
+			if !cred.Expires.After(time.Now()) {
+				t.Errorf("%s produced a credential that is already expired at %v", name, cred.Expires)
+			}
+		})
+	}
+}
+
+// TestControllerGrantCoversEverySubscription is the Controller's half of
+// the renewal exchange.
+//
+// It had no subscription table at all before Phase 101c, for the same
+// reason it had no publish table until that stage: the Controller's grant
+// was written once and never asserted against, which is how it shipped
+// with a stream permission that could never match.
+func TestControllerGrantCoversEverySubscription(t *testing.T) {
+	g := meshid.ControllerGrant("controller-1")
+
+	required := map[string]string{
+		"_INBOX.abc.123":            "every JetStream reply it waits on arrives on an inbox",
+		topology.MeshRenewSubject(): "serves credential renewal, which is the only thing standing between a fleet Runner and going silently idle one credential window after it starts",
+	}
+
+	for subject, why := range required {
+		if !permits(g.Sub, subject) {
+			t.Errorf("ControllerGrant does not permit SUBSCRIBING to %q, which the Controller needs because it %s\ngrant was %v", subject, why, g.Sub)
+		}
+	}
+}
+
+// TestRunnerCannotAnswerARenewalRequest proves the renewal exchange only
+// runs one way, the same shape TestRunnerCannotPublishACancel proves for
+// cancellation.
+//
+// A Runner must be able to ASK for a credential and must not be able to
+// hear other Runners asking. A Runner that could subscribe here could
+// answer a request before the Controller did, and while it could not mint
+// anything the broker would accept, since it holds no signing key, it
+// could hand every renewing Runner in the fleet a credential that fails.
+// That turns one compromised worker into a fleet-wide outage on a timer,
+// which is a strictly larger blast radius than the worker itself.
+func TestRunnerCannotAnswerARenewalRequest(t *testing.T) {
+	g := meshid.FleetRunnerGrant("runner-1")
+
+	if !permits(g.Pub, topology.MeshRenewSubject()) {
+		t.Fatalf("FleetRunnerGrant cannot publish %q, so a Runner could never renew and this test's negative half is meaningless", topology.MeshRenewSubject())
+	}
+	if permits(g.Sub, topology.MeshRenewSubject()) {
+		t.Errorf("FleetRunnerGrant permits SUBSCRIBING to %q; a compromised Runner could answer the fleet's renewals with credentials nothing accepts\ngrant was %v",
+			topology.MeshRenewSubject(), g.Sub)
 	}
 }

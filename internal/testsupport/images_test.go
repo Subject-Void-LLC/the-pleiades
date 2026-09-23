@@ -347,12 +347,17 @@ func rejectPin(ref string) string {
 // evidence.
 func TestPinsNameAnExactVersion(t *testing.T) {
 	pins := map[string]string{
-		"NATSImage":       testsupport.NATSImage,
-		"SSHDImage":       testsupport.SSHDImage,
-		"PostgresImage":   testsupport.PostgresImage,
-		"LocalStackImage": testsupport.LocalStackImage,
-		"ToxiproxyImage":  testsupport.ToxiproxyImage,
-		"NginxImage":      testsupport.NginxImage,
+		"NATSImage": testsupport.NATSImage,
+		// The deliberately old broker one test starts to prove this
+		// platform refuses it. It is pinned by the same rule as the rest
+		// precisely because it is an exception: an exception nothing
+		// checks is how "nats:2" gets written here one day.
+		"NATSImageBeforeLimitMarkerTTL": testsupport.NATSImageBeforeLimitMarkerTTL,
+		"SSHDImage":                     testsupport.SSHDImage,
+		"PostgresImage":                 testsupport.PostgresImage,
+		"LocalStackImage":               testsupport.LocalStackImage,
+		"ToxiproxyImage":                testsupport.ToxiproxyImage,
+		"NginxImage":                    testsupport.NginxImage,
 	}
 
 	for name, ref := range pins {

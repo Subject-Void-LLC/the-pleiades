@@ -16,7 +16,7 @@ Splits config into non-blank lines and sends each one through the same generic s
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by the device's own parser as it applies the line, and a CLI offers no way to ask without applying it |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

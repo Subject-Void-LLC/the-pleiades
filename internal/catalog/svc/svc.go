@@ -180,7 +180,7 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		RequiredCapabilities: []capability.Name{capability.NameServiceManager},
 		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
 		PlatformTargets:      nil,
-		EngineVersion:        ">=1.0.0",
+		EngineVersion:        ">=0.2.0",
 		Status:               collection.StatusImplemented,
 		// A check reaches the concrete method's check (dispatch), and
 		// every concrete method this namespace dispatches to has one.

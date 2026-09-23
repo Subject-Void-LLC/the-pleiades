@@ -41,7 +41,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Only a call guarded by creates or removes can be checked (CheckCommand).
 			SupportsCheck: true,

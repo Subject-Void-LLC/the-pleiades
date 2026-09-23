@@ -29,7 +29,7 @@ func TestAgent_ExecuteWithLease_AcquiresAndReleasesRealLock(t *testing.T) {
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, locks, 5, slog.Default(), nil)
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	lease, err := locks.Acquire(context.Background(), "device-lease", time.Second, lock.AcquireOptions{})
 	if err != nil {
@@ -59,7 +59,7 @@ func TestAgent_ExecuteWithLease_ContentionNaksInsteadOfDeadLettering(t *testing.
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, locks, 5, slog.Default(), nil)
 
-	runAgentUntil(t, agent, msg.naked.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.naked.Load, agentSettleTimeout)
 
 	if msg.ack.Load() {
 		t.Error("a contended message must not be acked")
@@ -280,7 +280,7 @@ func TestAgent_ExecuteWithLease_RecoversAdapterPanic(t *testing.T) {
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 	agent := runner.NewAgent(consumer, panicAdapter{}, nil, locks, 5, slog.Default(), nil)
 
-	runAgentUntil(t, agent, msg.naked.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.naked.Load, agentSettleTimeout)
 
 	if msg.ack.Load() {
 		t.Error("a panicking execution must not be acked")
@@ -308,7 +308,7 @@ func TestNewAgent_WithLeaseTTL_OverridesDefault(t *testing.T) {
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, locks, 5, slog.Default(), nil,
 		runner.WithLeaseTTL(overrideTTL))
 
-	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
 
 	if got := locks.lastAcquireTTL(); got != overrideTTL {
 		t.Errorf("Acquire was called with ttl=%v, want the WithLeaseTTL override %v", got, overrideTTL)

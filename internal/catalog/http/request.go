@@ -115,7 +115,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// False, and the reason is not "a GET changes nothing". This
 			// field answers once for every invocation, and the two families

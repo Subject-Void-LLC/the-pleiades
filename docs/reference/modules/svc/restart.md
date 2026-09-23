@@ -16,7 +16,7 @@ Restarts a service, starting it if it was not running. This is ansible.builtin.s
 | Transports | - |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

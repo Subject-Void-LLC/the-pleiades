@@ -146,12 +146,28 @@ func main() {
 	// log package's writer and never builds an slog.Logger of its own, so
 	// there is nothing to pass and topology.DialOptions falls back to
 	// slog.Default().
-	bus, err := event.NewNatsBus(ctx, nats.DefaultURL, nil, topology.StreamReader, topology.DefaultOutageBudget, false)
+	// This binary reads no other configuration, and it gets this one
+	// anyway, for the reason topology.Connect's own comment gives about
+	// validating the URL there rather than at each composition root: an
+	// env-level check skips the one site nobody watches. Without it, demo
+	// is the single binary that cannot be pointed at a broker that
+	// requires identity, and it would fail with an authorization error
+	// that names nothing.
+	demoCreds, err := topology.CredentialsFromEnv(os.Getenv(topology.CredentialsEnv))
+	if err != nil {
+		log.Fatalf("invalid NATS credential: %v", err)
+	}
+	var meshConnOpts []topology.ConnectOption
+	if demoCreds != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithCredentials(demoCreds))
+	}
+
+	bus, err := event.NewNatsBus(ctx, nats.DefaultURL, nil, topology.StreamReader, topology.DefaultOutageBudget, false, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
 
-	nc, err := topology.Connect(ctx, nats.DefaultURL, nil, "demo-logstream")
+	nc, err := topology.Connect(ctx, nats.DefaultURL, nil, "demo-logstream", meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect to nats: %v", err)
 	}

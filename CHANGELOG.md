@@ -5,7 +5,9 @@ All notable user-facing changes to Pleiades are recorded here. Format loosely fo
 `changelog/*.md` fragments (see `changelog/README.md`).
 
 This project does not yet use semantic version tags; entries below are grouped by
-date until a first tagged release.
+date until a first tagged release. The numbering and compatibility rules those tags
+will follow are in
+[Releases and stability](docs/13-releases-and-stability.md#versioning-and-deprecation-policy).
 
 ## Unreleased
 

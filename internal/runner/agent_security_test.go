@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
@@ -47,7 +46,7 @@ func TestAgent_HandleMessage_RejectsSubjectInjectingJobID(t *testing.T) {
 			consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 			agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
-			runAgentUntil(t, agent, msg.term.Load, 10*time.Second)
+			runAgentUntil(t, agent, msg.term.Load, agentSettleTimeout)
 
 			if msg.ack.Load() {
 				t.Errorf("job id %q was acked: it reached execution instead of being refused", tt.jobID)

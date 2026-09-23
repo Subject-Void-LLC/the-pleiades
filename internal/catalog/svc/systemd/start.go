@@ -23,7 +23,7 @@ func init() {
 				RequiresElevation: true,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,

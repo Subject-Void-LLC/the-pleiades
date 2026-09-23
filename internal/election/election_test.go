@@ -12,9 +12,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 )
 
@@ -31,24 +28,22 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 		t.Skip("skipping integration test in short mode")
 	}
 
-	defer goleak.VerifyNone(t)
+	// Registered BEFORE the broker starts, so that t.Cleanup's
+	// last-added-first-called order runs it AFTER the container has been
+	// terminated. This used to be "defer goleak.VerifyNone(t)", which
+	// worked for a reason that was never written down and stopped being
+	// true: the container was terminated by a defer registered later, and
+	// defers also run last-in-first-out, so termination happened to come
+	// first. Phase 101c moved the start into a shared helper that cleans
+	// up with t.Cleanup, which runs after every defer, and goleak then
+	// inspected a live container and reported testcontainers' own reaper
+	// connection as a leak. The same shape is already written down in
+	// cmd/controller's own leader election gate.
+	t.Cleanup(func() { goleak.VerifyNone(t) })
 
 	ctx := context.Background()
 
-	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsContainer.Terminate(ctx)
-
-	url, err := natsContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {

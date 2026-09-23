@@ -88,7 +88,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Reading is not changing, so there is nothing to undo and no
 			// run of this method will ever emit an inverse. That is the same

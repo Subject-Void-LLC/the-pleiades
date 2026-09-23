@@ -19,9 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/testcontainers/testcontainers-go"
-	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // alwaysFailAdapter is a runner.ExecutionAdapter that always errors, so
@@ -53,25 +50,27 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsC.Terminate(ctx)
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("nats bus: %v", err)
 	}
+	// Closed, which it never used to be, and the leak was not free.
+	// topology.DialOptions sets MaxReconnects(-1) on purpose, so a bus
+	// nobody closes goes on dialling its broker forever. The broker here
+	// is a container that dies when this test ends, so every later test
+	// in this package ran alongside a connection retrying a dead port a
+	// few times a second and logging as it went. Under `make test-race`,
+	// where this package competes with two hundred others, that showed up
+	// as four unrelated WAL tests timing out while the log filled with
+	// "connect: connection refused" for ports no test still owned.
+	//
+	// A defer rather than t.Cleanup, deliberately: every defer runs before
+	// any t.Cleanup, and testsupport.StartNATS terminates the container in
+	// a t.Cleanup, so this order closes the client first and the server
+	// second. The reverse is what produces a retry storm on the way out.
+	defer bus.Close()
 
 	nc, err := nats.Connect(url)
 	if err != nil {
@@ -238,25 +237,27 @@ func TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage(testsupport.NATSImage),
-		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
-	)
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
-	}
-	defer natsC.Terminate(ctx)
-
-	url, err := natsC.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
+	url := testsupport.StartNATS(t).URL()
 
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("nats bus: %v", err)
 	}
+	// Closed, which it never used to be, and the leak was not free.
+	// topology.DialOptions sets MaxReconnects(-1) on purpose, so a bus
+	// nobody closes goes on dialling its broker forever. The broker here
+	// is a container that dies when this test ends, so every later test
+	// in this package ran alongside a connection retrying a dead port a
+	// few times a second and logging as it went. Under `make test-race`,
+	// where this package competes with two hundred others, that showed up
+	// as four unrelated WAL tests timing out while the log filled with
+	// "connect: connection refused" for ports no test still owned.
+	//
+	// A defer rather than t.Cleanup, deliberately: every defer runs before
+	// any t.Cleanup, and testsupport.StartNATS terminates the container in
+	// a t.Cleanup, so this order closes the client first and the server
+	// second. The reverse is what produces a retry storm on the way out.
+	defer bus.Close()
 
 	nc, err := nats.Connect(url)
 	if err != nil {

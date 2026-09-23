@@ -63,7 +63,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusDeclared,
 			// Reversibility is deliberately left at its zero value, which
 			// pkg/collection's registration check permits for a declared
