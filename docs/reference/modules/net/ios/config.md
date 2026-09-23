@@ -16,7 +16,7 @@ Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, c
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

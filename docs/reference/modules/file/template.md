@@ -16,5 +16,5 @@ Renders a template and writes the result to the target.
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 

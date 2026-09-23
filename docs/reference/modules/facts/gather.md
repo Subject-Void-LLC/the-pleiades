@@ -16,7 +16,7 @@ Reads a small, fixed set of system facts over SSH and emits each one as a fact, 
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

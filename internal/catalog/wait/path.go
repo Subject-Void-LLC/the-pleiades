@@ -50,7 +50,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Reversible: false is the honest answer rather than an
 			// unfinished one. This method observes and never acts, so a

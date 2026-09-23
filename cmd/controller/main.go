@@ -111,6 +111,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
@@ -165,10 +166,14 @@ import (
 // serviceName identifies this process in every span it emits.
 const serviceName = "pleiades-controller"
 
-// serviceVersion is the build identifier the UI shows in its sidebar. It
-// is a constant rather than a linker flag for now: Phase 20 owns release
-// packaging and is where a real version stamp belongs.
-const serviceVersion = "v0.1.0-alpha"
+// serviceVersion is the build identifier the UI shows in its sidebar and
+// the version this process reports in every span it emits.
+//
+// It reads buildinfo, the one version every Pleiades binary reports, so
+// the sidebar, the traces and `controller version` cannot disagree. It was
+// a hand-typed "v0.1.0-alpha" until this change, which had been wrong for
+// every release line since the one it named.
+func serviceVersion() string { return buildinfo.Version() }
 
 // defaultListenAddr is the address the HTTP server binds when LISTEN_ADDR
 // is unset.
@@ -1696,7 +1701,7 @@ func main() {
 
 	ui := uiweb.New(uiweb.Config{
 		Prefix:   "/ui",
-		Version:  serviceVersion,
+		Version:  serviceVersion(),
 		Banner:   banner,
 		Sessions: sessions,
 		Cookie:   cookieCodec,

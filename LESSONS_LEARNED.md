@@ -259,6 +259,9 @@ story, per `.AGENTS/AGENTS.md`.
 225. **A wait strategy's deadline cannot be extended by wrapping it, because a nested deadline still fires first (a child context's deadline is the earlier of its own and its parent's): to lengthen any timeout REPLACE its owner, name the upstream definition being restated, pin the upstream value in a test, and sweep the shape across the repository rather than fixing the instance (2026-09-23).**
 226. **Relaxing an equality needs a compensating assertion for the property it stood for, and that assertion must read the WORLD rather than a record the code wrote about itself: `sdk.Unchanged` records the same map as both halves, so a no-op's recorded "after" is never observed, and comparing it to "before" compares a map with itself (2026-09-23).**
 
+227. **When one record juxtaposes two values whose ordering implies a claim, derive both from one function or write the check that compares them: the roadmap showed a phase's release beside its position in the suggested working order, each correct alone, and 46 of 67 unfinished phases sat below a release the order had already passed (2026-09-23).**
+228. **A value called a placeholder that a real code path will one day evaluate is a scheduled failure, so name the code that reads it and the condition under which that code first runs: every Collection manifest required `>=1.0.0` while the first release is 0.2.0, and the loader could not notice because no build is a release build (2026-09-23).**
+
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered rule here. Never renumber an existing entry.

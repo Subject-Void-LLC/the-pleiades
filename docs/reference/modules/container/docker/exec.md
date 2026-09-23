@@ -16,7 +16,7 @@ Runs cmd inside the container named name, through /bin/sh -c on the daemon's own
 | Transports | `docker` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since a command run inside a container can change anything the container can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

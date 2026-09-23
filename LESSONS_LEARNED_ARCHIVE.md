@@ -4925,3 +4925,47 @@ Comparing two clocks for equality is flaky, so the fix is a bound. But the equal
 That second assertion was written first against the run's own recorded before and after, and it could not fail: `sdk.Unchanged(state)` records `Diff{Before: state, After: state}`, the same map twice, so a no-op's "after" is never observed. It is the "before" reused, and comparing the two compares a map with itself.
 
 The rule: when checking whether something happened, read the thing it would have happened to (the file on disk), never a record the code under test wrote about itself, because the record may say "nothing changed" by construction rather than by observation. And, as ever, falsify the compensating assertion by planting exactly the fault it exists to catch.
+
+## 227. When one record shows two numbers that imply an order, one function must produce both, or a check must compare them
+
+The roadmap's dashboard printed a phase's release and its position in the suggested working order on
+the same row. The release came from a `**Version:**` key a human wrote; the position came from
+`todo_order()`, which sorted on the phase number and had never heard of a release. Each was correct
+by itself. Together they told a reader to build the v0.5.0 AWX parity block before the v0.3.0 mesh
+work, and 46 of 67 unfinished phases sat below a release the order had already passed.
+
+Nothing could notice, because noticing required reading two fields at once and every check read one.
+The dependency checks passed, the version values all parsed, the topological sort was correct. The
+defect lived entirely in the juxtaposition.
+
+The fix was one term added to a sort key, and the reason it was one term rather than a redesign is
+that the two orders never actually conflicted: no phase depends on a phase in a later release, so
+sorting by release costs the topological order nothing. That is worth testing for before assuming a
+priority function and a plan are in tension; here they only appeared to be.
+
+The general rule: when a rendered record juxtaposes two values whose ordering implies a claim, either
+derive both from one function or write the check that compares them. A field that is only ever read
+alone can drift from its neighbour indefinitely, and the drift is invisible in every view that shows
+one of them.
+
+## 228. A placeholder that a real code path will one day evaluate is not a placeholder, it is a scheduled failure
+
+Every built-in Collection manifest declared `EngineVersion: ">=1.0.0"`, and both places that set it
+said in their own comments that the value was a baseline chosen because no versioned releases existed
+yet. That reading was wrong in a specific way: `internal/loader`'s constraint check is real code that
+runs on every external Collection load, and it refuses a method whose minimum the running build does
+not meet. It had simply never been able to run, because every build in the repository reports
+`0.0.0-dev` and the checker cannot compare against that. The first stamped release, v0.2.0, would
+have refused the whole catalog at once.
+
+Two things made it durable. The word "placeholder" in the comment told every later reader the value
+did not matter, so nobody asked what would evaluate it. And a sibling package,
+`internal/forge/externalscaffold`, had already worked out the correct rule and written down exactly
+why `>=1.0.0` was wrong, in a comment nobody reading the other two would see. A repository can hold
+its own refutation and not act on it.
+
+The check to make: for any value called a placeholder, name the code that will read it and the
+condition under which that code first runs. If the answer is "a real function, once we do X", it is
+not a placeholder, and the test that proves it is one has to simulate X rather than run under
+today's conditions. Here that meant comparing against a stamped release string rather than against
+the running build, which is the only way to ask the question before such a build exists.

@@ -16,7 +16,7 @@ Makes sure a Windows service's start type is Disabled, refusing it from starting
 | Transports | `winrm` |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

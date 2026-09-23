@@ -16,7 +16,7 @@ Runs a script on a Windows host over WinRM, naming which interpreter runs it. Th
 | Transports | `winrm` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since a PowerShell or cmd script can change anything the account can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

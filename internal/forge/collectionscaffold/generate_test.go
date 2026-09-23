@@ -1,6 +1,7 @@
 package collectionscaffold_test
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"regexp"
@@ -154,17 +155,23 @@ func TestGenerate_ZeroValueManifestFields(t *testing.T) {
 // emitted empty.
 //
 // An empty constraint is not a permissive one, it is a field that says
-// nothing, and every hand-written manifest in this catalog declares
-// ">=1.0.0". A generated one that declared nothing left a reader unable
-// to tell "no opinion" from "forgot".
+// nothing, and every manifest in this catalog declares the same value. A
+// generated one that declared nothing left a reader unable to tell "no
+// opinion" from "forgot".
+//
+// The expected value is read from DefaultEngineVersion rather than written
+// out, because the literal is the release line and moves with it. Writing
+// it twice is how the old ">=1.0.0" survived long enough to become a
+// constraint no release could have met.
 func TestGenerate_DefaultsTheEngineVersion(t *testing.T) {
+	defaulted := fmt.Sprintf(`EngineVersion:   %q`, collectionscaffold.DefaultEngineVersion)
 	tests := []struct {
 		name    string
 		version string
 		want    string
 	}{
-		{name: "unset", version: "", want: `EngineVersion:   ">=1.0.0"`},
-		{name: "whitespace only", version: "   ", want: `EngineVersion:   ">=1.0.0"`},
+		{name: "unset", version: "", want: defaulted},
+		{name: "whitespace only", version: "   ", want: defaulted},
 		{name: "explicit is left alone", version: ">=2.4.0", want: `EngineVersion:   ">=2.4.0"`},
 	}
 

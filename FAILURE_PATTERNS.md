@@ -313,6 +313,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 308. Two WAL tests leaked a NATS bus each, and a durability wait was bounded as if it were a performance claim
 309. `FAILURE_PATTERNS.md` #301 fixed, and the compensating assertion written with it compared a map with itself
 310. Every postgres and toxiproxy container waited for readiness under a sixty second deadline nobody chose
+311. The roadmap's own "what to build next" ranked on the phase number and contradicted the release beside it
+312. Every Collection manifest required an engine version no release before 1.0.0 could have met
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

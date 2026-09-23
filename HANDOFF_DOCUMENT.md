@@ -102,3 +102,59 @@ Phase 101's successors are Phase 93 (Smart Hands, which rests on the proof that 
 needs no broker configuration change) and Phase 105 (reference passing, which is what removes the
 secret from the dispatch payload). Phase 106d owns turning these defaults on.
 
+
+## Release versioning, made consistent (2026-09-23, same working copy)
+
+**The defect was in the tracker's ordering, not in the version numbers and not in the roadmap's
+order.** The dashboard showed `Phase 35 v0.3.0` at `#5` directly after `Phase 28 v0.5.0` at `#4`,
+which reads as the release going backwards. Measuring first changed the fix twice.
+
+What was checked and found sound: all 124 phases carry a `**Version:**`, all 124 parse, and no phase
+ships before a phase it depends on. Reordering `IMPLEMENTATION.md` by release was considered and
+rejected: it moves 118 of 124 sections and fragments 16 Parts into 44 runs. Keeping every phase where
+it sits and forcing the file to read monotonically was also measured, and collapses 119 of the 124
+phases into one release, which is arithmetic rather than judgement.
+
+What was actually wrong: `todo_order()` ranked on `(in progress, phase number)` and never looked at
+the release, so the queue opened with the v0.5.0 AWX parity block because Phase 24 is the lowest
+number nothing blocks. 46 of 67 unfinished phases sat below a release the queue had already passed.
+`rank()` now takes the release first, and the cycle break is scoped to the lowest pending release so
+the mutually dependent 75/76 pair stops being exiled past Phase 100. 46 regressions became 0. No
+version changed, no phase moved, no phase split.
+
+### What else this session changed
+
+- **The release ledger** replaces the 2026-09-22 resequencing note at the top of `IMPLEMENTATION.md`:
+  one row per release, anchored to `PLAN.md` Section 7's tier ladder, with the v0.4.0 rationale and
+  the v1.0.0 boundary paragraph carried over verbatim. A `### Release milestones` legend sits beside
+  `### Dependency keys`, which `**Version:**` had never had.
+- **`summary.version_problems`** in the tracker: missing or malformed version, a release with no
+  ledger row or a row with no phases, a phase shipping before a dependency, a working order that
+  moves backwards, and a finished phase depending on an unfinished one. It reports 0 today, and the
+  page shows a banner when it does not. Eight new tests plus two in `RoadmapParsing`.
+- **Phase 73's dependency key** lost `Phase 77`. Phase 73 is 25 of 25 done and Phase 77 has not
+  started, which the new completion check caught. Reading Phase 73 showed both mentions of 77 are
+  comparisons ("alongside Phase 77's SFTP", "the same reasoning Phase 77 applies"), and
+  `pkg/capability/capabilities_network.go`'s own comment says `pkg/tftpxfer` already implements
+  `FileTransferCapable` and Phase 77's SFTP "will join". The key was never a need.
+- **`buildinfo.CurrentRelease = "0.2.0"`**, and the catalog's engine constraint derives from it. See
+  `FAILURE_PATTERNS.md` 312: `>=1.0.0` on all 75 manifests would have been refused by the first
+  release build.
+- **`cmd/controller`'s `serviceVersion`** reads `buildinfo.Version()` instead of a hardcoded
+  `v0.1.0-alpha`.
+- **The versioning policy** is published in `docs/13-releases-and-stability.md`, which said "Not
+  decided yet".
+
+### Correction worth carrying
+
+Phase 14's struck-through relocated item was read mid-session as a stale checkbox holding the phase
+at 14 of 15. It is not: the tracker classifies a struck-out item as `withdrawn` and excludes it from
+work counts, so Phase 14 is `done` at 14 of 14 and always was. The ad-hoc count that produced the
+claim was the thing that was wrong.
+
+### Next
+
+`Phase 77 (SFTP/SCP)` is now `#1` in the working order, and it is the last open phase in v0.2.0.
+Closing it makes v0.2.0 cuttable, at which point `buildinfo.CurrentRelease` moves to `0.3.0` in the
+same change that opens that line. Nothing stamps a version at build time yet: the `Makefile` has no
+`-ldflags -X buildinfo.version` release target, which Phase 20 owns.

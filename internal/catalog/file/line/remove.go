@@ -36,7 +36,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// It reads the file and computes the edit before it writes, so
 			// a check can predict through the same code (CheckRemove).

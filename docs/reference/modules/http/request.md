@@ -16,7 +16,7 @@ Calls a URL from wherever the task runs, not from the target device, and records
 | Transports | - |
 | Requires elevation | no |
 | Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

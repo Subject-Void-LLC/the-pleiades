@@ -63,7 +63,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Deletion is the one operation in this namespace that can
 			// never emit an inverse, so this is the one manifest here that

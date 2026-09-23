@@ -7,7 +7,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -91,7 +91,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -166,7 +166,7 @@
       "AWSAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -232,7 +232,7 @@
       "AWSAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -280,7 +280,7 @@
       "AWSAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -334,7 +334,7 @@
       "AWSAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -385,7 +385,7 @@
       "DockerCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -460,7 +460,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -530,7 +530,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -621,7 +621,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -679,7 +679,7 @@
       "CommandExecCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -792,7 +792,7 @@
       "ShellExecCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -906,7 +906,7 @@
       "WinRMCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -1000,7 +1000,7 @@
       "FactGathererCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -1097,7 +1097,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1196,7 +1196,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1306,7 +1306,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1436,7 +1436,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1517,7 +1517,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1606,7 +1606,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1700,7 +1700,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1800,7 +1800,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -1866,7 +1866,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -1937,7 +1937,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
       "reversible": false
@@ -1955,7 +1955,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2045,7 +2045,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2137,7 +2137,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2212,7 +2212,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2304,7 +2304,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2392,7 +2392,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -2424,7 +2424,7 @@
   },
   "http.request": {
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -2540,7 +2540,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2616,7 +2616,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2682,7 +2682,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2742,7 +2742,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2844,7 +2844,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2929,7 +2929,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -2997,7 +2997,7 @@
       "CatalystAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3045,7 +3045,7 @@
       "CatalystAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3104,7 +3104,7 @@
       "CatalystAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3150,7 +3150,7 @@
       "CatalystAPICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3193,7 +3193,7 @@
       "NetworkCLICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3246,7 +3246,7 @@
       "NetworkCLICapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3291,7 +3291,7 @@
       "AristaEOSCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
       "reversible": false
@@ -3309,7 +3309,7 @@
       "CiscoIOSCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3368,7 +3368,7 @@
       "CiscoIOSCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3467,7 +3467,7 @@
       "CiscoIOSCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3563,7 +3563,7 @@
       "CiscoIOSCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3608,7 +3608,7 @@
       "JunosCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
       "reversible": false
@@ -3627,7 +3627,7 @@
       "SSHTransportCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3721,7 +3721,7 @@
       "SSHTransportCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3757,7 +3757,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -3834,7 +3834,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -3902,7 +3902,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -3970,7 +3970,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4047,7 +4047,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4115,7 +4115,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -4180,7 +4180,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4250,7 +4250,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4320,7 +4320,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -4391,7 +4391,7 @@
       "NetworkAddressableCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -4504,7 +4504,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4562,7 +4562,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4620,7 +4620,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -4678,7 +4678,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4737,7 +4737,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4798,7 +4798,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -4838,7 +4838,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4899,7 +4899,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -4960,7 +4960,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -5021,7 +5021,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5087,7 +5087,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5152,7 +5152,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5211,7 +5211,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5266,7 +5266,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -5321,7 +5321,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5381,7 +5381,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5438,7 +5438,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -5541,7 +5541,7 @@
       "POSIXFileSystemCapable"
     ],
     "executionContext": {},
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": false,
@@ -5670,7 +5670,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,
@@ -5729,7 +5729,7 @@
     "executionContext": {
       "requiresElevation": true
     },
-    "engineVersion": ">=1.0.0",
+    "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
       "reversible": true,

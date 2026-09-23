@@ -69,7 +69,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// The cleanest reversible method in the catalog: its whole
 			// effect is a triple of values on one path, so re-applying the

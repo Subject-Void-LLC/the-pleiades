@@ -33,6 +33,19 @@ var (
 // developmentBase is the version of every build nobody stamped.
 const developmentBase = "0.0.0-dev"
 
+// CurrentRelease is the release line this source tree is on: the version a
+// release build cut from it would carry, and therefore the newest engine a
+// method shipped inside it may require.
+//
+// It is a declared constant rather than something derived, because nothing
+// in a source tree knows which release it belongs to. Move it in the same
+// change that opens the next release line, and never above the release the
+// roadmap is actually working toward: a constraint naming a release this
+// build does not meet is refused by the loader (see the engine version
+// constraint in internal/loader), so a value set ahead of the work makes
+// every method carrying it unloadable on the very first real release.
+const CurrentRelease = "0.2.0"
+
 // Version is this build's version: the stamped one, or a development
 // version. See the package documentation.
 func Version() string {

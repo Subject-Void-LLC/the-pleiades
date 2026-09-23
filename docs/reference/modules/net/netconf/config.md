@@ -16,7 +16,7 @@ Opens an RFC 6241 NETCONF session over the SSH "netconf" subsystem and applies c
 | Transports | `netconf` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since only applying the document says what the device makes of it: the running datastore has no staging area, and a check through the candidate datastore would stage the document on the device, which a check promises not to do |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

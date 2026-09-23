@@ -45,7 +45,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// IOS's common "no <line>" negation convention is not
 			// reliable enough across every configuration statement (a

@@ -16,7 +16,7 @@ Reads a file on the device on an interval until search_regex matches it, or unti
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Not supported: a check run names this task as unchecked, since what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

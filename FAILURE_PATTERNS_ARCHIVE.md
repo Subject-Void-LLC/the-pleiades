@@ -8908,3 +8908,64 @@ Nothing run locally could have caught it, and that is the point: every local che
 **Why they REPLACE rather than wrap.** Wrapping the module's strategy in a longer outer deadline is the obvious fix and does nothing: a `ForAll` with a deadline runs its children under `context.WithTimeout` of that deadline, so the inner sixty seconds still fires first. The deadline field is unexported, which is why the tests read it through reflection rather than waiting two minutes for a container that never becomes ready.
 
 **Lesson.** See `LESSONS_LEARNED.md` #225.
+
+## 311. The roadmap's own "what to build next" ranked on the phase number and contradicted the release beside it
+
+**Symptom.** The dashboard printed `Phase 35: Ansible Playbook Migration v0.3.0` at position `#5`,
+directly after `Phase 28: The Notification Engine v0.5.0` at `#4`. Two numbers the same row shows,
+saying opposite things about what to build first. Measured across the queue, 46 of the 67 unfinished
+phases sat at a release the order had already passed.
+
+**Root cause.** `todo_order()` in `.SPECIFICATION/implementation.py` is a topological sort over the
+`**Depends on:**` keys, and its `rank()` was `(in progress before not started, phase number)`. The
+release a phase ships in was never a term. So the queue opened with Phases 24, 26, 27 and 28, the
+whole v0.5.0 AWX parity block, for no reason except that 24 is the lowest-numbered phase nothing
+blocks. The `**Version:**` keys themselves were never wrong: all 124 parse, and no phase ships before
+a phase it depends on.
+
+A second fault hid inside the first. The cycle-breaking branch searched the entire pending set, so it
+could only fire once everything else was placed. Phases 75 and 76 depend on each other and are
+therefore never "available", which pushed both past Phase 100 at v1.3.0, five releases beyond where
+they belong.
+
+**Fix.** `rank()` takes the release first, through a new `version_key()` over a new `RELEASE_RE`. The
+cycle break is scoped to the lowest release still pending, so a cycle inside one release is broken
+where it lives. 46 regressions became 0, and Phase 75 is now cycle-broken at position 46 inside its
+own v0.7.0 band. Nothing else moved: no version changed, no phase moved in the file, no phase split.
+
+**What made it invisible.** Both numbers were correct in isolation, and each had its own author. The
+contradiction existed only in their juxtaposition, which no check looked at because nothing read the
+two together. `summary.version_problems` now does, and the suggested-order check is the one entry in
+it with a real before and after.
+
+**Lesson.** See `LESSONS_LEARNED.md` #227.
+
+## 312. Every Collection manifest required an engine version no release before 1.0.0 could have met
+
+**Symptom.** None yet, which is the point: it would have appeared in full on the first stamped release
+build and not one moment earlier. All 75 built-in manifests, `catalogdata`'s shared constant, and
+`collectionscaffold.DefaultEngineVersion` declared `EngineVersion: ">=1.0.0"`, published in 81 entries
+of `docs/reference/schemas/module-catalog.json`. The roadmap reaches v1.0.0 at Phase 106d, and the
+first release is v0.2.0, one phase from done.
+
+**Root cause.** `internal/loader/version.go`'s `checkEngineVersion` refuses a method whose minimum the
+running build does not meet, but it cannot compare against a development build: every unstamped build
+reports `0.0.0-dev`, so the constraint was reported unchecked and loaded with a warning. Nothing in
+the repository is a release build, so nothing ever ran the comparison. Proven after the fact with a
+throwaway test: `checkEngineVersion(">=1.0.0", "0.2.0")` returns `requires engine >=1.0.0, and this
+build is 0.2.0`.
+
+The value was documented as a placeholder in both places that declared it, which is what kept it
+alive. `internal/forge/externalscaffold/config.go` had already reasoned its way to the correct rule
+for the programs it generates, and said in its own comment that a fixed guess "such as >=1.0.0 would
+be refused by the first release that did not meet it". Two scaffolds in one package tree disagreed,
+and one of them explained why the other was wrong.
+
+**Fix.** `buildinfo.CurrentRelease` is the one declared release line this tree is on.
+`collectionscaffold.DefaultEngineVersion` is `">=" + buildinfo.CurrentRelease`, `catalogdata` refers
+to that rather than restating it, and the 75 emitted manifests were rewritten to what a fresh
+generation now produces. `TestDefaultEngineVersionLoadsOnTheCurrentRelease` runs the real unexported
+comparison against a stamped release, which is the only way to ask the question before such a build
+exists.
+
+**Lesson.** See `LESSONS_LEARNED.md` #228.

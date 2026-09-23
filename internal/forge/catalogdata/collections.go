@@ -7,11 +7,11 @@ package catalogdata
 import "github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 
 // engineVersion is the minimum core engine version constraint recorded on
-// every generated Collection manifest. This project has no versioned
-// engine releases yet, so every entry shares this one placeholder baseline
-// (the same value collectionscaffold's own worked example and release-gate
-// tests already use) rather than each section inventing its own.
-const engineVersion = ">=1.0.0"
+// every generated Collection manifest. Every entry shares the one value
+// collectionscaffold declares, rather than each section inventing its own
+// or this file restating it: a second copy is a second thing to move when
+// the release line does.
+const engineVersion = collectionscaffold.DefaultEngineVersion
 
 // Collections is every native Collection method docs/hephaestus.md's
 // catalog table describes, in the exact shape

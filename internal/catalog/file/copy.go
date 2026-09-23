@@ -100,7 +100,7 @@ func init() {
 				RequiresElevation: false,
 			},
 			PlatformTargets: nil,
-			EngineVersion:   ">=1.0.0",
+			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// It reads the path and its checksum before it writes, so a
 			// check can predict through the same code (CheckCopy).

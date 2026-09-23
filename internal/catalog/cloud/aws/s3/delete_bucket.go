@@ -19,7 +19,7 @@ func init() {
 			RequiredCapabilities: []capability.Name{capability.NameAWSAPI},
 			ExecutionContext:     collection.ExecutionContext{RequiresElevation: false},
 			PlatformTargets:      nil,
-			EngineVersion:        ">=1.0.0",
+			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			// A check makes only the read a real run makes first (CheckDeleteBucket).
 			SupportsCheck: true,

@@ -16,7 +16,7 @@ Runs a single command on the target over SSH and reports its exit status, stdout
 | Transports | `ssh` |
 | Requires elevation | no |
 | Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 

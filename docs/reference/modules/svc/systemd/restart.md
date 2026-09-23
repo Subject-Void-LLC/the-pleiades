@@ -16,7 +16,7 @@ Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, a
 | Transports | `ssh` |
 | Requires elevation | yes |
 | Check mode | Supported: reports what it would change and changes nothing |
-| Engine version | `>=1.0.0` |
+| Engine version | `>=0.2.0` |
 
 ## Parameters
 
