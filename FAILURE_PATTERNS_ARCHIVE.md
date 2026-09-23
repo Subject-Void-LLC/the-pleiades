@@ -8760,3 +8760,77 @@ A read-back ("did the other process switch it?") was tried first and was not eno
 
 **Lesson.** When writing a compliance control, cite the test that fails if the control is removed, not the mechanism that implements it. If naming that test means writing it first, the control was not ready to be claimed.
 
+
+## 297. `NATS_URL` was checked after the port was bound and the database migrated
+
+**Symptom.** 2026-09-22, writing Phase 96d's "refused at startup" gate. `changelog/mesh-transport-and-tls.added.md` shipped the sentence "`NATS_URL` is now checked at startup", and the check really existed, so nothing looked wrong. Reading `cmd/controller/main.go` in order says otherwise: `natsURL` is read at the top of `main`, and the first thing that looks at it is `topology.TLSFromEnv` roughly 280 lines later, on the far side of `net.Listen`, the `controller listening` log line, `srv.Serve` in a goroutine, and `ent.OpenDatabaseReporting`. A controller with a typo in its scheme therefore bound its port, answered 200 on `/healthz` (the startup handler serves it while returning 503 on `/readyz`), ran a full schema migration, and then exited 1.
+
+**Root cause.** The check was placed where the value is USED rather than where it is READ. That is the natural place to put it and it is wrong for a configuration check, because everything between the two is work done on behalf of a process that cannot function. The same file already got this right for the Controller's own TLS: `resolveTLS` is called in the configuration block with a comment saying a deployment whose TLS variables contradict each other must fail before it opens a database or joins an election. Nobody applied that rule to the connection the process makes.
+
+**Fix.** `topology.ValidateNatsURL` and `topology.TLSFromEnv` both moved into the configuration block, immediately after the masking logger is installed. `cmd/controller/nats_url_refusal_release_gate_test.go` and its runner sibling drive the real binaries and assert the ordering rather than the exit code: the controller's database directory must not exist afterwards and `controller listening` must not appear in its output, and the runner, which has neither a listener nor a database, must refuse inside a fifth of `topology.ConnectWaitTimeout`. Both carry a positive control, since a binary that refused every URL would pass a refusal gate perfectly.
+
+**Lesson.** A configuration check belongs where the value is read, not where it is used, and the distance between the two is the measure of the bug. "Checked at startup" is a claim about ORDERING, so the test for it asserts what had not happened yet, not that an error was eventually printed.
+
+## 298. Placing that check one step earlier would have printed an embedded credential
+
+**Symptom.** Found while fixing #297, before writing any code. The obvious placement for `ValidateNatsURL` is immediately after `natsURL := getenv("NATS_URL", ...)`. In both composition roots that line runs before the masking logger is installed: about 75 lines before in `cmd/controller/main.go`, about 20 in `cmd/runner/main.go`.
+
+**Root cause.** `ValidateNatsURL`'s messages quote the URL back, which is right for an operator and dangerous for a value that may carry userinfo. `internal/redact/rules.json` carries a `url_userinfo` pattern rule for exactly `scheme://user:pass@host`, and Phase 96d's own fuzz item names embedded-credential URLs as an input class to test. Before `slog.SetDefault` and `log.SetOutput(redact.Shared().Writer(...))`, both `fatal()` and `log.Fatalf` reach an unmasked handler, so `natss://admin:hunter2@broker.internal:4222` would have printed the password to stdout, on a fatal path, where an operator or a log collector is most likely to be reading.
+
+**Fix.** The checks go immediately after the masking logger rather than immediately after the env read. That keeps every benefit of #297's fix, since the logger is still installed long before `net.Listen` and the migration. Both files carry a comment saying the placement is deliberate and why, because "move this a few lines up" is otherwise a harmless looking cleanup.
+
+**Lesson.** Masking is installed at a point in a program, not switched on for the whole of it, so "before the logger" is a real region of `main` with different rules. Before adding a fatal path that quotes a configuration value, check which side of that line it lands on.
+
+## 299. An empty `ExposedPorts` publishes MORE ports, not fewer
+
+**Symptom.** 2026-09-22, the first run of Phase 96d's wss traversal gate. The gate asserts that the broker container publishes no route this host could use to bypass the proxy, and the broker's `ContainerRequest` deliberately named no `ExposedPorts` at all. It failed immediately: `the broker container published map[4222/tcp:... 6222/tcp:... 8222/tcp:...]`.
+
+**Root cause.** testcontainers-go v0.43.0's `configureExposedPorts` (lifecycle.go): when `req.ExposedPorts` is empty and the network mode is not a container network, it **inspects the image** and publishes every port the image's own `EXPOSE` declares. The nats image declares all three. So naming nothing does not mean publishing nothing, it means inheriting the image's list, which is the opposite of what the field's name suggests. A `HostConfigModifier` cannot undo it either: the modifier runs at line 516 and the port merge at line 546.
+
+**Fix.** The broker names exactly one port, the websocket port the proxy forwards to, so the image's list is never consulted and the plain client port 4222 has no host route. The gate asserts that 4222, 6222 and the monitoring port are all absent from the published set rather than trusting the request. `tests/e2e/integration_chaos_test.go` carried the same claim in a comment ("Neither publishes a host port of its own") while declaring `ExposedPorts` explicitly; that was corrected too, though on the image-EXPOSE mechanism above its comment was only ever true by luck.
+
+**Lesson.** In testcontainers, `ExposedPorts` is a NARROWING field, not an additive one: the way to publish less is to name something, and the way to publish everything the image declares is to name nothing. Any test whose claim is "there is no other route" has to assert the published set rather than reason about the request that produced it.
+
+## 300. The compose upgrade gate indexed a backup that correctly did not exist
+
+**Symptom.** 2026-09-22, the first full `make test-integration` on the Phase 96d branch: `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` panicked with `index out of range [0] with length 0` at `packaging_upgrade_compose_test.go:147`, having logged `upgrading from 3b60a803 across []`. It reproduced every time in isolation, so it was not contention. Stashing the branch's work made it PASS, which looked at first like the branch had broken it.
+
+**Root cause.** Neither. `previousRef` resolves what this build replaces, and its logic is right: on a branch with no commits of its own it takes the merge base, and when that equals HEAD it distinguishes a dirty tree (the uncommitted work is the build under test, so HEAD is what it replaces) from a clean one (`HEAD^1`). On this branch HEAD was the Phase 84 merge and the tree was dirty, so the previous build was HEAD's own tree, and the branch adds no ent migration, so `crossed` was legitimately empty. `make up` therefore took no backup, correctly, because there was no migration to back up before. Line 147 then indexed `g.backups(t)[0]` unconditionally. The two assertions immediately above it are both wrapped in `if len(prev.crossed) > 0`; this line was not, so it was reachable exactly when they were skipped. Stashing "fixed" it only because a clean tree selects `HEAD^1`, which is pre-Phase-84 and does cross migrations.
+
+**Fix.** The rollback half now reads the backup list once and, when it is empty, distinguishes the two cases rather than indexing: with a crossed migration and no backup it fails, because an upgrade that skipped a backup it owed is the defect this gate exists to catch; with no crossed migration it logs that the previous build shares this schema and returns, the upgrade half above having already run in full. Verified by re-running the gate alone: panic before, pass after.
+
+**Third instance, same session.** `TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates` failed for the same reason once the branch was COMMITTED rather than dirty: with commits of its own the previous ref becomes the merge base, and this branch still adds no migration, so `crossed` stayed empty. That gate stalls the new build by taking a SHARE lock on `schema_migrations` to hold it at its first claim of whatever the previous release lacks; with nothing to claim it becomes ready in milliseconds and the gate fails on a 200 that is the correct answer. It now skips with that reason, because the overlap it measures cannot exist without a migration. Three instances of one shape in one session.
+
+**Lesson.** Phase 84's own branch added a migration, so its author could never reach this path; the first branch after it that adds none does. When a test derives a fixture from repository state, enumerate the states it can take, including the empty one, and note which of them the authoring branch could not produce. Two collaborating details made this worse than a stray index: the guard existed twenty lines earlier and was simply not carried down, and this repository's standing rule is not to commit, so a dirty tree is the normal state rather than the exception.
+
+## 301. A check test compared a clock, again, in a different package
+
+**Symptom.** 2026-09-22, same integration run: `TestLineChecks_PredictWhatARealRunLeaves/set,_already_there` failed with `predicted mtime = 1790109210, the run left 1790109211`. One second.
+
+**Root cause.** Identical to #294, which was found eight days earlier in `internal/catalog/facts` and fixed there. The check predicts what a run would leave, the test then performs the real run and compares, and one of the compared fields is a clock, so the two agree except when the two reads straddle a second boundary.
+
+**Fix.** Not fixed here: found on a branch that does not own this package, and recorded rather than swept in silently. The fix is #294's, applied to the mtime field: compare it as a bound (present in both, the run's value no earlier than the check's and at most a minute later) rather than for equality, leaving every other field compared exactly.
+
+**Lesson.** #294 ended with "before asserting two reads are equal, ask which of the fields read is time." That lesson was written into the archive and applied to the one package where it was found, and the identical assertion in another package was never looked for. A lesson about a PATTERN is not discharged by fixing the instance that produced it: grep for the shape before closing the entry.
+
+## 302. The Helm upgrade gate counted pods Kubernetes had already finished with
+
+**Symptom.** 2026-09-22, the same integration run as #300 and #301: `TestUpgradeReleaseGate_HelmUpgrade/two_controllers,_RollingUpdate` failed with four controller pods listed, two on `pleiades/controller:previous` and two on `pleiades/controller:dev`, against `want two, both this build`. It reproduced in isolation, so it was not read as contention.
+
+**Root cause.** The `helm upgrade` immediately before the assertion runs with `--wait --timeout`, and it SUCCEEDED, which is the detail that settles this: helm returned only once Kubernetes called the rollout complete, meaning the new ReplicaSet was fully available. That says nothing about the old pods. A Deployment deletes them asynchronously afterwards, and during their termination grace period they remain in `kubectl get pods`, still in phase Running, carrying their old image. The assertion read `jsonpath={.spec.containers[0].image}` with no status filter at all, so a pod Kubernetes had already decided was finished was indistinguishable from a serving one. The test therefore passed whenever the old pods happened to be reaped inside the query window and failed when they were not, which makes it a measurement of how loaded the machine is rather than of the rollout. The grace period sets that window, so the failure gets likelier exactly when the box is busy, which is when this suite actually runs.
+
+**Fix.** The query now also selects `.metadata.deletionTimestamp`, and pods carrying one are excluded before the count. The failure message prints both the filtered list and the raw list with timestamps, so the next failure distinguishes "the rollout did not converge" from "pods were mid-deletion" without a rerun.
+
+**Lesson.** `--wait` means the new thing is ready, never that the old thing is gone. When a test asserts on a SET of live objects after a rollout, it has to exclude the ones being deleted, because Kubernetes lists an object from the moment it is created until it is actually removed, not until it stops mattering. The generalization worth carrying: an assertion that counts objects needs to say which lifecycle states it counts, and a query that reads only spec fields cannot express that.
+
+## 303. A new test reached into a Linux-gated file and broke the build on two operating systems
+
+**Symptom.** 2026-09-22, pull request 38: every local gate passed, `make push-gate` was green, a receipt was issued and the branch was pushed. GitHub Actions then failed on `vet`: `cmd/controller/nats_url_refusal_release_gate_test.go:124:18: undefined: setupEnv`, on both the Windows and the macOS legs.
+
+**Root cause.** `setupEnv` builds a hermetic child environment, stripping every variable the setup command owns so a developer's exported `JWT_SECRET` cannot decide a test's outcome. Nothing in it is platform-specific. It lived in `setup_release_gate_test.go`, which is `//go:build linux` because that file's OTHER tests drive real pseudo terminals, a POSIX facility. So a platform-neutral helper was trapped behind a platform constraint, and the new refusal gate called it without inheriting the constraint. On Linux the reference resolves and everything passes; on the other two the file is not compiled and the symbol does not exist.
+
+Nothing run locally could have caught it, and that is the point: every local check was `GOOS=linux`. `make ci` and `make push-gate` both vet for the host only. The three-OS matrix in `.github/workflows/ci.yml` exists precisely for this, and its own comment cites FAILURE_PATTERNS 51, the platform-suffix trap, as the reason it stays. It caught this on the first push.
+
+**Fix.** `setupEnv` moved to `cmd/controller/childenv_test.go`, which carries no build constraint, with a doc comment recording why it is not beside the gate that used to own it. The refusal gate stays unconstrained and now compiles everywhere. Verified across six combinations before pushing again: `GOOS` of linux, windows and darwin, each with the default tags and with `-tags integration`.
+
+**Lesson.** Before calling a Go change verified, vet it for every operating system CI builds, not only the host: `GOOS=windows go vet ./...` and `GOOS=darwin go vet ./...`, under both tag sets, takes seconds. And when reaching for a helper in another test file, read that file's FIRST LINE. A build constraint on a file is a constraint on every symbol in it, including the ones that have no reason to be platform-specific and are only there because a neighbor needed a terminal.

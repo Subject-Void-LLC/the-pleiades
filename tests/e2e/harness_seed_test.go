@@ -423,3 +423,33 @@ func seedPlaybookTemplate(tb testing.TB, dsn string) int {
 		SaveX(ctx)
 	return template.ID
 }
+
+// completeOneDispatch launches a runbook and asserts it reaches a
+// completed state with the expected fan-out, labelling any failure with
+// the condition the caller was varying.
+//
+// It is the smallest assertion in this package that the whole mesh really
+// worked: a real HTTP launch against the real controller, a real fan-out
+// over the real broker, real execution in the real runner, and the result
+// read back through the job view. Anything that can complete this has
+// exercised every hop.
+//
+// phase is a free-text label. It was written for the chaos suite, where
+// it named which phase of a severance the call belonged to, and it now
+// names whatever the caller is varying: a transport, a proxy, an outage.
+func (h *harness) completeOneDispatch(t *testing.T, token, phase string) {
+	t.Helper()
+
+	status, body := h.launch(t, token)
+	if status != http.StatusAccepted {
+		t.Fatalf("[%s] dispatch returned %d, want 202. Body: %s\n%s", phase, status, body, h.controller.output())
+	}
+
+	job := h.pollJobUntilTerminal(t, token, requireStringField(t, body, "job_id"))
+	if job.State != "completed" {
+		t.Fatalf("[%s] job state = %q, want completed. Tasks: %s", phase, job.State, describeTasks(job))
+	}
+	if job.Dispatched != 2 {
+		t.Fatalf("[%s] job dispatched %d devices, want 2. Tasks: %s", phase, job.Dispatched, describeTasks(job))
+	}
+}

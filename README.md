@@ -4,6 +4,12 @@ An object-oriented, strongly typed automation mesh that also runs Ansible. Ansib
 support is the migration on-ramp, not the destination: a workload lands unchanged,
 then converts to native typed collections at its own pace.
 
+The offline tier is a single static binary with no server, no database and no message
+broker, and it reaches real devices over real SSH. Every implemented method declares
+whether it can be reversed, and 69 of the 78 can predict what they would change before
+changing anything (`pleiades run --mode check`), naming every task they could not check
+rather than reporting a clean run.
+
 **Status: pre-1.0, actively built.** The parts described below as real are real and
 tested today; nothing here is aspirational. Read this section before the rest.
 
@@ -37,6 +43,40 @@ tested today; nothing here is aspirational. Read this section before the rest.
   `identity.*`, `container.*` and `cloud.aws.*` families. Every
   implemented method also answers whether it can be undone, and a run that changes
   something records the instruction that would reverse it.
+- **Scheduling is real.** An RFC 5545 recurrence attached to a job template or a
+  project sync, fired by whichever controller holds the scheduler lease. The grammar
+  is a deliberately bounded subset, refused when you save the schedule rather than
+  when it fires; missed runs while the controller was down coalesce into one, with a
+  durable `skipped` record for each that did not happen; and a template bound to a
+  credential someone has to type is refused outright, because that value is never
+  stored and replaying it unattended forever is worse than doing it once.
+- **Credential types and injectors are real.** A credential type is data, an AWX
+  export decodes into it with no translation layer, and its injectors are rendered
+  and injected at fan-out into environment variables, extra variables and generated
+  files, reaching a real `ansible-playbook`. Three limits worth knowing: `env` and
+  `file` injectors are refused on the native Go path, enforced when you bind and
+  again when you run; one external secret source is implemented (`file`) while eight
+  others, HashiCorp Vault among them, are named and explicitly not implemented so an
+  AWX import fails with a reason instead of "no such source"; and a prompted input is
+  never stored, so a job that used one cannot be relaunched.
+- **Collections can be written out of tree.** A separate program built with the
+  public `pkg/external` SDK runs beside Pleiades, never copied onto a device, and its
+  methods register like built-in ones. Linux only: each run is confined with Landlock
+  to its own directory and a private temporary directory, loading is refused
+  altogether on platforms that lack it, and a program must be on an approval list of
+  exact builds whose SHA-256 is re-checked before every run. There is no signature
+  verification and no registry.
+- **Day-two operations are real.** The deployment upgrades, rolls back and restores
+  from backup, including a schema change and its reversal, proven against both a real
+  compose stack and a real Kubernetes cluster.
+- **The mesh can be encrypted, and is not authenticated.** `NATS_URL` accepts
+  `tls://` and `wss://`, verifying a private authority through `NATS_CA_FILE`, and a
+  URL whose scheme would silently downgrade to plaintext is refused at startup.
+  WebSocket is for reaching a broker through a proxy or an egress filter that only
+  allows 443; it does not make a connection survive a dropped link. Both are off by
+  default. Say the rest plainly: the broker accepts any client that completes a
+  handshake, and a device's credential rides the dispatch message, so this encrypts
+  the wire and does not yet establish who is on it.
 
 ## What makes this different
 
@@ -87,7 +127,7 @@ mkdir my-project && cd my-project
   the Collection method and sync plugin contracts, their conformance suite, and a
   step-by-step worked example that takes one real module from naming it to running
   it against a real device.
-- [`docs/12-web-ui.md`](docs/12-web-ui.md): the web UI the controller serves itself —
+- [`docs/12-web-ui.md`](docs/12-web-ui.md): the web UI the controller serves itself:
   signing in, what each view does and does not do, the environment banner, mobile,
   accessibility (including the manual verification script), and adding a view.
 - [`docs/13-releases-and-stability.md`](docs/13-releases-and-stability.md) and

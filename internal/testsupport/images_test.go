@@ -352,6 +352,7 @@ func TestPinsNameAnExactVersion(t *testing.T) {
 		"PostgresImage":   testsupport.PostgresImage,
 		"LocalStackImage": testsupport.LocalStackImage,
 		"ToxiproxyImage":  testsupport.ToxiproxyImage,
+		"NginxImage":      testsupport.NginxImage,
 	}
 
 	for name, ref := range pins {

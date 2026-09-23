@@ -336,10 +336,36 @@ func TestUpgradeReleaseGate_HelmUpgrade(t *testing.T) {
 			t.Error("no previous-build controller was Ready while this build's pod existed; the rollout did not overlap")
 		}
 
-		images := r.kubectl(t, "get", "pods", "-l", "app.kubernetes.io/component=controller,app.kubernetes.io/instance="+r.name,
-			"-o", `jsonpath={range .items[*]}{.spec.containers[0].image}{"\n"}{end}`)
-		if strings.Count(images, packagingControllerImage) != 2 || strings.Contains(images, previousControllerImage) {
-			t.Errorf("after the rollout the controller pods run:\n%s\nwant two, both this build", images)
+		// Pods on their way out are excluded, and that exclusion is the
+		// whole correctness of this assertion rather than a refinement.
+		//
+		// `helm upgrade` above ran with --wait, so it returned only once
+		// Kubernetes called the rollout complete: the new ReplicaSet fully
+		// available. That says nothing about the OLD pods, which enter
+		// Terminating and are deleted asynchronously afterwards. A
+		// Terminating pod is still in `kubectl get pods`, still has phase
+		// Running, and is indistinguishable in a query that reads only
+		// .spec.containers[0].image, so this used to count pods that
+		// Kubernetes had already decided were finished. It passes whenever
+		// they happen to be reaped inside the query window and fails when
+		// they are not, which makes it a test of how loaded the machine is.
+		//
+		// The grace period is what sets that window, so the failure gets
+		// likelier exactly when the box is busy, which is when the suite
+		// actually runs.
+		listed := r.kubectl(t, "get", "pods", "-l", "app.kubernetes.io/component=controller,app.kubernetes.io/instance="+r.name,
+			"-o", `jsonpath={range .items[*]}{.spec.containers[0].image} {.metadata.deletionTimestamp}{"\n"}{end}`)
+		var live []string
+		for _, line := range strings.Split(strings.TrimSpace(listed), "\n") {
+			image, deleting, _ := strings.Cut(strings.TrimSpace(line), " ")
+			if image == "" || strings.TrimSpace(deleting) != "" {
+				continue
+			}
+			live = append(live, image)
+		}
+		running := strings.Join(live, "\n")
+		if strings.Count(running, packagingControllerImage) != 2 || strings.Contains(running, previousControllerImage) {
+			t.Errorf("after the rollout the controller pods not being deleted run:\n%s\nwant two, both this build. Every pod the query returned, with its deletion timestamp:\n%s", running, listed)
 		}
 		call, _, stop = r.api(t)
 		defer stop()

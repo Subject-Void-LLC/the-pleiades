@@ -742,14 +742,38 @@ NATS. Surviving an outage is the reconnection behaviour described above, and tha
 applies to every transport equally. Choose a WebSocket transport for reachability,
 never for resilience.
 
+That cost has been measured rather than asserted, against real brokers, and the
+breakdown is more useful than the headline:
+
+| Scheme | Time to a usable connection | Allocations |
+|---|---|---|
+| `nats://` | 609 us | 145 |
+| `ws://` | 615 us | 190 |
+| `tls://` | 1245 us | 577 |
+| `wss://` | 1207 us | 625 |
+
+So `wss://` does cost about twice what `nats://` costs on every reconnect. But
+almost none of that is the WebSocket upgrade: `ws://` is within one percent of
+`nats://`, and the difference is inside run to run noise. The TLS handshake is
+essentially the whole of it, which is why `tls://` and `wss://` measure the same.
+Two practical consequences. If you already run `tls://`, moving to `wss://` for
+reachability costs you nothing. If you run `nats://` and move to `wss://`, what you
+are paying for is the encryption you also gained, not the traversal. Absolute
+numbers move with the machine; re-run `go test ./internal/topology/ -bench
+BenchmarkTransportConnect` if a decision depends on them.
+
 QUIC is the thing that actually survives a path change, because its connection
 identifiers outlive the address and port tuple. NATS does not speak it, on either
 side: there is no QUIC dialer in the client and no QUIC listener in the server.
 Riding QUIC means an external tunnel process, which is a deployment choice rather
 than something this software does.
 
-**Accepted URL schemes.** `NATS_URL` is now validated at startup, and anything
-outside this list is refused rather than guessed at:
+**Accepted URL schemes.** `NATS_URL` is validated at startup, and anything outside
+this list is refused rather than guessed at. "At startup" is literal: both the
+controller and the runner check it while reading configuration, before the
+controller binds its listener or migrates its database, so a typo cannot produce a
+process that answers `/healthz` for the several seconds it takes to reach the
+broker and then exits.
 
 | Scheme | Transport | Encrypted |
 |---|---|---|
@@ -777,6 +801,23 @@ For the in-chart broker, `nats.tls.enabled` with `nats.tls.secretName` naming a
 WebSocket listener (`nats.websocket.tls` serves it over TLS using the same
 material). Enabling either writes the broker's first configuration file; everything
 that was already a command line flag stays one.
+
+`nats.websocket.tls` without `nats.tls.enabled` is a supported arrangement, not an
+oversight: it serves `wss://` to the outside while the in-cluster client listener
+stays plaintext `nats://`, which is what you want when only the WebSocket port is
+published. It needs `nats.tls.secretName` either way, since both listeners read the
+same two files.
+
+**Terminating TLS in front of the broker instead.** The other shape, and the one
+`wss://` mainly exists for, is an ingress or a CDN that terminates TLS and forwards
+a plain HTTP upgrade to `nats.websocket.enabled` with `nats.websocket.tls` left
+off. Point `NATS_URL` at the proxy with `wss://` and set `NATS_CA_FILE` to whatever
+signed the proxy's certificate, not the broker's. The proxy has to be a real HTTP
+proxy that forwards the `Upgrade` and `Connection` headers and speaks HTTP/1.1
+upstream: a TCP forwarder will not do, and neither will a proxy that negotiates
+HTTP/2 to the client, because an HTTP/2 connection cannot carry an HTTP/1.1
+upgrade. This whole path is exercised end to end by a release gate that stands a
+real nginx in front of a real broker and drives it with the real binaries.
 
 **This encrypts. It does not authenticate.** The broker still accepts any client
 that completes a handshake, and a dispatch message carries the credentials its job

@@ -691,6 +691,16 @@ nats:
 externalNats:
   # -- The broker URL when nats.enabled is false, for example
   # nats://nats.example.com:4222. JetStream must be enabled on it.
+  #
+  # The scheme selects the TRANSPORT and the values schema refuses anything
+  # outside nats, tls, ws and wss. nats is plaintext TCP, tls encrypts it, and
+  # ws and wss tunnel the protocol over WebSocket to reach a broker through an
+  # HTTP proxy or an egress filter that only allows 443. A value with no scheme
+  # is treated as plaintext by the client library, so an omitted one silently
+  # means unencrypted, which is why it is refused here rather than guessed at.
+  #
+  # The binaries check more than the schema can: they also accept a comma
+  # separated list and refuse one that mixes encrypted and plaintext members.
   url: ""
 
 ingress:

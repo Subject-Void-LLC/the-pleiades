@@ -5,7 +5,20 @@
   configMap:
     name: {{ include "the-pleiades.nats.fullname" . }}-config
 {{- end }}
-{{- if .Values.nats.tls.enabled }}
+{{/*
+Gated on EITHER listener wanting certificate material, not on
+nats.tls.enabled alone.
+
+A websocket listener asked to serve TLS reads the same two files from the
+same mount, and nats.websocket.tls is settable without nats.tls.enabled:
+that is a real arrangement, a broker serving wss:// on 443 through an
+ingress while staying plaintext nats:// inside the cluster, so it is
+supported rather than refused. Gated on tls.enabled alone, it rendered a
+nats.conf naming /etc/nats/tls/tls.crt with nothing mounted there, which
+applies cleanly and then dies at broker startup on a file that was never
+present. FAILURE_PATTERNS.md #201 is the same defect one branch over.
+*/}}
+{{- if or .Values.nats.tls.enabled .Values.nats.websocket.tls }}
 - name: tls
   secret:
     secretName: {{ .Values.nats.tls.secretName }}
@@ -162,7 +175,8 @@ spec:
               subPath: nats.conf
               readOnly: true
             {{- end }}
-            {{- if .Values.nats.tls.enabled }}
+            {{- /* The same condition as the volume above, and it has to stay the same: a mount naming a volume this pod does not declare is valid YAML the API server rejects. */}}
+            {{- if or .Values.nats.tls.enabled .Values.nats.websocket.tls }}
             - name: tls
               mountPath: /etc/nats/tls
               readOnly: true
