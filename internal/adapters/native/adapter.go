@@ -155,6 +155,27 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	}
 
 	device := newWireDevice(payload)
+
+	// The same plan-time checks `pleiades validate` and `pleiades run`
+	// make, before any task runs, against the one device this dispatch
+	// names and resolved exactly as the executor below resolves it. The
+	// Runner used to go straight from the cached DAG to the executor, so
+	// an unregistered or declared-only method, an undeclared parameter,
+	// or check_mode on an uncheckable task failed only when its own task
+	// was reached, after earlier tasks had already changed the device.
+	if err := validateDispatch(dag, device, mode); err != nil {
+		// Ended in the job's own log, like any other finished run, so a
+		// reader sees why nothing ran rather than a run that started and
+		// never finished. The findings name tasks, methods, parameter
+		// names and this device, never a value.
+		refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
+		refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		refused.EventData.Message = err.Error()
+		if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
+		}
+		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
+	}
 	credentials := credential.NewStaticStore(payload.Secrets)
 	actions := engine.NewCollectionActionExecutor(
 		// nil inventory.Repository: this per-task subprocess has no live

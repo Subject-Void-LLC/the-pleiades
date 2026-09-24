@@ -214,7 +214,9 @@ func TestAdapter_Execute_UnregisteredFQCNFails(t *testing.T) {
 	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"}
 	_, err = adapter.Execute(context.Background(), payload)
 	if err == nil {
-		t.Fatal("Execute() = nil error, want an error (pkg.apt.install is StatusDeclared, not implemented)")
+		// This package's tests register no catalog, so the method is
+		// unregistered here and validation refuses the dispatch.
+		t.Fatal("Execute() = nil error, want an error (pkg.apt.install is not registered in this test binary)")
 	}
 
 	final := bus.lastJobEvent(t)

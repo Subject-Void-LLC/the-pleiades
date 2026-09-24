@@ -323,6 +323,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
 320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated
+321. import_tasks read a file outside the runbook's directory through a symlink
+322. The Walk tier ran a dispatched runbook without plan-time validation
+323. net.netconf.config's target parameter is also the engine's device selector
+324. Methods silently ignored parameters they do not declare, and two shipped examples passed five
+325. A JSON runbook accepted keys in the wrong case and repeated keys
+326. Three user-visible strings cited PLAN.md, and docs-lint could not see any of them
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -187,6 +187,24 @@ data, if the format it writes into discards unrecognized keys one layer downstre
 lossless conversion, verify the guarantee end to end, through the consumer, not just at the boundary where
 the promise is made.
 
+**Fixed (2026-09-24, Phase 35).** By then most of this had been closed another way: top-level keys by
+#252's `RunbookKeys`, and task-level keys by the module-as-key rewrite (`task_syntax.go`), which refused
+any second unknown key, though with a message about sugar syntax rather than about the key. What was still
+dropped: every key under `metadata:` and `secret_mask:`, and a lone undotted key holding a map, which
+became a task calling a method of that name (`vars: {...}` became `fqcn: vars`). Seven of the fourteen
+shipped example runbooks carried four `metadata.mcp*` keys nothing read. `KnownFields(true)` could not be
+applied as this entry proposed, because the engine decodes a rewritten `yaml.Node` and
+`(*yaml.Node).Decode` has no strict mode. The fix is a walker over the parsed tree that reads the same
+struct tags the decoder reads (`internal/engine/schema_keys.go`, `schema_keys_yaml.go`) and a token-level
+JSON reader (`json_strict.go`). Ansible keywords get their own message (`ansible_keywords.go`). Proven by
+`TestStrictKeys_RefusesUnknownKeyAtEveryLevel` and by `TestStrictKeys_AgreesWithKnownFields`, which checks
+the walker against yaml.v3's own strict decoder on every map of a full runbook. Removing the walker call
+fails both.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10)
+**Portable.** yes: any decoder that drops unknown keys in a document that states what will run
+**Detector.** a differential test against the format's own strict decoder, over every map in a valid document; see ~/vuln-corpus/README.md
+
 ## 11. A non-string `target` silently disables two validation rules
 
 **Symptom:** a task written as `params: {target: [web1, web2]}` passes validation with zero findings, and
@@ -205,6 +223,22 @@ which is why this class of failure is possible at all.
 a silent pass. In a validator this is the worst possible direction to fail, because the tool's entire
 purpose is to report problems, and here the malformed case produces more confidence than a well-formed
 one. Distinguish absent from unparseable, and report the second.
+
+**Measured worse, then fixed (2026-09-24, Phase 35).** The three rules (a third, `lifecycle_rule.go`, had
+joined them) later moved onto one shared helper, `engine.TaskTarget` (`internal/engine/action.go`), which
+the executor's `resolveDevices` also uses. It kept the `, ok` assertion but fell back to the runbook's
+`hosts:` for a malformed target. So a task written `target: [web1, web2]` was no longer skipped: it was
+validated and then run against the `hosts:` device or group, which it never named. `TestTaskTarget` pinned
+that behavior. The builder now refuses a present `params.target` that is not a non-empty string, naming
+the value's kind and never the value (`validateTarget`, `internal/engine/task_target.go`), so no built DAG
+can carry one. Proven by `TestBuild_RefusesMalformedTarget` (list, map, number, boolean, null, empty
+string, JSON float), and by a property both builder fuzz targets now assert on every input that builds
+(`assertTargetsAreNonEmptyStrings`): 3,000,000 executions of `FuzzBuildFromYAML` and 1,000,025 of
+`FuzzDAGBuilder`, each ending cleanly at its count bound with `-fuzzminimizetime 2s` (#318).
+
+**Class.** C9 (fail-open: a malformed value rendered as the permissive default; CWE-636)
+**Portable.** yes: any "use the caller's value, else the default" helper whose type check sends a malformed value down the default branch
+**Detector.** fuzz the builder and assert that every accepted document carries only well-typed values in that field; see ~/vuln-corpus/README.md
 
 ## 12. An instruction that cannot be followed will be violated
 
@@ -9164,3 +9198,173 @@ neither inherits nor fixes the defect.
 **Lesson.** A comment that states a tolerance ("a single missed tick is never mistaken for...") is a
 claim, and it needs a test that exercises exactly that tolerance: one failure, then recovery. A test
 that only fails every time proves the alarm is wired, not that it is calibrated.
+
+## 321. import_tasks read a file outside the runbook's directory through a symlink
+
+**Symptom.** Found by reading while planning Phase 35's translator, then measured. `resolveImportPath`
+(`internal/engine/import_tasks.go`) checked the imported path's text with `filepath.Rel`, and
+`resolveOneImport` then read it with `os.ReadFile`, which follows symlinks. A `sub.yaml` inside the
+runbook's directory that was a symlink to a file elsewhere was imported and built. Reached through
+`pleiades run` and `pleiades validate` (`BuildFromYAMLFile`); the Walk tier builds with `BuildFromYAML`
+and refuses `import_tasks` outright, so it was not reachable there.
+
+**Security.** An author who can write into a runbook directory could have any file the CLI user can read
+parsed as a task list, with parse errors quoting pieces of it back. That needs write access to the
+project directory. Our own code, so no upstream fix applies. Measured: with the old read restored,
+`TestImportTasks_StrictKeysAndContainment` fails because the escaped import builds.
+
+**Root cause.** A containment check on a path's text cannot see what the filesystem will resolve it to.
+
+**Fix.** `readInsideDir` opens the runbook's directory with `os.OpenRoot` and reads through it, which
+refuses any path, symlinks included, that resolves outside. The lexical check stays for its clearer
+messages. Applied 2026-09-24 in Phase 35.
+
+**Lesson.** The same one #313 recorded for SFTP: containment is a property of how a file is opened, not
+of how its name reads.
+
+**Class.** C4 (path traversal / confinement escape; CWE-59, symlink following)
+**Portable.** yes: any containment check made on a path's text and then followed by an open that follows symlinks
+**Detector.** fuzz corpus C4 (symlink seeds) + semgrep join-then-open-tainted (P4); see ~/vuln-corpus/README.md
+
+## 322. The Walk tier ran a dispatched runbook without plan-time validation
+
+**Symptom.** Found by reading while designing Phase 35's placeholder for an unconverted task. The native
+adapter (`internal/adapters/native/adapter.go`) went from `GetDAG` straight to the executor.
+`validate.Validate` ran only in `cmd/pleiades` (`validate.go`, `run.go`). So on the Walk tier a task
+calling an unregistered or declared-only method, passing an undeclared parameter, or asking for
+`check_mode` on a method that cannot check failed only when that task was reached, after every earlier
+task had already run against the device.
+
+**Security.** No special access is needed to cause it; the harm is a half-applied change on a managed
+device. Our own code. Measured on 2026-09-24: with the new check removed,
+`TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal` (`cmd/runner`), over a real NATS broker and a
+real sshd container, finds the first task's marker file on the device after a dispatch whose second task
+calls the declared-only `file.template`.
+
+**Root cause.** The validation core was built as a CLI feature (Phase W3) and documented as the one core
+the IDE and the backend would adopt later. The backend never did.
+
+**Fix.** Phase 35 (commit a2): the adapter runs every registered rule before building the executor
+(`validateDispatch`, `internal/adapters/native/validate.go`), against the one device the dispatch names,
+with `WorldView.Resolver` set to the same `singleDeviceResolver` the executor gets, so a task with no
+target is checked against that device exactly as it will run. A refusal publishes a failed job event
+naming each finding. Proven by `TestExecute_RefusesARunbookThatFailsValidation` (four kinds of finding,
+each killed by removing the check) and by the release gate above, which passes with the check in place
+and fails, finding the marker, without it.
+
+**Lesson.** A check that runs in one tier and not another is a check the other tier does not have.
+Put plan-time validation where execution starts, in every tier that starts it.
+
+**Class.** C10 (dead or unwired control; CWE-693)
+**Portable.** yes: a validation core called by one entry point (the CLI) and skipped by another (a worker) that runs the same input
+**Detector.** a test that the control fires on every execution path, not only that it exists; see ~/vuln-corpus/README.md
+
+## 323. net.netconf.config's target parameter is also the engine's device selector
+
+**Symptom.** Found by reading while planning Phase 35's module map; not fixed, by the user's decision.
+`net.netconf.config` names its datastore parameter `target` (running, candidate or startup), after
+`ansible.netcommon.netconf_config`. The engine reads `params.target` as the host or tag a task runs
+against (`engine.TaskTarget`, `internal/engine/action.go`), resolves it in `resolveDevices`
+(`executor.go`), and the method then reads the same key as its datastore
+(`internal/catalog/net/netconf/config.go`). The unit tests call the method directly and skip the engine,
+so nothing caught it. `journal_entry.go`'s comment that no method declares `target` is also wrong.
+
+**Security.** On the CLI, `target: candidate` fails with "matches no inventory host or tag", or, if a
+device or tag is named `candidate`, configures that device instead. Exploiting it needs inventory write
+access. The Walk tier's resolver ignores targets, so it is not affected there. Reasoned from the code, not
+run.
+
+**Root cause.** A reserved key (the device selector) lives inside the free-form `params` map every method
+also owns.
+
+**Fix.** Not applied. The user chose to move the device selector out of `params` into a reserved task key,
+as its own later phase. Until then Phase 35's translator blocks every `netconf_config` task that sets
+`target`, naming this collision.
+
+**Lesson.** A key the engine reserves must not share a namespace with keys third parties choose.
+
+**Class.** none of C1 to C10 yet; a candidate: a reserved control key living inside a caller-owned map
+**Portable.** probably: any engine that reads one of its own keys out of a free-form parameter map every plugin also writes to
+**Detector.** not built; statically, list the keys an engine reads from a shared map and intersect them with every plugin's declared keys; see ~/vuln-corpus/README.md
+
+## 324. Methods silently ignored parameters they do not declare, and two shipped examples passed five
+
+**Symptom.** Found building Phase 35's parameter rule. Nothing compared a task's `params` with its
+method's declared parameters, so a method ignored any key it does not read. Both `upgrade_ios` example
+runbooks passed `prompt`, `answer`, `check_all` and `sendonly` to `net.cli.command` and `save_when` to
+`net.ios.config`, copied from the Ansible playbook. None was read, so the image copy and the reload could
+never answer the device's prompts, and the example's README still said those methods were declared but
+not implemented. The `writingcheck` external fixture (`cmd/pleiades/testdata`) read a `path` parameter it
+did not declare.
+
+**Security.** A misspelled optional guard runs with its default: `creats:` for `exec.command`'s
+`creates:` runs the command every time. No special access needed; mainly a safety defect. Measured on the
+two examples.
+
+**Root cause.** `Doc.Params` was treated as documentation only, and the journal's comment called it
+"partial by construction", so nothing enforced it.
+
+**Fix.** `ParamsRule` (`internal/validate/params_rule.go`) refuses a parameter the method declares
+neither in `Doc.Params` nor through a named fragment, except the engine's own `target`. The shared
+fragment definitions moved from `internal/forge/catalogdata` to the leaf package
+`internal/catalog/fragment`, since the former imports the whole data layer. The examples now pass only
+declared parameters and say in comments which steps cannot answer a prompt; the save is its own
+`net.ios.save` task. The fixture declares `path`. Proven by `TestParamsRule`,
+`TestParamsRule_UndocumentedExternalMethod` and `TestExamples_EveryRunbookBuildsAndValidates`, which runs
+the real binary over every shipped example.
+
+**Lesson.** A declaration nothing checks decays into a comment. Once a method declares its parameters,
+refuse the ones it does not declare.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10; CWE-1284-adjacent input that is accepted and ignored)
+**Portable.** yes: any plugin API where a caller's argument map is read by key and unknown keys are ignored
+**Detector.** compare each call's keys with the callee's declared parameters (here, ParamsRule); see ~/vuln-corpus/README.md
+
+## 325. A JSON runbook accepted keys in the wrong case and repeated keys
+
+**Symptom.** Found by reading while designing Phase 35's strict decoding. `Builder.Build` decoded with
+`json.Unmarshal`, which matches a key to a field without regard to case (`{"FQCN": ...}` filled `fqcn`)
+and keeps only the last of two repeated keys. `normalizeWorkflowJSON` also decoded into a map first, which
+collapsed repeats before anything could see them.
+
+**Security.** A reviewer reading the first of two `fqcn` keys would approve one method while another ran.
+It needs something to feed JSON runbooks in; `Build` has no production caller today, so it was not
+reachable. Reasoned.
+
+**Root cause.** encoding/json's forgiving defaults, trusted for an input that must mean exactly what it
+says.
+
+**Fix.** `parseJSONKeyTree` (`internal/engine/json_strict.go`) reads the payload token by token, refusing
+a repeated key anywhere and nesting past 512 levels, before the map-based rewrite runs; the key walker
+then checks exact-case keys; and the decode itself uses `DisallowUnknownFields` and refuses trailing
+data. Proven by `TestStrictKeys_JSONExactCaseAndDuplicates`.
+
+**Lesson.** A decoder's defaults are tuned for convenience. For a document that says what will run,
+choose the strict reading on purpose.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10), JSON parser-differential form (CWE-436)
+**Portable.** yes: any Go service decoding a security-relevant JSON document with encoding/json's case-insensitive, last-key-wins defaults
+**Detector.** fuzz with duplicated and case-varied keys and assert refusal; statically flag json.Unmarshal into a policy or plan struct; see ~/vuln-corpus/README.md
+
+## 326. Three user-visible strings cited PLAN.md, and docs-lint could not see any of them
+
+**Symptom.** The runbook engine's refusal of an Ansible playbook (`internal/engine/yaml.go`) and of
+`type: ansible` (`dag.go`) told the user to read "PLAN.md Section 23", `pleiades forge new-filter`'s
+`--category` help cited "PLAN.md Section 36", and a managed credential type's detail cited "PLAN.md
+Section 17.4". The plugin scaffold template also wrote a PLAN.md citation into every generated sync
+plugin. PLAN.md never ships.
+
+**Security.** None: this exposes nothing. It is a broken promise to the reader, recorded because the
+check meant to catch it could not.
+
+**Root cause.** `tools/docs-lint` scans documentation and a fixed list of Go files whose whole text a user
+reads. An error message or a flag's help text in any other Go file was outside that list, and a plain
+text scan of every Go file would drown in legitimate comment citations.
+
+**Fix.** A second docs-lint pass (`tools/docs-lint/golits.go`) parses every non-test Go file under `cmd/`,
+`internal/` and `pkg/` and checks its string literals alone, never its comments. All five strings were
+reworded; the two engine errors now point at `docs/03-migrating-from-ansible.md`. Proven by
+`TestScanGoLiterals` and a clean run over 1,095 files.
+
+**Lesson.** A check that enumerates its targets misses the next file nobody listed. Where the forbidden
+thing has a syntactic shape (a string literal), check the shape everywhere.

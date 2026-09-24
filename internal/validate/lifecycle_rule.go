@@ -32,8 +32,8 @@ func LifecycleRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
-		target := engine.TaskTarget(world.DAG, task)
-		if target == "" {
+		_, devices := world.taskDevices(task)
+		if len(devices) == 0 {
 			continue
 		}
 
@@ -42,7 +42,7 @@ func LifecycleRule(world WorldView) []Finding {
 			label = fmt.Sprintf("%s (name %q)", id, task.Name)
 		}
 
-		for _, dev := range world.Resolve(target) {
+		for _, dev := range devices {
 			if ok, _ := engine.LifecycleAdmitsIn(engine.TaskMode(world.Mode, world.DAG, task), dev); !ok {
 				findings = append(findings, Finding{
 					RuleName: "lifecycle",
