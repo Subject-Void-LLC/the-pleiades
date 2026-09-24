@@ -73,7 +73,7 @@ func parseWorkflowYAML(payload []byte) (WorkflowDef, error) {
 				}
 			}
 			if looksLikeAnsible {
-				return WorkflowDef{}, fmt.Errorf("this file is shaped like an Ansible playbook (a top-level YAML list of plays), not a native Pleiades runbook (a YAML map with id/tasks); this engine cannot execute Ansible playbooks directly, see %s", migrationGuide)
+				return WorkflowDef{}, fmt.Errorf("this file is shaped like an Ansible playbook (a top-level YAML list of plays), not a native Pleiades runbook (a YAML map with id/tasks); this engine cannot execute Ansible playbooks directly; convert it with '%s <file>', and see %s", migrateCommand, migrationGuide)
 			}
 			return WorkflowDef{}, fmt.Errorf("this file is a top-level YAML list, not a native Pleiades runbook (a YAML map with id/tasks)")
 		}

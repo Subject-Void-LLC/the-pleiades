@@ -290,13 +290,16 @@ tasks: []
 }
 
 // assertCitesShippedGuide checks that err points its reader at the
-// migration guide that ships in docs/, and at no internal planning
-// document: those are never shipped, so a user told to read one is told
-// to read nothing.
+// migration guide that ships in docs/ and names the command that converts
+// a playbook, and cites no internal planning document: those are never
+// shipped, so a user told to read one is told to read nothing.
 func assertCitesShippedGuide(t *testing.T, err error) {
 	t.Helper()
 	if !strings.Contains(err.Error(), "docs/03-migrating-from-ansible.md") {
 		t.Errorf("expected error to point at docs/03-migrating-from-ansible.md, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "pleiades forge migrate-playbook") {
+		t.Errorf("expected error to name the command that converts a playbook, got: %v", err)
 	}
 	for _, internal := range []string{"PLAN.md", "IMPLEMENTATION.md", ".SPECIFICATION"} {
 		if strings.Contains(err.Error(), internal) {

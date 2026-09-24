@@ -2,7 +2,10 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 )
 
 // TestRunForge_NoArgs mirrors run()'s own empty-args behavior: no
@@ -42,10 +45,9 @@ func TestRunForge_UnknownCommand(t *testing.T) {
 
 // TestRunForge_DispatchesToRegisteredSubcommand proves the map lookup
 // itself works and forwards both the remaining arguments and the
-// handler's own return value unchanged. forgeCommands has no real entries
-// yet (Phases 31-37 add them), so this registers a temporary fake one and
-// removes it afterward, leaving the map exactly as every other test sees
-// it.
+// handler's own return value unchanged. It registers a temporary fake
+// entry and removes it afterward, leaving the map exactly as every other
+// test sees it.
 func TestRunForge_DispatchesToRegisteredSubcommand(t *testing.T) {
 	var gotArgs []string
 	wantErr := errors.New("fake subcommand error")
@@ -73,5 +75,28 @@ func TestForgeRegisteredInCommands(t *testing.T) {
 	}
 	if fn == nil {
 		t.Fatal(`commands["forge"] is nil`)
+	}
+}
+
+// TestForgeCommands_MatchClispec holds the dispatch table and the CLI
+// spec to the same subcommands: one registered without a spec entry is
+// missing from --help and the generated reference, and one specified
+// without a handler is documented but unknown when typed.
+func TestForgeCommands_MatchClispec(t *testing.T) {
+	forge, ok := clispec.Find(clispec.Root, "forge")
+	if !ok {
+		t.Fatal("clispec has no forge command")
+	}
+	var specified []string
+	for _, sub := range forge.Subcommands {
+		specified = append(specified, sub.Name)
+		if _, ok := forgeCommands[sub.Name]; !ok {
+			t.Errorf("clispec documents forge %s, which nothing handles", sub.Name)
+		}
+	}
+	for name := range forgeCommands {
+		if !slices.Contains(specified, name) {
+			t.Errorf("forge %s is handled but clispec does not document it", name)
+		}
 	}
 }

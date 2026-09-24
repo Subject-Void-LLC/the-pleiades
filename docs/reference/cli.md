@@ -300,6 +300,22 @@ generate a new pkg/filters function and its starter test
 
 `pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary "converts a CIDR prefix length to its dotted-decimal netmask." --param cidr:string --return string`
 
+### pleiades forge migrate-playbook
+
+convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one
+
+`pleiades forge migrate-playbook <playbook.yml> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --out | `string` | `runbooks` | directory to write the converted runbooks into, created when missing |
+| --json | `bool` | `false` | print the migration report as JSON, the same model the text view renders |
+| --force | `bool` | `false` | replace runbooks an earlier conversion wrote |
+
+`pleiades forge migrate-playbook site.yml`
+
+`pleiades forge migrate-playbook playbooks/web.yml --out runbooks --json`
+
 ## pleiades doc
 
 look up a Collection method's reference from the live registry (see 'pleiades doc --help')

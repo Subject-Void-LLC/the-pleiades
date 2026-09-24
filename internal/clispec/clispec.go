@@ -324,6 +324,20 @@ var Root = Command{
 						"pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary \"converts a CIDR prefix length to its dotted-decimal netmask.\" --param cidr:string --return string",
 					},
 				},
+				{
+					Name:       "migrate-playbook",
+					Positional: "<playbook.yml>",
+					Synopsis:   "convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one",
+					Flags: []Flag{
+						{Name: "out", Type: "string", Default: "runbooks", Doc: "directory to write the converted runbooks into, created when missing"},
+						{Name: "json", Type: "bool", Default: "false", Doc: "print the migration report as JSON, the same model the text view renders"},
+						{Name: "force", Type: "bool", Default: "false", Doc: "replace runbooks an earlier conversion wrote"},
+					},
+					Examples: []string{
+						"pleiades forge migrate-playbook site.yml",
+						"pleiades forge migrate-playbook playbooks/web.yml --out runbooks --json",
+					},
+				},
 			},
 		},
 		{

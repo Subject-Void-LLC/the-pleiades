@@ -574,7 +574,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	case "", "native":
 		// Default. Proceed normally.
 	case "ansible":
-		return nil, fmt.Errorf("runbook declares type %q, which the native engine does not run; %s covers running a playbook unchanged and converting one to a native runbook", def.Type, migrationGuide)
+		return nil, fmt.Errorf("runbook declares type %q, which the native engine does not run; '%s <file>' converts a playbook to a native runbook, and %s also covers running one unchanged", def.Type, migrateCommand, migrationGuide)
 	default:
 		return nil, fmt.Errorf("unrecognized runbook type %q: expected \"native\" (the default) or \"ansible\"", def.Type)
 	}
