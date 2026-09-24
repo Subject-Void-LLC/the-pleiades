@@ -37,7 +37,7 @@ locking is in-process only and does not exclude a second `pleiades run`, see
 
 **Does not exist yet, and a runbook cannot express it:** Jinja templating anywhere in
 `params:` (a runbook's params map is always a literal value), `loop:`/`with_items:`,
-`handlers:`/`notify:`, `tags:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
+`handlers:`/`notify:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
 `changed_when:`/`failed_when:`, `group_vars:`/`host_vars:`, and inventory-level `vars:`
 of any kind. See the keyword map below for the complete, itemized list.
 
@@ -79,7 +79,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `{{ jinja }}` anywhere in a module's args | *(not supported)* | `params:` is always a literal value. |
 | `loop:` / `with_items:` | *(not supported)* | A task runs once per its target device, never once per list item. |
 | `handlers:` / `notify:` | *(not supported)* | No handler mechanism exists. |
-| `tags:` | *(not supported)* | No tag-based task selection. |
+| `tags:` | `tags:` | Same meaning, on a runbook (a play's tags), a block or a task, and `pleiades run --tags`/`--skip-tags` select by them with Ansible's own rule, `always`, `never`, `all`, `tagged` and `untagged` included. A task tagged `never` does not run unless a run names one of its tags. A tag no task carries is refused rather than silently matching nothing. The Controller does not take a tag filter yet, so a dispatched job runs everything but `never` tasks. |
 | `become:` / `become_user:` | *(not supported)* | No privilege-escalation directive; a Collection method's own `ExecutionContext.RequiresElevation` states this instead, as data, not as a runbook key. |
 | `serial:` | *(not supported)* | No batched-rollout control. |
 | `roles:` | *(not supported)* | No role mechanism yet; it is on the open roadmap. |

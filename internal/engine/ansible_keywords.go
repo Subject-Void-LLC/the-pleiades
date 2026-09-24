@@ -48,7 +48,6 @@ var ansibleTaskKeywords = map[string]bool{
 	"remote_user":        true,
 	"retries":            true,
 	"run_once":           true,
-	"tags":               true,
 	"throttle":           true,
 	"timeout":            true,
 	"until":              true,

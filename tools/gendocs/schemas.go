@@ -84,6 +84,21 @@ func taskSchema() map[string]any {
 			"rescue":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"always":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"parallel": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+			"tags":     tagsSchema("Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside."),
+		},
+	}
+}
+
+// tagsSchema is the JSON Schema for engine.TagList: one comma-separated
+// string, or a list of strings and numbers. The names all, tagged and
+// untagged are refused by the parser, and so by the schema.
+func tagsSchema(description string) map[string]any {
+	name := map[string]any{"type": "string", "not": map[string]any{"enum": []any{"all", "tagged", "untagged"}}}
+	return map[string]any{
+		"description": description,
+		"oneOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "array", "items": map[string]any{"oneOf": []any{name, map[string]any{"type": "number"}}}},
 		},
 	}
 }
@@ -107,6 +122,7 @@ func generateRunbookSchema(outDir string) error {
 			"id":         map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
 			"name":       map[string]any{"type": "string", "description": "The runbook's human title."},
 			"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
+			"tags":       tagsSchema("Tags every task in the runbook carries, as a play's tags do in Ansible."),
 			"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
 			"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
 			"metadata":   metadataSchema(),

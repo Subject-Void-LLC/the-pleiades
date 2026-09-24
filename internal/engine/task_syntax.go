@@ -40,6 +40,7 @@ var ReservedTaskKeys = map[string]bool{
 	"rescue":           true,
 	"always":           true,
 	"parallel":         true,
+	"tags":             true,
 }
 
 // --- YAML path -------------------------------------------------------

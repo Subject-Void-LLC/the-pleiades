@@ -61,7 +61,7 @@ func runRunbook(args []string) error {
 	// runbook path is the thing a person types first.
 	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--verbose] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--verbose] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -80,6 +80,7 @@ func runRunbook(args []string) error {
 		return nil
 	})
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
+	selection := tagFlags(fs)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -100,7 +101,7 @@ func runRunbook(args []string) error {
 		return err
 	}
 
-	items, dag, err := loadWorld(*dir, runbook)
+	items, dag, err := loadWorld(*dir, runbook, *selection)
 	if err != nil {
 		return err
 	}
@@ -177,17 +178,17 @@ func runRunbook(args []string) error {
 	// sections is skipped entirely when empty, matching Ansible's own
 	// convention that pretasks/posttasks are optional and tasks alone can
 	// carry a whole play.
-	if len(dag.PreTasks) > 0 {
-		fmt.Println("pretasks:")
-		printTaskList(dag.PreTasks, 1)
+	if described := describeSelection(dag.Selection); described != "" {
+		fmt.Printf("selection: %s\n", termsafe.EscapeLine(described))
 	}
-	if len(dag.Tasks) > 0 {
-		fmt.Println("tasks:")
-		printTaskList(dag.Tasks, 1)
-	}
-	if len(dag.PostTasks) > 0 {
-		fmt.Println("posttasks:")
-		printTaskList(dag.PostTasks, 1)
+	for _, section := range []struct {
+		label string
+		tasks []engine.Task
+	}{{"pretasks", dag.PreTasks}, {"tasks", dag.Tasks}, {"posttasks", dag.PostTasks}} {
+		if len(section.tasks) > 0 {
+			fmt.Printf("%s:\n", section.label)
+			printTaskList(dag, section.tasks, section.label, 1)
+		}
 	}
 
 	fmt.Println()
@@ -496,32 +497,41 @@ func printNodeStats(stats map[string]interface{}, secrets []string) {
 // parallel task recurses the same way under a "parallel:" label; its
 // children have no rescue/always of their own (Task.Parallel stays
 // Block-only for that, see dag.go).
-func printTaskList(tasks []engine.Task, depth int) {
+func printTaskList(dag *engine.DAG, tasks []engine.Task, prefix string, depth int) {
 	indent := strings.Repeat("  ", depth)
-	for _, task := range tasks {
+	for i := range tasks {
+		task := &tasks[i]
+		id := fmt.Sprintf("%s[%d]", prefix, i)
 		label := task.Name
 		if label == "" {
 			label = task.FQCN
 		}
-		fmt.Printf("%s%s\n", indent, label)
+		// A task name is runbook text, and a runbook may be converted from
+		// someone else's playbook, so it is escaped before a terminal sees
+		// it (internal/termsafe).
+		note := ""
+		if dag.Nodes[id] == nil {
+			note = "  (not selected)"
+		}
+		fmt.Printf("%s%s%s\n", indent, termsafe.EscapeLine(label), note)
 
 		childIndent := strings.Repeat("  ", depth+1)
 		switch task.Kind() {
 		case engine.TaskKindBlock:
 			fmt.Printf("%sblock:\n", childIndent)
-			printTaskList(task.Block, depth+2)
+			printTaskList(dag, task.Block, id+".block", depth+2)
 
 			if len(task.Rescue) > 0 {
 				fmt.Printf("%srescue:\n", childIndent)
-				printTaskList(task.Rescue, depth+2)
+				printTaskList(dag, task.Rescue, id+".rescue", depth+2)
 			}
 			if len(task.Always) > 0 {
 				fmt.Printf("%salways:\n", childIndent)
-				printTaskList(task.Always, depth+2)
+				printTaskList(dag, task.Always, id+".always", depth+2)
 			}
 		case engine.TaskKindParallel:
 			fmt.Printf("%sparallel:\n", childIndent)
-			printTaskList(task.Parallel, depth+2)
+			printTaskList(dag, task.Parallel, id+".parallel", depth+2)
 		}
 	}
 }

@@ -326,8 +326,12 @@ Things a real Ansible user will look for and not currently find:
   value, never rendered.
 - No `loop` / `with_items`. A task runs once per its target device, never once per
   list item.
-- No `handlers` / `notify`, no `tags`, no `become`, no `serial`, no `roles`, no
+- No `handlers` / `notify`, no `become`, no `serial`, no `roles`, no
   `ignore_errors`, no `changed_when` / `failed_when`.
+- `tags:` works on a runbook, a block or a task, with `pleiades run --tags` and
+  `--skip-tags` selecting by them exactly as Ansible does, `always` and `never`
+  included. The Controller and Runner do not take a tag filter yet: a dispatched
+  runbook runs every task except those tagged `never`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
 - `check_mode:` narrows only. `true` works on a runbook, a block or a task, and `false`
   is refused, since it would run a task for real inside a check. Nine methods cannot

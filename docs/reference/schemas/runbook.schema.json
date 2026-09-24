@@ -97,6 +97,34 @@
           ],
           "type": "object"
         },
+        "tags": {
+          "description": "Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "oneOf": [
+                  {
+                    "not": {
+                      "enum": [
+                        "all",
+                        "tagged",
+                        "untagged"
+                      ]
+                    },
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ]
+        },
         "when": {
           "description": "Ansible-compatible conditional, ANDed if a list.",
           "oneOf": [
@@ -204,6 +232,34 @@
         "$ref": "#/$defs/task"
       },
       "type": "array"
+    },
+    "tags": {
+      "description": "Tags every task in the runbook carries, as a play's tags do in Ansible.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "oneOf": [
+              {
+                "not": {
+                  "enum": [
+                    "all",
+                    "tagged",
+                    "untagged"
+                  ]
+                },
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      ]
     },
     "tasks": {
       "items": {

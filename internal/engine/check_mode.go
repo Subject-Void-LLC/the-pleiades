@@ -213,6 +213,7 @@ var RunbookKeys = map[string]bool{
 	"type":       true,
 	"metadata":   true,
 	"check_mode": true,
+	"tags":       true,
 	"pretasks":   true,
 	"tasks":      true,
 	"posttasks":  true,

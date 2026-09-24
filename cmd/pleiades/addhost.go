@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -113,10 +114,15 @@ func splitPositional(args []string, boolFlags map[string]bool) (positional strin
 		positional = a
 	}
 	if positional == "" {
-		return "", nil, fmt.Errorf("missing positional argument")
+		return "", nil, errMissingPositional
 	}
 	return positional, rest, nil
 }
+
+// errMissingPositional is splitPositional's error for args with no
+// positional argument, so a command whose positional is optional can
+// tell that case from a real parse error.
+var errMissingPositional = errors.New("missing positional argument")
 
 // runAddHost appends one host to the static inventory file, generating a
 // stable DeviceID so a later rename in the file does not orphan it. The

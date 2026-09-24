@@ -64,8 +64,12 @@ check a runbook against the inventory
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
+| --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 
 `pleiades validate runbooks/site.yaml`
+
+`pleiades validate runbooks/site.yaml --tags web`
 
 ## pleiades run
 
@@ -80,6 +84,8 @@ build, validate, and run a runbook
 | --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
 | --allow-unchecked | `string` | - | a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed |
+| --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
+| --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 
 `pleiades run runbooks/site.yaml`
 
@@ -88,6 +94,8 @@ build, validate, and run a runbook
 `pleiades run runbooks/site.yaml --mode check --verbose`
 
 `pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command`
+
+`pleiades run runbooks/site.yaml --tags web --skip-tags slow`
 
 ## pleiades inventory
 

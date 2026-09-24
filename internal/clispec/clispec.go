@@ -126,8 +126,10 @@ var Root = Command{
 			Synopsis:   "check a runbook against the inventory",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
+				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 			},
-			Examples: []string{"pleiades validate runbooks/site.yaml"},
+			Examples: []string{"pleiades validate runbooks/site.yaml", "pleiades validate runbooks/site.yaml --tags web"},
 		},
 		{
 			Name:       "run",
@@ -139,12 +141,15 @@ var Root = Command{
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each task's own output (stdout, exit status, diffs), not just whether it changed"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
 				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed"},
+				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
+				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 			},
 			Examples: []string{
 				"pleiades run runbooks/site.yaml",
 				"pleiades run runbooks/site.yaml --verbose",
 				"pleiades run runbooks/site.yaml --mode check --verbose",
 				"pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command",
+				"pleiades run runbooks/site.yaml --tags web --skip-tags slow",
 			},
 		},
 		{
