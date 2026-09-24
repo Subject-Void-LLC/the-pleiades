@@ -329,6 +329,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 324. Methods silently ignored parameters they do not declare, and two shipped examples passed five
 325. A JSON runbook accepted keys in the wrong case and repeated keys
 326. Three user-visible strings cited PLAN.md, and docs-lint could not see any of them
+327. A condition holding `{#` inside a string literal was refused as Jinja
+328. The free-form argument splitter turned invalid UTF-8 into U+FFFD
+329. The migration report printed raw playbook file names, and runbook names came from them
+330. The migration report printed values from the playbook in its refusal messages
+331. A negated condition over a registered result ran a task on every device when one matched
+332. Two merge keys in one YAML map resolved first-wins, where Ansible's loader takes the last
+333. Ansible's list type was not applied: `name=curl,git` became one package named `curl,git`
+334. The module tables accepted aliases and values that belong to other modules
+335. file.directory left the parents it created at the umask's mode
+336. A module named `guard` would have become a placeholder with the guard's name
+337. A nested import_tasks was looked for only in the playbook's directory
+338. An empty list literal in a condition evaluated to None
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -333,6 +333,13 @@ Things a real Ansible user will look for and not currently find:
   included. The Controller and Runner do not take a tag filter yet: a dispatched
   runbook runs every task except those tagged `never`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
+- A playbook converts with `pleiades forge migrate-playbook`, which writes native
+  runbooks and a report of everything a person must finish. It works around the gaps
+  above only where the playbook fixes the answer: a loop over a written list is
+  unrolled and a variable with one literal value is written in. Everything else it
+  cannot express is reported, and a runbook with anything blocked cannot run until a
+  person resolves it. See
+  [Migrating from Ansible](03-migrating-from-ansible.md#converting-a-playbook-pleiades-forge-migrate-playbook).
 - `check_mode:` narrows only. `true` works on a runbook, a block or a task, and `false`
   is refused, since it would run a task for real inside a check. Nine methods cannot
   answer a check, and each says why.

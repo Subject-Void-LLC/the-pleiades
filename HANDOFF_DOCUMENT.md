@@ -4,160 +4,94 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 77 (SFTP/SCP) is COMPLETE at 12 of 12 and COMMITTED on `feature/sftp-scp`** as `662ffb1`,
-`5a89ecc` and `4f6f5a2`, cut from `265a38d` (main after PR #39 merged Phase 101 and the dependabot otel
-bump). **The `pkg/tftpxfer` fix for FAILURE_PATTERNS 317 is done and UNCOMMITTED** on the same
-branch, meant as a fourth, separate `fix(tftpxfer)` commit (below). Phase 77 was the last open phase in
-v0.2.0, which the tracker now reports as 636 of 636: **v0.2.0 is cuttable.** Cutting it, and moving
-`buildinfo.CurrentRelease` to `0.3.0`, is a separate change the user has not asked for.
+**Phase 35 (Ansible Playbook Migration, v0.3.0) is COMPLETE at 21 of 21 work items, UNCOMMITTED, on
+`feature/playbook-migration`**, cut from `1c9bb8b` (main after PR #40 merged Phase 77 and the tftpxfer
+fix). The one open item is "Provide Commit Message": the messages, one per logical commit, are in the
+session's closing report, with a tree for each. The user commits. **Next is Phase 46** (the user's
+instruction), whose open classifier item now has Phase 35's classes to consume.
 
-### What shipped
+### What shipped, as six commits
 
-The user chose to build **both SFTP and legacy SCP** (the checklist named only SFTP), behind one narrow
-port:
+- **(a) strict runbook keys, malformed targets, undeclared params.** Every key a runbook, task or
+  `metadata:` does not define is refused (a reflect-driven walker over the parsed tree, since
+  `(*yaml.Node).Decode` has no `KnownFields`); JSON refuses near-miss case and repeated keys; a present
+  `params.target` must be a non-empty string; `ParamsRule` refuses a parameter a method does not
+  declare; `import_tasks` reads through `os.OpenRoot`. The seven examples' `metadata.mcp*` blocks are
+  gone (nothing read them; Phase 71 carries the note).
+- **(a2) the Runner validates what it is dispatched** before any task runs (FAILURE_PATTERNS 322).
+- **(b) native `tags:`** with `--tags`/`--skip-tags`, Ansible's own selection rule, on every tier's
+  default selection.
+- **(c) the translator core** in `internal/forge/playbook`: `playbook.Translate` is a pure library call
+  returning runbooks and a report of findings with stable codes and both positions.
+- **(d) the module tables**, checked against the registry and against `ansible-doc -j`.
+- **(e) `pleiades forge migrate-playbook`**, exiting 3 when anything needs a person.
+- **(f) gates and docs**: the release gate, a behavior gate against real Ansible, generated
+  `docs/reference/ansible-modules.md` and `docs/reference/schemas/migration-report.json`, docs/03 and
+  docs/01, changelogs, the corpus measurement, and the roadmap writes below.
 
-- **`pkg/filexfer`**: the port (`Store` with `Put`/`Get`, optional `Stater`), a `Path` only the pure
-  `Resolve` can build (so an escape is refused before anything is dialed), `Contained` and `LeafKind`
-  (the one physical containment rule both protocols use), `ExactReader`/`LimitWriter`, typed errors.
-  Stdlib only, held to a no-I/O import allowlist by `internal/archtest`.
-- **`pkg/sftpxfer`**: `Open(ctx, rwc)` over `Conn.Subsystem(ctx, "sftp")` with `github.com/pkg/sftp`
-  v1.13.11 (the one new dependency). Containment resolved on the client with LSTAT/READLINK. Atomic
-  replace through a private 0700 directory and `posix-rename@openssh.com`.
-- **`pkg/scpxfer`**: one POSIX script per transfer that reports physical paths and waits for the Go
-  client's verdict before running `scp -t`/`-f`; atomic replace through `mktemp -d` and `mv -f`.
-- **`pkg/remoteexec`**: `Conn.Start` returning a streaming `Process`; `Subsystem` and `Process` share
-  one unexported `stream`. Every existing `TestSubsystem_` test passed unedited.
-- **`linux.Server.FileTransferRoot()`**: property `file_transfer_root`, no default; the capability is
-  declared only when it is set, and a bad value is refused at inventory load.
-- **Test support**: `testsupport.StartSSHD` (with `KnownHosts`, `RootExec`, `InstallClientKey`), and the
-  shared release-gate suite `pkg/filexfer/filexfertest`, which both adapters run word for word.
+### Deviations, recorded in IMPLEMENTATION.md under Phase 35
 
-### Deviations from the plan approved after discovery
+A key walker, not `KnownFields`; the report is `model.go` plus `report_text.go`; four classes, with
+`observe` added for reads; `netconf_config` tasks setting `target` are blocked until Phase 108; no Walk
+tier tag filter until Phase 109; and `file.directory` changed outside the phase's package (below).
 
-The plan was approved before the second-opinion design review returned; that review, and what building
-the code then showed, changed these parts of it. Each was reported to the user when it was made.
+### Findings this session (FAILURE_PATTERNS 327 to 338; LESSONS 233 to 236)
 
-From the design review:
-
-1. `FileTransferCapable` is declared only when `file_transfer_root` is set, and an unusable value is
-   refused at inventory load. The plan declared it on every `linux_server` and refused at transfer time,
-   which would let a method pass plan-time validation and then fail.
-2. `remoteexec` keeps its `Subsystem` type and adds `Start`/`Process`, both over one unexported `stream`.
-   The plan renamed `Subsystem` to `Channel`; keeping it let every existing test prove the refactor
-   unedited.
-3. The port is `filexfer.Store`, `Get` takes a limit, `Put` is all-or-nothing, and `Mode` is a named type.
-   The plan had `FileTransport`, no limit, and `fs.FileMode`.
-4. SCP runs one script per transfer that waits for the client's verdict, so the check and the write
-   share one pinned working directory. The plan ran a separate check command before `scp`.
-5. SFTP writes its temporary file inside a private 0700 directory, because `pkg/sftp` creates files with
-   no permission attributes. The plan used a temporary sibling file.
-6. The archtest staleness guard was changed to catch either condition, and both dead allowlist entries
-   were removed. The plan only rewrote the FileTransfer entry's text.
-7. The device reference gained conditional capabilities for hand-written types, which also listed
-   `cisco_router`'s `NetconfCapable` for the first time. Not in the plan.
-
-From building it:
-
-1. SFTP containment is resolved on the client with LSTAT and READLINK, not with the server's REALPATH,
-   because `pkg/sftp`'s own server answers REALPATH lexically.
-2. `remoteexectest` now ends a session when the command exits, a harness change outside the planned
-   files, and SCP's `receive` closes its input before waiting for the device to end.
-3. One shared sshd starter (`testsupport.StartSSHD`, with a fixture probe test and `InstallClientKey`)
-   replaced the per-package container starts the plan described.
-4. The benchmarks dial a fresh connection per operation, so the comparison with the OpenSSH clients,
-   which must connect every time, is fair.
-5. The `pkg/tftpxfer` NUL finding was recorded and left for the user's decision, not fixed in its own
-   commit as the plan said, because it is a security fix in a package this phase does not otherwise touch.
-6. Every new Go file got a file-level doc comment, which `commitgate` requires of an added file and the
-   plan did not mention.
-
-### Findings that changed the work
-
-1. **pkg/sftp's server answers REALPATH lexically**, so the planned containment check would have
-   failed open against any server built on that library (FAILURE_PATTERNS 313, LESSONS 229).
-2. **The in-process SSH harness ended a session on input EOF, not on command exit**, unlike sshd, and
-   deadlocked the first client whose command refuses early. Fixed in `remoteexectest`; all 32 packages
-   using it pass (FAILURE_PATTERNS 314, LESSONS 231).
-3. **The archtest staleness guard needed both conditions**, so two dead allowlist entries lived on, and
-   `FileTransferCapable`'s doc cited a docs/10 disclosure that never existed (FAILURE_PATTERNS 315).
-4. **The device reference could not show a conditional capability on a hand-written type**, so
-   `cisco_router`'s `NetconfCapable` was never listed (FAILURE_PATTERNS 316).
-5. **A fuzz counter froze during minimization** and one time-bounded run ended FAIL with no crasher;
-   both were rerun properly before any count was recorded (FAILURE_PATTERNS 318, LESSONS 232).
-
-### `pkg/tftpxfer` fix (FAILURE_PATTERNS 317), done after the phase, uncommitted
-
-The user approved five changes, and all five are in. `validateFilename`, now in `filename.go`, refuses
-control and format characters, invalid UTF-8 and names over `MaxFilenameBytes` (493), and every
-refusal wraps the new `ErrInvalidFilename`. `Get` and `Put` recover a panic inside `pin/tftp` into an
-error (`panic.go`), and a panic in the caller's own reader or writer is raised again unchanged.
-`FuzzValidateFilename` asserts properties of both verdicts. The existing rules are unchanged, and a
-backslash is still allowed.
-
-One addition the cap needed: `Options.BlockSize` must now be 0 or 512 to 65464. Its digits share the
-same 516-byte buffer, so without that bound the 493 cap would not hold. The old refusal tests dialed
-port 1 with no server, so a network error also passed them. They were replaced by
-`TestRefusedFilenamesNeverLeaveTheProcess`, which proves no datagram leaves.
-
-### Open decision for the user (found while fixing 317, not fixed)
-
-**A server that answers a block size request with less than 512 truncates a download silently.**
-`pin/tftp` ignores such an answer and keeps reading 512-byte blocks, so the server's first smaller
-block reads as the last one. Measured with a throwaway probe: a server answering a request for 1024
-with 256 (RFC 2348 allows 8 and up) made `Get` return 256 bytes of 1024 with a nil error. The new
-512 floor stops this package from asking for such a size, but a server may still answer smaller.
-tftpd-hpa's floor is 512, so the common Linux server does not do this. Two possible fixes:
-
-- Request `tsize` on `Get` and compare it with the bytes received. This catches every server that
-  supports `tsize`, but costs 8 bytes of the name budget (493 becomes 485).
-- Report upstream that the client should abort with error 8 when it rejects an OACK value, as RFC 2347
-  says.
-
-docs/10 now tells operators about this. Whether to report it upstream is the user's call.
-
-Also recorded, out of scope: `sdk.Connect` dials a device directly and ignores its bastion route, so
-the first Collection method built on these libraries cannot reach a device behind a bastion until
-that is closed. docs/10 and Book 11 both say so.
+Security-relevant, each fixed and proven: raw playbook file names reached the terminal (329, C1);
+refusal messages printed playbook values (330, C7); a negated condition over a registered result ran a
+task on every device when one matched (331, C9); two YAML merge keys resolved the opposite way from
+Ansible's loader (332); and **`file.directory` left the parents it creates at the umask's mode**, so a
+private tree under a new parent was world-readable after conversion (335). That last one is a change to
+a shipped Collection method, made because the behavior gate proved it; its changelog is
+`changelog/file-directory-parents.security.md`. The rest are correctness fixes (327, 328, 333, 334, 336,
+337, 338). Corpus: C1, C7 and C9 got "Seen in" lines, and 332 joined the parser-differential note.
 
 ### Verification run
 
-Green: `go build`, `gofmt`, `vet` under both tag sets, `go mod tidy -diff`, `gosec` (the same 23
-waived findings, no new waiver), `govulncheck` (nothing reached), `docs-lint`, gendocs tests, the
-touched archtests, the tracker's own tests. Under `-race`: `pkg/filexfer` 98.8%, `pkg/sftpxfer` 95.1%,
-`pkg/scpxfer` 94.3%, `pkg/remoteexec` 94.5%, `internal/inventory/devices/linux` 100%. Both release gates
-against OpenSSH 10.3, including one real bastion hop and 256 MiB each way. Six fuzz targets, 29.1 million
-executions, no crashers. Four falsifications, each failing as it should.
-
-`make docs-gen-check` differs from the last commit by exactly the intended `devices.md` change, so it
-passes once this is committed.
-
-For the `pkg/tftpxfer` fix: `go test -race` green at 96.6% (floor 93.5), `FuzzValidateFilename` 20.4
-million executions in 90 seconds with no failure, and eight mutations each killed by the test
-written for it (control and format check, UTF-8 check, length cap, cap one byte too high, block size
-range, recovery in `receive`, caller panic swallowed, caller panic relabeled).
+Package tests under `-race` for everything touched, all passing: `internal/forge/playbook`,
+`internal/engine`, `internal/validate`, `internal/adapters/native`, `internal/catalog/file` (with
+`block` and `line`), `tools/gendocs`, `tools/docs-lint`, `internal/archtest`, `internal/clispec`,
+`internal/redact` and `internal/catalog/fragment`. `cmd/pleiades` and `cmd/runner` were run by their
+named gates, not as whole packages under `-race`; `make ci` covers that. Release gates, each against real dependencies: `TestMigratePlaybookReleaseGate`
+(real Ansible syntax check, real binary), `TestMigratePlaybook_BehaviorMatchesAnsible` (real Ansible
+and a real sshd, trees compared), `TestEntries_ArgsMatchAnsibleCore` and `TestMergeKeys_MatchAnsible`
+(ansible-core 2.19.11 in the pinned image), `TestCLI_TagsSelectWhatRuns` and the Runner's
+`TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal`. Fuzz, count-bounded with
+`-fuzzminimizetime 2s`: `FuzzTranslate` 300,000, `FuzzWhenToCEL` 300,001, `FuzzKVArgs` 500,000,
+`FuzzSelect` 500,000, `FuzzRunForgeMigratePlaybook` 30,000, `FuzzBuildFromYAML` 3,000,000,
+`FuzzDAGBuilder` 1,000,025. Every new test was mutation-checked; two that survived their first mutation
+were strengthened (LESSONS 235). Coverage: `internal/forge/playbook` 92.1% (floor added), and every
+touched package at or above its floor. `vet` under both tag sets, `gofmt`, `docs-lint` clean.
 
 **NOT yet run: `make ci` in full**, which on this machine has to run alone and is the user's call.
 
+### Decisions for the user
+
+1. **Phases 108 and 109 are written with a proposed version, v0.5.0.** 108 moves the device selector
+   out of `params` (the S1 decision); 109 gives a runbook launch `job_tags`/`skip_tags`. Place them.
+2. **The corpus says `include_tasks` is the largest blocker in public roles (40 constructs) and no phase
+   owns it.** The table is in IMPLEMENTATION.md just before Phase 87.
+3. **FAILURE_PATTERNS 335 (CWE-276, incorrect default permissions) fits none of the corpus's classes.**
+   Whether `~/vuln-corpus` gains a class for it is yours.
+4. The migration command rebuilds each runbook twice and allocates about 650 MB for a 5,000-task
+   playbook (peak RSS about 230 MB at the 10,000-task cap). Bounded, so left; building the output tree
+   directly would cut it, if it ever matters.
+
 ### Next
 
-Commit the `pkg/tftpxfer` fix as its own `fix(tftpxfer)` commit (message in the session report),
-then run `make ci` alone. After that, v0.2.0 can be cut. The user decides the open block-size item
-above. The tracker's next phase in the walk is Phase 35.
+Commit the six commits (messages in the closing report), run `make ci` alone, then Phase 46.
 
 ### Files changed this session
 
-New: `pkg/filexfer/` (with `filexfertest/`), `pkg/sftpxfer/`, `pkg/scpxfer/`, `pkg/remoteexec/stream.go`,
-`process.go`, `process_test.go`, `internal/inventory/devices/linux/filetransfer.go` and its test,
-`internal/testsupport/sshd.go` and its test, `internal/archtest/filexfer_test.go`,
-`changelog/sftp-scp-file-transfer.added.md`. Changed: `pkg/remoteexec/subsystem.go`,
-`pkg/remoteexec/remoteexectest/server.go`, `internal/inventory/devices/linux/server.go`,
-`internal/archtest/transport_reachability_test.go`, `pkg/capability/capabilities_network.go`,
-`pkg/remotefile/remotefile.go`, `tools/gendocs/devices.go`, `tools/gendocs/completeness_test.go`,
-`docs/reference/devices.md`, `docs/10-running-in-production.md`, `docs/11-extending-pleiades.md`,
-`Makefile`, `coverage-floor.json`, `go.mod`, `go.sum`, and the four FAILURE_PATTERNS/LESSONS files.
-Gitignored: `.SPECIFICATION/IMPLEMENTATION.md`, `.SPECIFICATION/SECURITY_ATTESTATION.md`.
-
-The `pkg/tftpxfer` fix, uncommitted: new `pkg/tftpxfer/filename.go`, `panic.go`, `filename_test.go`,
-`panic_test.go` and `changelog/tftp-filename-limits.security.md`; changed `pkg/tftpxfer/tftpxfer.go`,
-`tftpxfer_test.go`, `tftpxfer_fuzz_test.go`, `docs/10-running-in-production.md`, this file, and
-FAILURE_PATTERNS 317 in the archive. Gitignored: RV.2 in `.SPECIFICATION/SECURITY_ATTESTATION.md`.
+New: `internal/forge/playbook/` (whole package, with `testdata/`), `internal/engine/schema_keys*.go`,
+`json_strict.go`, `ansible_keywords.go`, `task_syntax_json.go`, `task_target.go`, `tags.go`,
+`select.go`, `chain.go`, `task_validate.go` and their tests, `internal/validate/params_rule.go`,
+`internal/adapters/native/validate.go`, `internal/catalog/fragment/`, `internal/redact/names.go`,
+`cmd/pleiades/forge_migrate_playbook.go`, `tag_flags.go` and their tests and gates,
+`cmd/runner/validate_dispatch_release_gate_test.go`, `tools/gendocs/ansible_modules.go`,
+`reportschema.go`, `tools/docs-lint/golits.go`, the generated `docs/reference/ansible-modules.md` and
+`docs/reference/schemas/migration-report.json`, and eight changelog fragments. Changed: the engine
+builder, the validate rules, the native adapter, `internal/catalog/file/directory.go`, catalogdata's
+file docs, the examples, docs/01, docs/03, docs/11, generated references, `coverage-floor.json`, and
+the FAILURE_PATTERNS and LESSONS files. Gitignored: `.SPECIFICATION/IMPLEMENTATION.md`,
+`.SPECIFICATION/SECURITY_ATTESTATION.md`.

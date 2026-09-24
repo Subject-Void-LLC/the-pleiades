@@ -1,0 +1,477 @@
+{
+  "$defs": {
+    "Counts": {
+      "additionalProperties": false,
+      "description": "Counts summarizes the report.",
+      "properties": {
+        "asserted": {
+          "description": "Asserted counts converted tasks naming a static desired state.",
+          "type": "integer"
+        },
+        "blocked": {
+          "description": "Blocked counts the placeholders a person must replace.",
+          "type": "integer"
+        },
+        "cannot_check": {
+          "description": "CannotCheck counts converted tasks that cannot run in check mode.",
+          "type": "integer"
+        },
+        "computed": {
+          "description": "Computed counts converted tasks whose desired state is decided at run time.",
+          "type": "integer"
+        },
+        "converted": {
+          "description": "Converted counts the tasks that converted, reviews included.",
+          "type": "integer"
+        },
+        "imperative": {
+          "description": "Imperative counts converted tasks with no desired state.",
+          "type": "integer"
+        },
+        "observe": {
+          "description": "Observe counts converted tasks that only read.",
+          "type": "integer"
+        },
+        "review": {
+          "description": "Review counts the converted tasks a person should read.",
+          "type": "integer"
+        },
+        "tasks": {
+          "description": "Tasks counts every task in the output.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tasks",
+        "converted",
+        "review",
+        "blocked",
+        "asserted",
+        "computed",
+        "imperative",
+        "observe",
+        "cannot_check"
+      ],
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "description": "Finding is one construct that did not convert cleanly, or converted in a way a person should know about. Every text field holds names and positions only, never a value from the playbook, so a report can be shared without leaking what the playbook held.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Position",
+          "description": "At is where the construct is in the playbook."
+        },
+        "code": {
+          "description": "Code is the finding's stable machine code, from the closed set in codes.go, so an editor can attach one action per code.",
+          "enum": [
+            "args.ignored",
+            "args.list_unrolled",
+            "args.unmapped",
+            "args.unparsable",
+            "args.value",
+            "block.always",
+            "block.rescue",
+            "debug.dropped",
+            "handler.dropped",
+            "import.playbook",
+            "import.tasks_missing",
+            "include.role",
+            "include.tasks",
+            "keyword.async",
+            "keyword.become",
+            "keyword.become_user",
+            "keyword.changed_when",
+            "keyword.check_mode",
+            "keyword.check_mode_false",
+            "keyword.connection",
+            "keyword.delegate_to",
+            "keyword.environment",
+            "keyword.failed_when",
+            "keyword.ignore_errors",
+            "keyword.ignore_unreachable",
+            "keyword.local_action",
+            "keyword.module_defaults",
+            "keyword.no_log",
+            "keyword.notify",
+            "keyword.reporting",
+            "keyword.retries",
+            "keyword.run_once",
+            "keyword.tags",
+            "keyword.throttle",
+            "keyword.timeout",
+            "keyword.unknown",
+            "loop.control",
+            "loop.register",
+            "loop.runtime",
+            "loop.too_long",
+            "loop.unrolled",
+            "meta.dropped",
+            "meta.unsupported",
+            "module.ambiguous",
+            "module.manual",
+            "module.semantics",
+            "module.unmapped",
+            "netconf.target",
+            "play.facts",
+            "play.hosts_all",
+            "play.hosts_local",
+            "play.hosts_pattern",
+            "play.identity",
+            "play.malformed",
+            "play.order",
+            "play.roles",
+            "play.serial",
+            "play.split",
+            "play.vars_prompt",
+            "set_fact.resolved",
+            "set_fact.runtime",
+            "state.computed",
+            "template.fact",
+            "template.resolved",
+            "template.secret",
+            "template.unresolved",
+            "template.unsupported",
+            "vars.files",
+            "vars.inventory",
+            "vault.value",
+            "when.fact",
+            "when.register",
+            "when.unsupported",
+            "yaml.duplicate_key",
+            "yaml.limit"
+          ]
+        },
+        "emitted": {
+          "description": "Emitted is where the construct's task landed in the output, or nil (null in JSON) when it produced no task.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Position"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "ID is this finding's name in this report (\"F007\"), which the emitted runbook's comment cites.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Message says what happened, in a sentence.",
+          "type": "string"
+        },
+        "native": {
+          "description": "Native names the native construct to use instead, or what will add one, when there is something to say.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "Outcome is what happened to the construct.",
+          "enum": [
+            "converted",
+            "info",
+            "review",
+            "blocked"
+          ]
+        },
+        "task": {
+          "description": "Task is the name of the task the construct belongs to, escaped for a terminal, or \"\" for a play-level construct.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "outcome",
+        "at",
+        "emitted",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "description": "Position is a place in a file: the playbook a finding came from, or the runbook it landed in.",
+      "properties": {
+        "column": {
+          "description": "Column is the 1-based column.",
+          "type": "integer"
+        },
+        "file": {
+          "description": "File is the file's name, relative to the playbook's directory for a playbook position and to the output directory for a runbook one.",
+          "type": "string"
+        },
+        "line": {
+          "description": "Line is the 1-based line.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file",
+        "line",
+        "column"
+      ],
+      "type": "object"
+    },
+    "Resolution": {
+      "additionalProperties": false,
+      "description": "Resolution records a template resolved from the playbook itself: the variable, where its one definition is, and where it was used. Never the value.",
+      "properties": {
+        "defined_at": {
+          "$ref": "#/$defs/Position",
+          "description": "DefinedAt is where its one definition is."
+        },
+        "used_at": {
+          "description": "UsedAt are the places a template read it.",
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "variable": {
+          "description": "Variable is the variable's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "variable",
+        "defined_at",
+        "used_at"
+      ],
+      "type": "object"
+    },
+    "RunbookResult": {
+      "additionalProperties": false,
+      "description": "RunbookResult is one runbook the conversion wrote.",
+      "properties": {
+        "dag_version": {
+          "description": "DAGVersion is the built runbook's version, which a run reports.",
+          "type": "string"
+        },
+        "file": {
+          "description": "File is the runbook's file name: <id>.yaml, or <id>.incomplete.yaml when a task in it is blocked.",
+          "type": "string"
+        },
+        "hosts": {
+          "description": "Hosts is the runbook's hosts: one device name or tag, or \"\" when the plays named none a runbook can hold.",
+          "type": "string"
+        },
+        "id": {
+          "description": "ID is the runbook's id.",
+          "type": "string"
+        },
+        "plays": {
+          "description": "Plays are the 1-based numbers of the plays the runbook holds.",
+          "items": {
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "runnable": {
+          "description": "Runnable is false when the runbook holds a blocked task, and so cannot run until a person resolves it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file",
+        "id",
+        "hosts",
+        "plays",
+        "runnable",
+        "dag_version"
+      ],
+      "type": "object"
+    },
+    "TaskResult": {
+      "additionalProperties": false,
+      "description": "TaskResult is one task the output holds: a converted task, or a placeholder for one that was not.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Position",
+          "description": "At is where the task is in the playbook."
+        },
+        "can_check": {
+          "description": "CanCheck says whether the task can run in check mode; nil (null in JSON) for a blocked task, which was not asked.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "check_reason": {
+          "description": "CheckReason says why a task cannot run in check mode.",
+          "type": "string"
+        },
+        "class": {
+          "description": "Class is the task's state semantics, declared by the module table rather than inferred, or null for a blocked task.",
+          "enum": [
+            "asserted",
+            "computed",
+            "imperative",
+            "observe",
+            null
+          ]
+        },
+        "class_basis": {
+          "description": "ClassBasis says in a phrase why the task has its class.",
+          "type": "string"
+        },
+        "emitted": {
+          "$ref": "#/$defs/Position",
+          "description": "Emitted is where the task landed in the output runbook."
+        },
+        "findings": {
+          "description": "Findings are the IDs of the findings the task cites.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "fqcn": {
+          "description": "FQCN is the native method the task calls, or the unrunnable ansible.unconverted.<module> placeholder a blocked task becomes.",
+          "type": "string"
+        },
+        "module": {
+          "description": "Module is the Ansible module the playbook task named.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the task's name in the runbook, escaped for a terminal.",
+          "type": "string"
+        },
+        "node_id": {
+          "description": "NodeID is the task's node in the built runbook, as a run reports it.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "Outcome is converted, review or blocked.",
+          "enum": [
+            "converted",
+            "info",
+            "review",
+            "blocked"
+          ]
+        },
+        "param_keys": {
+          "description": "ParamKeys names the parameters the task passes, never their values.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "runbook": {
+          "description": "Runbook is the id of the runbook the task landed in.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "emitted",
+        "name",
+        "module",
+        "runbook",
+        "node_id",
+        "fqcn",
+        "param_keys",
+        "class",
+        "outcome",
+        "can_check"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Report is everything the conversion found, as one model for the text view and --json alike.",
+  "properties": {
+    "cannot_check": {
+      "description": "CannotCheck lists the node IDs of converted tasks that cannot take part in check mode.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "counts": {
+      "$ref": "#/$defs/Counts",
+      "description": "Counts summarizes the report."
+    },
+    "findings": {
+      "description": "Findings are the constructs that did not convert cleanly, each once.",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "playbook": {
+      "description": "Playbook is the converted playbook's file name, escaped for a terminal.",
+      "type": "string"
+    },
+    "resolutions": {
+      "description": "Resolutions are the variables written into the runbooks from the playbook's own definitions.",
+      "items": {
+        "$ref": "#/$defs/Resolution"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "runbooks": {
+      "description": "Runbooks are the runbooks the conversion wrote.",
+      "items": {
+        "$ref": "#/$defs/RunbookResult"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this report's shape; it changes only when a field changes meaning or is removed.",
+      "type": "integer"
+    },
+    "tasks": {
+      "description": "Tasks are the tasks the runbooks hold, in order.",
+      "items": {
+        "$ref": "#/$defs/TaskResult"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "playbook",
+    "runbooks",
+    "tasks",
+    "findings",
+    "resolutions",
+    "cannot_check",
+    "counts"
+  ],
+  "title": "Pleiades migration report",
+  "type": "object"
+}

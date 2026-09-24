@@ -9368,3 +9368,236 @@ reworded; the two engine errors now point at `docs/03-migrating-from-ansible.md`
 
 **Lesson.** A check that enumerates its targets misses the next file nobody listed. Where the forbidden
 thing has a syntactic shape (a string literal), check the shape everywhere.
+
+## 327. A condition holding `{#` inside a string literal was refused as Jinja
+
+**Symptom.** Found by `FuzzWhenToCEL` in Phase 35. The condition translator refused any `when:` whose
+text contained `{{`, `{%` or `{#` before tokenizing, so `probe.stdout == 'a{#b'` was reported as a
+template (`when.unsupported`) although the delimiter sat inside a string literal.
+
+**Root cause.** A whole-string precheck for Jinja delimiters cannot tell text inside a literal from
+syntax outside one.
+
+**Fix.** The precheck was removed; the tokenizer refuses `{` only where it reads syntax, outside
+strings. The fuzzer's seed is kept in `internal/forge/playbook/testdata/fuzz/FuzzWhenToCEL`.
+
+**Lesson.** A refusal made before parsing has to be as precise as the parser, or it refuses valid
+input. It failed safe here, which is why the fuzzer, not a user, found it.
+
+## 328. The free-form argument splitter turned invalid UTF-8 into U+FFFD
+
+**Symptom.** Found by `FuzzKVArgs` in Phase 35. `splitArgs` walked free-form arguments
+(`command: echo x`) as runes, so an invalid byte came back as the replacement character and a command's
+text changed without any error. Not reachable through a playbook today, because go.yaml.in/yaml/v3
+refuses invalid UTF-8 first.
+
+**Root cause.** Converting to runes is lossy on invalid input, and the round trip was never checked.
+
+**Fix.** `splitArgs` refuses invalid UTF-8 (`internal/forge/playbook/kv.go`); the fuzz property that a
+command's text survives a split and join is what caught it.
+
+**Lesson.** A function that must preserve text should be tested for exactly that property, with bytes
+no well-behaved caller would send.
+
+## 329. The migration report printed raw playbook file names, and runbook names came from them
+
+**Symptom.** Found in Phase 35 when `TestEmit_CommentInjection` was tightened to assert that no raw
+escape character reaches the report or the written runbook. `Position.String` printed a playbook's file
+name as it was, so a name holding an escape sequence reached the terminal through the text report, and
+the output runbook's file name was derived from the raw playbook name.
+
+**Security.** A person converting a playbook from someone else could have their terminal driven by a
+file name. Our own code, found before release.
+
+**Root cause.** File names were treated as ours, when they come from the playbook's directory and may
+hold anything.
+
+**Fix.** `Position.String` escapes the name (`termsafe.EscapeLine`), and a runbook's file name is its
+sanitized id (`runbookFile`, `runbookID`).
+
+**Lesson.** A name read from the filesystem is input, exactly like the file's content.
+
+**Class.** C1 (delimiter injection into a terminal; CWE-150)
+**Portable.** yes: any tool printing a path or name it read from a directory it does not control
+**Detector.** fuzz or table-test names holding control characters and assert the output holds none; see ~/vuln-corpus/README.md
+
+## 330. The migration report printed values from the playbook in its refusal messages
+
+**Symptom.** Found by review in Phase 35 (commit d), while checking what a new list-conversion error
+would say. The report promises names and positions only, and `TestReport_NoValues` proved it for
+secret-shaped and vault values, but four other paths printed values: the YAML 1.1 refusals
+(`"0123" means an octal number to Ansible, not the text "0123"`, and a decimal mode), a selector value
+with no native equivalent (`state=VALUE`), the condition refusals (`int of VALUE`, `VALUE < VALUE`,
+`compared with VALUE`, `in ... VALUE`), and the condition parser's tokens (`unexpected 'literal'`,
+`bad number`). A PIN written as `0123`, or any text value, could reach a report meant to be shared.
+
+**Security.** Information exposure through a report written for sharing. Our own code, found before
+release. Measured: `TestReport_RefusedValuesNotPrinted`, with nine sentinel values, fails on each of the
+five old messages restored one at a time.
+
+**Root cause.** The no-values rule was tested for values that look secret, not for values in general,
+so every message built for a different purpose was free to quote its input.
+
+**Fix.** Every refusal describes the value's kind and points at its position (`describe`, `kindOf`,
+`describeToken`); `TestReport_RefusedValuesNotPrinted` covers each path.
+
+**Lesson.** "Never print a value" has to be tested with values that look ordinary. A secret does not
+always look like one.
+
+**Class.** C7 (secret exposure through logging or output; CWE-532)
+**Portable.** yes: any error or report message that quotes the input it refused
+**Detector.** sentinel values through every refusal path, asserting none appears in any output; see ~/vuln-corpus/README.md
+
+## 331. A negated condition over a registered result ran a task on every device when one matched
+
+**Symptom.** Found in Phase 35 while writing `TestWhen_MoreCEL`. The condition translator wrapped each
+read of a registered result in its own all-devices quantifier, so `not probe.rc` became
+`!(stat.probe.all(d, stat.probe[d].rc != 0))`: true when ANY device had `rc == 0`. A native condition
+runs once for the task across all its devices, so the converted task ran on every device when the
+Ansible task would have run on only some. `a or b` was the stricter mirror image.
+
+**Security.** A converted task doing more than its playbook: the wrong devices changed. Our own code,
+found before release. Measured: restoring the per-read quantifier fails `TestWhen_MoreCEL`.
+
+**Root cause.** A quantifier pushed down to each read changes meaning under negation and disjunction;
+it is only safe under conjunction.
+
+**Fix.** The whole condition is quantified once (`stat.R.all(d, ...)`, in `condition`); a condition
+reading two registered results per device is refused; and a negated `is defined` on a register is
+refused, because Ansible registers a skipped task's result and this runtime does not, so the negation
+would run where Ansible skips.
+
+**Lesson.** A translation has to be checked for the direction of its error: stricter is a finding,
+looser is a bug.
+
+**Class.** C9 (fail-open: a narrower condition rendered as a wider one; CWE-697)
+**Portable.** yes: any translation of per-item predicates into one aggregate check
+**Detector.** evaluate the translated expression over mixed per-item inputs and compare with the source's per-item result; see ~/vuln-corpus/README.md
+
+## 332. Two merge keys in one YAML map resolved first-wins, where Ansible's loader takes the last
+
+**Symptom.** Found in Phase 35 while writing `TestMergeKeys`, then checked against ansible-core's own
+`AnsibleLoader` (PyYAML 6.0.3): for a map with `<<: *a` and then `<<: *b`, Ansible reads a key both
+define from `b`, and the converter read it from `a`. A converted task could carry a different value from
+the one Ansible would have used.
+
+**Security.** A silent value difference between what was reviewed and what runs. Our own code, found
+before release.
+
+**Root cause.** Merge-key precedence was written from the YAML spec's wording for a merge list, and
+PyYAML's handling of two separate merge keys was assumed rather than read.
+
+**Fix.** `mapEntries` applies later merge keys first; `TestMergeKeys_MatchAnsible` (integration)
+compares five merge shapes with `AnsibleLoader` in the pinned runner image, and fails with the old order.
+
+**Lesson.** When the converter must read a format the way another program does, test against that
+program, not against the format's specification.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10), YAML parser-differential form (CWE-436)
+**Portable.** yes: any tool re-reading YAML another program will also read, where merge keys are allowed
+**Detector.** differential test against the other program's loader over merge shapes; see ~/vuln-corpus/README.md
+
+## 333. Ansible's list type was not applied: `name=curl,git` became one package named `curl,git`
+
+**Symptom.** Found in Phase 35 while reading `coerceGo` against ansible-core's `check_type_list`, which
+splits a text at commas. `apt: name=curl,git` converted to one install of a package named `curl,git`; a
+text given to a list parameter (`ios_config: lines: hostname r1`) became a bare string instead of a
+one-item list; and `name: [curl]` was blocked because only a list of two or more took the unroll path.
+
+**Root cause.** The value conversion followed the native parameter's type and never Ansible's
+argument type.
+
+**Fix.** A package name list given as text splits at commas (one task per name); a comma text for any
+other list parameter is refused, since Ansible's split is rarely what was meant (`description a, b`
+would be two lines); a text for a list parameter becomes a one-item list; a one-item list is set
+directly. Ansible's own boolean spellings (`t`, `f`, 0 and 1) are accepted, and a boolean selector
+(`Selector.Bool`) reads a templated or quoted boolean the same way.
+
+**Lesson.** A converter owns both sides of each argument: the target's type and the source's.
+
+## 334. The module tables accepted aliases and values that belong to other modules
+
+**Symptom.** Found in Phase 35 by `TestEntries_ArgsMatchAnsibleCore`, which checks the tables against
+`ansible-doc -j` in the pinned image: apt accepted `installed` and `removed` (dnf's words), dnf accepted
+`package` and `update-cache` (apt's aliases; dnf's are `pkg` and `expire-cache`) and
+`cache_valid_time` (not a dnf option), `service` accepted `service` and `unit` (systemd's aliases only),
+and `package` defaulted `state` although Ansible requires it.
+
+**Root cause.** Shared argument lists were written once for a family of modules whose options differ.
+
+**Fix.** Per-module argument lists and state values (`internal/forge/playbook/modules_pkg.go`); three
+deliberate departures are listed with their reasons in the test.
+
+**Lesson.** A table mirroring another program's interface should be checked against that program's own
+description of it.
+
+## 335. file.directory left the parents it created at the umask's mode
+
+**Symptom.** Found in Phase 35 by `TestMigratePlaybook_BehaviorMatchesAnsible`, which runs one playbook
+with real Ansible and its conversion with `pleiades run` against a real sshd and compares the trees.
+`file: path=/tmp/mgate/app/conf state=directory mode=0750` left `/tmp/mgate` and `/tmp/mgate/app` at
+0755 natively, 0750 under Ansible. The method's own parameter documentation said the mode applied
+"never to a parent created along the way", while its description called it `ansible.builtin.file` with
+`state=directory`.
+
+**Security.** `path: /srv/secret/app` with `mode: "0700"` left a newly created `/srv/secret`
+world-readable: weaker permissions than the task asked for. Our own code; pre-1.0, so no deployment to
+migrate.
+
+**Root cause.** `mkdir -p` was treated as the whole of "create the parents", and only the named
+directory was given the attributes.
+
+**Fix.** `file.directory` finds the missing parents first and gives each the task's mode, owner and
+group, deepest first so a parent's mode cannot stop the change below it; a parent that already existed
+is never changed (`missingParents`, `internal/catalog/file/directory.go`). Proven by
+`TestDirectory_GivesCreatedParentsTheAttributes`, and by the behavior gate, which now compares equal.
+
+**Lesson.** A native method that names an Ansible module it mirrors should be checked against that
+module's behavior, not its documentation. A behavior gate compares outcomes, which is the only thing a
+user relies on.
+
+**Class.** none of C1 to C14 (incorrect default permissions; CWE-276)
+**Portable.** yes: any "create with these attributes" operation that creates intermediate objects
+**Detector.** create a nested path with restrictive attributes and assert every created level has them; see ~/vuln-corpus/README.md
+
+## 336. A module named `guard` would have become a placeholder with the guard's name
+
+**Symptom.** Found in Phase 35 while giving validation specific messages for the migration guard and
+placeholders. A blocked task's placeholder was `ansible.unconverted.<module>` and the guard was
+`ansible.unconverted.guard`, so a playbook task using a module named `guard` produced a placeholder
+indistinguishable from the guard. Both were unrunnable, so nothing could run; the report and the
+validation messages would have misnamed it.
+
+**Root cause.** The guard shared the placeholder namespace.
+
+**Fix.** The guard is `ansible.incomplete` (`engine.IncompleteGuard`), outside the placeholder prefix
+(`engine.UnconvertedPrefix`); both are constants the translator and validation share.
+
+**Lesson.** A reserved name must sit outside every namespace user input can fill.
+
+## 337. A nested import_tasks was looked for only in the playbook's directory
+
+**Symptom.** Found in Phase 35 by the corpus measurement: every public role's `tasks/main.yml` importing
+`setup-Debian.yml` was reported missing, because the converter resolved an import's file against the
+playbook's directory only. Ansible looks beside the importing file first.
+
+**Root cause.** Import resolution was written for a playbook importing one level down and never
+considered an import from an imported file.
+
+**Fix.** `importPath` tries the importing file's directory first, then the playbook's, both inside the
+playbook's directory (`TestTranslate_ImportTasksResolvesAsAnsible`).
+
+**Lesson.** Measure a converter on real input early: six missing imports in twelve roles was invisible
+to every fixture written by hand.
+
+## 338. An empty list literal in a condition evaluated to None
+
+**Symptom.** Found in Phase 35 while writing `TestWhen_MoreCEL`: `'a' in []` was refused as comparing
+values of different kinds, because the list literal's value started as a nil slice, which the folding
+rules read as Python's None. Python answers False.
+
+**Root cause.** A nil slice and an empty one differ to a type switch.
+
+**Fix.** A list literal starts as `[]any{}` (`internal/forge/playbook/whencel.go`).
+
+**Lesson.** Where nil and empty mean different things downstream, construct the empty one explicitly.

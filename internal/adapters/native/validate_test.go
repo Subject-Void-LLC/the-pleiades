@@ -6,9 +6,11 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -109,5 +111,35 @@ func TestExecute_ValidRunbookStillRuns(t *testing.T) {
 	}
 	if final := bus.lastJobEvent(t); final.Status != "changed" {
 		t.Errorf("final status = %q, want changed", final.Status)
+	}
+}
+
+// refusalFailingBus publishes like mockBus, except that it fails a failed
+// job event, the one a refusal publishes.
+type refusalFailingBus struct{ mockBus }
+
+func (b *refusalFailingBus) Publish(ctx context.Context, topic string, evt event.Event) error {
+	if strings.Contains(string(evt.Data), `"status":"failed"`) {
+		return errors.New("deliberate publish failure")
+	}
+	return b.mockBus.Publish(ctx, topic, evt)
+}
+
+// TestExecute_RefusalThatCannotBePublishedStillRefuses proves a refusal
+// whose job event cannot be published is still a refusal: Execute fails,
+// saying the refusal was not recorded, and nothing runs.
+func TestExecute_RefusalThatCannotBePublishedStillRefuses(t *testing.T) {
+	registerValidationFixtures(t)
+	bus := &refusalFailingBus{}
+	adapter, err := NewAdapter(bus, writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: stub\n    fqcn: valfixture.stub\n"), nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	_, err = adapter.Execute(context.Background(), wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1"})
+	if err == nil || !strings.Contains(err.Error(), "failed to publish the refusal") {
+		t.Fatalf("Execute() error = %v, want the unpublished refusal named", err)
+	}
+	if n := len(bus.logEvents("job-1")); n != 1 {
+		t.Errorf("job log has %d events, want only the started one", n)
 	}
 }

@@ -265,6 +265,10 @@ story, per `.AGENTS/AGENTS.md`.
 230. **Make "refused before any network call" a property of a type whose only constructor performs no I/O, and hold that constructor's package to an import allowlist, rather than a check each caller must remember to make first (2026-09-23).**
 231. **A test harness standing in for a server must end a session when that server would; re-check it whenever a new kind of client arrives, because the first client to depend on a behavior is the one the harness was never tested against (2026-09-23).**
 232. **Read a fuzz run's execution count only from a run that ended cleanly: minimization freezes the counter and can end a time-bounded run as a failure with no crasher, so bound minimization or bound the run by count (2026-09-23).**
+233. **Make output that is unsafe until a person finishes it structurally unrunnable everywhere it could run (a telling file name, a guard first, placeholders in a reserved namespace, and validation where execution starts), rather than invalid to one check in one entry point (2026-09-24).**
+234. **When the claim is "does what X does", test against X itself on the outcome a user relies on (files, modes, values), and measure on real input early: every defect Phase 35's unit tests missed was found that way (2026-09-24).**
+235. **After a test passes, break the exact thing it claims to protect; if it still passes, the fixture is missing the case (2026-09-24).**
+236. **A native method's defaults are part of any mapping onto it: where a task omits an argument, write the source's default explicitly, because each side's default differs (2026-09-24).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

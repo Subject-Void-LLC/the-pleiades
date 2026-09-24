@@ -5019,3 +5019,59 @@ run whose budget expires mid-minimization can end as a failure with no failing i
 Bound minimization (`-fuzzminimizetime 2s`) when the count matters, or bound the run by count
 (`-fuzztime 10000000x`) when a clean pass at a stated size is the evidence. Record the count from the
 run's final line only when its rate never fell to zero before the end.
+
+## 233. An incomplete conversion must be unrunnable in every tier, not merely invalid in one
+
+Phase 35's converter writes a placeholder for each task it cannot convert, and the obvious safety net
+was "validate refuses it". That held only on the Crawl tier: the Walk tier never ran validation
+(FAILURE_PATTERNS 322), so a runbook the CLI refused would have run on a Runner, every converted task
+before the placeholder changing the device. The fix stacks three independent refusals, each enough on
+its own: the file is named `<name>.incomplete.yaml`, its first task is a guard in the reserved
+`ansible` namespace that nothing can register, and every placeholder is in that namespace too; the
+Runner now validates what it is dispatched (Phase 35, commit a2). Proven on the device, not in the
+report: `TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal` finds no marker file, and
+`TestMigratePlaybookReleaseGate` has both `validate` and `run` refuse, naming the guard and each
+placeholder.
+
+The general rule: when output is unsafe until a person finishes it, make it structurally unable to run
+wherever it could be run, rather than relying on one check in one entry point.
+
+## 234. Test a converter against the program it imitates, on the outcome a user relies on
+
+Four of Phase 35's real defects were invisible to every unit test and every hand-written fixture, and
+each was found only by comparing with the real thing: `file.directory` left created parents at the
+umask's mode (a behavior gate running real Ansible and `pleiades run` on the same playbook and
+comparing the trees, FAILURE_PATTERNS 335); two YAML merge keys resolved the opposite way from
+Ansible's loader (a differential against `AnsibleLoader`, 332); the module tables accepted other
+modules' aliases and values (a differential against `ansible-doc -j`, 334); and nested imports resolved
+against the wrong directory (a measurement over real public roles, 337). Every one of them had a
+confident comment or documentation line saying the behavior matched Ansible.
+
+When the claim is "does what X does", the test runs X. Compare outcomes (files, modes, values), not
+descriptions, and measure on real input early.
+
+## 235. A passing test proves only the paths its fixture reaches: mutate the assertion's own reason for existing
+
+Two Phase 35 gates passed their first run and survived a mutation that should have failed them. The
+release gate asserted each construct is reported exactly once, but its only duplicated construct
+(`become` on a looped task) is raised before the loop unrolls, so switching de-duplication off changed
+nothing; a per-copy construct (`update_cache` on the same task) was needed. The report-schema test
+required every property to hold a value somewhere, so the schema's null alternatives went unexercised
+and a fixture without a blocked task still passed; it now requires each nullable property to be seen
+null too, which also exposed a field that could never be null.
+
+After a test passes, break the exact thing it claims to protect and watch it fail. If it does not,
+the fixture is missing the case, not the code.
+
+## 236. A native method's defaults are part of the mapping onto it
+
+Mapping an Ansible module onto a native method is not only renaming parameters. Where the task leaves
+an argument out, each side applies its own default, and they differ: `fw.firewalld.allow` defaults to
+permanent and immediate while Ansible's firewalld defaults to runtime only (so a straight mapping would
+persist a rule the playbook never persisted); `file.copy` creates a file 0600 where Ansible uses the
+umask; `net.netconf.config` locks nothing by default where Ansible locks always, and spells
+`if_supported` where Ansible spells `if-supported`. Phase 35's tables write Ansible's default wherever
+the native one differs (`Call.Fixed`, `Entry.Adjust`), and say so in a review where they cannot.
+
+Read both sides' defaults for every argument a task may omit, and write the source's default
+explicitly into the converted call.
