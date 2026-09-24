@@ -1,0 +1,36 @@
+# The runbook a person would write by hand for twin/site.yml, in native
+# module-as-key sugar: TestTranslate_DAGIdenticalToHandAuthored requires
+# the conversion to build to exactly this DAG.
+id: site
+name: web tier
+hosts: web
+tags: [site]
+pretasks:
+  - name: probe
+    exec.command:
+      cmd: /usr/bin/test -d /srv/app
+    register: probe
+tasks:
+  - name: install tool (item 1 of 2)
+    exec.command:
+      cmd: echo curl
+    tags: [tools]
+  - name: install tool (item 2 of 2)
+    exec.command:
+      cmd: echo git
+    tags: [tools]
+  - name: deploy
+    block:
+      - name: build
+        when:
+          - stat.probe.all(d, stat.probe[d].rc == 0)
+        exec.shell:
+          cmd: make -C /srv/app
+          creates: /srv/app/build
+      - name: report
+        exec.command:
+          cmd: echo built
+    rescue:
+      - name: note failure
+        exec.command:
+          cmd: echo failed

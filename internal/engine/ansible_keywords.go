@@ -80,6 +80,21 @@ var ansiblePlayKeywords = map[string]bool{
 // keyword becomes in a native runbook, cited by every refusal here.
 const migrationGuide = "docs/03-migrating-from-ansible.md"
 
+// migrateCommand is the command that converts a playbook into a runbook.
+const migrateCommand = "pleiades forge migrate-playbook"
+
+// UnconvertedPrefix begins the method name of the placeholder a task
+// pleiades forge migrate-playbook could not convert becomes
+// (ansible.unconverted.<module>), and IncompleteGuard is the task an
+// incomplete conversion starts with. Both are in the reserved ansible
+// namespace, so nothing can register either and no run can reach past
+// them; the guard sits outside the prefix, so no module's placeholder can
+// ever share its name. Validation names each of them.
+const (
+	UnconvertedPrefix = "ansible.unconverted."
+	IncompleteGuard   = "ansible.incomplete"
+)
+
 // isAnsibleTaskKeyword reports whether key is an Ansible task or block
 // keyword a native task does not accept.
 func isAnsibleTaskKeyword(key string) bool {

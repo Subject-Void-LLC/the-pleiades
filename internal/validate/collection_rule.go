@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -73,6 +74,18 @@ func CollectionRule(world WorldView) []Finding {
 
 		desc, ok := collection.Lookup(task.FQCN)
 		switch {
+		case task.FQCN == engine.IncompleteGuard:
+			findings = append(findings, Finding{
+				RuleName: "collection",
+				Node:     id,
+				Message:  fmt.Sprintf("task %s is the guard an incomplete conversion starts with: resolve every blocked finding in the migration report, then delete this task", label),
+			})
+		case strings.HasPrefix(task.FQCN, engine.UnconvertedPrefix):
+			findings = append(findings, Finding{
+				RuleName: "collection",
+				Node:     id,
+				Message:  fmt.Sprintf("task %s is a placeholder for a task pleiades forge migrate-playbook did not convert (%s); the migration report's blocked finding for it says what it needs", label, strings.TrimPrefix(task.FQCN, engine.UnconvertedPrefix)),
+			})
 		case !ok && strings.HasPrefix(task.FQCN, "ansible."):
 			// The ansible namespace is reserved: no built-in or external
 			// method can ever register in it, so a task naming one is an
