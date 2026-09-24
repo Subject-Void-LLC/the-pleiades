@@ -13,10 +13,7 @@ id: catalyst8000-round-trip
 hosts: cat8000
 metadata:
   service_effecting: false
-  mcp: true
-  mcp_impact: "Creates one loopback interface (no traffic, cannot affect reachability), then removes it again in the same run."
-  mcp_impact_duration: "A few seconds; the interface does not persist past this run."
-  mcp_description: "Demonstrates net.cli.command and net.ios.config against a real Cisco IOS XE device, round-tripping a throwaway loopback interface."
+  description: "Demonstrates net.cli.command and net.ios.config against a real Cisco IOS XE device, round-tripping a throwaway loopback interface."
 
 tasks:
   - name: Record the software version (read-only, proves net.cli.command works)

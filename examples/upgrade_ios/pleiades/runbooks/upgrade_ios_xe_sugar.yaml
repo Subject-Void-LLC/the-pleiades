@@ -10,10 +10,7 @@ id: upgrade-ios-xe-sugar
 hosts: sw1
 metadata:
   service_effecting: true
-  mcp: true
-  mcp_impact: "This runbook will reload the switch, which will cause a brief outage."
-  mcp_impact_duration: "The reload will take approximately 2-3 minutes."
-  mcp_description: "This runbook upgrades an IOS switch, which includes important security and stability fixes."
+  description: "This runbook upgrades an IOS switch, which includes important security and stability fixes."
 
 pretasks:
   - name: Get Config
@@ -40,35 +37,40 @@ tasks:
         net.ios.config:
           backup: true
 
+      # net.cli.command cannot answer an interactive prompt. IOS asks for a
+      # destination filename on copy unless the switch has "file prompt
+      # quiet" configured, so set that on sw1 first; otherwise this step
+      # waits on the prompt and fails after its 30 second bound. (The
+      # Ansible playbook answers the prompt with prompt:/answer:, which
+      # have no native equivalent.)
       - name: Pull the new image onto flash
         net.cli.command:
           command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
-          prompt:
-            - "Destination filename"
-          answer:
-            - "\r"
-          check_all: true
 
       - name: Verify the image checksum before trusting it
         net.cli.command:
           command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
         register: md5_check
 
-      - name: Point the boot variable at the new image and save
+      - name: Point the boot variable at the new image
         net.ios.config:
           lines:
             - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
-          save_when: modified
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
+      # The Ansible playbook's save_when: modified, written as its own
+      # step: net.ios.save runs "write memory".
+      - name: Save the configuration
+        net.ios.save:
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+
+      # IOS asks "Proceed with reload? [confirm]", and no native method can
+      # answer an interactive prompt yet, so this step waits on the prompt
+      # and fails after its 30 second bound. Reload sw1 by hand at this
+      # point. (The Ansible playbook answers it with prompt:/answer:.)
       - name: Reload the switch
         net.cli.command:
           command: reload
-          prompt:
-            - "confirm"
-          answer:
-            - "\r"
-          sendonly: true
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
     rescue:

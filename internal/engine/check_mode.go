@@ -222,26 +222,43 @@ var RunbookKeys = map[string]bool{
 // each one and, when one known key is close, suggesting it.
 func checkRunbookKeys(keys []string) error {
 	var unknown []string
+	sawAnsible := false
 	for _, k := range keys {
-		if !RunbookKeys[k] {
-			if near := nearestKey(k, RunbookKeys); near != "" {
-				unknown = append(unknown, fmt.Sprintf("%q (did you mean %q?)", k, near))
-			} else {
-				unknown = append(unknown, fmt.Sprintf("%q", k))
-			}
+		if RunbookKeys[k] {
+			continue
+		}
+		switch near := nearestKey(k, RunbookKeys); {
+		case near != "":
+			unknown = append(unknown, fmt.Sprintf("%q (did you mean %q?)", k, near))
+		case isAnsiblePlayKeyword(k):
+			unknown = append(unknown, fmt.Sprintf("%q (an Ansible keyword a native runbook does not support)", k))
+			sawAnsible = true
+		default:
+			unknown = append(unknown, fmt.Sprintf("%q", k))
 		}
 	}
 	if len(unknown) == 0 {
 		return nil
 	}
-	return fmt.Errorf("unknown top-level runbook key %s; a runbook's top level may carry only %s",
-		strings.Join(unknown, ", "), strings.Join(sortedKeys(RunbookKeys), ", "))
+	guide := ""
+	if sawAnsible {
+		guide = "; " + migrationGuide + " says what each Ansible keyword becomes"
+	}
+	return fmt.Errorf("unknown top-level runbook key %s; a runbook's top level may carry only %s%s",
+		strings.Join(unknown, ", "), strings.Join(sortedKeys(RunbookKeys), ", "), guide)
 }
 
-// nearestKey returns the key in known closest to k by edit distance, when
-// it is close enough to be a plausible typo (at most two edits, and fewer
-// than half of k's length), and "" otherwise.
+// nearestKey returns the key in known closest to k: one that differs from
+// k only in case first (JSON keys arrive exactly as typed, so "FQCN" is
+// the likeliest near miss there), and otherwise the closest by edit
+// distance, when it is close enough to be a plausible typo (at most two
+// edits, and fewer than half of k's length). It returns "" when none is.
 func nearestKey(k string, known map[string]bool) string {
+	for _, candidate := range sortedKeys(known) {
+		if candidate != k && strings.EqualFold(candidate, k) {
+			return candidate
+		}
+	}
 	best, bestDist := "", 3
 	for _, candidate := range sortedKeys(known) {
 		if d := editDistance(k, candidate); d < bestDist && d*2 < len(k) {

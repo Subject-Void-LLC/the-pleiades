@@ -78,7 +78,37 @@ func FuzzBuildFromYAML(f *testing.F) {
 	f.Add([]byte("id: s6\ntasks:\n  - name: a\n    noop:\n"))
 	f.Add([]byte("id: s7\ntasks:\n  - name: outer\n    block:\n      - name: inner\n        net.ios.config:\n          lines: []\n        net.cli.command:\n          command: x\n"))
 
+	// Strict keys (schema_keys.go), Ansible keywords, undotted non-module
+	// keys, merge keys and malformed targets: every refusal path this
+	// phase added, so the fuzzer mutates around each one.
+	f.Add([]byte("id: k1\nmetadata:\n  mcp: true\ntasks:\n  - name: a\n    fqcn: noop\n"))
+	f.Add([]byte("id: k2\ntasks:\n  - name: a\n    fqcn: noop\n    secret_mask: {register: r, fields: [x], extra: 1}\n"))
+	f.Add([]byte("id: k3\ntasks:\n  - name: a\n    fqcn: noop\n    loop: [1, 2]\n"))
+	f.Add([]byte("id: k4\ntasks:\n  - name: a\n    paramz: {x: 1}\n"))
+	f.Add([]byte("id: k5\ntasks:\n  - <<: {fqcn: noop, register: r}\n    name: a\n"))
+	f.Add([]byte("id: k6\nhosts: web\ntasks:\n  - name: a\n    fqcn: noop\n    params: {target: [web1, web2]}\n"))
+	f.Add([]byte("id: k7\ngather_facts: false\ntasks:\n  - name: a\n    fqcn: noop\n"))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		_, _ = builder.BuildFromYAML(payload)
+		dag, err := builder.BuildFromYAML(payload)
+		if err == nil {
+			assertTargetsAreNonEmptyStrings(t, dag)
+		}
 	})
+}
+
+// assertTargetsAreNonEmptyStrings is the fuzz property FAILURE_PATTERNS 11
+// needs: whatever a runbook said, a DAG that built never carries a
+// params.target the executor would silently replace with hosts:.
+func assertTargetsAreNonEmptyStrings(t *testing.T, dag *engine.DAG) {
+	t.Helper()
+	for id, task := range dag.Nodes {
+		raw, present := task.Params["target"]
+		if !present {
+			continue
+		}
+		if target, ok := raw.(string); !ok || target == "" {
+			t.Fatalf("node %s built with params.target %#v, which the builder must refuse", id, raw)
+		}
+	}
 }

@@ -5,6 +5,9 @@
 package validate
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -100,6 +103,11 @@ func Register(r Rule) {
 // Findings into one Report. It initializes world's Resolve cache once,
 // on its own local copy, before running any rule; see WorldView's
 // resolveCache field for why every rule ends up sharing it.
+//
+// The findings are sorted by node, then rule, then message. Rules walk
+// DAG.Nodes, a map, so without the sort the same runbook listed its
+// findings in a different order on every run, which a person comparing
+// two runs, or a test comparing output, reads as a change.
 func Validate(world WorldView) Report {
 	world.resolveCache = make(map[string][]inventory.InventoryItem)
 
@@ -107,5 +115,8 @@ func Validate(world WorldView) Report {
 	for _, r := range registry {
 		findings = append(findings, r(world)...)
 	}
+	slices.SortStableFunc(findings, func(a, b Finding) int {
+		return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.RuleName, b.RuleName), cmp.Compare(a.Message, b.Message))
+	})
 	return Report{Findings: findings}
 }

@@ -31,13 +31,13 @@ type TargetResolver interface {
 // lifecycle_rule.go), so the two-level fallback lives in exactly one place
 // rather than four copies of the same lookup drifting apart.
 //
-// A non-string Params["target"] (e.g. a YAML list) falls through to
-// dag.Hosts exactly like an absent one: the unchecked type assertion
-// here matches every existing call site's own long-standing behavior
-// (FAILURE_PATTERNS.md #11 already tracks that a malformed target is
-// silently indistinguishable from an absent one; fixing that is a
-// separate, not yet applied, change, not something this helper's
-// introduction takes on incidentally).
+// A present target that is not a non-empty string (a YAML list, a
+// number, "") never reaches here from a built runbook: the builder
+// refuses it (validateTarget, task_target.go), because falling back to
+// dag.Hosts would run the task against devices it never named
+// (FAILURE_PATTERNS.md #11). The type check below still stands for a DAG
+// assembled by hand, which the builder never saw, and treats such a value
+// as absent.
 func TaskTarget(dag *DAG, task *Task) string {
 	if target, ok := task.Params["target"].(string); ok && target != "" {
 		return target

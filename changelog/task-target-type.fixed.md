@@ -1,0 +1,1 @@
+A task whose `params.target` is present but is not a non-empty string (a list, a number, `null`, `""`) is now refused when the runbook is read. It used to fall back to the runbook's `hosts:`, so the task was validated and run against devices it never named.

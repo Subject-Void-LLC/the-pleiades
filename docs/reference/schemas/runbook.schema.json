@@ -78,6 +78,7 @@
           "type": "array"
         },
         "secret_mask": {
+          "additionalProperties": false,
           "description": "Retroactively masks fields of an earlier task's registered result.",
           "properties": {
             "fields": {
@@ -159,8 +160,30 @@
       "type": "string"
     },
     "metadata": {
+      "additionalProperties": false,
+      "description": "Pleiades-only facts about the runbook as a whole.",
       "properties": {
+        "category": {
+          "description": "The one catalog bucket this runbook is filed under.",
+          "type": "string"
+        },
+        "description": {
+          "description": "A sentence or two about what this runbook does.",
+          "type": "string"
+        },
+        "interruptible": {
+          "description": "A Runner that loses its Controller may abort this run. Omitted means true.",
+          "type": "boolean"
+        },
+        "labels": {
+          "description": "Free-form catalog filter markers. Not Ansible tags.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "service_effecting": {
+          "description": "Running this can affect live service.",
           "type": "boolean"
         }
       },

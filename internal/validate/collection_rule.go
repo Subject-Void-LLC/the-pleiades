@@ -73,6 +73,16 @@ func CollectionRule(world WorldView) []Finding {
 
 		desc, ok := collection.Lookup(task.FQCN)
 		switch {
+		case !ok && strings.HasPrefix(task.FQCN, "ansible."):
+			// The ansible namespace is reserved: no built-in or external
+			// method can ever register in it, so a task naming one is an
+			// Ansible module nobody has converted yet, and saying so is
+			// more use to the author than "not registered".
+			findings = append(findings, Finding{
+				RuleName: "collection",
+				Node:     id,
+				Message:  fmt.Sprintf("task %s calls %q, an Ansible module that has not been converted to a native method; docs/03-migrating-from-ansible.md maps Ansible modules to native ones", label, task.FQCN),
+			})
 		case !ok:
 			findings = append(findings, Finding{
 				RuleName: "collection",

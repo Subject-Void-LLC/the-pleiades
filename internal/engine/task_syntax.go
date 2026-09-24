@@ -11,9 +11,9 @@
 package engine
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
+	"reflect"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -81,6 +81,11 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 			}
 		}
 	}
+	// After the sugar rewrite, so a module name written as a key has
+	// already become fqcn:/params: and is not mistaken for an unknown key.
+	if err := checkKnownKeys(yamlKeyTree{root}, reflect.TypeFor[WorkflowDef](), "yaml", ""); err != nil {
+		return err
+	}
 
 	if err := doc.Decode(def); err != nil {
 		return fmt.Errorf("failed to unmarshal YAML: %w", err)
@@ -103,6 +108,9 @@ func normalizeWorkflowYAMLTaskList(data []byte, out *[]Task) error {
 		return yaml.Unmarshal(data, out)
 	}
 	if err := normalizeTaskListNode(doc.Content[0], "import"); err != nil {
+		return err
+	}
+	if err := checkKnownKeys(yamlKeyTree{doc.Content[0]}, reflect.TypeFor[[]Task](), "yaml", "import"); err != nil {
 		return err
 	}
 	return doc.Decode(out)
@@ -151,17 +159,25 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 		case "parallel":
 			hasParallel = true
 		}
+		// A YAML merge key (<<) is not a module name: its merged keys are
+		// checked against Task's own fields by checkKnownKeys.
+		if key.ShortTag() == "!!merge" {
+			continue
+		}
 		if !ReservedTaskKeys[key.Value] {
 			nonReserved = append(nonReserved, kv{key, task.Content[i+1]})
 		}
 	}
 
+	names := make([]string, len(nonReserved))
+	for i, p := range nonReserved {
+		names[i] = p.key.Value
+	}
+	if err := refuseAnsibleTaskKeywords(label, names); err != nil {
+		return err
+	}
 	switch {
 	case len(nonReserved) > 1:
-		names := make([]string, len(nonReserved))
-		for i, p := range nonReserved {
-			names[i] = p.key.Value
-		}
 		return fmt.Errorf("task %s has multiple unrecognized keys %v: module-as-key syntax allows exactly one module name per task", label, names)
 	case len(nonReserved) == 1 && (hasFQCN || hasBlock || hasParallel):
 		conflict := "fqcn:"
@@ -171,8 +187,11 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 		case hasParallel:
 			conflict = "parallel:"
 		}
-		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call, a block, or a parallel group, and module-as-key sugar cannot combine with an explicit fqcn:/block:/parallel:", label, conflict, nonReserved[0].key.Value)
+		return fmt.Errorf("task %s sets both %s and an unrecognized key %q%s: a task must be exactly one of a module call, a block, or a parallel group, and module-as-key sugar cannot combine with an explicit fqcn:/block:/parallel:", label, conflict, names[0], taskKeyHint(names[0]))
 	case len(nonReserved) == 1:
+		if err := refuseNonModuleKey(label, names[0]); err != nil {
+			return err
+		}
 		if err := rewriteModuleKeyNode(task, nonReserved[0].key, nonReserved[0].val, label); err != nil {
 			return err
 		}
@@ -231,106 +250,51 @@ func findMappingValue(m *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// --- JSON path ---------------------------------------------------------
-
-// normalizeWorkflowJSON rewrites module-as-key sugar throughout payload's
-// pretasks/tasks/posttasks and returns the rewritten JSON bytes, ready
-// for the normal json.Unmarshal(_, &WorkflowDef{}) decode (Build, dag.go).
-// A payload that does not even decode as a JSON object is returned
-// unchanged, so the real decode below surfaces its own standard error
-// rather than a confusing one from this file.
-func normalizeWorkflowJSON(payload []byte) ([]byte, error) {
-	var generic map[string]interface{}
-	if err := json.Unmarshal(payload, &generic); err != nil {
-		return payload, nil
-	}
-
-	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
-		if list, ok := generic[key]; ok {
-			if err := normalizeTaskListJSON(list, key); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	rewritten, err := json.Marshal(generic)
-	if err != nil {
-		return nil, fmt.Errorf("failed to re-marshal normalized runbook JSON: %w", err)
-	}
-	return rewritten, nil
-}
-
-// normalizeTaskListJSON rewrites module-as-key sugar (see
-// normalizeTaskListNode, this file's YAML counterpart) throughout list, a
-// []interface{} of task maps decoded from JSON, recursing into each
-// task's own block/rescue/always at any depth. It mutates each task map
-// in place. label mirrors normalizeTaskListNode's own path-label scheme.
-func normalizeTaskListJSON(list interface{}, label string) error {
-	items, ok := list.([]interface{})
-	if !ok {
-		return nil // wrong shape; let the real decode surface its own error
-	}
-	for i, item := range items {
-		task, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if err := normalizeTaskMapJSON(task, fmt.Sprintf("%s[%d]", label, i)); err != nil {
-			return err
+// refuseAnsibleTaskKeywords refuses the first of keys, a task's keys that
+// are not task keys, that is an Ansible keyword, with a message saying so
+// rather than reading it as a module name.
+func refuseAnsibleTaskKeywords(label string, keys []string) error {
+	for _, key := range keys {
+		if isAnsibleTaskKeyword(key) {
+			return fmt.Errorf("task %s uses %q, an Ansible keyword a native runbook does not support; %s says what each Ansible keyword becomes", label, key, migrationGuide)
 		}
 	}
 	return nil
 }
 
-// normalizeTaskMapJSON rewrites task, a single task object decoded from
-// JSON, in place if it uses module-as-key sugar, then recurses into its
-// own block/rescue/always/parallel. label identifies this task in error
-// messages.
-func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
-	_, hasFQCN := task["fqcn"]
-	_, hasBlock := task["block"]
-	_, hasParallel := task["parallel"]
-
-	var nonReservedKeys []string
-	for key := range task {
-		if !ReservedTaskKeys[key] {
-			nonReservedKeys = append(nonReservedKeys, key)
-		}
+// refuseNonModuleKey refuses key, the one key on task label that is not a
+// task key, when it cannot be a module name: a module name is always
+// namespaced (pkg/collection.Register refuses one with no dot), so an
+// undotted key is a mistake unless it is one of the engine's own actions.
+// Without this, a misspelled params: holding a map became a task calling
+// a method named "paramz", which validation skipped as an engine word and
+// the run then failed on.
+func refuseNonModuleKey(label, key string) error {
+	if strings.Contains(key, ".") || isEngineAction(key) {
+		return nil
 	}
-	sort.Strings(nonReservedKeys) // map iteration order is random; keep error text deterministic
+	return fmt.Errorf("task %s: %q is neither a task key nor a module name%s; a module name is always namespaced, like pkg.apt.install", label, key, taskKeyHint(key))
+}
 
-	switch {
-	case len(nonReservedKeys) > 1:
-		return fmt.Errorf("task %s has multiple unrecognized keys %v: module-as-key syntax allows exactly one module name per task", label, nonReservedKeys)
-	case len(nonReservedKeys) == 1 && (hasFQCN || hasBlock || hasParallel):
-		conflict := "fqcn"
-		switch {
-		case hasBlock:
-			conflict = "block"
-		case hasParallel:
-			conflict = "parallel"
-		}
-		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call, a block, or a parallel group, and module-as-key sugar cannot combine with an explicit fqcn/block/parallel", label, conflict, nonReservedKeys[0])
-	case len(nonReservedKeys) == 1:
-		key := nonReservedKeys[0]
-		val := task[key]
-		delete(task, key)
-		task["fqcn"] = key
-		if val != nil {
-			params, ok := val.(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("task %s: module %q must be an object of arguments (module-as-key syntax), got %T", label, key, val)
-			}
-			task["params"] = params
-		}
+// taskKeyHint returns a " (did you mean ...?)" suffix naming the task key
+// closest to key, or "" when none is close.
+func taskKeyHint(key string) string {
+	if near := nearestKey(key, ReservedTaskKeys); near != "" {
+		return fmt.Sprintf(" (did you mean %q?)", near)
 	}
+	return ""
+}
 
-	for _, key := range []string{"block", "rescue", "always", "parallel"} {
-		if sub, ok := task[key]; ok {
-			if err := normalizeTaskListJSON(sub, label+"."+key); err != nil {
-				return err
-			}
-		}
+// isEngineAction reports whether name is one of the engine's own undotted
+// actions: the in-process built-ins, the transport actions, and the
+// import_tasks keyword.
+func isEngineAction(name string) bool {
+	if name == "import_tasks" {
+		return true
 	}
-	return nil
+	if _, ok := engineActionStatKeys[name]; ok {
+		return true
+	}
+	_, ok := ActionCapability[name]
+	return ok
 }

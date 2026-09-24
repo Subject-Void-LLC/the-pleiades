@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"reflect"
 	"regexp"
 )
 
@@ -485,6 +489,11 @@ func NewBuilder(celEvaluator Evaluator) *Builder {
 // import_tasks task in payload fails with a clear error; use
 // BuildFromYAMLFile for a runbook that uses import_tasks.
 func (b *Builder) Build(payload []byte) (*DAG, error) {
+	// Before the sugar rewrite, which decodes into a map and so would
+	// quietly keep only the last of two repeated keys.
+	if _, err := parseJSONKeyTree(payload); err != nil && !errors.Is(err, errNotJSON) {
+		return nil, err
+	}
 	normalized, err := normalizeWorkflowJSON(payload)
 	if err != nil {
 		return nil, err
@@ -500,10 +509,23 @@ func (b *Builder) Build(payload []byte) (*DAG, error) {
 			return nil, err
 		}
 	}
+	// Exact-case keys at every level (encoding/json would match "FQCN" to
+	// fqcn). A payload the tree reader cannot parse is left to the decoder
+	// below, which reports it in its own words.
+	if tree, err := parseJSONKeyTree(normalized); err == nil {
+		if err := checkKnownKeys(tree, reflect.TypeFor[WorkflowDef](), "json", ""); err != nil {
+			return nil, err
+		}
+	}
 
 	var def WorkflowDef
-	if err := json.Unmarshal(normalized, &def); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(normalized))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to unmarshal JSON: trailing data after the runbook")
 	}
 	return b.buildFromDef(def, "")
 }
@@ -529,7 +551,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	case "", "native":
 		// Default. Proceed normally.
 	case "ansible":
-		return nil, fmt.Errorf("runbook declares type %q, which this engine cannot execute yet (no native Ansible execution path exists in this repository); see PLAN.md Section 23 for the planned interop path", def.Type)
+		return nil, fmt.Errorf("runbook declares type %q, which the native engine does not run; %s covers running a playbook unchanged and converting one to a native runbook", def.Type, migrationGuide)
 	default:
 		return nil, fmt.Errorf("unrecognized runbook type %q: expected \"native\" (the default) or \"ansible\"", def.Type)
 	}

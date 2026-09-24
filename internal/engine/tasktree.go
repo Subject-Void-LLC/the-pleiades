@@ -78,6 +78,10 @@ func validateTask(task *Task, id string) error {
 		}
 	}
 
+	if err := validateTarget(task, id); err != nil {
+		return err
+	}
+
 	if task.SecretMask != nil {
 		if task.SecretMask.Register == "" {
 			return fmt.Errorf("task %s sets secret_mask with an empty register: it must name the earlier task's register to mask fields of", taskLabel(id, task))

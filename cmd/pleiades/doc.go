@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -255,7 +256,7 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 func printParams(doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
-		if frag, ok := catalogdata.Fragments[name]; ok {
+		if frag, ok := fragment.Builtin[name]; ok {
 			params = append(params, frag.Params...)
 		}
 	}

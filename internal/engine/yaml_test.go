@@ -286,8 +286,22 @@ tasks: []
 	if !strings.Contains(err.Error(), "ansible") {
 		t.Errorf("expected error to mention %q, got: %v", "ansible", err)
 	}
-	if !strings.Contains(err.Error(), "PLAN.md Section 23") {
-		t.Errorf("expected error to be actionable (reference PLAN.md Section 23), got: %v", err)
+	assertCitesShippedGuide(t, err)
+}
+
+// assertCitesShippedGuide checks that err points its reader at the
+// migration guide that ships in docs/, and at no internal planning
+// document: those are never shipped, so a user told to read one is told
+// to read nothing.
+func assertCitesShippedGuide(t *testing.T, err error) {
+	t.Helper()
+	if !strings.Contains(err.Error(), "docs/03-migrating-from-ansible.md") {
+		t.Errorf("expected error to point at docs/03-migrating-from-ansible.md, got: %v", err)
+	}
+	for _, internal := range []string{"PLAN.md", "IMPLEMENTATION.md", ".SPECIFICATION"} {
+		if strings.Contains(err.Error(), internal) {
+			t.Errorf("error cites %s, an internal document that never ships: %v", internal, err)
+		}
 	}
 }
 
@@ -333,9 +347,7 @@ func TestBuildFromYAML_AnsiblePlaybookShapeRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "Ansible playbook") {
 		t.Errorf("expected error to identify the Ansible playbook shape, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "PLAN.md Section 23") {
-		t.Errorf("expected error to be actionable (reference PLAN.md Section 23), got: %v", err)
-	}
+	assertCitesShippedGuide(t, err)
 }
 
 // TestBuildFromYAML_NonAnsibleListNotOverclaimed guards against a false

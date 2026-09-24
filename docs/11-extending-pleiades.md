@@ -763,13 +763,20 @@ suite doing its job.
 
 - A Collection method claiming `StatusImplemented` must carry a complete `Doc`
   block (see above); this is enforced, not a style suggestion.
+- Every parameter a method reads must be declared, in `Doc.Params` or through a
+  named fragment. `pleiades validate` refuses a task that passes a parameter its
+  method does not declare, since the method would otherwise ignore it without a
+  word. This holds for an external Collection program's methods too: one that
+  reads `path` and declares nothing makes every runbook passing `path` fail
+  validation until the program documents it.
+- Never cite this repository's internal, gitignored specification and roadmap
+  documents from anywhere a real user can see them: `tools/docs-lint`, wired into
+  `make ci`, fails the build if you do, and that includes a Go string literal
+  such as an error message or a flag's help text. Those files never ship, so a
+  citation into one is a promise the shipped binary cannot keep.
 - House style, enforced by this repository's own contributor guidelines (internal,
   not shipped): American English, no em-dashes, Google-style Go doc comments
   explaining *why* over *what*.
-- Never cite this repository's internal, gitignored specification and roadmap
-  documents from anywhere a real user can see them: `tools/docs-lint`, wired into
-  `make ci`, fails the build if you do. Those files never ship, so a citation into
-  one is a promise the shipped binary cannot keep.
 
 ## Testing your extension
 

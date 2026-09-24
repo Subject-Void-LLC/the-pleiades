@@ -19,7 +19,7 @@ const pluginTemplateSource = `// Package {{.PackageName}} implements the "{{.Nam
 // buildable, testable Go code that does not yet talk to anything. Every
 // method returns an explicit error saying so. Nothing here may flip to
 // StatusImplemented on the strength of a test that fakes the upstream
-// system: PLAN.md Section 6a's plugins exist to read a real external source
+// system: a sync plugin exists to read a real external source
 // of truth, and a plugin proven only against a fake has proven only that
 // the fake works.
 //

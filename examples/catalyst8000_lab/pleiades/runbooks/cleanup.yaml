@@ -16,10 +16,7 @@ id: catalyst8000-cleanup
 hosts: cat8000
 metadata:
   service_effecting: false
-  mcp: true
-  mcp_impact: "Removes one loopback interface, if it still exists (no traffic, cannot affect reachability)."
-  mcp_impact_duration: "A few seconds."
-  mcp_description: "Safety-net cleanup for round_trip.yaml's loopback interface, run by hand only after a reported failure."
+  description: "Safety-net cleanup for round_trip.yaml's loopback interface, run by hand only after a reported failure."
 
 tasks:
   - name: Remove the loopback interface, if it is still there

@@ -1,0 +1,1 @@
+`import_tasks` now reads its file through a directory handle that refuses any path resolving outside the runbook's own directory, symlinks included. The earlier check was on the path's text alone, so a symlink inside the runbook's directory could import a task file from anywhere the process could read.

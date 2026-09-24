@@ -77,7 +77,7 @@ func runForgeNewFilter(args []string) error {
 	fs := flag.NewFlagSet("forge new-filter", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated files into")
 	celName := fs.String("cel-name", "", "the bare name after \"filters.\" in a runbook condition, e.g. cidrToNetmask")
-	category := fs.String("category", "", "PLAN.md Section 36 category this filter belongs to, e.g. network")
+	category := fs.String("category", "", "the filter category this belongs to (network, structured data, string/encoding/path, and so on), e.g. network")
 	summary := fs.String("summary", "", "one sentence describing what this filter does")
 	var params paramFlag
 	fs.Var(&params, "param", "one argument: name:goType, or name:goType:celType for a type filterscaffold does not know")

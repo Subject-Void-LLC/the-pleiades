@@ -10,10 +10,7 @@ id: catalyst8000-verify-absent
 hosts: cat8000
 metadata:
   service_effecting: false
-  mcp: true
-  mcp_impact: "Read-only: shows one loopback interface's running configuration (expected to be refused, proving absence)."
-  mcp_impact_duration: "A few seconds."
-  mcp_description: "Confirms round_trip.yaml's loopback interface was really removed from the device."
+  description: "Confirms round_trip.yaml's loopback interface was really removed from the device."
 
 tasks:
   - name: Show the loopback interface's running configuration

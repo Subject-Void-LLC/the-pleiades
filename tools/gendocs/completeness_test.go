@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	// Blank-imported for the reason internal/inventory/builtins.go itself
 	// exists: record.AllTypes is empty until every vendor device package's
@@ -51,8 +52,8 @@ func TestImplementedMethodsHaveCompleteDocs(t *testing.T) {
 				t.Errorf("%s: implemented but Doc.Examples is empty", fqcn)
 			}
 			for _, name := range m.Doc.Fragments {
-				if _, ok := catalogdata.Fragments[name]; !ok {
-					t.Errorf("%s: references fragment %q, not present in catalogdata.Fragments", fqcn, name)
+				if _, ok := fragment.Builtin[name]; !ok {
+					t.Errorf("%s: references fragment %q, not present in fragment.Builtin", fqcn, name)
 				}
 			}
 		})
@@ -208,7 +209,7 @@ func TestRenderPlugins_FailsClosed(t *testing.T) {
 // an incomplete Fragment would silently produce an incomplete-looking row
 // with no test catching it.
 func TestFragmentsAreComplete(t *testing.T) {
-	for name, frag := range catalogdata.Fragments {
+	for name, frag := range fragment.Builtin {
 		for i, p := range frag.Params {
 			if p.Type == "" {
 				t.Errorf("fragment %q: param %q (index %d) has no Type", name, p.Name, i)

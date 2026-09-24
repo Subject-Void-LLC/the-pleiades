@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
@@ -62,8 +66,9 @@ func taskSchema() map[string]any {
 			"when_cel":      map[string]any{"type": "string", "description": "One raw CEL expression."},
 			"register_mask": stringOrList("Field(s) of this task's own registered result to mask, dotted paths allowed."),
 			"secret_mask": map[string]any{
-				"type":        "object",
-				"description": "Retroactively masks fields of an earlier task's registered result.",
+				"type":                 "object",
+				"description":          "Retroactively masks fields of an earlier task's registered result.",
+				"additionalProperties": false,
 				"properties": map[string]any{
 					"register": map[string]any{"type": "string"},
 					"fields":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -104,15 +109,10 @@ func generateRunbookSchema(outDir string) error {
 			"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
 			"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
 			"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
-			"metadata": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"service_effecting": map[string]any{"type": "boolean"},
-				},
-			},
-			"pretasks":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-			"tasks":     map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-			"posttasks": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+			"metadata":   metadataSchema(),
+			"pretasks":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+			"tasks":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+			"posttasks":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 		},
 		"$defs": map[string]any{
 			"task": taskSchema(),
@@ -120,6 +120,25 @@ func generateRunbookSchema(outDir string) error {
 	}
 
 	return writeSchema(outDir, "runbook.schema.json", schema)
+}
+
+// metadataSchema is the JSON Schema for engine.Metadata. The parser
+// refuses any other key under metadata:, so the schema does too, and
+// checkRunbookSchemaComplete holds these properties to Metadata's own
+// struct tags.
+func metadataSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"description":          "Pleiades-only facts about the runbook as a whole.",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"service_effecting": map[string]any{"type": "boolean", "description": "Running this can affect live service."},
+			"interruptible":     map[string]any{"type": "boolean", "description": "A Runner that loses its Controller may abort this run. Omitted means true."},
+			"description":       map[string]any{"type": "string", "description": "A sentence or two about what this runbook does."},
+			"category":          map[string]any{"type": "string", "description": "The one catalog bucket this runbook is filed under."},
+			"labels":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Free-form catalog filter markers. Not Ansible tags."},
+		},
+	}
 }
 
 // checkModeSchema is the JSON Schema for engine.CheckModeFlag: true, or
@@ -156,6 +175,22 @@ func checkRunbookSchemaComplete() error {
 	}
 	if len(extra) > 0 {
 		return fmt.Errorf("gendocs: runbook schema has task key(s) the parser does not accept: %v", extra)
+	}
+
+	// metadata: the parser refuses any key Metadata's struct tags do not
+	// declare, so the schema must list exactly those tags.
+	metaProps, _ := metadataSchema()["properties"].(map[string]any)
+	var tagged []string
+	for f := range reflect.TypeFor[engine.Metadata]().Fields() {
+		if name, _, _ := strings.Cut(f.Tag.Get("yaml"), ","); name != "" && name != "-" {
+			tagged = append(tagged, name)
+		}
+	}
+	listed := slices.Collect(maps.Keys(metaProps))
+	slices.Sort(tagged)
+	slices.Sort(listed)
+	if !slices.Equal(tagged, listed) {
+		return fmt.Errorf("gendocs: runbook schema's metadata properties %v differ from engine.Metadata's keys %v", listed, tagged)
 	}
 	return nil
 }

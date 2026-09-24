@@ -270,7 +270,7 @@ var notImplemented = []NotImplemented{
 	{
 		Namespace: "conjur", Name: "CyberArk Conjur Secrets Manager Lookup", Kind: credtype.KindExternal,
 		Reason: ReasonExternalSource,
-		Detail: "no client for it is built; PLAN.md Section 17.4 names CyberArk explicitly, so this one is a real commitment rather than a courtesy declaration",
+		Detail: "no client for it is built; CyberArk is the external secret store the credential design names explicitly, so this one is a real commitment rather than a courtesy declaration",
 	},
 	{
 		Namespace: "gce", Name: "Google Compute Engine", Kind: credtype.KindCloud,
