@@ -55,29 +55,25 @@ type NetworkAddressableCapable interface {
 	IPAddress() string
 }
 
-// FileTransferCapable is satisfied by devices that support transferring
-// files to or from them (e.g. SCP/SFTP).
+// FileTransferCapable is satisfied by devices that files can be moved to
+// and from, confined to one directory: over SFTP (pkg/sftpxfer) or
+// legacy SCP (pkg/scpxfer), both behind the pkg/filexfer port.
 //
-// # This capability cannot reach a real device yet
+// # Who satisfies it, and who uses it
 //
-// No device type in this repository structurally implements
-// FileTransferRoot today, and no Collection method or transport fqcn
-// requires this capability, so nothing is refused by the gap and nothing
-// depends on it. It exists as the declared name for the file-moving
-// transports pkg/tftpxfer already implements and Phase 77's SFTP work
-// will join, both of which docs/10-running-in-production.md already
-// discloses as having no production consumer.
-//
-// The disclosure lives here, in the declaration, following the
-// convention AptCapable, DnfCapable, PosixAccountCapable and
-// FirewalldCapable already set for a capability nothing can satisfy: a
-// reader looking at the interface should not have to find a coverage
-// file or a production guide to learn that. internal/archtest's
-// TestRegisteredCapabilitiesAreReachable is the guard that fails if this
-// comment ever stops being true in either direction.
+// linux_server declares it when its inventory record sets the
+// file_transfer_root property, and refuses to load when that property
+// is set to something unusable; a server with no root does not claim
+// it. No Collection method or transport fqcn requires it yet: the
+// transfer packages are libraries a method will be built on, and
+// docs/10-running-in-production.md says so beside its disclosure of
+// what they do and do not protect against.
 type FileTransferCapable interface {
-	// FileTransferRoot returns the base directory files are transferred
-	// to and from.
+	// FileTransferRoot returns the one directory transfers to and from
+	// the device are confined to, as an absolute, slash-separated,
+	// canonical path, or the empty string when none is configured, which
+	// filexfer.Resolve refuses. Every transfer path is resolved against
+	// it before anything is dialed.
 	FileTransferRoot() string
 }
 

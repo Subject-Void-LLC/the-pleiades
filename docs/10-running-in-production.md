@@ -1739,8 +1739,69 @@ absolute path, or a Windows drive letter is refused before a request is ever
 sent, which defends against an accidentally or maliciously constructed
 traversal on the *remote* filename; it says nothing about the *local* side,
 since this package only ever writes to a caller-supplied `io.Writer` and
-never constructs a local path itself. Like RFC 2217, this is a library
-(`FileTransferCapable`) with no runbook task wired to it yet.
+never constructs a local path itself. A filename is also refused if one
+request cannot carry it whole: one holding a control or format character
+(a NUL would rewrite the transfer mode), one that is not valid UTF-8, or one
+longer than 493 bytes. A block size is accepted only from 512 to 65464.
+Like RFC 2217, this is a library (`FileTransferCapable`) with no runbook
+task wired to it yet.
+
+TFTP has no integrity check, and one case of that is worth knowing before
+setting a block size. A server may answer a block size request with a smaller
+size, and the TFTP library this package uses ignores an answer below 512, so
+the download ends at the first block and reports success with a truncated
+file. Leave the block size unset unless every server it will reach is known
+to accept 512 or more, and verify a transferred image's checksum on the
+device before using it.
+
+**SFTP and SCP.** `pkg/sftpxfer` and `pkg/scpxfer` move a file's bytes to or
+from a device over the SSH connection `pkg/remoteexec` already opens, so they
+inherit its host key verification, retry, circuit breaker and bastion hop
+chain. Both sit behind one port, `pkg/filexfer`, and both are libraries with
+no runbook task wired to them yet. What they promise, and where the promise
+stops:
+
+- **Every transfer is confined to one directory.** A `linux_server` declares
+  `FileTransferCapable` only when its inventory record sets
+  `file_transfer_root`, an absolute path; a record that sets it to something
+  unusable (relative, not in its simplest form, holding a control character)
+  is refused when inventory loads. There is no default. A root of `/` is
+  allowed and confines nothing, which is the operator's choice to make.
+- **A path that leaves the root is refused before anything is dialed.** Dot
+  segments, absolute paths, doubled slashes, backslashes, NUL and other control
+  characters, and invalid UTF-8 are refused by name, on every controller
+  operating system.
+- **A symlink inside the root cannot lead out of it.** Before any content moves,
+  each transfer works out where the target's directory physically is on the
+  device and refuses one outside the root, and it never follows a symlink,
+  directory, FIFO or device node at the final component. SFTP does this from
+  the client, one path component at a time, rather than trusting the server's
+  own path canonicalization, which some servers do not base on the real
+  filesystem.
+- **What is not covered: a race by someone who can write inside the root.**
+  SFTP has no way to open a file without following symlinks, so a directory
+  swapped for a symlink between the check and the open is not caught; SCP pins
+  its working directory and is exposed only at the final component. The
+  supported configuration is a transfer root that other local accounts cannot
+  write to.
+- **A write replaces the target in one step.** Content goes to a private
+  directory (mode 0700) beside the target and is renamed into place, so a
+  reader sees the old file or the new one, never part of one, and a failed or
+  interrupted transfer leaves the old file intact. Replacing makes a new file:
+  the old one's owner, group, ACLs and hard links are not carried over. The
+  mode is set exactly, and setuid, setgid and sticky bits are refused. An SFTP
+  server without the `posix-rename@openssh.com` extension can create a file
+  but will not replace one. An SFTP transfer killed mid-stream can leave its
+  empty private directory behind; SCP removes its own.
+- **SCP needs a POSIX shell on the device.** Legacy SCP runs a short shell
+  script next to `scp` in sink or source mode, so it works on Linux and BSD
+  servers and not on a network device whose SCP server has no shell behind it.
+  A downloaded file goes only to the caller's destination, never to a name the
+  device chose, which is the class of attack legacy `scp` clients have been
+  caught by.
+- **A method built on them cannot reach a device behind a bastion yet.** The
+  Collection SDK's `sdk.Connect` dials a device directly and does not follow its
+  bastion route; the libraries themselves are proven through a real bastion hop.
 
 **Docker exec is different from all of the above, deliberately.**
 `container.docker.exec` (see the [module reference](reference/modules/container/docker/exec.md))

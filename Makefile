@@ -355,6 +355,11 @@ test-race:
 # container that never became ready under test-repeat's load (it is how
 # internal/keyregistry was found missing). tools/internal/flakegate's
 # TestEveryContainerPackageIsListed now fails at unit-test speed instead.
+#
+# That guard reads direct imports only, so a package that starts its
+# container through internal/testsupport is listed here by hand:
+# pkg/sftpxfer and pkg/scpxfer start sshd through testsupport.StartSSHD
+# and never import testcontainers-go themselves.
 DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/controller \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades \
@@ -383,6 +388,8 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
 # test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so

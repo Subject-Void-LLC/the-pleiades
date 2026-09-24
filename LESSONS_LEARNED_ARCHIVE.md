@@ -4969,3 +4969,53 @@ condition under which that code first runs. If the answer is "a real function, o
 not a placeholder, and the test that proves it is one has to simulate X rather than run under
 today's conditions. Here that meant comparing against a stamped release string rather than against
 the running build, which is the only way to ask the question before such a build exists.
+
+## 229. A lexical guard confines a name, not a file: physical containment has to come from the device's own filesystem
+
+Phase 77's path resolver refuses every spelling that could climb out of a transfer root, and it
+still cannot stop a symlink planted inside the root from pointing outside it. The first design asked
+the SFTP server where the parent directory physically was, through `REALPATH`, and compared that
+with the root. It would have passed against OpenSSH and failed open against any server built on
+`github.com/pkg/sftp`, whose `REALPATH` is `filepath.Abs` plus a lexical clean (FAILURE_PATTERNS 313).
+
+The rule: when a check exists to see through symlinks, it must be computed from facts that describe
+the filesystem itself, not from a server's opinion of a path. For SFTP that is `LSTAT` and `READLINK`
+walked component by component on the client. For a shell it is the kernel's own `cd -P` and
+`pwd -P`, taken in the same process that then does the work from that directory. And the comparison
+of the answers lives in one function (`filexfer.Contained`), fuzzed once, used by every protocol.
+
+## 230. Make "refused before any network call" a property of a type whose only constructor is pure
+
+The phase asked for every path escape to be refused before any network call. Enforcing that with a
+check at the top of each adapter method would have been true only as long as every caller called
+the check first and every adapter author remembered it. Instead `filexfer.Path` has unexported fields
+and one constructor, `Resolve`, which performs no I/O (an archtest holds its package to an import
+allowlist with no `net`, `os` or `os/exec`), and every adapter refuses the zero `Path`. An escape
+cannot become a value an adapter accepts, so there is no call order to get wrong. The behavioral
+tests then only have to show that the zero value sends nothing, which they do by counting packets and
+commands.
+
+## 231. A harness that stands in for a server must end a session when that server would
+
+`remoteexectest` ran each exec request with `cmd.Stdin = channel`. With a non-file standard input,
+`os/exec` waits for its copy of the input to reach end-of-file before reporting the command's exit,
+so the session outlived the command until the client closed its side. OpenSSH's sshd ends the
+session when the command exits. Nothing noticed for 31 packages because every client there sent its
+input and closed it; the first client whose device-side command refuses early and exits without
+reading hung (FAILURE_PATTERNS 314).
+
+The rule: for each server behavior a client can observe (when output ends, when an exit status is
+sent, whether input must end first), a harness has to match the real server, and a new kind of
+client is the moment to re-check, because it is the first to depend on a behavior the old clients
+never exercised.
+
+## 232. Read a fuzz run's execution count only from a run that ended cleanly
+
+Go's fuzzer stops counting while it minimizes a new interesting input, for up to a minute each by
+default, so a time-bounded run can report the same count for most of its budget and still pass, and a
+run whose budget expires mid-minimization can end as a failure with no failing input
+(FAILURE_PATTERNS 318). Both look like results. Neither is the evidence a gate item wants.
+
+Bound minimization (`-fuzzminimizetime 2s`) when the count matters, or bound the run by count
+(`-fuzztime 10000000x`) when a clean pass at a stated size is the evidence. Record the count from the
+run's final line only when its rate never fell to zero before the end.

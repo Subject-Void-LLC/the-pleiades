@@ -405,9 +405,27 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request,
 		// string would be asserting against its own idea of a shell rather
 		// than a shell.
 		cmd := exec.Command("/bin/sh", "-c", command) // #nosec G204 -- test harness; the command is the calling test's own input, see this package's doc comment
-		cmd.Stdin = channel
 		cmd.Stdout = channel
 		cmd.Stderr = channel.Stderr()
+
+		// Standard input goes through an explicit pipe rather than
+		// cmd.Stdin = channel, so the session ends when the COMMAND ends,
+		// the way OpenSSH's sshd behaves. With cmd.Stdin set to a
+		// non-file, os/exec's Wait also waits for its own copy of
+		// standard input to reach end-of-file, so a command that exited
+		// without reading its input (a script refusing early) left the
+		// session open until the client happened to close its side, and
+		// a client waiting for the command's output to end waited
+		// forever. Wait closes this pipe once the command has exited, and
+		// the copy below then ends when the channel does.
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return
+		}
+		go func() {
+			_, _ = io.Copy(stdin, channel)
+			_ = stdin.Close()
+		}()
 
 		exitStatus := runAndReportExit(cmd)
 		_, _ = channel.SendRequest("exit-status", false,

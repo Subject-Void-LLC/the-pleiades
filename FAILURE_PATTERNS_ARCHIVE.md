@@ -8969,3 +8969,198 @@ comparison against a stamped release, which is the only way to ask the question 
 exists.
 
 **Lesson.** See `LESSONS_LEARNED.md` #228.
+
+## 313. A containment check that trusted SFTP's REALPATH would have passed the symlink escape it existed to catch
+
+**Symptom.** None shipped; caught while building Phase 77. The approved design resolved a transfer's
+parent directory with the server's `REALPATH` and compared the answer with the root, on the
+assumption that `REALPATH` follows symlinks, as OpenSSH's does.
+
+**Root cause.** `REALPATH` returns whatever the server chooses to canonicalize to. `github.com/pkg/sftp`'s
+own server answers it with `filepath.Abs` plus a lexical clean (`server.go`, the `sshFxpRealpathPacket`
+case), and its request server does the same by default (`cleanPathWithBase`). Any SFTP server built on
+that library would have returned the lexical path for `root/link/f` with `link` pointing out of the
+root, the comparison would have passed, and the write would have followed the link. The check would
+have been green against OpenSSH, the one server the release gate runs, and open against the others.
+
+**Fix.** `pkg/sftpxfer/confine.go` resolves the path on the client: `LSTAT` on each component without
+following it, `READLINK` to follow a symlink itself, `..` applied to the physical directory reached so
+far, bounded at 40 hops. The answer is built from the device's filesystem, never from the server's
+canonicalization. `TestConfine_PhysicalEscapesAreRefusedBeforeAnyContent` runs against pkg/sftp's own
+server, which is exactly the server that would have fooled the first design, and
+`TestSFTPReleaseGate/PhysicalEscapeIsRefusedBeforeAnyContent` against OpenSSH. Falsified: with the
+containment comparison disabled the gate fails and `Get` reads the planted key back out.
+
+**Lesson.** See `LESSONS_LEARNED.md` #229.
+
+## 314. remoteexectest ended a session when the client closed its input, not when the command exited
+
+**Symptom.** Three `pkg/scpxfer` tests hung until the test binary's deadline: a Put under a missing
+root, one under a missing parent, and one into a read-only directory. Each device script exited
+early, by design, and the client waited forever for its output to end.
+
+**Root cause.** The in-process SSH server set `cmd.Stdin = channel`. With a non-file standard input,
+`os/exec`'s `Wait` also waits for its own copy of that input to reach end-of-file, so a command that
+exited without reading its input left the session open until the client closed its side. OpenSSH's
+sshd ends the session when the command exits. The harness differed from the server it stands in
+for, in the exact case a protocol that refuses early exercises.
+
+**Fix.** `serveSession` now passes standard input through `cmd.StdinPipe()`, which `Wait` closes once
+the command exits, so the session ends when the command does. All 32 packages whose tests use the
+harness pass under `-race -short` afterward. Separately, `pkg/scpxfer`'s `receive` closes its input
+once it has nothing more to send, so a server that does wait for input end-of-file cannot deadlock it
+either.
+
+**Lesson.** See `LESSONS_LEARNED.md` #231.
+
+## 315. The unreachable-capability allowlist's staleness guard needed both conditions, so dead entries lived on
+
+**Symptom.** `acceptedUnreachableCapabilities` held two entries that `TestRegisteredCapabilitiesAreReachable`
+never consulted. RFC2217Capable's had been dead since `console_device` began satisfying it, and its own
+text said so ("guards only the no-consumer half"). FileTransferCapable's became dead the moment
+`linux.Server` gained `FileTransferRoot`. Meanwhile `FileTransferCapable`'s doc comment said the guard
+"fails if this comment ever stops being true in either direction", and cited a disclosure of SFTP in
+docs/10 that had never been written.
+
+**Root cause.** An allowlisted capability excuses one that is neither satisfiable nor required, so the
+entry is dead as soon as EITHER becomes true, because `unreachableCapabilities` skips a satisfiable or
+required capability before it reads the allowlist. `TestAcceptedUnreachableCapabilitiesAreNotStale`
+checked `satisfiable && required`. The doc's claim and its citation were never checked by anything.
+
+**Fix.** The guard is `staleUnreachableEntries`, which flags `satisfiable || required`, with a negative
+control (`TestStaleUnreachableEntriesDetectsEitherDirection`). Both entries were removed; the
+allowlist is empty and says why. Falsified: restoring the two entries makes the guard name both. The
+capability doc was rewritten to what is true, and docs/10 now carries the SFTP and SCP disclosure it
+cites.
+
+**Lesson.** A guard whose condition is a conjunction should be asked what it misses when only one half
+holds; see also #228 for a doc comment asserting a check that did not exist.
+
+## 316. The generated device reference could not say a hand-written type's capability was conditional
+
+**Symptom.** `docs/reference/devices.md` never listed `cisco_router`'s `NetconfCapable`, which the type
+declares whenever `netconf_enabled` is true.
+
+**Root cause.** `tools/gendocs`' `handWrittenDevices` table recorded one capability list per type, and
+`TestHandWrittenDeviceCapabilitiesMatchTheirTypes` required it to equal what a bare record hydrates
+with. A capability a property enables could not satisfy both, so it was left out. Generated types
+already had the asterisk marking; hand-written ones could not reach it.
+
+**Fix.** The table gained `Conditional`, naming the property that enables each such capability, and
+the test checks both directions: absent from a bare record, present once the property is set.
+`cisco_router` gained `NetconfCapable`, and `linux_server` gained `FileTransferCapable`, both marked
+conditional, in the same change.
+
+**Lesson.** When a completeness test compares against one fixed input, ask what the input cannot
+express.
+
+## 317. pkg/tftpxfer passes NUL and over-long remote filenames to pin/tftp, which injects the first into the request and panics on the second
+
+**Symptom.** Found by reading while designing Phase 77's path guard; not fixed, because whether and
+how is the user's decision. `validateFilename` (`pkg/tftpxfer/tftpxfer.go`) refuses `..`, absolute
+paths and drive letters but not NUL. `pin/tftp` v3.2.0's `packRQ` copies the filename verbatim ahead
+of its own NUL terminator, so a name like `x\x00netascii` would inject a transfer mode or option into
+the request packet. `FuzzValidateFilename`'s doc says it proves every seeded traversal "is refused",
+while its body discards the return value.
+
+**Measured afterward, and worse (2026-09-23).** `packRQ` builds the request in a 516-byte buffer
+(`datagramLength`), copies the filename into `p[2:len(p)-10]`, then writes the mode, each option and
+their NUL terminators with unchecked indexes. A throwaway probe calling `tftpxfer.Get` with
+`Options.BlockSize` set panicked with `index out of range [516] with length 516` for every filename
+length tried from 495 bytes up (400 did not). Nothing recovers it, so a caller handing a runbook-sized
+filename to this package would crash its whole process. Without `BlockSize` there is no option to
+overrun, and a name over 504 bytes is instead silently truncated, so a different file is requested.
+`pin/tftp` v3.2.0 is its newest release.
+
+**Found while fixing it (2026-09-23).** Three more things, each read in the library's source first:
+
+1. `Options.BlockSize` was passed through unchecked, and its decimal digits share the same 516-byte
+   buffer, so a 493-byte cap alone would not hold: a six-digit block size overruns it again.
+2. `pin/tftp`'s client ignores a server's `blksize` answer below 512 (`setBlockSize` fails and the
+   loop `continue`s) and keeps its 512-byte buffer, so the server's first smaller block reads as the
+   final short one. Measured with a throwaway probe: a server that answered a request for 1024 with
+   256, which RFC 2348 allows, made `Get` return 256 bytes of a 1024-byte file with a nil error.
+3. `TestGet_RefusesPathTraversalFilenames` and its `Put` twin said a server would catch a name that
+   got through, but they dialed port 1 with no server listening, so a network error also passed them.
+
+**Root cause.** The guard was written against path traversal only, and the fuzz target was written to
+catch panics only; its doc claimed more. Neither asked what the request packet itself can hold, and
+nothing asked which other inputs share that packet.
+
+**Fix.** Applied on 2026-09-23 as its own commit. `validateFilename` (now `pkg/tftpxfer/filename.go`)
+refuses control and format characters, invalid UTF-8 and names over `MaxFilenameBytes` (493, derived
+in its doc comment), with every refusal wrapping `ErrInvalidFilename`. `Options.BlockSize` must be 0
+or from `MinBlockSize` (512) to `MaxBlockSize` (65464). `Get` and `Put` recover a panic inside the
+library into an error, while a panic in the caller's own reader or writer is raised again unchanged
+(`pkg/tftpxfer/panic.go`). `FuzzValidateFilename` now asserts properties of both verdicts, and
+`TestRefusedFilenamesNeverLeaveTheProcess` proves each refusal sends no datagram, over a real UDP
+socket. Eight mutations, each reverting one guard, were each killed by the test written for it.
+Not fixed: a server may still answer a request of 512 or more with a smaller size and truncate a
+download the same way as item 2; that needs a design change and is the user's decision.
+
+**Lesson.** A fuzz target's doc must say what it asserts, and a guard for a wire format must be written
+against that format's own delimiters, not only against the filesystem's. When a fix bounds one input
+into a fixed buffer, bound every input that shares the buffer, or the measured bound does not hold.
+
+## 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
+
+**Symptom.** `FuzzResolve` ran at about 200,000 executions a second for 15 seconds, then reported the
+same count, 2,088,252, for the remaining 45, and passed. Memory was flat at 138 MiB, so it was not the
+cgroup cap. A second target (`FuzzContained`) ended its 60 seconds with `--- FAIL ... context deadline
+exceeded` and no failing input saved.
+
+**Root cause.** Go's fuzzer minimizes each new interesting input for up to `-fuzzminimizetime`
+(default 60 seconds) and does not count those executions, so the counter freezes. When the run's time
+budget expires during a minimization, the run can end as a failure with no crasher.
+
+**Fix.** Run with `-fuzzminimizetime 2s` (FuzzResolve then reached 7,841,805 executions in 45 seconds),
+and bound a run by count (`-fuzztime 10000000x`) when a clean pass is the evidence wanted (FuzzContained
+then passed at exactly 10,000,000).
+
+**Lesson.** See `LESSONS_LEARNED.md` #232.
+
+## 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
+
+**Symptom.** Every connection in the first SFTP release gate run failed with `knownhosts: key mismatch`,
+then with `EOF` once the server began penalizing the failed handshakes.
+
+**Root cause.** `testsupport.SSHD.KnownHosts` wrote only the container's ed25519 key. The client and
+server negotiated a different host key algorithm, and `knownhosts` treats a host known under one key
+type as a mismatch, not as unknown, when another is presented. Verification failed closed, exactly as
+it should.
+
+**Fix.** The fixture lists every one of the container's host keys under every address a test dials.
+
+**Lesson.** When a test pins host keys, pin all of the server's key types, or pin the algorithm too.
+
+## 320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated
+
+**Symptom.** Found by reading the source on 2026-09-23 while writing Phases 107a to 107c, not by a
+failing run. An interruptible execution is cancelled the first time one lease refresh fails, even with
+most of the lease still left. At the defaults (`execLeaseTTL` 5 minutes, `heartbeatInterval` 1 minute),
+one broker blip at the first tick aborts a run that had four minutes of valid lease remaining. On a
+disrupted link, where blips are the normal case, that turns every short outage into an aborted run.
+
+**Root cause.** `heartbeatInterval`'s doc comment (`internal/runner/agent_exec.go`) says the roughly 1:4
+ratio to the lease TTL is there "so a single missed tick is never mistaken for a genuine, sustained
+heartbeat loss". `Agent.heartbeat` does not implement that: on an interruptible run it logs "lost device
+lease heartbeat, self-aborting execution" and cancels on the first `KeepAlive` error. Nothing below it
+retries either. `natsLease.KeepAlive` (`internal/lock/nats.go`), in exclusive mode, makes one
+`publishWithTTL` call, which is one `PublishMsg` with no retry. The only test,
+`TestAgent_SelfAbort_InterruptibleCancelsExecution`, uses a lease whose `KeepAlive` fails every time, so
+it cannot tell "aborts on the first miss" from "aborts on sustained loss" and passes either way.
+Separately, `execLeaseTTL`'s comment still says `native.Adapter.Execute` "is still simulated", which has
+been false since Phase 16.
+
+**Fix.** Not fixed; recorded only. Fix it when the Runner's lease handling is next touched (Phase 103b
+moves `execLeaseTTL` into `internal/topology` as `DeviceLeaseTTL`, so that is the natural moment).
+Self-abort when the lease's own local deadline is about to pass with no successful refresh, not on the
+first error, so a miss is tolerated for as long as the lease is still valid. Add a test whose
+`KeepAlive` fails exactly once and then succeeds, and assert the run completes; keep the always-failing
+test to show sustained loss still aborts. Correct the stale "still simulated" sentence in the same
+change. The device agent's execution-space mode (Phase 107b) does not use this lease at all, so it
+neither inherits nor fixes the defect.
+
+**Lesson.** A comment that states a tolerance ("a single missed tick is never mistaken for...") is a
+claim, and it needs a test that exercises exactly that tolerance: one failure, then recovery. A test
+that only fails every time proves the alarm is wired, not that it is calibrated.

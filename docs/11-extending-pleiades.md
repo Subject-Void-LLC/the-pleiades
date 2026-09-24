@@ -175,7 +175,13 @@ with:
 | To stat, write, or change a file | `pkg/remotefile` |
 | To start, stop, or query a service | `pkg/remotesvc` |
 | A script on a Windows host | `pkg/winrmexec` |
+| To move a file's bytes to or from a device | `pkg/filexfer`, with `pkg/sftpxfer` or `pkg/scpxfer` |
+| Structured configuration over NETCONF | `pkg/datastore`, with `pkg/netconf` |
 | A credential, a connection, or a stat | `pkg/sdk` |
+
+If what you need is a new protocol rather than a new use of an existing one,
+read [What shape a new transport takes](#what-shape-a-new-transport-takes)
+before writing it.
 
 If the thing you need lives under `internal/`, moving it is part of your change.
 Do that first and separately: it is a refactor with its own tests, and mixing it
@@ -466,6 +472,97 @@ new primitive (`pkg/remotefile` exists), no new capability
 (`POSIXFileSystemCapable` exists and `linux.Server` declares it), and no new
 namespace directory. It is steps 4 through 8 only, and the whole change is a
 catalogdata entry, one `go generate`, one hand-completed body, and its tests.
+
+## What shape a new transport takes
+
+A transport is how bytes reach a device. Before writing one, decide its shape,
+because the shape decides where it lives and which interface it implements.
+This repository has three answers, and picking the wrong one is expensive to
+undo.
+
+**A command: `transport.Transport`.** If one operation sends a command string
+and gets back standard output, standard error and an exit status, the protocol
+is command-shaped. The engine's built-in task types (`ssh_exec`, `serial_exec`,
+`serialtcp_exec`, `telnet_exec`) reach devices through `transport.Transport` in
+`internal/transport`, each named by a `TransportBinding`. Reuse that interface
+unchanged.
+
+**A primitive a Collection calls: a `pkg/` package.** A Collection method may
+import only `pkg/`, so anything a method calls lives there, whatever its shape:
+`pkg/remoteexec` for SSH commands, `pkg/winrmexec` for WinRM. WinRM moved to
+`pkg/` because of that layering rule, not because of its shape. It does not
+implement `transport.Transport`, and it never needed to.
+
+**Anything that is not a command: a narrow port of its own.** Some protocols
+have no command string, no standard output and no exit status. NETCONF is
+structured requests against a named datastore. A file transfer is a stream of
+bytes, of any size, in either direction. For these, define a small interface in
+`pkg/` holding only what every implementation genuinely shares, and write one
+adapter per protocol that dials nothing itself:
+
+| Port | Adapters | What it carries |
+|---|---|---|
+| `pkg/datastore` | `pkg/netconf` | a path and a payload against a named datastore |
+| `pkg/filexfer` | `pkg/sftpxfer`, `pkg/scpxfer` | a file's bytes, put and got, confined to one root |
+
+Keep a verb that only one protocol has off the shared interface, behind an
+optional interface the caller asserts. NETCONF's `Commit` lives on
+`netconf.Session`, and `Stat` lives on `filexfer.Stater`, because legacy SCP
+cannot describe a file without sending it. A method on a shared interface that
+some implementations cannot honor still compiles, and then fails device by
+device at run time.
+
+**Never widen `Exec`.** Adding `Put` and `Get` to `transport.Transport` looks
+like less work, and it is the one answer here that is always wrong. `Exec`
+returns output as a Go string, which cannot carry a multi-gigabyte binary file
+without holding all of it in memory. Every existing transport (SSH, serial,
+serial over TCP, Telnet) would also have to answer a question about files that
+it was never asked. If a future protocol fits none of the shapes above, the
+answer is another narrow port, not a wider `Exec`.
+
+**If it rides SSH, reuse the connection.** `pkg/remoteexec` already dials,
+verifies host keys, retries, trips a circuit breaker, and walks a bastion hop
+chain. A protocol that runs over SSH starts from a `*remoteexec.Conn` instead of
+dialing on its own. `Conn.Subsystem` opens a named subsystem (`"netconf"`,
+`"sftp"`). `Conn.Start` keeps a command's input and output open as a live stream,
+which is how legacy SCP talks. `Conn.Shell` opens an interactive terminal. A
+second SSH dialer would have to rebuild all of that, and could get any part of
+it wrong.
+
+This is what a Collection method that moves a file looks like with the pieces
+above. The path is resolved against the device's transfer root before anything
+is dialed, so a destination that climbs out of the root is refused without a
+connection ever being opened:
+
+```go
+ft, ok := device.(capability.FileTransferCapable)
+if !ok {
+	return fmt.Errorf("%s: device %q cannot transfer files", fqcn, device.Name())
+}
+dst, err := filexfer.Resolve(ft.FileTransferRoot(), dest)
+if err != nil {
+	return err // refused before any connection
+}
+conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
+if err != nil {
+	return err
+}
+defer conn.Close()
+sub, err := conn.Subsystem(ctx, "sftp")
+if err != nil {
+	return err
+}
+client, err := sftpxfer.Open(ctx, sub)
+if err != nil {
+	return err
+}
+defer client.Close()
+return client.Put(ctx, dst, src, size, 0o644)
+```
+
+One gap to know about first: `sdk.Connect` dials the device directly. It does
+not yet follow the device's bastion route, so a method that has to reach a
+device behind a bastion needs that closed before it can ship.
 
 ## External Collections
 

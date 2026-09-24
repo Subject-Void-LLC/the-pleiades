@@ -94,13 +94,22 @@ func TestCredentialOptionRejectsAMalformedCredential(t *testing.T) {
 // mintTestCredential builds a well formed .creds body with a real user
 // seed and a token unique to this call.
 //
-// The token is not a valid JWT and does not need to be: these tests never
-// reach a broker, and nkeys.ParseDecoratedJWT only strips the armor
-// around a token rather than validating it, which is a property this
-// file's malformed-credential table already pins. What matters is that
-// the seed is real, so signing works, and that two calls differ, so a
-// test can tell one credential from another.
+// The token is not a valid JWT and does not need to be: no test here
+// presents it to a broker that checks it, and nkeys.ParseDecoratedJWT only
+// strips the armor around a token rather than validating it, which is a
+// property this file's malformed-credential table already pins. What
+// matters is that the seed is real, so signing works, and that two calls
+// differ, so a test can tell one credential from another.
 func mintTestCredential(t *testing.T) []byte {
+	t.Helper()
+	creds, _ := mintTestCredentialAndKey(t)
+	return creds
+}
+
+// mintTestCredentialAndKey is mintTestCredential that also returns the
+// user's public key, for a test that has to verify a signature the
+// credential made.
+func mintTestCredentialAndKey(t *testing.T) ([]byte, string) {
 	t.Helper()
 	kp, err := nkeys.CreateUser()
 	if err != nil {
@@ -116,7 +125,7 @@ func mintTestCredential(t *testing.T) []byte {
 		t.Fatalf("reading the public key: %v", err)
 	}
 	return []byte("-----BEGIN NATS USER JWT-----\n" + "token." + pub + "\n------END NATS USER JWT------\n\n" +
-		"-----BEGIN USER NKEY SEED-----\n" + string(seed) + "\n------END USER NKEY SEED------\n")
+		"-----BEGIN USER NKEY SEED-----\n" + string(seed) + "\n------END USER NKEY SEED------\n"), pub
 }
 
 // TestCredentialCallbacksRefuseAMalformedCredentialAtReconnectToo covers

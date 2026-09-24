@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestImplementedMethodsHaveCompleteDocs is the completeness gate the plan
@@ -125,6 +126,31 @@ func TestHandWrittenDeviceCapabilitiesMatchTheirTypes(t *testing.T) {
 			for i := range got {
 				if got[i] != want[i] {
 					t.Fatalf("%s hydrates with capabilities %v; handWrittenDevices records %v", d.TypeKey, got, want)
+				}
+			}
+
+			// Each conditional capability must be absent from the bare
+			// record above and present once its property is set, so the
+			// table cannot claim a condition the constructor does not have.
+			for _, c := range d.Conditional {
+				for _, name := range got {
+					if name == c.Name {
+						t.Fatalf("%s declares %s with no %s set, so it is not conditional", d.TypeKey, c.Name, c.Property)
+					}
+				}
+				enabled, err := constructor(record.Record{
+					Name: d.TypeKey, Type: d.TypeKey,
+					Properties: map[string]inventory.PropertyValue{c.Property: c.Value},
+				})
+				if err != nil {
+					t.Fatalf("hydrating %s with %s set: %v", d.TypeKey, c.Property, err)
+				}
+				found := false
+				for _, name := range enabled.Capabilities() {
+					found = found || string(name) == c.Name
+				}
+				if !found {
+					t.Fatalf("%s does not declare %s when %s is %v", d.TypeKey, c.Name, c.Property, c.Value)
 				}
 			}
 		})

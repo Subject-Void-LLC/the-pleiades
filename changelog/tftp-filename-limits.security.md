@@ -1,0 +1,1 @@
+`pkg/tftpxfer` now refuses a remote filename holding a control or format character, one that is not valid UTF-8, or one longer than the 493 bytes a request can carry, and a block size outside 512 to 65464. A NUL in a filename could rewrite the transfer mode, and a long filename crashed the process inside the TFTP library.

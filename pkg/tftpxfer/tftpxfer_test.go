@@ -140,29 +140,8 @@ func TestGet_NonexistentFileIsAClearError(t *testing.T) {
 	}
 }
 
-// TestGet_RefusesPathTraversalFilenames and
-// TestPut_RefusesPathTraversalFilenames prove a hostile filename never
-// reaches the wire: the server in each test would fail the test itself
-// (via a panic from an unhandled request type this test never wires up
-// a real listener for) if this package's own validateFilename did not
-// refuse it first.
-func TestGet_RefusesPathTraversalFilenames(t *testing.T) {
-	for _, name := range []string{"", "../etc/passwd", "..\\windows\\system32", "a/../../b", "/etc/passwd", `C:\Windows`} {
-		_, err := tftpxfer.Get(context.Background(), "127.0.0.1", 1, tftpxfer.Options{}, name, &bytes.Buffer{})
-		if err == nil {
-			t.Errorf("Get(%q): expected a refusal, got nil error", name)
-		}
-	}
-}
-
-func TestPut_RefusesPathTraversalFilenames(t *testing.T) {
-	for _, name := range []string{"", "../etc/passwd", "..\\windows\\system32", "a/../../b", "/etc/passwd", `C:\Windows`} {
-		_, err := tftpxfer.Put(context.Background(), "127.0.0.1", 1, tftpxfer.Options{}, name, bytes.NewReader(nil))
-		if err == nil {
-			t.Errorf("Put(%q): expected a refusal, got nil error", name)
-		}
-	}
-}
+// Refused filenames, and proof that none of them sends a datagram, are in
+// filename_test.go.
 
 // TestGet_AllowsARealisticNestedFilename proves validateFilename is not
 // so strict it refuses ordinary, legitimate nested paths TFTP servers
