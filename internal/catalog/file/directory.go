@@ -3,10 +3,12 @@ package file
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -89,7 +91,7 @@ func init() {
 					"recursive, so it refuses rather than destroying anything put inside the directory after this task ran. " +
 					"A run that found the directory already there and only changed its mode, owner or group emits a " +
 					"file.permissions carrying the old ones, which puts the attributes back and never removes the directory. " +
-					"A converged run emits nothing at all.",
+					"A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo.",
 			},
 			// A check reads the path, compares, and reports whether a real
 			// run would create the directory or change its attributes,
@@ -108,12 +110,12 @@ func init() {
 func directoryDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Makes sure a directory exists on the target, with the mode, owner and group the task asks for.",
-		Description: "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and sets the mode, owner and group when the task names them. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
+		Description: "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and gives the directory, and every parent it creates, the mode, owner and group the task names, as Ansible does; a parent that already existed is never changed. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
 		Params: []collection.Param{
 			{Name: dirParamPath, Type: "string", Required: true, Description: "The directory to ensure exists. Missing parent directories are created too, the way mkdir -p does. Ansible creates parents implicitly and has no parameter for it, so neither does this."},
-			{Name: dirParamMode, Type: "string", Description: "The permission bits in octal, written as a quoted string such as \"0755\". Quote it: an unquoted 0755 is read as a number by YAML and its leading zero is lost, so an unquoted value is refused rather than applied. A symbolic mode such as u+rwx is refused too, since it cannot be compared against the mode the device reports. Left unset, a new directory gets whatever the device's umask gives it and an existing one keeps the mode it has. Applies to the directory this task names, never to a parent created along the way."},
-			{Name: dirParamOwner, Type: "string", Description: "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Left unset, ownership is not touched."},
-			{Name: dirParamGroup, Type: "string", Description: "The group name that should own the directory, under the same rule as owner: a name, not a numeric id. Left unset, the group is not touched."},
+			{Name: dirParamMode, Type: "string", Description: "The permission bits in octal, written as a quoted string such as \"0755\". Quote it: an unquoted 0755 is read as a number by YAML and its leading zero is lost, so an unquoted value is refused rather than applied. A symbolic mode such as u+rwx is refused too, since it cannot be compared against the mode the device reports. Left unset, a new directory gets whatever the device's umask gives it and an existing one keeps the mode it has. Applies to the directory this task names and to every parent it creates on the way there, as ansible.builtin.file does, so a private tree is private all the way down; a parent that already existed keeps its mode."},
+			{Name: dirParamOwner, Type: "string", Description: "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."},
+			{Name: dirParamGroup, Type: "string", Description: "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -218,7 +220,7 @@ func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	// Both reads happen before the connection is opened, so a runbook
 	// mistake costs no round trip and the error names the runbook rather
 	// than the device.
-	path, err := sdk.RequiredStringParam(params, dirParamPath)
+	dirPath, err := sdk.RequiredStringParam(params, dirParamPath)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -239,7 +241,7 @@ func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	// is a directory, and what its current attributes are, which is both
 	// the "before" half of the diff and the thing the wanted attributes
 	// are compared against.
-	before, err := remotefile.Stat(ctx, conn, path)
+	before, err := remotefile.Stat(ctx, conn, dirPath)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -249,21 +251,32 @@ func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		// The two states this method can converge.
 	default:
 		return collection.Result{}, fmt.Errorf("%s: %s is %s, not a directory: refusing to replace it, since removing what is there would destroy it",
-			fqcn, path, describeDirectoryKind(before))
+			fqcn, dirPath, describeDirectoryKind(before))
 	}
 
 	if mode == collection.ModeCheck {
-		return checkDirectory(rc, path, want, before)
+		return checkDirectory(rc, dirPath, want, before)
 	}
 
 	created := false
+	var parents []string
 	if !before.Exists() {
+		// The parents mkdir -p is about to create, found first so each can
+		// be given the task's attributes, as ansible.builtin.file gives
+		// them: a private directory under a new parent is otherwise
+		// reachable through a parent the umask left open. Only looked for
+		// when there are attributes to give.
+		if !want.Empty() {
+			if parents, err = missingParents(ctx, conn, dirPath); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
 		// Parents included, because that is what ansible.builtin.file does
 		// and what mkdir -p means. Nothing checks afterward whether the
 		// directory appeared: mkdir reports its own failure, and a second
 		// stat purely to confirm success would cost a round trip to learn
 		// what a non-zero exit status already said.
-		if err := remotefile.MakeDirectory(ctx, conn, path, true); err != nil {
+		if err := remotefile.MakeDirectory(ctx, conn, dirPath, true); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		created = true
@@ -274,12 +287,19 @@ func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	// and every named attribute gets applied. That is correct rather than
 	// accidental: a directory that has just been created has whatever the
 	// umask gave it, which is never what the task asked for.
-	attributesChanged, err := remotefile.Apply(ctx, conn, path, want, before)
+	attributesChanged, err := remotefile.Apply(ctx, conn, dirPath, want, before)
 	if err != nil {
 		if created {
-			return collection.Result{}, fmt.Errorf("%s: created %s but could not set its attributes: %w", fqcn, path, err)
+			return collection.Result{}, fmt.Errorf("%s: created %s but could not set its attributes: %w", fqcn, dirPath, err)
 		}
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// The created parents, deepest first, so a parent's new mode can never
+	// stop the chmod of the directory below it.
+	for i := len(parents) - 1; i >= 0; i-- {
+		if _, err := remotefile.Apply(ctx, conn, parents[i], want, remotefile.Info{Kind: remotefile.KindAbsent}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: created %s but could not set the attributes of %s, a parent it created: %w", fqcn, dirPath, parents[i], err)
+		}
 	}
 
 	changed := created || attributesChanged
@@ -295,18 +315,18 @@ func directory(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	// and a second stat could only return what the first one already did.
 	after := before
 	if changed {
-		if after, err = remotefile.Stat(ctx, conn, path); err != nil {
+		if after, err = remotefile.Stat(ctx, conn, dirPath); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
 
-	if err := rc.SetStat(dirStatPath, path); err != nil {
+	if err := rc.SetStat(dirStatPath, dirPath); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after.Map()}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := directoryRecordInverse(rc, path, created, attributesChanged, before); err != nil {
+	if err := directoryRecordInverse(rc, dirPath, created, attributesChanged, before); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
@@ -411,6 +431,25 @@ func directoryRecordInverse(rc sdk.RunbookContext, path string, created, attribu
 	default:
 		return nil
 	}
+}
+
+// missingParents returns the directories above dir that do not exist yet,
+// topmost first: the ones mkdir -p creates on the way to it. It stops at
+// the first one that exists, whatever it is, since mkdir -p creates
+// nothing above that.
+func missingParents(ctx context.Context, conn *remoteexec.Conn, dir string) ([]string, error) {
+	var missing []string
+	for p := path.Dir(path.Clean(dir)); p != "/" && p != "."; p = path.Dir(p) {
+		info, err := remotefile.Stat(ctx, conn, p)
+		if err != nil {
+			return nil, err
+		}
+		if info.Exists() {
+			break
+		}
+		missing = append([]string{p}, missing...)
+	}
+	return missing, nil
 }
 
 // directoryAttributes reads the mode, owner and group a task asked for.
