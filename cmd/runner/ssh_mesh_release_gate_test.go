@@ -112,30 +112,10 @@ func startSSHContainer(t *testing.T) (testcontainers.Container, string, int) {
 // operator populating a known_hosts file for the first time.
 func captureRealHostKey(t *testing.T, addr string) ssh.PublicKey {
 	t.Helper()
-	var captured ssh.PublicKey
-	config := &ssh.ClientConfig{
-		User: releaseGateSSHUser,
-		Auth: []ssh.AuthMethod{ssh.Password(releaseGateSSHPassword)},
-		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
-			captured = key
-			return nil
-		},
-		Timeout: 10 * time.Second,
-	}
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
-	if err != nil {
-		t.Fatalf("bootstrap dial to %s failed: %v", addr, err)
-	}
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
-	if err != nil {
-		t.Fatalf("bootstrap ssh handshake with %s failed: %v", addr, err)
-	}
-	client := ssh.NewClient(sshConn, chans, reqs)
-	defer func() { _ = client.Close() }()
-	if captured == nil {
-		t.Fatal("expected to capture a real host key from the container")
-	}
-	return captured
+	// Bounded and retried: a handshake over a connection the published
+	// port accepted before sshd listened used to wait on the version
+	// banner until go test's own timeout (FAILURE_PATTERNS 351).
+	return testsupport.CaptureHostKey(t, addr, releaseGateSSHUser, releaseGateSSHPassword)
 }
 
 // releaseGateHarness bundles the real NATS and sshd containers plus the
