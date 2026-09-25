@@ -23,9 +23,9 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `FirewalldCapable` | `SystemdCapable` | - |
 | `JunosCapable` | `NetworkCLICapable` | - |
 | `LinuxCapable` | - | - |
-| `NetconfCapable` | `NetworkCLICapable` | - |
+| `NetconfCapable` | - | - |
 | `NetworkAddressableCapable` | - | - |
-| `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable`, `NetconfCapable` |
+| `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable` |
 | `POSIXFileSystemCapable` | - | - |
 | `PackageManagerCapable` | - | `AptCapable`, `DnfCapable` |
 | `PosixAccountCapable` | - | - |

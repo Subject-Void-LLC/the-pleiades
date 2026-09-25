@@ -9729,3 +9729,26 @@ baseline; Phase 111's storage item carries that.
 **Lesson.** A gap disclosed as "not reachable yet" needs a test that fails while it is open and passes
 once it closes, run through the real path. Otherwise the path that would close it can break unseen,
 because nothing can use it.
+
+## 345. Declaring NETCONF claimed a command line
+
+**Symptom.** Found 2026-09-24 while planning Phase 111's generic device types. `NetconfCapable`
+embedded `NetworkCLICapable` and was registered as its child, so a device that declared NETCONF
+satisfied every method requiring `NetworkCLICapable` (`net.cli.command`, `net.cli.config`) by both
+halves of the check: `capability.Resolves` walked up to the CLI capability, and a Go type implementing
+`NetconfPort` had to implement `CLIPrompt` too. A NETCONF-only device, which is exactly what a generic
+NETCONF type is, would have been handed a terminal method it cannot serve.
+
+**Root cause.** The tree grouped capabilities by "network device" rather than by what each one lets a
+method do. NETCONF is structured configuration over an SSH subsystem, with no prompt at all. Only the
+two Cisco types declared NETCONF, and both are CLI devices as well, so the wrong edge never changed an
+answer.
+
+**Fix.** `NetconfCapable` has no parent and embeds nothing (`pkg/capability/capabilities_network.go`).
+A device with both, as a Cisco router with NETCONF enabled has, declares both.
+`TestNetconf_ClaimsNoCommandLine` asserts neither half of the check grants the CLI; the generated
+capability reference no longer lists the edge.
+
+**Lesson.** A capability's parent must be something every device holding the child can actually do. An
+edge that no current device contradicts is still wrong if the next device type would; check each edge
+against the device that has only the child.

@@ -20,14 +20,16 @@ type NetworkCLICapable interface {
 	CLIPrompt() string
 }
 
-// NetconfCapable is satisfied by devices reachable over NETCONF. It is a
-// sibling of JunosCapable/AristaEOSCapable under NetworkCLICapable, not
-// their parent: not every vendor CLI capability is NETCONF-based (Arista
-// EOS in particular is not), so nesting them under NetconfCapable would
-// assert something false.
+// NetconfCapable is satisfied by devices reachable over NETCONF. It has no
+// parent. NETCONF is structured configuration over an SSH subsystem, not a
+// command line: a device that speaks only NETCONF has no prompt. It used
+// to sit under NetworkCLICapable, which made declaring NETCONF claim a
+// CLI, so a NETCONF-only device would have satisfied net.cli.* methods it
+// cannot serve. Nor is it the vendor CLI capabilities' parent: not every
+// one of them is NETCONF-based (Arista EOS in particular is not). A device
+// that has both, as a Cisco IOS router with NETCONF enabled does, declares
+// both.
 type NetconfCapable interface {
-	NetworkCLICapable
-
 	// NetconfPort returns the device's NETCONF listener port (e.g. 830).
 	NetconfPort() int
 }
@@ -108,7 +110,6 @@ func init() {
 	})
 	Register(Descriptor{
 		Name:   NameNetconf,
-		Parent: NameNetworkCLI,
 		Assert: func(item any) bool { _, ok := item.(NetconfCapable); return ok },
 	})
 	Register(Descriptor{

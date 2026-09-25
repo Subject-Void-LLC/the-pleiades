@@ -211,3 +211,27 @@ func TestDeclaresVsImplements_NeitherSideTrustedAlone(t *testing.T) {
 		t.Error("a device structurally implementing AptCapable but never declaring it must not be satisfied")
 	}
 }
+
+// netconfOnlyDevice speaks NETCONF and has no command line.
+type netconfOnlyDevice struct{}
+
+func (netconfOnlyDevice) NetconfPort() int { return 830 }
+
+// TestNetconf_ClaimsNoCommandLine: declaring NETCONF grants no CLI, by
+// either half of the check. NetconfCapable used to embed
+// NetworkCLICapable and sit under it, so a NETCONF-only device resolved
+// net.cli.* requirements it cannot serve.
+func TestNetconf_ClaimsNoCommandLine(t *testing.T) {
+	if capability.Resolves(declaredSet(capability.NameNetconf), capability.NameNetworkCLI) {
+		t.Error("declaring NETCONF resolves NetworkCLICapable")
+	}
+	if capability.Implements(netconfOnlyDevice{}, capability.NameNetworkCLI) {
+		t.Error("a NETCONF-only device implements NetworkCLICapable")
+	}
+	if !capability.Implements(netconfOnlyDevice{}, capability.NameNetconf) {
+		t.Error("a NETCONF-only device does not implement NetconfCapable")
+	}
+	if d, _ := capability.Lookup(capability.NameNetconf); d.Parent != "" {
+		t.Errorf("NetconfCapable's parent is %s, want none", d.Parent)
+	}
+}

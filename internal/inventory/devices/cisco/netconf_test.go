@@ -18,8 +18,8 @@ var netconfConstructors = map[string]func(record.Record) (inventory.InventoryIte
 }
 
 // TestNetconfCapable_NeedsBothHalves is the regression proof for the
-// gap this phase found: NetconfCapable is a SIBLING of CiscoIOSCapable
-// under NetworkCLICapable, not an ancestor, so declaring CiscoIOSCapable
+// gap this phase found: NetconfCapable is not an ancestor of
+// CiscoIOSCapable (it has no parent at all), so declaring CiscoIOSCapable
 // does not resolve to it. Before this, every Cisco device implemented
 // SupportsNETCONF and none of them could satisfy NetconfCapable.
 //

@@ -132,8 +132,8 @@ func (c *Router) CLIPrompt() string {
 // This is the DATA half of NetconfCapable, and without it the
 // NetconfPort accessor above would be useless. record.Base.HasCapability is
 // Declares(name) AND capability.Implements(c, name), and NetconfCapable
-// is a SIBLING of CiscoIOSCapable under NetworkCLICapable rather than an
-// ancestor of it, so declaring CiscoIOSCapable does not resolve to it.
+// is not an ancestor of CiscoIOSCapable (it has no parent at all), so
+// declaring CiscoIOSCapable does not resolve to it.
 // Meanwhile "pleiades add-host" has no capability flag at all and a
 // --type-created record carries a nil Capabilities slice, so nothing
 // else could put the name there. A NetconfPort accessor on its own
