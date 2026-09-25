@@ -1,0 +1,19 @@
+# The benchmark's target device: the smallest container both tools can use
+# fairly. Alpine with OpenSSH and Python 3, sshd as PID 1 with no init.
+#
+# Python is here only because Ansible's modules need it on the device; the
+# image layers are shared, so it is stored once however many targets run.
+# Dropbear is smaller still and was rejected: it has no SFTP or SCP, so
+# Ansible falls back only after failed transfer attempts, which would time
+# a fallback rather than Ansible.
+#
+# Every target shares the host key generated at build, so one wildcard
+# known_hosts line verifies them all. MaxStartups is raised because
+# OpenSSH's default (10:30:100) refuses concurrent handshakes past ten,
+# which a wide run makes on purpose.
+FROM alpine:3.20
+RUN apk add --no-cache openssh-server python3 \
+ && ssh-keygen -A \
+ && adduser -D testuser && echo 'testuser:testpass123' | chpasswd \
+ && printf 'PasswordAuthentication yes\nMaxStartups 500\nMaxSessions 50\n' >> /etc/ssh/sshd_config
+CMD ["/usr/sbin/sshd", "-D", "-e"]

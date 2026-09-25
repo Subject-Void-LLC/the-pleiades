@@ -78,3 +78,8 @@ obj/
 /internal/catalog/test/gencatalogtest*/
 /internal/inventory/devices/gencatalogtest*/
 /internal/inventory/devices/e2egate*/
+
+# Python's bytecode cache. The repository's Python tools (tools/ansiblebench,
+# tools/genrrulefixtures) leave one beside themselves when imported or
+# compiled, and one was committed that way on 2026-09-24.
+__pycache__/
