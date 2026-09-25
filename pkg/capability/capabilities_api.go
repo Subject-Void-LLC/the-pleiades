@@ -23,6 +23,10 @@ type HTTPAPICapable interface {
 	// (username and password), "bearer" (the password as the token), or
 	// "none".
 	HTTPAuth() string
+
+	// HTTPAllowPlaintextCredentials reports whether the device's record
+	// accepts sending its credential to an http:// base URL, unencrypted.
+	HTTPAllowPlaintextCredentials() bool
 }
 
 // GRPCCapable is satisfied by a device that serves gRPC at one target.

@@ -3,6 +3,7 @@
 package http
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	nethttp "net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -26,8 +28,11 @@ import (
 // so it cannot leave that origin, redirects are followed only within it,
 // and the task may set neither Authorization nor Host.
 type requestDevice struct {
-	base *url.URL
-	auth string
+	name     string
+	base     *url.URL
+	auth     string
+	tls      devicetls.Settings
+	warnings []string
 }
 
 // requestIsDevicePath reports whether raw is a path on the target
@@ -55,7 +60,7 @@ func requestDeviceURL(device inventory.InventoryItem, raw string) (string, *requ
 		return "", nil, fmt.Errorf("%s %q is a path on a device's API, and device %q's base URL is not available where this task runs (a Runner receives only a device's SSH address)",
 			requestParamURL, raw, device.Name())
 	}
-	base, err := httpapi.ValidateBaseURL(api.HTTPBaseURL(), api.HTTPAuth())
+	base, err := httpapi.ValidateBaseURL(api.HTTPBaseURL(), api.HTTPAuth(), api.HTTPAllowPlaintextCredentials())
 	if err != nil {
 		return "", nil, fmt.Errorf("device %q: %w", device.Name(), err)
 	}
@@ -63,23 +68,39 @@ func requestDeviceURL(device inventory.InventoryItem, raw string) (string, *requ
 	if err != nil {
 		return "", nil, fmt.Errorf("%s %q: %w", requestParamURL, raw, err)
 	}
-	return full.String(), &requestDevice{base: base, auth: api.HTTPAuth()}, nil
+	d := &requestDevice{name: device.Name(), base: base, auth: api.HTTPAuth(), tls: devicetls.For(device)}
+	d.warnings = d.tls.Warnings(device.Name())
+	if httpapi.SendsPlaintextCredential(base, d.auth) {
+		d.warnings = append(d.warnings, httpapi.PlaintextWarning(device.Name()))
+	}
+	return full.String(), d, nil
 }
 
 // check refuses what a device-mode request may not carry: an
 // Authorization or Host header, since the credential and the origin are
-// the device's, and turning certificate checks off for a request that
-// sends a credential.
+// the device's, and validate_certs false, since the device's record
+// decides how its certificate is trusted (tls_ca_pem pins its authority)
+// and a task may not weaken that.
 func (d *requestDevice) check(headers map[string]string, validateCerts bool) error {
 	for name := range headers {
 		if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Host") {
 			return fmt.Errorf("%s may not set %s on a path on a device's API: the device's own record decides both", requestParamHeaders, name)
 		}
 	}
-	if !validateCerts && d.auth != httpapi.AuthNone {
-		return fmt.Errorf("%s false is refused on a path on a device's API that sends the device's credential", requestParamValidateCerts)
+	if !validateCerts {
+		return fmt.Errorf("%s false is refused on a path on a device's API: set the device's tls_ca_pem to trust its certificate instead", requestParamValidateCerts)
 	}
 	return nil
+}
+
+// tlsConfig is the device's TLS configuration for this request, with the
+// client certificate from secrets when the record presents one; nil for
+// an http:// base URL.
+func (d *requestDevice) tlsConfig(secrets map[string]string) (*tls.Config, error) {
+	if d.base.Scheme != "https" {
+		return nil, nil
+	}
+	return d.tls.Config(secrets)
 }
 
 // checkRedirect follows a redirect only within the device's origin, and

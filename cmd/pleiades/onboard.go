@@ -70,6 +70,9 @@ func printOnboardJSON(w io.Writer, res onboard.Result) error {
 // sequences.
 func printOnboard(w io.Writer, res onboard.Result) {
 	fmt.Fprintf(w, "%s (%s) over %s: %s -> %s\n", termsafe.EscapeLine(res.Device), res.Type, res.Protocol, res.PreviousState, res.State)
+	for _, warning := range res.Warnings {
+		fmt.Fprintf(w, "  WARNING: %s\n", termsafe.EscapeLine(warning))
+	}
 	if res.Error != "" {
 		fmt.Fprintf(w, "  failed: %s\n", termsafe.EscapeLine(res.Error))
 		return

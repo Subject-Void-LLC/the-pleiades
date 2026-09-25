@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
@@ -360,6 +361,9 @@ func runRunbook(args []string) error {
 		default:
 			fmt.Printf("  %s: ok\n", label)
 		}
+		// Always, verbose or not: a warning is something the person running
+		// the work has to act on (sdk.StatWarnings).
+		printWarnings(node.Stats, result.Secrets)
 		if *verbose && node.Provider != nil {
 			fmt.Printf("    provided by: %s (%s)\n", termsafe.EscapeLine(node.Provider.Program), node.Provider.Digest)
 		}
@@ -573,3 +577,17 @@ func (e *incompleteError) Error() string { return e.msg }
 
 // ExitCode implements exitCoder.
 func (e *incompleteError) ExitCode() int { return exitIncomplete }
+
+// printWarnings prints a node's sdk.StatWarnings, one line each, escaped
+// and masked like every other value a method reports.
+func printWarnings(stats map[string]interface{}, secrets []string) {
+	warnings, _ := stats[sdk.StatWarnings].([]string)
+	if list, ok := stats[sdk.StatWarnings].([]any); ok {
+		for _, w := range list {
+			warnings = append(warnings, fmt.Sprint(w))
+		}
+	}
+	for _, w := range warnings {
+		fmt.Printf("    WARNING: %s\n", termsafe.EscapeLine(redact.Text(secrets, w)))
+	}
+}

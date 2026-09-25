@@ -3,7 +3,6 @@ package onboard
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -28,11 +28,7 @@ import (
 // maxGRPCMessage bounds any one answer the probe receives.
 const maxGRPCMessage = 1 << 20
 
-type grpcProber struct {
-	// tls is replaced by tests that serve a certificate the system does
-	// not trust; nil means the system's roots, with verification on.
-	tls *tls.Config
-}
+type grpcProber struct{}
 
 func init() { Register(generic.TypeGRPC, grpcProber{}) }
 
@@ -45,8 +41,10 @@ func (grpcProber) Protocol() string { return "grpc" }
 // refused credential proves nothing. A server reporting NOT_SERVING is
 // refused.
 //
-// A stored credential is sent as a bearer token, and only over TLS: over
-// a plaintext connection a stored credential is refused rather than sent.
+// TLS is the device's own (pkg/devicetls: certificates always verified, a
+// client certificate when the record presents one). A stored password is
+// sent as a bearer token, and only over TLS: over a plaintext connection a
+// stored credential is refused rather than sent.
 func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
 	dev, ok := device.(capability.GRPCCapable)
 	if !ok {
@@ -56,12 +54,19 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 		return Probed{}, err
 	}
 	token := secrets[wire.SecretPassword]
-	creds := credentials.NewTLS(p.tlsConfig())
+	settings := devicetls.For(device)
+	var creds credentials.TransportCredentials
 	if dev.GRPCPlaintext() {
 		if token != "" {
 			return Probed{}, errors.New("a credential is stored for this device and grpc_plaintext is true: refusing to send it unencrypted")
 		}
 		creds = insecure.NewCredentials()
+	} else {
+		cfg, err := settings.Config(secrets)
+		if err != nil {
+			return Probed{}, err
+		}
+		creds = credentials.NewTLS(cfg)
 	}
 	conn, err := grpc.NewClient("passthrough:///"+dev.GRPCTarget(),
 		grpc.WithTransportCredentials(creds),
@@ -98,16 +103,7 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	default:
 		return Probed{}, fmt.Errorf("server reflection: %w", err)
 	}
-	return Probed{Capabilities: []capability.Name{capability.NameGRPC}, Facts: facts}, nil
-}
-
-// tlsConfig returns the TLS settings: the test override, or the system's
-// roots at TLS 1.2 or later.
-func (p grpcProber) tlsConfig() *tls.Config {
-	if p.tls != nil {
-		return p.tls.Clone()
-	}
-	return &tls.Config{MinVersion: tls.VersionTLS12}
+	return Probed{Capabilities: []capability.Name{capability.NameGRPC}, Facts: facts, Warnings: settings.Warnings(device.Name())}, nil
 }
 
 // reflectServices asks server reflection for the services the server serves,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -23,7 +24,9 @@ const (
 // request to the base URL and only an answer grants it.
 type HTTP struct {
 	*record.Base
-	baseURL *url.URL
+	baseURL        *url.URL
+	allowPlaintext bool
+	tls            devicetls.Settings
 }
 
 // NewHTTP builds a generic_http device from rec, refusing a base URL or
@@ -37,9 +40,17 @@ func NewHTTP(rec record.Record) (inventory.InventoryItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
 	}
-	base, err := httpapi.ValidateBaseURL(raw, auth)
+	allowPlaintext, err := strictBool(rec.Properties, httpapi.AllowPlaintextCredentialsProperty)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
+	}
+	base, err := httpapi.ValidateBaseURL(raw, auth, allowPlaintext)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: property %s: %w", TypeHTTP, rec.Name, BaseURLProperty, err)
+	}
+	settings, err := deviceTLS(rec, base.Scheme == "https")
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
 	}
 	if err := validateOpenAPIPath(props); err != nil {
 		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
@@ -48,7 +59,7 @@ func NewHTTP(rec record.Record) (inventory.InventoryItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &HTTP{Base: record.NewBase(rec, caps), baseURL: base}, nil
+	return &HTTP{Base: record.NewBase(rec, caps), baseURL: base, allowPlaintext: allowPlaintext, tls: settings}, nil
 }
 
 // httpAuthOf reads the http_auth property, defaulting to none: a stored
@@ -91,6 +102,17 @@ func (h *HTTP) HTTPBaseURL() string {
 func (h *HTTP) HTTPAuth() string {
 	auth, _ := httpAuthOf(h.Properties())
 	return auth
+}
+
+// HTTPAllowPlaintextCredentials reports whether this device's record
+// accepts sending its credential over http://.
+func (h *HTTP) HTTPAllowPlaintextCredentials() bool {
+	return h.allowPlaintext
+}
+
+// TLSSettings returns the device's validated TLS settings.
+func (h *HTTP) TLSSettings() devicetls.Settings {
+	return h.tls
 }
 
 // OpenAPIPath returns the path of the API's OpenAPI document, or the empty

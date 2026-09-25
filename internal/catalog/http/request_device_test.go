@@ -30,9 +30,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -234,10 +236,11 @@ func TestRequestDevice_Refusals(t *testing.T) {
 // even from a device type that did not check it.
 type badBaseDevice struct{ inventory.InventoryItem }
 
-func (badBaseDevice) HasCapability(capability.Name) bool { return true }
-func (badBaseDevice) Name() string                       { return "bad1" }
-func (badBaseDevice) HTTPBaseURL() string                { return "http://api.invalid" }
-func (badBaseDevice) HTTPAuth() string                   { return httpapi.AuthBasic }
+func (badBaseDevice) HasCapability(capability.Name) bool  { return true }
+func (badBaseDevice) Name() string                        { return "bad1" }
+func (badBaseDevice) HTTPBaseURL() string                 { return "http://api.invalid" }
+func (badBaseDevice) HTTPAuth() string                    { return httpapi.AuthBasic }
+func (badBaseDevice) HTTPAllowPlaintextCredentials() bool { return false }
 
 // TestRequestDevice_WhereTheBaseURLIsUnavailable: on the Walk tier a Runner
 // rebuilds the device from its dispatch, which declares the capability and
@@ -275,5 +278,112 @@ func TestRequestDevice_FollowsItsOwnRedirects(t *testing.T) {
 	}
 	if _, err := http.Request(context.Background(), rc, dev, map[string]any{"url": "/loop"}); err == nil || !strings.Contains(err.Error(), "10 redirects") {
 		t.Errorf("a redirect loop returned %v", err)
+	}
+}
+
+// tlsDeviceServer is an HTTPS device API with the trusted certificate,
+// restricted to one version range.
+func tlsDeviceServer(t *testing.T, minV, maxV uint16) *requestDeviceServer {
+	t.Helper()
+	s := &requestDeviceServer{}
+	s.Server = httptest.NewUnstartedServer(nethttp.HandlerFunc(func(nethttp.ResponseWriter, *nethttp.Request) { s.hits.Add(1) }))
+	s.TLS = &tls.Config{Certificates: []tls.Certificate{requestDeviceCert}, MinVersion: minV, MaxVersion: maxV}
+	s.StartTLS()
+	t.Cleanup(s.Close)
+	return s
+}
+
+// requestDeviceWith builds an onboarded generic_http device for base with
+// extra settings.
+func requestDeviceWith(t *testing.T, base string, extra map[string]inventory.PropertyValue) (inventory.InventoryItem, error) {
+	t.Helper()
+	props := map[string]inventory.PropertyValue{
+		generic.BaseURLProperty:      base,
+		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property(),
+	}
+	for k, v := range extra {
+		props[k] = v
+	}
+	return generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
+}
+
+// TestRequestDevice_NoDowngradeUnlessAllowed: a device API that speaks
+// only TLS 1.0 is not reached by default, and with the record's flags it
+// is, the run recording the warning.
+func TestRequestDevice_NoDowngradeUnlessAllowed(t *testing.T) {
+	srv := tlsDeviceServer(t, tls.VersionTLS10, tls.VersionTLS10)
+	plain, err := requestDeviceWith(t, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := http.Request(context.Background(), newRequestContext(), plain, map[string]any{"url": "/items"}); err == nil || srv.hits.Load() != 0 {
+		t.Fatalf("a default device reached a TLS 1.0 API: err %v, %d requests", err, srv.hits.Load())
+	}
+	allowed, err := requestDeviceWith(t, srv.URL, map[string]inventory.PropertyValue{devicetls.MinVersionProperty: "1.0", devicetls.AllowDeprecatedProperty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := newRequestContext()
+	if _, err := http.Request(context.Background(), rc, allowed, map[string]any{"url": "/items"}); err != nil {
+		t.Fatal(err)
+	}
+	warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "RFC 8996") {
+		t.Errorf("warnings %q", warnings)
+	}
+}
+
+// TestRequestDevice_PlaintextCredentialOnlyWhenAllowed: a device with an
+// http:// base URL and a credential mode is refused without the flag; with
+// it the credential is sent and the run records the rotation warning.
+func TestRequestDevice_PlaintextCredentialOnlyWhenAllowed(t *testing.T) {
+	var sent string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(_ nethttp.ResponseWriter, r *nethttp.Request) { sent = r.Header.Get("Authorization") }))
+	defer srv.Close()
+	if _, err := requestDeviceWith(t, srv.URL, map[string]inventory.PropertyValue{generic.HTTPAuthProperty: httpapi.AuthBearer}); err == nil {
+		t.Fatal("a plain-HTTP credential was accepted without its flag")
+	}
+	dev, err := requestDeviceWith(t, srv.URL, map[string]inventory.PropertyValue{generic.HTTPAuthProperty: httpapi.AuthBearer, httpapi.AllowPlaintextCredentialsProperty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := requestSecretsContext{newRequestContext(), map[string]string{"password": "tok"}}
+	if _, err := http.Request(context.Background(), rc, dev, map[string]any{"url": "/items"}); err != nil {
+		t.Fatal(err)
+	}
+	if sent != "Bearer tok" {
+		t.Errorf("the device saw authorization %q", sent)
+	}
+	warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "rotate the credential") {
+		t.Errorf("warnings %q", warnings)
+	}
+}
+
+// TestRequestDevice_TLSRefusalsSendNothing: a device whose record asks for
+// mutual TLS with no stored certificate is refused before a byte is sent,
+// and so is a call whose warning cannot be recorded, since a weakened call
+// that could not say so must not run.
+func TestRequestDevice_TLSRefusalsSendNothing(t *testing.T) {
+	srv := tlsDeviceServer(t, tls.VersionTLS12, 0)
+	mtls, err := requestDeviceWith(t, srv.URL, map[string]inventory.PropertyValue{devicetls.ClientCertificateProperty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := http.Request(context.Background(), newRequestContext(), mtls, map[string]any{"url": "/items"}); err == nil || !strings.Contains(err.Error(), "no client certificate") {
+		t.Errorf("mutual TLS with no stored certificate: %v", err)
+	}
+
+	weakened, err := requestDeviceWith(t, srv.URL, map[string]inventory.PropertyValue{devicetls.AllowLegacyCiphersProperty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := newRequestContext()
+	rc.failOn = sdk.StatWarnings
+	if _, err := http.Request(context.Background(), rc, weakened, map[string]any{"url": "/items"}); err == nil {
+		t.Error("a call whose warning could not be recorded ran")
+	}
+	if n := srv.hits.Load(); n != 0 {
+		t.Errorf("the device received %d requests", n)
 	}
 }

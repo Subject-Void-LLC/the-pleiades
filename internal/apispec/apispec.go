@@ -546,6 +546,7 @@ var onboardResultSchema = map[string]any{
 		"removed":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"facts":          map[string]any{"type": "object", "description": "Bounded text the device reported, such as a NETCONF server's capability URNs or a gRPC server's services."},
 		"changed":        map[string]any{"type": "boolean", "description": "Whether anything was written."},
+		"warnings":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it)."},
 		"error":          map[string]any{"type": "string", "description": "Why the probe proved nothing, when it did not."},
 	},
 }

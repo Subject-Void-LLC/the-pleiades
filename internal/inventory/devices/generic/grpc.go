@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -23,6 +24,7 @@ const (
 type GRPC struct {
 	*record.Base
 	host string
+	tls  devicetls.Settings
 }
 
 // NewGRPC builds a generic_grpc device from rec, refusing a target that
@@ -35,16 +37,26 @@ func NewGRPC(rec record.Record) (inventory.InventoryItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", TypeGRPC, rec.Name, err)
 	}
-	if raw, present := rec.Properties[GRPCPlaintextProperty]; present {
-		if _, ok := raw.(bool); !ok {
-			return nil, fmt.Errorf("%s %s: property %s must be true or false", TypeGRPC, rec.Name, GRPCPlaintextProperty)
-		}
+	plaintext, err := strictBool(rec.Properties, GRPCPlaintextProperty)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", TypeGRPC, rec.Name, err)
+	}
+	settings, err := deviceTLS(rec, !plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", TypeGRPC, rec.Name, err)
+	}
+	// gRPC runs over HTTP/2, which requires TLS 1.2 and forbids the legacy
+	// suites (RFC 7540 section 9.2), so neither weakening could ever take
+	// effect: a flag that can do nothing is refused, not ignored.
+	if settings.Deprecated() || settings.AllowLegacyCiphers {
+		return nil, fmt.Errorf("%s %s: gRPC runs over HTTP/2, which requires TLS 1.2 and forbids legacy cipher suites, so %s and %s cannot apply",
+			TypeGRPC, rec.Name, devicetls.AllowDeprecatedProperty, devicetls.AllowLegacyCiphersProperty)
 	}
 	caps, err := declared(TypeGRPC, rec, []capability.Name{capability.NameNetworkAddressable})
 	if err != nil {
 		return nil, err
 	}
-	return &GRPC{Base: record.NewBase(rec, caps), host: host}, nil
+	return &GRPC{Base: record.NewBase(rec, caps), host: host, tls: settings}, nil
 }
 
 // ValidateGRPCTarget checks target is host:port and returns the host. A
@@ -87,6 +99,11 @@ func (g *GRPC) GRPCTarget() string {
 func (g *GRPC) GRPCPlaintext() bool {
 	plain, _ := g.Properties().Bool(GRPCPlaintextProperty)
 	return plain
+}
+
+// TLSSettings returns the device's validated TLS settings.
+func (g *GRPC) TLSSettings() devicetls.Settings {
+	return g.tls
 }
 
 // IPAddress returns the target's host.

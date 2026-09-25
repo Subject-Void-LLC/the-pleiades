@@ -5852,6 +5852,13 @@
                     "type": {
                       "description": "The device's generic type.",
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"
@@ -5977,6 +5984,13 @@
                     "type": {
                       "description": "The device's generic type.",
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"

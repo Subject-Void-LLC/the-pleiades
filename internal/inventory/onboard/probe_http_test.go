@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -28,8 +29,8 @@ func TestHTTPProbe_CredentialStaysOnItsOrigin(t *testing.T) {
 	srv := httptest.NewTLSServer(http.RedirectHandler(other.URL, http.StatusFound))
 	defer srv.Close()
 
-	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBearer})
-	got, err := httpProber{client: srv.Client()}.Probe(context.Background(), dev, map[string]string{"password": "tok"})
+	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBearer})
+	got, err := httpProber{}.Probe(context.Background(), dev, map[string]string{"password": "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +68,9 @@ func TestHTTPProbe_ReadsTheOpenAPIDocument(t *testing.T) {
 	}))
 	defer srv.Close()
 	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{
-		generic.BaseURLProperty: srv.URL + "/api", generic.HTTPAuthProperty: httpapi.AuthBearer, generic.OpenAPIPathProperty: "/openapi.json",
+		devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + "/api", generic.HTTPAuthProperty: httpapi.AuthBearer, generic.OpenAPIPathProperty: "/openapi.json",
 	})
-	got, err := httpProber{client: srv.Client()}.Probe(context.Background(), dev, map[string]string{"password": "tok"})
+	got, err := httpProber{}.Probe(context.Background(), dev, map[string]string{"password": "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +88,8 @@ func TestHTTPProbe_ModeWithoutItsCredentialIsRefused(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
 	defer srv.Close()
-	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic})
-	if _, err := (httpProber{client: srv.Client()}).Probe(context.Background(), dev, nil); err == nil || hits.Load() != 0 {
+	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic})
+	if _, err := (httpProber{}).Probe(context.Background(), dev, nil); err == nil || hits.Load() != 0 {
 		t.Fatalf("err %v after %d requests, want a refusal before any", err, hits.Load())
 	}
 }

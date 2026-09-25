@@ -27,13 +27,22 @@ func ValidAuth(mode string) bool {
 	return mode == AuthNone || mode == AuthBasic || mode == AuthBearer
 }
 
+// AllowPlaintextCredentialsProperty is the per-device flag that lets a
+// stored credential cross the network unencrypted, to an http:// API.
+const AllowPlaintextCredentialsProperty = "http_allow_plaintext_credentials"
+
 // ValidateBaseURL parses raw as a device's API base URL. It must be http
 // or https with a host. User information is refused, since a credential
 // belongs in the credential store and not in inventory; a query or
 // fragment is refused, since a relative URL is joined to the base and
-// either would be dropped or duplicated. A credential mode other than none
-// needs https, so the credential never crosses the network in the clear.
-func ValidateBaseURL(raw, auth string) (*url.URL, error) {
+// either would be dropped or duplicated.
+//
+// A credential mode other than none needs https unless allowPlaintext
+// says, for this one device, that sending the credential in the clear is
+// accepted (PlaintextWarning then says so at every use). allowPlaintext
+// on a URL that sends no credential in the clear allows nothing, and is
+// refused as the contradiction it is.
+func ValidateBaseURL(raw, auth string, allowPlaintext bool) (*url.URL, error) {
 	if raw == "" {
 		return nil, errors.New("the base URL is empty")
 	}
@@ -55,10 +64,26 @@ func ValidateBaseURL(raw, auth string) (*url.URL, error) {
 		return nil, errors.New("the base URL has a query or fragment")
 	case !ValidAuth(auth):
 		return nil, fmt.Errorf("the credential mode must be %s, %s or %s", AuthNone, AuthBasic, AuthBearer)
-	case auth != AuthNone && u.Scheme != "https":
-		return nil, fmt.Errorf("%s authentication needs an https base URL", auth)
+	case auth != AuthNone && u.Scheme != "https" && !allowPlaintext:
+		return nil, fmt.Errorf("%s authentication over http:// sends the credential unencrypted: use https, or set %s to true for this device, knowing anyone on the network path can read it",
+			auth, AllowPlaintextCredentialsProperty)
+	case allowPlaintext && (auth == AuthNone || u.Scheme == "https"):
+		return nil, fmt.Errorf("%s is true and this device sends no credential over http://, so it allows nothing: remove it", AllowPlaintextCredentialsProperty)
 	}
 	return u, nil
+}
+
+// SendsPlaintextCredential reports whether a request to base with auth
+// carries a credential unencrypted.
+func SendsPlaintextCredential(base *url.URL, auth string) bool {
+	return auth != AuthNone && base.Scheme == "http"
+}
+
+// PlaintextWarning says what sending the named device's credential over
+// http:// means, and what to do about it.
+func PlaintextWarning(device string) string {
+	return fmt.Sprintf("device %q sends its credential over unencrypted http:// (%s): anyone on the network path can read it; rotate the credential, and move the device to https:// when it can",
+		device, AllowPlaintextCredentialsProperty)
 }
 
 // Join resolves ref, a path relative to the device's API, against base.

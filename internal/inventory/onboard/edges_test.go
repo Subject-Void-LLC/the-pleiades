@@ -22,6 +22,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -95,11 +96,11 @@ func TestHTTPProbe_Refusals(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	p := httpProber{client: srv.Client()}
+	p := httpProber{}
 	for name, props := range map[string]map[string]inventory.PropertyValue{
-		"server error":   {generic.BaseURLProperty: srv.URL + "/broken"},
-		"too large":      {generic.BaseURLProperty: srv.URL + "/huge"},
-		"not an OpenAPI": {generic.BaseURLProperty: srv.URL + "/ok", generic.OpenAPIPathProperty: "/openapi.json"},
+		"server error":   {devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + "/broken"},
+		"too large":      {devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + "/huge"},
+		"not an OpenAPI": {devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + "/ok", generic.OpenAPIPathProperty: "/openapi.json"},
 	} {
 		if _, err := p.Probe(context.Background(), build(t, generic.TypeHTTP, props), nil); err == nil {
 			t.Errorf("%s proved the API", name)

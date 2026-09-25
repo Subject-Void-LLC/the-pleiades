@@ -27,6 +27,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
@@ -109,4 +110,33 @@ func init() {
 	record.RegisterType(TypeNetconf, NewNetconf)
 	record.RegisterType(TypeHTTP, NewHTTP)
 	record.RegisterType(TypeGRPC, NewGRPC)
+}
+
+// deviceTLS reads rec's TLS settings. Where the connection has no TLS (an
+// http:// base URL, a plaintext gRPC target), any TLS setting is refused
+// rather than ignored: it would describe protection the device does not
+// get.
+func deviceTLS(rec record.Record, usesTLS bool) (devicetls.Settings, error) {
+	if !usesTLS {
+		for _, key := range devicetls.Properties() {
+			if _, present := rec.Properties[key]; present {
+				return devicetls.Settings{}, fmt.Errorf("property %s applies to a TLS connection, and this device's has none", key)
+			}
+		}
+	}
+	return devicetls.Parse(inventory.NewProperties(rec.Properties))
+}
+
+// strictBool reads key as a boolean, false when absent; anything else is
+// refused, so a setting that weakens nothing by accident reads as true.
+func strictBool(props map[string]inventory.PropertyValue, key string) (bool, error) {
+	v, present := props[key]
+	if !present {
+		return false, nil
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("property %s must be true or false", key)
+	}
+	return b, nil
 }

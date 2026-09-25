@@ -24,6 +24,10 @@ import (
 type Probed struct {
 	Capabilities []capability.Name
 	Facts        map[string]any
+	// Warnings says what each weakening the device's record allows means
+	// (a deprecated TLS version, legacy ciphers, a credential over plain
+	// HTTP). They are reported with the result, never stored as facts.
+	Warnings []string
 }
 
 // Prober proves what a device of one generic type can do.

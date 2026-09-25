@@ -13,7 +13,7 @@ import (
 
 func mustBase(t testing.TB, raw string) *url.URL {
 	t.Helper()
-	u, err := httpapi.ValidateBaseURL(raw, httpapi.AuthBasic)
+	u, err := httpapi.ValidateBaseURL(raw, httpapi.AuthBasic, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +128,7 @@ func TestValidateBaseURL(t *testing.T) {
 		{"https://a.example/v2", httpapi.AuthBasic, true},
 		{"http://a.example", httpapi.AuthNone, true},
 		{"http://a.example", httpapi.AuthBearer, false},
+		{"http://a.example", httpapi.AuthBasic, false},
 		{"", httpapi.AuthNone, false},
 		{"https://a.example/\x7f", httpapi.AuthNone, false},
 		{"https://a.example/%zz", httpapi.AuthNone, false},
@@ -138,9 +139,31 @@ func TestValidateBaseURL(t *testing.T) {
 		{"https://a.example/?", httpapi.AuthNone, false},
 		{"https://a.example", "digest", false},
 	} {
-		if _, err := httpapi.ValidateBaseURL(tc.raw, tc.auth); (err == nil) != tc.ok {
+		if _, err := httpapi.ValidateBaseURL(tc.raw, tc.auth, false); (err == nil) != tc.ok {
 			t.Errorf("ValidateBaseURL(%q, %q): %v, want ok=%v", tc.raw, tc.auth, err, tc.ok)
 		}
+	}
+	// The explicit allow: a credential over http:// only with the flag,
+	// and the flag refused where it allows nothing.
+	for _, tc := range []struct {
+		raw, auth string
+		ok        bool
+	}{
+		{"http://a.example", httpapi.AuthBasic, true},
+		{"http://a.example", httpapi.AuthBearer, true},
+		{"http://a.example", httpapi.AuthNone, false},
+		{"https://a.example", httpapi.AuthBasic, false},
+	} {
+		if _, err := httpapi.ValidateBaseURL(tc.raw, tc.auth, true); (err == nil) != tc.ok {
+			t.Errorf("ValidateBaseURL(%q, %q, allowed): %v, want ok=%v", tc.raw, tc.auth, err, tc.ok)
+		}
+	}
+	plain, _ := url.Parse("http://a.example")
+	if !httpapi.SendsPlaintextCredential(plain, httpapi.AuthBasic) || httpapi.SendsPlaintextCredential(plain, httpapi.AuthNone) {
+		t.Error("SendsPlaintextCredential is wrong")
+	}
+	if w := httpapi.PlaintextWarning("api1"); !strings.Contains(w, "rotate the credential") || !strings.Contains(w, httpapi.AllowPlaintextCredentialsProperty) {
+		t.Errorf("the warning %q does not say to rotate, or name its flag", w)
 	}
 	a, _ := url.Parse("http://a.example")
 	b, _ := url.Parse("http://a.example:80/x")

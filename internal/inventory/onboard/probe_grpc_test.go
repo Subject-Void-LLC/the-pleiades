@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"math/big"
 	"net"
 	"slices"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -123,7 +125,7 @@ func TestGRPCProbe_PlaintextNeverCarriesACredential(t *testing.T) {
 // TestGRPCProbe_TLSWithCredential sends the stored credential as a bearer
 // token over a verified TLS connection.
 func TestGRPCProbe_TLSWithCredential(t *testing.T) {
-	cert, pool := selfSigned(t)
+	cert, _ := selfSigned(t)
 	var got string
 	srv := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})),
@@ -134,8 +136,8 @@ func TestGRPCProbe_TLSWithCredential(t *testing.T) {
 		}))
 	healthpb.RegisterHealthServer(srv, health.NewServer())
 	addr := grpcServer(t, srv)
-	p := grpcProber{tls: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
-	if _, err := p.Probe(context.Background(), grpcDevice(t, addr, false), map[string]string{"password": "tok"}); err != nil {
+	pinnedDev := build(t, generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: addr, devicetls.CAPEMProperty: certPEM(cert)})
+	if _, err := (grpcProber{}).Probe(context.Background(), pinnedDev, map[string]string{"password": "tok"}); err != nil {
 		t.Fatal(err)
 	}
 	if got != "Bearer tok" {
@@ -173,4 +175,9 @@ func selfSigned(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	pool := x509.NewCertPool()
 	pool.AddCert(leaf)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, pool
+}
+
+// certPEM is cert's leaf as PEM, for a device's tls_ca_pem.
+func certPEM(cert tls.Certificate) string {
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}))
 }

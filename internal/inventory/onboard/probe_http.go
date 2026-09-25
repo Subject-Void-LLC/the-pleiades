@@ -16,6 +16,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -23,12 +24,7 @@ import (
 // maxOpenAPIBytes bounds the OpenAPI document the probe reads.
 const maxOpenAPIBytes = 4 << 20
 
-type httpProber struct {
-	// client is replaced by tests that serve a certificate the system
-	// does not trust; nil means http.DefaultTransport's settings, with
-	// certificate verification on.
-	client *http.Client
-}
+type httpProber struct{}
 
 func init() { Register(generic.TypeHTTP, httpProber{}) }
 
@@ -41,20 +37,33 @@ type openAPIPather interface {
 }
 
 // Probe makes one authenticated GET of the base URL, and of the OpenAPI
-// document when the record names one. TLS certificates are verified and no
-// redirect is followed, so the credential reaches the base URL's origin
-// and nowhere else. An answer proves the API; a refused credential (401 or
-// 403) or a server error does not.
+// document when the record names one. TLS is the device's own
+// (pkg/devicetls: certificates always verified, a client certificate when
+// the record presents one) and no redirect is followed, so the credential
+// reaches the base URL's origin and nowhere else. An answer proves the
+// API; a refused credential (401 or 403) or a server error does not.
+// Every weakening the record allows comes back as a warning.
 func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
 	dev, ok := device.(capability.HTTPAPICapable)
 	if !ok {
 		return Probed{}, errors.New("the device names no HTTP API")
 	}
-	base, err := httpapi.ValidateBaseURL(dev.HTTPBaseURL(), dev.HTTPAuth())
+	base, err := httpapi.ValidateBaseURL(dev.HTTPBaseURL(), dev.HTTPAuth(), dev.HTTPAllowPlaintextCredentials())
 	if err != nil {
 		return Probed{}, err
 	}
-	client := p.httpClient()
+	settings := devicetls.For(device)
+	var cfg *tls.Config
+	if base.Scheme == "https" {
+		if cfg, err = settings.Config(secrets); err != nil {
+			return Probed{}, err
+		}
+	}
+	warnings := settings.Warnings(device.Name())
+	if httpapi.SendsPlaintextCredential(base, dev.HTTPAuth()) {
+		warnings = append(warnings, httpapi.PlaintextWarning(device.Name()))
+	}
+	client := p.httpClient(cfg)
 
 	resp, _, err := p.get(ctx, client, base, dev.HTTPAuth(), secrets, 64<<10)
 	if err != nil {
@@ -66,6 +75,7 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	}
 	if resp.TLS != nil {
 		facts["tls_version"] = factText(tls.VersionName(resp.TLS.Version))
+		facts["tls_cipher_suite"] = factText(tls.CipherSuiteName(resp.TLS.CipherSuite))
 	}
 
 	if pather, ok := device.(openAPIPather); ok && pather.OpenAPIPath() != "" {
@@ -85,17 +95,19 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 			facts[k] = v
 		}
 	}
-	return Probed{Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: facts}, nil
+	return Probed{Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: facts, Warnings: warnings}, nil
 }
 
-// httpClient returns the probe's client: no redirects followed.
-func (p httpProber) httpClient() *http.Client {
-	c := &http.Client{}
-	if p.client != nil {
-		*c = *p.client
+// httpClient returns the probe's client: the device's TLS configuration
+// (nil for an http:// base URL) on a transport of its own, and no
+// redirects followed.
+func (httpProber) httpClient(cfg *tls.Config) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = cfg
+	return &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return c
 }
 
 // get sends one authenticated GET and reads at most limit bytes of the

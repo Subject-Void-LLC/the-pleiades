@@ -5,6 +5,7 @@ package onboard
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
@@ -63,14 +65,10 @@ func staticSecrets(creds map[string]string) SecretsFunc {
 	return func(context.Context, inventory.InventoryItem) (map[string]string, error) { return creds, nil }
 }
 
-// trusting returns a lookup whose HTTP prober trusts srv's certificate.
-func trusting(srv *httptest.Server) func(string) (Prober, bool) {
-	return func(t string) (Prober, bool) {
-		if t == generic.TypeHTTP {
-			return httpProber{client: srv.Client()}, true
-		}
-		return Lookup(t)
-	}
+// caPEM is srv's certificate as the PEM a device's tls_ca_pem pins, which
+// is how an operator trusts a device's private authority.
+func caPEM(srv *httptest.Server) string {
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
 }
 
 var fixedNow = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC) }
@@ -83,7 +81,7 @@ var fixedNow = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, tim
 func TestOnboard_DiscoveredToActive(t *testing.T) {
 	srv := apiServer(t)
 	repo, dir := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
-		generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
+		devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
 	})
 	ctx := context.Background()
 	before, _ := repo.GetByName(ctx, "api1")
@@ -91,7 +89,7 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 		t.Fatalf("a new device is %s holding HTTPAPICapable=%v, want discovered without it", before.State(), before.HasCapability(capability.NameHTTPAPI))
 	}
 
-	res, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, trusting(srv))
+	res, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +115,7 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 		t.Errorf("the discovery was written to hosts.yaml:\n%s", hosts)
 	}
 
-	again, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, trusting(srv))
+	again, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,9 +131,9 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 func TestOnboard_FailedProbeLeavesOnboarding(t *testing.T) {
 	srv := apiServer(t)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
-		generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
+		devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
 	})
-	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "wrong"}), fixedNow, trusting(srv))
+	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "wrong"}), fixedNow, Lookup)
 	if err == nil || !strings.Contains(res.Error, "refused the credential") {
 		t.Fatalf("err %v, result %+v", err, res)
 	}

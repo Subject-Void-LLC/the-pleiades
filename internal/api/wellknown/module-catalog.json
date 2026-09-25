@@ -2439,7 +2439,7 @@
           "name": "url",
           "type": "string",
           "required": true,
-          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host."
+          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it."
         },
         {
           "name": "method",

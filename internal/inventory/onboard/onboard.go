@@ -68,7 +68,11 @@ type Result struct {
 	Removed       []string       `json:"removed"`
 	Facts         map[string]any `json:"facts"`
 	Changed       bool           `json:"changed"`
-	Error         string         `json:"error,omitempty"`
+	// Warnings says what each weakening the device's record allows means.
+	// It is never empty for a device reached over deprecated TLS, legacy
+	// ciphers or a plain-HTTP credential.
+	Warnings []string `json:"warnings"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // discoveryWriter and stateChanger are the mutators every item the factory
@@ -159,6 +163,7 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if err != nil {
 		return fail(res, err)
 	}
+	res.Warnings = probed.Warnings
 	res.Capabilities = names(next.Capabilities)
 	res.Added, res.Removed = diff(prev.Capabilities, next.Capabilities)
 	res.Facts = next.Facts
