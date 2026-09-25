@@ -40,12 +40,8 @@ type dialFunc func(ctx context.Context, addr string, config *ssh.ClientConfig) (
 // per-call budget while the SSH handshake that follows never receives a
 // single byte.
 func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-	dialCtx := ctx
-	if config.Timeout > 0 {
-		var cancel context.CancelFunc
-		dialCtx, cancel = context.WithTimeout(ctx, config.Timeout)
-		defer cancel()
-	}
+	dialCtx, cancel := handshakeContext(ctx, config)
+	defer cancel()
 
 	dialer := net.Dialer{Timeout: config.Timeout}
 	conn, err := dialer.DialContext(dialCtx, "tcp", addr)
@@ -53,31 +49,52 @@ func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
 
-	// ssh.NewClientConn below takes no context, so cancellation during
-	// the handshake (from the caller's ctx or from the config.Timeout
-	// fallback above) is enforced by closing conn out from under it on a
-	// separate goroutine. That unblocks the handshake with an I/O error
-	// instead of letting it hang past the effective deadline. The
-	// goroutine exits as soon as either dialCtx is done or the handshake
-	// finishes, since done is closed via defer either way.
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-dialCtx.Done():
-			// A Close error here is not actionable: this goroutine exists
-			// only to unblock the handshake below, and NewClientConn is
-			// what surfaces the resulting I/O error to the caller.
-			_ = conn.Close() // #nosec G104 -- intentional, see comment above
-		case <-done:
-		}
-	}()
+	defer closeOnDone(dialCtx, conn)()
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		return nil, fmt.Errorf("ssh handshake: %w", err)
 	}
 	return ssh.NewClient(sshConn, chans, reqs), nil
+}
+
+// handshakeContext returns ctx bounded by config.Timeout as well, when
+// one is set: the bound every SSH handshake here runs under, since a
+// caller passing context.Background() must still get a bounded dial.
+func handshakeContext(ctx context.Context, config *ssh.ClientConfig) (context.Context, context.CancelFunc) {
+	if config.Timeout > 0 {
+		return context.WithTimeout(ctx, config.Timeout)
+	}
+	return ctx, func() {}
+}
+
+// closeOnDone closes conn when ctx ends, until the returned stop is
+// called. ssh.NewClientConn takes no context, and a connection tunneled
+// through a hop supports no deadline, so closing conn out from under a
+// handshake is the one way to unblock it with an I/O error instead of
+// letting it hang past the effective deadline. The goroutine exits as
+// soon as either ctx is done or stop is called, and stop returns only once
+// it has: a caller that cancels ctx right after stop (every caller here,
+// through its deferred cancel) must not find the goroutine still choosing,
+// with both channels ready, and closing a connection that just succeeded.
+func closeOnDone(ctx context.Context, conn net.Conn) (stop func()) {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		select {
+		case <-ctx.Done():
+			// A Close error here is not actionable: this goroutine exists
+			// only to unblock the handshake, and NewClientConn is what
+			// surfaces the resulting I/O error to the caller.
+			_ = conn.Close() // #nosec G104 -- intentional, see comment above
+		case <-done:
+		}
+	}()
+	return func() {
+		close(done)
+		<-exited
+	}
 }
 
 // dialWithRetry attempts to dial addr, using dial, up to r.opts.MaxRetries
