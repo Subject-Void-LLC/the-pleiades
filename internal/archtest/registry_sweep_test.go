@@ -208,11 +208,10 @@ func TestImplementedCollectionCapabilitiesAreSatisfiable(t *testing.T) {
 // (because a device type was later wired to it for real) must be
 // removed, not left to accumulate.
 var acceptedUnsatisfiableCapabilities = map[capability.Name]string{
-	capability.NamePackageManager: `pkg/pkg.go's pkg.install/remove/upgrade dispatch onto pkg.apt.*/pkg.dnf.*, which carry this same exemption below; there is no separate disclosure needed for the generic dispatcher.`,
-	capability.NameApt:            `internal/catalog/pkg/apt/apt.go's own package doc: "no device type in this repository structurally implements it today ... That is settled, intentional architecture (package-manager family is genuinely per-distro data, unlike a service manager which has a safe universal default), not an oversight."`,
-	capability.NameDnf:            `internal/catalog/pkg/dnf/dnf.go's own package doc: "structurally implemented by no device type in this repository yet," citing apt.go's identical reasoning.`,
-	capability.NamePosixAccount:   `internal/catalog/identity/user/user.go and identity/group/group.go's own package docs: "no device type in this repository structurally implements it today, the same gap pkg/apt/apt.go documents ... That is settled, intentional architecture."`,
-	capability.NameFirewalld:      `internal/catalog/fw/firewalld/firewalld.go's own package doc, added by this same sweep after finding this one undocumented (unlike the four entries above, it was NOT previously disclosed anywhere -- see FAILURE_PATTERNS.md): firewalld is genuinely per-distro optional software, the same reasoning AptCapable/DnfCapable already establish, so it is documented rather than force-fit into linux.Server's unconditional baseline.`,
+	// Empty since 2026-09-24, when linux_server gained the accessors for
+	// AptCapable, DnfCapable, PackageManagerCapable, FirewalldCapable and
+	// PosixAccountCapable; every capability an implemented method requires
+	// is now satisfiable by some device type.
 }
 
 // TestAcceptedUnsatisfiableCapabilitiesAreNotStale proves every entry in

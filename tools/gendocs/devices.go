@@ -51,7 +51,10 @@ var handWrittenDevices = []struct {
 			"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
 			"NetworkAddressableCapable",
 		},
-		Conditional: []conditionalCapability{{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"}},
+		Conditional: []conditionalCapability{
+			{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"},
+			{Name: "FirewalldCapable", Property: "firewalld", Value: true},
+		},
 	},
 }
 
@@ -117,8 +120,11 @@ const conditionalNote = "A capability list marked with an asterisk is what that 
 	"port and a bare Telnet session are alternative ways to reach one device rather than three " +
 	"facts about it, so a device configured for one must not claim the others. `cisco_router` " +
 	"declares `NetconfCapable` only when `netconf_enabled` is true, and `linux_server` declares " +
-	"`FileTransferCapable` only when `file_transfer_root` names a directory. See each type's " +
-	"package documentation for which property enables which capability."
+	"`FileTransferCapable` only when `file_transfer_root` names a directory and `FirewalldCapable` " +
+	"only when `firewalld` is true. A `linux_server` gains `AptCapable` (or `DnfCapable`) and " +
+	"`PosixAccountCapable` from its classification: add it with `--classify " +
+	"linux_server,debian_family` (or `rhel_family`) and the package and account methods can reach " +
+	"it. See each type's package documentation for which property enables which capability."
 
 // markConditional renders a type's capability list, appending an asterisk
 // when hydrating that type with a bare Record does not in fact declare

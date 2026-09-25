@@ -49,31 +49,33 @@ func ResolveHostType(h HostSpec, rs *classification.RuleSet) (string, error) {
 
 // ResolveHostCapabilities returns the capability set h's Classify path
 // assigns (Phase 32's capability granularity decision), or nil with a nil
-// error when there is no Classify path to walk. It short-circuits on
-// h.Type exactly like ResolveHostType does, returning nil, nil without
-// touching Classify at all: TestHydrateHosts_TypeWinsOverClassify already
-// pins "Classify survives only as provenance and is never re-consulted
-// once Type is present" as a hard invariant (an intentionally
-// unresolvable Classify paired with a valid Type must not error), and
-// that invariant has to hold for capabilities too, not just Type, or the
-// two resolvers would disagree about what "provenance only" means for the
-// same HostSpec. The practical consequence: a host add-host persisted with
-// both Type and Classify does not gain classification-derived capabilities
-// on later hydration (its vendor constructor's baseline is all it gets);
-// only a HostSpec carrying Classify with no Type -- the hand-edited-YAML
-// case ResolveHostType's own doc comment already calls out -- exercises
-// this path. Callers that need a non-empty capability set regardless (a
-// vendor constructor's own baseline) are responsible for that, the same
-// way they are responsible for a resolved Type today.
+// error when there is no Classify path to walk.
+//
+// When h also has a Type (add-host always writes both), Type still wins,
+// as it does for ResolveHostType, and the path contributes capabilities
+// only when it resolves to that same type. A path that does not resolve,
+// or resolves to a different type, contributes nothing and is not an
+// error: TestHydrateHosts_TypeWinsOverClassify pins that a stale or
+// unresolvable Classify beside a valid Type never breaks hydration.
+//
+// This used to return nil whenever Type was set, treating the path as
+// provenance only. Since add-host writes both, every host classified at
+// add time lost its classification's capabilities on load: a
+// linux_server added with --classify linux_server,debian_family never
+// declared AptCapable, which is half of why pkg.apt.* could never run
+// (FAILURE_PATTERNS 344).
 func ResolveHostCapabilities(h HostSpec, rs *classification.RuleSet) ([]capability.Name, error) {
-	if h.Type != "" {
-		return nil, nil
-	}
 	if len(h.Classify) == 0 {
 		return nil, nil
 	}
 
 	result, err := rs.Classify(h.Classify)
+	if h.Type != "" {
+		if err != nil || result.Value.Type == nil || *result.Value.Type != h.Type {
+			return nil, nil
+		}
+		return result.Value.Capabilities, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("host %q: %w", h.Name, err)
 	}
