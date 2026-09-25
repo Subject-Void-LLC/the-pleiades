@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"google.golang.org/grpc"
@@ -125,6 +126,12 @@ func reflectServices(ctx context.Context, conn *grpc.ClientConn) (string, []stri
 }
 
 // listServices asks grpc.reflection.v1 for the services served.
+//
+// A Send that fails with io.EOF is not the answer: it means the server
+// already ended the stream, as a server without this service does at
+// once, and grpc-go puts the real status (Unimplemented) on the next
+// Recv. Returning the EOF instead made the fallback to v1alpha depend on
+// whether the server's refusal arrived before or after the Send.
 func listServices(ctx context.Context, conn *grpc.ClientConn) ([]string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -134,7 +141,7 @@ func listServices(ctx context.Context, conn *grpc.ClientConn) ([]string, error) 
 	}
 	if err := stream.Send(&reflectionpb.ServerReflectionRequest{
 		MessageRequest: &reflectionpb.ServerReflectionRequest_ListServices{ListServices: "*"},
-	}); err != nil {
+	}); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	resp, err := stream.Recv()
@@ -165,7 +172,7 @@ func listServicesAlpha(ctx context.Context, conn *grpc.ClientConn) ([]string, er
 	}
 	if err := stream.Send(&reflectionalpha.ServerReflectionRequest{
 		MessageRequest: &reflectionalpha.ServerReflectionRequest_ListServices{ListServices: "*"},
-	}); err != nil {
+	}); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	resp, err := stream.Recv()

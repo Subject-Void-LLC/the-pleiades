@@ -9772,3 +9772,26 @@ server can print (`cmd/pleiades/generic_release_gate_test.go`, with a comment sa
 **Lesson.** A readiness check proves what it can observe. On a shell-less image under Docker Desktop, a
 port wait observes the host proxy and nothing else; wait for something only the server itself can
 produce, such as its log line or an answer in its own protocol.
+
+## 347. A gRPC stream's Send returned EOF, and the probe read it as the answer
+
+**Symptom.** Found 2026-09-25 by the push gate's repeat pass, in Phase 111's own new test:
+`TestGRPCProbe_OlderReflectionOnly` failed with `server reflection: EOF` about twice in 500 runs under
+`-race`, and never in 300 runs without it. The test's server serves only reflection v1alpha, so the
+probe asks v1 first, expects Unimplemented, and falls back.
+
+**Root cause.** grpc-go's `ClientStream.SendMsg` returns `io.EOF` when the server has already ended the
+stream, and the stream's real status is then read from `RecvMsg`. A server that does not serve a
+method ends the stream at once with Unimplemented, so whether the client's `Send` raced ahead of that
+refusal decided the outcome: ahead, `Send` succeeded and `Recv` returned Unimplemented, which the probe
+handled; behind, `Send` returned `io.EOF`, which the probe returned as a failure without ever reading
+the status. Against a real server predating reflection v1 (grpc-java before 1.57), onboarding would
+have failed at random.
+
+**Fix.** Both reflection calls treat an `io.EOF` from `Send` as "read the status" and go on to `Recv`
+(`internal/inventory/onboard/probe_grpc.go`). 2,000 runs under `-race` pass, against 2 failures in 500
+before.
+
+**Lesson.** On a gRPC client stream, `Send` returning `io.EOF` is never the result: it says the stream
+is over and the result is on `Recv`. Any code that returns straight from a failed `Send` reports a
+race instead of the server's answer.
