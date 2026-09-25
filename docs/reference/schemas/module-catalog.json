@@ -2439,7 +2439,7 @@
           "name": "url",
           "type": "string",
           "required": true,
-          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make."
+          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host."
         },
         {
           "name": "method",
@@ -2522,6 +2522,10 @@
         {
           "name": "Post JSON to an API",
           "runbookYaml": "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n"
+        },
+        {
+          "name": "Call a device's own API with its stored credential",
+          "runbookYaml": "- name: Read the device's interfaces\n  http.request:\n    url: /interfaces\n"
         }
       ],
       "seeAlso": [

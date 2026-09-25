@@ -8,16 +8,19 @@
 // directly, since this Manifest's Status is StatusImplemented and Invoke
 // is set.
 //
-// # Nothing here touches a device
+// # A URL, or a path on the device's own API
 //
-// This is the first method in the catalog that opens no transport to the
-// target. It runs where the task runs, from the CLI on the Crawl tier or
-// from the runner on the Walk tier, and speaks to whatever URL the
-// runbook names using net/http. That is why its manifest declares no
-// transport and no capability: an arbitrary HTTP call has no device-side
-// prerequisite to check, and declaring one would refuse tasks that are
-// perfectly runnable. The device argument is accepted and ignored, since
-// the signature is collection.Method's and every method shares it.
+// This method opens no transport to the target. It runs where the task
+// runs, from the CLI on the Crawl tier or from the runner on the Walk
+// tier, and speaks to whatever URL the runbook names using net/http. That
+// is why its manifest declares no transport and no capability: an
+// arbitrary HTTP call has no device-side prerequisite to check, and
+// declaring one would refuse tasks that are perfectly runnable.
+//
+// A url that is a path instead (request_device.go) calls the target
+// device's own API: a generic_http device onboarding proved serves one.
+// That is the one case the device matters, and the one case a credential
+// is sent: the device's own, joined to its own origin.
 //
 // Because this package lives under internal/, it is reachable only from
 // code inside this module or a fork of it: Go's internal/ visibility rule
@@ -40,6 +43,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -155,7 +159,7 @@ func init() {
 // that changes state on a GET breaks HTTP's own contract, and a check
 // cannot see that any more than a real run can.
 func CheckRequest(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	if _, err := requestBuild(params); err != nil {
+	if _, err := requestBuild(params, device); err != nil {
 		return collection.Result{}, fmt.Errorf("http.request: %w", err)
 	}
 	if err := requestCheckCall(params); err != nil {
@@ -189,7 +193,7 @@ func requestDoc() collection.Doc {
 		Summary:     "Makes an HTTP request and reports its status code and body.",
 		Description: "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file). Only a request in a safe method (GET, HEAD, OPTIONS or TRACE) can be checked, and a check sends it for real, since reading is all it does. Any other method may change something on the server, so such a call is named as unchecked and sends nothing, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
-			{Name: requestParamURL, Type: "string", Required: true, Description: "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make."},
+			{Name: requestParamURL, Type: "string", Required: true, Description: "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host."},
 			{Name: requestParamMethod, Type: "string", Default: "GET", Description: "The HTTP method. It is upper-cased before being sent, because HTTP method names are case sensitive and a server given get will answer 501 rather than doing what the author meant."},
 			{Name: requestParamBody, Type: "string", Description: "The request body, sent exactly as written. Set its Content-Type through headers: nothing here inspects the body or guesses a type for it."},
 			{Name: requestParamHeaders, Type: "dict", Description: "Request headers as a mapping of name to value. Every value must be text, so a numeric one is quoted in the runbook. A Host header is honored as the request's real Host rather than added as an ordinary header, which is what makes name-based routing testable against an address."},
@@ -213,6 +217,10 @@ func requestDoc() collection.Doc {
 			{
 				Name:        "Post JSON to an API",
 				RunbookYAML: "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n",
+			},
+			{
+				Name:        "Call a device's own API with its stored credential",
+				RunbookYAML: "- name: Read the device's interfaces\n  http.request:\n    url: /interfaces\n",
 			},
 		},
 		SeeAlso: []string{"exec.command", "pleiades.builtin.wait.port"},
@@ -242,10 +250,10 @@ func requestDoc() collection.Doc {
 // here, so the honest answer is that something may well have. Ansible's
 // uri module reports no change for anything at all, which is the wrong
 // half of that trade.
-func Request(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	const fqcn = "http.request"
 
-	spec, err := requestBuild(params)
+	spec, err := requestBuild(params, device)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -260,6 +268,11 @@ func Request(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryIt
 	req, err := spec.request(ctx)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if spec.device != nil {
+		if err := httpapi.Authorize(req, spec.device.auth, rc.InjectSecrets()); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	started := time.Now()
@@ -303,6 +316,10 @@ type requestSpec struct {
 	statusCodes   []int
 	timeout       time.Duration
 	validateCerts bool
+
+	// device is set when url is a path on the target device's API
+	// (request_device.go), and nil for a full URL.
+	device *requestDevice
 }
 
 // requestBuild reads and checks everything this method needs from the
@@ -320,10 +337,17 @@ func requestMethod(params map[string]any) string {
 	return requestDefaultMethod
 }
 
-func requestBuild(params map[string]any) (requestSpec, error) {
+func requestBuild(params map[string]any, device inventory.InventoryItem) (requestSpec, error) {
 	var none requestSpec
 
-	target, err := requestURL(params)
+	var target string
+	var onDevice *requestDevice
+	var err error
+	if raw := sdk.StringParam(params, requestParamURL); requestIsDevicePath(raw) {
+		target, onDevice, err = requestDeviceURL(device, raw)
+	} else {
+		target, err = requestURL(params)
+	}
 	if err != nil {
 		return none, err
 	}
@@ -343,6 +367,11 @@ func requestBuild(params map[string]any) (requestSpec, error) {
 	if err != nil {
 		return none, err
 	}
+	if onDevice != nil {
+		if err := onDevice.check(headers, validateCerts); err != nil {
+			return none, err
+		}
+	}
 
 	return requestSpec{
 		url:           target,
@@ -352,6 +381,7 @@ func requestBuild(params map[string]any) (requestSpec, error) {
 		statusCodes:   statusCodes,
 		timeout:       timeout,
 		validateCerts: validateCerts,
+		device:        onDevice,
 	}, nil
 }
 
@@ -569,7 +599,11 @@ func (s requestSpec) client() *nethttp.Client {
 			MinVersion:         tls.VersionTLS12,
 		}
 	}
-	return &nethttp.Client{Transport: transport}
+	client := &nethttp.Client{Transport: transport}
+	if s.device != nil {
+		client.CheckRedirect = s.device.checkRedirect
+	}
+	return client
 }
 
 // accepts reports whether code is one of the statuses this task counts as
