@@ -40,6 +40,14 @@ const (
 // its externally reachable host and port.
 func startReleaseGateContainer(t *testing.T) (string, int) {
 	t.Helper()
+	_, host, port := startReleaseGateSSHD(t)
+	return host, port
+}
+
+// startReleaseGateSSHD is startReleaseGateContainer that also returns the
+// container, for a test that reads the server's own log.
+func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) {
+	t.Helper()
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        testsupport.SSHDImage,
@@ -85,7 +93,7 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 	if err != nil {
 		t.Fatalf("failed to get mapped port: %v", err)
 	}
-	return host, int(mapped.Num())
+	return container, host, int(mapped.Num())
 }
 
 // captureRealHostKey opens a bootstrap connection to addr using a

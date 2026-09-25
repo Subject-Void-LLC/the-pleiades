@@ -12,6 +12,18 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// resetConnection is meta: reset_connection's native call. It closes the
+// connection a run keeps open to the device, as Ansible's closes its
+// persistent one, so the next task logs in again.
+var resetConnection = &Entry{
+	Module: "ansible.builtin.meta",
+	Default: &Call{
+		FQCN:  "pleiades.builtin.connection.reset",
+		Class: ClassObserve,
+		Basis: "it closes the platform's own connection and changes nothing on the device",
+	},
+}
+
 // engineModule handles spec when its module is an engine feature,
 // reporting whether it did.
 func (t *translator) engineModule(spec leafSpec, ctx taskCtx) ([]*outTask, bool) {
@@ -37,6 +49,10 @@ func (t *translator) engineModule(spec leafSpec, ctx taskCtx) ([]*outTask, bool)
 			case "flush_handlers", "noop", "refresh_inventory", "clear_facts", "clear_host_errors":
 				t.raise("meta.dropped", spec.modAt, name, "meta: "+v.Value+" has nothing to run")
 				return nil, true
+			case "reset_connection":
+				if len(ctx.blockers) == 0 && len(spec.blocks) == 0 && !spec.hasLoop {
+					return t.convertOnce(resetConnection, spec, nil, nil, "", ctx), true
+				}
 			}
 		}
 		id := t.raise("meta.unsupported", spec.modAt, name, "this meta action changes how the run proceeds")

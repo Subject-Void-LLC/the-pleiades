@@ -59,9 +59,9 @@ func runRunbook(args []string) error {
 	// --verbose` would silently treat --verbose as a second positional
 	// and fail with a usage error naming neither the flag nor why. The
 	// runbook path is the thing a person types first.
-	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true})
+	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true, "persist-connections": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--verbose] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--persist-connections=false] [--verbose] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -80,6 +80,7 @@ func runRunbook(args []string) error {
 		return nil
 	})
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
+	persist := fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
 	selection := tagFlags(fs)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -260,6 +261,17 @@ func runRunbook(args []string) error {
 	inventoryPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
 	inventoryRepo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 
+	// One SSH connection per device, kept open between that device's
+	// tasks and closed when the run ends, unless --persist-connections=false
+	// (off for the whole run) or the device's own ladder turns it off
+	// (engine.PersistFor). Off at either wins. A nil pool is every task
+	// logging in afresh, which is what a run did before this existed.
+	var pool *remoteexec.Pool
+	if *persist {
+		pool = remoteexec.NewPool(remoteexec.DefaultPoolIdle)
+		defer func() { _ = pool.Close() }() // closing only ends connections; nothing is left to report on
+	}
+
 	// The executor chain, innermost fallback last: a registered Collection
 	// method wins, then a transport-backed legacy fqcn, then the two engine
 	// keywords. Ordering matters only in that the Collection registry is
@@ -274,6 +286,7 @@ func runRunbook(args []string) error {
 			engine.NewBuiltinActionExecutor(),
 		),
 		engine.NewCredentialRunbookContext(credentials),
+		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 	)
 
 	executor := engine.NewExecutor(

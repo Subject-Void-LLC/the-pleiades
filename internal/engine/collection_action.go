@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // collectionActionExecutor runs a task whose FQCN names a registered
@@ -39,6 +40,11 @@ type collectionActionExecutor struct {
 	// invoke, when non-nil, replaces how a resolved, StatusImplemented
 	// method's body actually runs; see CollectionInvoker's own doc comment.
 	invoke CollectionInvoker
+
+	// pool and persist, set by WithConnectionPool, keep a device's SSH
+	// connections open between its tasks when persist admits the device.
+	pool    *remoteexec.Pool
+	persist PersistFunc
 }
 
 // CollectionInvoker replaces how a registered, StatusImplemented
@@ -207,7 +213,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
 	}
 
+	e.lendPool(ctx, rc, device)
 	result, err := method(ctx, rc, device, task.Params)
+	e.endLoginSession(desc, device, mode)
 	if err != nil {
 		return ActionResult{}, methodError(task.FQCN, mode, err)
 	}

@@ -22,6 +22,9 @@ func init() {
 			Status:               collection.StatusImplemented,
 			// It asks getent before it acts, so a check can predict through the same code (CheckModify).
 			SupportsCheck: true,
+			// It changes accounts or groups, which a login made before it does not
+			// see, so a connection kept open to the device is closed after it.
+			EndsLoginSession: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes: "A run that converged one or more attributes emits an identity.user.modify pinned to " +

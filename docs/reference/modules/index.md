@@ -20,11 +20,11 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `identity` | 6 | 6 |
 | `net` | 14 | 12 |
 | `pkg` | 9 | 9 |
-| `pleiades` | 1 | 1 |
+| `pleiades` | 2 | 2 |
 | `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **81** | **78** |
+| **total** | **82** | **79** |
 
 ## All methods
 
@@ -90,6 +90,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [pkg.install](pkg/install.md) | implemented | Makes sure a package is present, whichever package manager the device runs. |
 | [pkg.remove](pkg/remove.md) | implemented | Makes sure a package is absent, whichever package manager the device runs. |
 | [pkg.upgrade](pkg/upgrade.md) | implemented | Makes sure the newest available version of a package is installed, whichever package manager the device runs. |
+| [pleiades.builtin.connection.reset](pleiades/builtin/connection/reset.md) | implemented | Closes the SSH connection kept open to the device, so its next task logs in again. |
 | [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
 | [svc.disable](svc/disable.md) | implemented | Stops a service starting at boot, whichever service manager the device runs. |
 | [svc.enable](svc/enable.md) | implemented | Makes a service start at boot, whichever service manager the device runs. |

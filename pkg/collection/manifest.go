@@ -178,6 +178,15 @@ type Manifest struct {
 	// method, which gets the bare answer without it.
 	NoCheckReason string `json:"noCheckReason,omitempty"`
 
+	// EndsLoginSession reports that a real run of this method can change
+	// what a login to the device carries (the account's groups, its shell,
+	// the account itself), so a connection logged in before it no longer
+	// means what a fresh login would. After such a method runs, the engine
+	// closes any connection it kept open to that device, and the device's
+	// next task logs in again. It matters only when connections persist
+	// between tasks; without that every task logs in afresh anyway.
+	EndsLoginSession bool `json:"endsLoginSession,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.
