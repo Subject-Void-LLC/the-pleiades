@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -146,6 +147,11 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
 		payload.SSHPort = sshCapable.SSHPort()
 	}
+
+	// The job's step first, so a run that turned persistence off never
+	// reads the device's hierarchy for it; then the device's own ladder,
+	// through the same resolution the CLI uses. Off at either is off.
+	payload.PersistConnections = launch.PersistConnections(job.Fields) && engine.PersistFor(w.repo)(ctx, device)
 
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them

@@ -120,6 +120,8 @@ func main() {
 	switch routeFor(os.Args[1:]) {
 	case routeCollectionChild:
 		os.Exit(native.RunCollectionChild(context.Background()))
+	case routeCollectionSession:
+		os.Exit(native.RunCollectionSession(context.Background()))
 	case routeHealthcheck:
 		os.Exit(runHealthcheck(os.Args[1:]))
 	case routeVersion:

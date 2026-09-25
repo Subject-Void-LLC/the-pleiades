@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -67,6 +68,15 @@ func ServeChild(ctx context.Context, lookup LookupFunc, in io.Reader, response i
 // so a check requested across the boundary reaches Check and nothing else.
 // An unknown mode is refused before anything runs.
 func InvokeRequest(ctx context.Context, lookup LookupFunc, req wire.ChildRequest) wire.ChildResponse {
+	return InvokeRequestWithPool(ctx, lookup, req, nil)
+}
+
+// InvokeRequestWithPool is InvokeRequest for a child that serves many
+// requests in one process, as the Runner's per-dispatch session child
+// does: the method's RunbookContext lends SSH connections from pool, so
+// the dispatch's tasks against its one device share a login. A nil pool
+// is exactly InvokeRequest.
+func InvokeRequestWithPool(ctx context.Context, lookup LookupFunc, req wire.ChildRequest, pool *remoteexec.Pool) wire.ChildResponse {
 	desc, ok := lookup(req.FQCN)
 	if !ok {
 		return wire.ChildResponse{Error: fmt.Sprintf("collection method %q is not registered", req.FQCN)}
@@ -94,6 +104,7 @@ func InvokeRequest(ctx context.Context, lookup LookupFunc, req wire.ChildRequest
 	})
 
 	rc := NewRunbookContext(req.Secrets)
+	rc.pool = pool
 	// PLAN.md Section 17.5: zero the secret memory this process holds the
 	// instant after use, success or failure. Best-effort against this
 	// type's own storage; see RunbookContext's own doc comment for why a

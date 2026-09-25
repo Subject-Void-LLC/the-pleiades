@@ -55,8 +55,8 @@ import (
 // resolves to this test binary under `go test`, not to a real
 // cmd/runner-built binary.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == native.InternalCollectionRunnerArg {
-		os.Exit(native.RunCollectionChild(context.Background()))
+	if code, ok := native.RunChildFor(context.Background(), os.Args[1:]); ok {
+		os.Exit(code)
 	}
 	os.Exit(m.Run())
 }
@@ -71,7 +71,7 @@ const (
 // cmd/pleiades/ssh_release_gate_test.go's own identical helper exactly
 // (a separate copy, not an import: that one lives in package main_test of
 // a different binary, cmd/pleiades, which this package cannot reach).
-func startSSHContainer(t *testing.T) (string, int) {
+func startSSHContainer(t *testing.T) (testcontainers.Container, string, int) {
 	t.Helper()
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
@@ -103,7 +103,7 @@ func startSSHContainer(t *testing.T) (string, int) {
 	if err != nil {
 		t.Fatalf("failed to get mapped port: %v", err)
 	}
-	return host, int(mapped.Num())
+	return container, host, int(mapped.Num())
 }
 
 // captureRealHostKey mirrors cmd/pleiades/ssh_release_gate_test.go's own
@@ -143,6 +143,8 @@ func captureRealHostKey(t *testing.T, addr string) ssh.PublicKey {
 // so each test function stays focused on its own scenario instead of
 // repeating container/agent bring-up.
 type releaseGateHarness struct {
+	// sshd is the device's container, kept so a test can read its log.
+	sshd    testcontainers.Container
 	sshHost string
 	sshPort int
 	bus     event.Bus
@@ -234,7 +236,7 @@ func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFile
 	t.Helper()
 	ctx := context.Background()
 
-	sshHost, sshPort := startSSHContainer(t)
+	sshd, sshHost, sshPort := startSSHContainer(t)
 	addr := net.JoinHostPort(sshHost, strconv.Itoa(sshPort))
 
 	// A real known_hosts file, populated with the container's own real
@@ -288,7 +290,7 @@ func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFile
 	t.Cleanup(cancelAgent)
 	go func() { _ = agent.Run(agentCtx) }()
 
-	return &releaseGateHarness{sshHost: sshHost, sshPort: sshPort, bus: bus, js: js, adapter: adapter}
+	return &releaseGateHarness{sshd: sshd, sshHost: sshHost, sshPort: sshPort, bus: bus, js: js, adapter: adapter}
 }
 
 // startCheckAgent adds the check pull loop a check-capable Runner runs

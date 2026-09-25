@@ -160,6 +160,14 @@ type DispatchPayload struct {
 	// changes nothing about a real run.
 	ExternalChecks bool `json:"external_checks,omitempty"`
 
+	// PersistConnections is whether the Runner may keep one SSH connection
+	// to this device open between the dispatch's tasks, rather than
+	// logging in afresh for each. The Controller sets it only when both
+	// the job's own setting and the device's hierarchy allow it, so off at
+	// either wins. Absent or false, every task logs in afresh, which is
+	// what a Controller that predates this field gets.
+	PersistConnections bool `json:"persist_connections,omitempty"`
+
 	// Kind is the launch kind this dispatch is, which is what the Runner
 	// routes on to choose an execution adapter.
 	//

@@ -133,8 +133,8 @@ var (
 // the mesh's behavior, not the subprocesses' internal race freedom, which
 // their own packages' -race tests cover.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == native.InternalCollectionRunnerArg {
-		os.Exit(native.RunCollectionChild(context.Background()))
+	if code, ok := native.RunChildFor(context.Background(), os.Args[1:]); ok {
+		os.Exit(code)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pleiades-e2e-bin")

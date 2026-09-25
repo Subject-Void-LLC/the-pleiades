@@ -81,18 +81,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return e.invokeInProcess(ctx, desc, device, params, mode, payload.Secrets)
 	}
 
-	req := wire.ChildRequest{
-		FQCN:         desc.Name,
-		Mode:         string(mode),
-		Params:       params,
-		JobID:        payload.JobID,
-		DeviceID:     payload.DeviceID,
-		DeviceName:   payload.DeviceName,
-		DeviceHost:   payload.DeviceHost,
-		SSHPort:      payload.SSHPort,
-		Capabilities: payload.Capabilities,
-		Secrets:      payload.Secrets,
-	}
+	req := childRequest(desc, mode, params, payload)
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
@@ -178,6 +167,23 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to decode subprocess response: %w (stderr: %s)", desc.Name, read.err, capturedErr)
 	}
 	return childAnswer(desc.Name, mode, read.resp, secrets)
+}
+
+// childRequest is the one request a child is sent for a call of desc in
+// mode with params, against the device payload names.
+func childRequest(desc collection.Descriptor, mode collection.Mode, params map[string]interface{}, payload wire.DispatchPayload) wire.ChildRequest {
+	return wire.ChildRequest{
+		FQCN:         desc.Name,
+		Mode:         string(mode),
+		Params:       params,
+		JobID:        payload.JobID,
+		DeviceID:     payload.DeviceID,
+		DeviceName:   payload.DeviceName,
+		DeviceHost:   payload.DeviceHost,
+		SSHPort:      payload.SSHPort,
+		Capabilities: payload.Capabilities,
+		Secrets:      payload.Secrets,
+	}
 }
 
 // childAnswer is what a child's decoded response means for a call of the

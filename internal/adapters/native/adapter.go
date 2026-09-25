@@ -177,6 +177,17 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
 	}
 	credentials := credential.NewStaticStore(payload.Secrets)
+
+	// A dispatch whose connections persist runs its Collection calls
+	// through one child for its whole life, whose pool keeps the device's
+	// SSH login open between tasks (ipc_session.go). Otherwise each call
+	// spawns a child of its own and logs in afresh.
+	invoke := a.ipc.invoke
+	if payload.PersistConnections {
+		session := a.ipc.newSession(payload)
+		defer session.Close()
+		invoke = session.invoke
+	}
 	actions := engine.NewCollectionActionExecutor(
 		// nil inventory.Repository: this per-task subprocess has no live
 		// database connection of its own (see
@@ -185,7 +196,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// here, exactly a direct connection.
 		engine.NewTransportActionExecutor(a.bindings, credentials, nil, engine.NewBuiltinActionExecutor()),
 		newDeviceRunbookContext,
-		engine.WithCollectionInvoker(a.ipc.invoke),
+		engine.WithCollectionInvoker(invoke),
 	)
 
 	// A fresh, private lock.Manager, never a real distributed one: this
