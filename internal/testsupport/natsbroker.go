@@ -32,6 +32,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -89,7 +90,15 @@ func StartNATS(tb testing.TB, opts ...NATSOption) *NATSBroker {
 	if err != nil {
 		tb.Fatalf("starting a NATS broker: %v\nbroker log:\n%s", err, brokerLog(ctx, c))
 	}
-	return &NATSBroker{Container: c, tb: tb, ctx: ctx}
+	b := &NATSBroker{Container: c, tb: tb, ctx: ctx}
+	// The log line above is said inside the container; this is the host
+	// side of the client port, which can lag it (waitForNATSGreeting).
+	if slices.Contains(settings.ports, defaultNATSPort) {
+		if err := waitForNATSGreeting(b.Endpoint(defaultNATSPort), ContainerStartupTimeout, natsGreetingAttempt); err != nil {
+			tb.Fatalf("starting a NATS broker: %v\nbroker log:\n%s", err, brokerLog(ctx, c))
+		}
+	}
+	return b
 }
 
 // URL returns the nats:// address of the broker's client port.
