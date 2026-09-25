@@ -274,15 +274,15 @@ func TestSession_ChildThatDiesIsReplaced(t *testing.T) {
 }
 
 // TestSession_Refusals covers the calls a session does not run in its
-// child: a device that is not a dispatched one, an external Collection
+// child: a device other than the one dispatched, an external Collection
 // (its own process already, so the one-shot path runs it in this one),
 // and a child binary that cannot start.
 func TestSession_Refusals(t *testing.T) {
 	device := sessionDevice(nil)
 	s := newTestSession(t, device)
 	desc, _ := collection.Lookup(sessionPIDMethod)
-	if _, _, err := s.invoke(context.Background(), desc, &inventorytest.Stub{StubName: "x"}, nil, collection.ModeExecute); err == nil {
-		t.Error("a device that is not a dispatched one was accepted")
+	if _, _, err := s.invoke(context.Background(), desc, &inventorytest.Stub{StubName: "x"}, nil, collection.ModeExecute); err == nil || !strings.Contains(err.Error(), "bound to device") {
+		t.Errorf("a device other than the dispatched one: %v, want a refusal naming both", err)
 	}
 
 	external := desc

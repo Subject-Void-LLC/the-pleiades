@@ -244,6 +244,17 @@ type DispatchPayload struct {
 	// upstream of this payload ever existing.
 	Capabilities []capability.Name `json:"capabilities"`
 
+	// DeviceType and DeviceProperties let the Runner rebuild the device as
+	// its real type (record.LookupType), so every accessor answers on the
+	// Runner as it does on the Controller. DeviceProperties holds only the
+	// keys that type declares its accessors read
+	// (record.RegisterDispatchProperties) and the device's discovery,
+	// never any other property: an operator may keep anything in one. Both
+	// are absent from an older Controller's payload, and a Runner given
+	// none falls back to a device built from DeviceHost and SSHPort alone.
+	DeviceType       string         `json:"device_type,omitempty"`
+	DeviceProperties map[string]any `json:"device_properties,omitempty"`
+
 	// Secrets is the flattened credential for DeviceName, resolved by the
 	// Controller at dispatch time (PLAN.md Section 17's Just-in-Time
 	// delivery principle: attached directly to the payload, never

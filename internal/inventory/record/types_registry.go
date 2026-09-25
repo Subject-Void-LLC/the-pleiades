@@ -40,9 +40,11 @@ var typesRegistry = registry.New[Constructor]()
 func SnapshotForTest() func() {
 	restoreTypes := typesRegistry.SnapshotForTest()
 	restoreOnboarded := onboardedTypes.SnapshotForTest()
+	restoreDispatch := dispatchProperties.SnapshotForTest()
 	return func() {
 		restoreTypes()
 		restoreOnboarded()
+		restoreDispatch()
 	}
 }
 

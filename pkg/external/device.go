@@ -77,17 +77,26 @@ func (d *Device) ID() inventory.DeviceID { return inventory.DeviceID(d.payload.D
 // Name implements inventory.InventoryItem.
 func (d *Device) Name() string { return d.payload.DeviceName }
 
-// Properties implements inventory.InventoryItem. "host" mirrors every real
-// device type's own property key for its management address
-// (pkg/wire.DispatchPayload's own doc comment records why "host", never
-// "ip"); "port" carries SSHPort for any caller that reads properties
-// directly instead of going through SSHTransportCapable.
+// Properties implements inventory.InventoryItem: the device properties
+// the dispatch carried (only those its type's accessors read, and its
+// discovery), with "host" and "port" from DeviceHost and SSHPort. "host"
+// mirrors every real device type's own property key for its management
+// address (pkg/wire.DispatchPayload's own doc comment records why "host",
+// never "ip"); "port" carries SSHPort for any caller that reads
+// properties directly instead of going through SSHTransportCapable.
 func (d *Device) Properties() inventory.Properties {
-	return inventory.NewProperties(map[string]inventory.PropertyValue{
-		"host": d.payload.DeviceHost,
-		"port": d.payload.SSHPort,
-	})
+	props := make(map[string]inventory.PropertyValue, len(d.payload.DeviceProperties)+2)
+	for k, v := range d.payload.DeviceProperties {
+		props[k] = v
+	}
+	props["host"] = d.payload.DeviceHost
+	props["port"] = d.payload.SSHPort
+	return inventory.NewProperties(props)
 }
+
+// DeviceType returns the device's inventory type as the dispatch named
+// it, or the empty string from a Controller that predates it.
+func (d *Device) DeviceType() string { return d.payload.DeviceType }
 
 // Tags implements inventory.InventoryItem. The wire payload carries no
 // tags: target resolution, the only thing that reads them, has already

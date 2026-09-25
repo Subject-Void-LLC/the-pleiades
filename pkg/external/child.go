@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -44,13 +45,24 @@ type LookupFunc func(name string) (collection.Descriptor, bool)
 // exchange itself broke (an unreadable request, an unwritable response),
 // which the parent reports differently.
 func ServeChild(ctx context.Context, lookup LookupFunc, in io.Reader, response io.Writer, errOut io.Writer) int {
+	return ServeChildWith(ctx, lookup, in, response, errOut, nil)
+}
+
+// DeviceBuilder builds the device a method runs against from what the
+// dispatch said about it. The Runner's own child passes one that rebuilds
+// the real device type; a nil builder means NewDevice, the address-only
+// device every external program gets.
+type DeviceBuilder func(wire.DispatchPayload) (inventory.InventoryItem, error)
+
+// ServeChildWith is ServeChild with the device built by build.
+func ServeChildWith(ctx context.Context, lookup LookupFunc, in io.Reader, response io.Writer, errOut io.Writer, build DeviceBuilder) int {
 	req, err := ReadChildRequest(in)
 	if err != nil {
 		fmt.Fprintln(errOut, "collection child: failed to decode request:", err)
 		return 1
 	}
 
-	resp := InvokeRequest(ctx, lookup, req)
+	resp := InvokeRequestFor(ctx, lookup, req, nil, build)
 
 	if err := WriteChildResponse(response, resp); err != nil {
 		fmt.Fprintln(errOut, "collection child: failed to write response:", err)
@@ -77,6 +89,13 @@ func InvokeRequest(ctx context.Context, lookup LookupFunc, req wire.ChildRequest
 // the dispatch's tasks against its one device share a login. A nil pool
 // is exactly InvokeRequest.
 func InvokeRequestWithPool(ctx context.Context, lookup LookupFunc, req wire.ChildRequest, pool *remoteexec.Pool) wire.ChildResponse {
+	return InvokeRequestFor(ctx, lookup, req, pool, nil)
+}
+
+// InvokeRequestFor is InvokeRequestWithPool with the device built by build
+// (nil for NewDevice). A device that cannot be built fails the call with
+// the reason, never a silently different device.
+func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequest, pool *remoteexec.Pool, build DeviceBuilder) wire.ChildResponse {
 	desc, ok := lookup(req.FQCN)
 	if !ok {
 		return wire.ChildResponse{Error: fmt.Sprintf("collection method %q is not registered", req.FQCN)}
@@ -94,14 +113,24 @@ func InvokeRequestWithPool(ctx context.Context, lookup LookupFunc, req wire.Chil
 		return wire.ChildResponse{Error: err.Error()}
 	}
 
-	device := NewDevice(wire.DispatchPayload{
-		JobID:        req.JobID,
-		DeviceID:     req.DeviceID,
-		DeviceName:   req.DeviceName,
-		DeviceHost:   req.DeviceHost,
-		SSHPort:      req.SSHPort,
-		Capabilities: req.Capabilities,
-	})
+	payload := wire.DispatchPayload{
+		JobID:            req.JobID,
+		DeviceID:         req.DeviceID,
+		DeviceName:       req.DeviceName,
+		DeviceHost:       req.DeviceHost,
+		SSHPort:          req.SSHPort,
+		Capabilities:     req.Capabilities,
+		DeviceType:       req.DeviceType,
+		DeviceProperties: req.DeviceProperties,
+	}
+	var device inventory.InventoryItem = NewDevice(payload)
+	if build != nil {
+		built, err := build(payload)
+		if err != nil {
+			return wire.ChildResponse{Error: fmt.Sprintf("collection method %q: device %q: %v", req.FQCN, req.DeviceName, err)}
+		}
+		device = built
+	}
 
 	rc := NewRunbookContext(req.Secrets)
 	rc.pool = pool

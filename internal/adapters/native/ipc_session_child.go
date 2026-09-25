@@ -69,7 +69,7 @@ func runCollectionSession(ctx context.Context, in io.Reader, response io.Writer,
 			fmt.Fprintln(errOut, "collection session: failed to decode request:", err)
 			return 1
 		}
-		resp := external.InvokeRequestWithPool(ctx, collection.Lookup, req, pool)
+		resp := external.InvokeRequestFor(ctx, collection.Lookup, req, pool, dispatchedDevice)
 		// The request's own copy of the secrets is dropped once answered;
 		// the method's context already zeroed its copy.
 		clear(req.Secrets)

@@ -63,6 +63,11 @@ type ChildRequest struct {
 	SSHPort      int               `json:"ssh_port"`
 	Capabilities []capability.Name `json:"capabilities"`
 	Secrets      map[string]string `json:"secrets,omitempty"`
+
+	// DeviceType and DeviceProperties are DispatchPayload's, handed on so
+	// the child rebuilds the same device the Runner did.
+	DeviceType       string         `json:"device_type,omitempty"`
+	DeviceProperties map[string]any `json:"device_properties,omitempty"`
 }
 
 // ChildResponse is the one message the child writes back, on a dedicated

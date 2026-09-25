@@ -39,6 +39,7 @@ const sessionOutputCap = 1 << 20
 // in a one-shot child of its own rather than waiting.
 type ipcSession struct {
 	oneShot *ipcCollectionExecutor
+	payload wire.DispatchPayload
 	secrets []string
 
 	mu    sync.Mutex
@@ -67,14 +68,15 @@ type sessionAnswer struct {
 // newSession returns the session for one dispatch whose payload carries
 // secrets, which are masked out of anything the child sends back.
 func (e *ipcCollectionExecutor) newSession(payload wire.DispatchPayload) *ipcSession {
-	return &ipcSession{oneShot: e, secrets: secretValues(payload.Secrets)}
+	return &ipcSession{oneShot: e.forDispatch(payload), payload: payload, secrets: secretValues(payload.Secrets)}
 }
 
 // invoke implements engine.CollectionInvoker through the session child.
 func (s *ipcSession) invoke(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}, mode collection.Mode) (collection.Result, map[string]interface{}, error) {
-	wd, ok := device.(*wireDevice)
-	if !ok {
-		return collection.Result{}, nil, fmt.Errorf("ipc collection session requires a *wireDevice, got %T", device)
+	// The same refusal the one-shot path makes: the child runs against the
+	// dispatched device, so no other may be handed in.
+	if _, err := s.oneShot.payloadFor(device); err != nil {
+		return collection.Result{}, nil, err
 	}
 	// An external Collection is its own process already, and a call that
 	// finds the child busy does not wait for it: both take the one-shot
@@ -88,7 +90,7 @@ func (s *ipcSession) invoke(ctx context.Context, desc collection.Descriptor, dev
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: %w", desc.Name, err)
 	}
-	req := childRequest(desc, mode, params, wd.Payload())
+	req := childRequest(desc, mode, params, s.payload)
 	if err := child.enc.Encode(&req); err != nil {
 		stderr := s.end(true)
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to send to the session child: %w (stderr: %s)", desc.Name, err, stderr)

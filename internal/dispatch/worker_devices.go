@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -94,10 +95,15 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// "host", never "ip": every concrete device type in this codebase
 	// populates its management address under this property key
 	// (pkg/wire.DispatchPayload's own doc comment explains the "ip" bug
-	// this fixes). A device with no "host" property has nowhere for the
-	// Runner to connect to, so it is skipped, not dispatched with an
-	// empty address.
+	// this fixes), except the generic types whose address is part of a
+	// URL or a target (generic_http's base_url, generic_grpc's target),
+	// which report it through their declared NetworkAddressableCapable. A
+	// device with neither has nowhere for the Runner to connect to, so it
+	// is skipped, not dispatched with an empty address.
 	host, ok := device.Properties().String("host")
+	if !ok {
+		host, ok = declaredAddress(device)
+	}
 	if !ok {
 		reason := fmt.Sprintf("device %q has no host property", device.Name())
 		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
@@ -147,6 +153,10 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
 		payload.SSHPort = sshCapable.SSHPort()
 	}
+	// The device's type and its accessor properties, so the Runner rebuilds
+	// the real type rather than an address-only stand-in; nothing else of
+	// its record travels (record.Dispatched).
+	payload.DeviceType, payload.DeviceProperties = record.Dispatched(device)
 
 	// The job's step first, so a run that turned persistence off never
 	// reads the device's hierarchy for it; then the device's own ladder,
@@ -324,4 +334,14 @@ func tagStrings(tags []pkginventory.Tag) []string {
 		out[i] = string(t)
 	}
 	return out
+}
+
+// declaredAddress returns the address a device declares through
+// NetworkAddressableCapable, when it declares one.
+func declaredAddress(device pkginventory.InventoryItem) (string, bool) {
+	addressable, ok := device.(capability.NetworkAddressableCapable)
+	if !ok || !device.HasCapability(capability.NameNetworkAddressable) || addressable.IPAddress() == "" {
+		return "", false
+	}
+	return addressable.IPAddress(), true
 }
