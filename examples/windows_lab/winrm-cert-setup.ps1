@@ -328,6 +328,11 @@ if ($AllowVirtualBox) {
     foreach ($id in $vboxAppIds) {
         if (Set-ComLaunchGrant -AppId $id -Sid $sid -Remove) { Write-Host "   removed launch on $id, which an earlier run granted" }
     }
+    if ($vboxAppIds.Count -gt 0) {
+        Write-Host '   not granted: VirtualBox is installed, and VBoxManage over WinRM needs -AllowVirtualBox' -ForegroundColor Yellow
+    } else {
+        Write-Host '   VirtualBox is not installed; nothing to grant'
+    }
 }
 
 Write-Step 9 'certificate-to-account mapping'
