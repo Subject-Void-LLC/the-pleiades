@@ -106,6 +106,9 @@ type stream struct {
 // Start share, so the two cannot drift in how they bound stderr or
 // honor a deadline.
 func (c *Conn) openStream(ctx context.Context, desc string, request func(*ssh.Session) error) (*stream, error) {
+	if err := c.usable(); err != nil {
+		return nil, err
+	}
 	session, err := c.client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err)

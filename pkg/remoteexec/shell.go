@@ -79,6 +79,14 @@ type Shell struct {
 // request, so there is nothing here for a second implementation to earn
 // its cost against.
 func (c *Conn) Shell(ctx context.Context, opts ShellOptions) (*Shell, error) {
+	// A terminal carries device state a later task must not inherit (a
+	// configuration mode, a changed prompt), and some network devices
+	// end the whole connection when their one terminal closes, so a
+	// borrowed connection that opened one is closed rather than reused.
+	c.taint()
+	if err := c.usable(); err != nil {
+		return nil, err
+	}
 	session, err := c.client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err)

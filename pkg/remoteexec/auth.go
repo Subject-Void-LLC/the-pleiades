@@ -1,8 +1,13 @@
 package remoteexec
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -26,6 +31,38 @@ import (
 type Auth struct {
 	user   string
 	method ssh.AuthMethod
+
+	// identity tells two Auths apart without holding their secrets: an
+	// HMAC, under a key drawn at random once per process, of the user and
+	// the password or the key's public half. A Pool keys connections by
+	// it, so a rotated credential or a different account never reaches a
+	// connection another one logged in. The random key is what stops the
+	// digest of a password from being guessed at offline.
+	identity [sha256.Size]byte
+}
+
+// identityKey is the per-process HMAC key for Auth.identity.
+var identityKey = sync.OnceValue(func() []byte {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		panic(fmt.Sprintf("remoteexec: reading randomness for credential identities: %v", err))
+	}
+	return key
+})
+
+// identityOf computes an Auth's identity from its kind and parts.
+func identityOf(kind string, parts ...[]byte) [sha256.Size]byte {
+	mac := hmac.New(sha256.New, identityKey())
+	// Every field is written as its decimal length, a colon, then the
+	// field, so ("ab", "c") and ("a", "bc") differ: a length is digits only
+	// and ends at the first colon.
+	for _, p := range append([][]byte{[]byte(kind)}, parts...) {
+		mac.Write([]byte(strconv.Itoa(len(p)) + ":"))
+		mac.Write(p)
+	}
+	var out [sha256.Size]byte
+	copy(out[:], mac.Sum(nil))
+	return out
 }
 
 // usable reports whether this Auth carries a real authentication method.
@@ -57,7 +94,7 @@ func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, dialTimeout time.Duratio
 
 // PasswordAuth returns an Auth that authenticates as user with password.
 func PasswordAuth(user, password string) Auth {
-	return Auth{user: user, method: ssh.Password(password)}
+	return Auth{user: user, method: ssh.Password(password), identity: identityOf("password", []byte(user), []byte(password))}
 }
 
 // PrivateKeyAuth returns an Auth that authenticates as user with the
@@ -78,7 +115,7 @@ func PrivateKeyAuth(user string, privateKeyPEM []byte, passphrase string) (Auth,
 	if err != nil {
 		return Auth{}, fmt.Errorf("parse private key: %w", err)
 	}
-	return Auth{user: user, method: ssh.PublicKeys(signer)}, nil
+	return Auth{user: user, method: ssh.PublicKeys(signer), identity: identityOf("key", []byte(user), signer.PublicKey().Marshal())}, nil
 }
 
 // AuthFrom turns the four pieces of authentication material this
