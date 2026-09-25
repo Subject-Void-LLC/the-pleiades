@@ -104,7 +104,8 @@
     hardening then refuses the hypervisor API (VirtualBox ticket 20341).
     It lifts the account's service-logon denial, lets the service manager
     keep the account's password for the service, sets the machine
-    environment variable VBOXAUTOSTART_CONFIG, and grants the account start
+    environment variable VBOXAUTOSTART_CONFIG (its policy is allow: the
+    policy file cannot name an account), and grants the account start
     and query on that one service. Experimental: whether a service logon
     passes the check is what it tests.
 
@@ -397,7 +398,14 @@ if ($VirtualBoxAutostart) {
     # an earlier run may have set it.
     Set-DenyRights -Sid $sid -Rights 'SeDenyServiceLogonRight' -Remove
     New-Item -ItemType Directory -Force -Path (Split-Path $autostartConfig) | Out-Null
-    @('default_policy = deny', ".\$LocalUser = {", '    allow = true', '}') | Set-Content -Path $autostartConfig -Encoding ASCII
+    # The policy cannot name this account: VirtualBox's parser takes only
+    # letters, digits, '_' and '.' in a key, so no form of an account name
+    # (DOMAIN\user, user@) fits, and a '-' in the name would not either
+    # (measured: "Unexpected token '' at 2:2"). Allow is the only policy
+    # that works, and it is narrow in practice: it governs only accounts
+    # that have an autostart service, which only an administrator can
+    # install.
+    'default_policy = allow' | Set-Content -Path $autostartConfig -Encoding ASCII
     Set-AutostartConfigVariable $autostartConfig
     # A new password each run, so the service is reinstalled with it. The
     # installer reads it from a file readable only by the user running this
@@ -423,6 +431,7 @@ if ($VirtualBoxAutostart) {
         Write-Host "   restored VBOXAUTOSTART_CONFIG to $autostartConfigPrior"
     }
     Remove-Item -LiteralPath $autostartConfig -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Split-Path $autostartConfig) -ErrorAction SilentlyContinue
     $autostartService = $null
     $autostartConfigPrior = $null
 }

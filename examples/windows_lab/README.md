@@ -93,7 +93,8 @@ access on Cryptographic Services was tried and does not help.
 service (`VBoxAutostartSvc`), installed for this account so a VM starts under a service
 logon rather than a network one. It lifts only the account's service-logon denial, lets the
 service manager keep the account's password for that service, sets the machine variable
-`VBOXAUTOSTART_CONFIG` to a policy allowing this account alone, and lets the account start
+`VBOXAUTOSTART_CONFIG` to an allow policy (VirtualBox's policy file cannot name an account:
+its parser takes no `\`, `@` or `-` in a key), and lets the account start
 and query that one service. The teardown removes all of it.
 The certificate authority's private key is deleted once the server and
 client certificates exist, and the client's once it is exported, so nothing on the host

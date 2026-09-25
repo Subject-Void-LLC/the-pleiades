@@ -348,6 +348,7 @@ if (-not $grantedSid) {
         try {
             Set-AutostartConfigVariable $state.autostartConfigPrior
             Remove-Item -LiteralPath (Join-Path (Join-Path $env:ProgramData 'PleiadesGate') 'autostart.cfg') -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $env:ProgramData 'PleiadesGate') -ErrorAction SilentlyContinue
             Write-Host "   restored VBOXAUTOSTART_CONFIG to $($state.autostartConfigPrior)"
         } catch { Write-Leftover "VBOXAUTOSTART_CONFIG, which should be $($state.autostartConfigPrior): $($_.Exception.Message)" }
     }
