@@ -45,6 +45,7 @@ func TestInventorySyncAWSThroughTheRealCLI(t *testing.T) {
 	ctx := context.Background()
 	ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,
 		testcontainers.WithEnv(map[string]string{"LOCALSTACK_AUTH_TOKEN": token}),
+		testsupport.LocalStackReady(),
 	)
 	if err != nil {
 		t.Fatalf("starting localstack: %v", err)

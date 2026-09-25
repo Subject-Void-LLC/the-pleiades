@@ -70,10 +70,12 @@ func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) 
 		// published port FROM the host in a retry loop, which is the
 		// check the log strategy cannot make, so the container is not
 		// declared ready until the address every test here uses actually
-		// accepts a connection.
+		// accepts a connection. Each step names the bound itself: a step
+		// with none stops at testcontainers' own sixty seconds whatever
+		// the group allows (FAILURE_PATTERNS 350).
 		WaitingFor: wait.ForAll(
-			wait.ForLog("done."),
-			wait.ForListeningPort("2222/tcp"),
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			wait.ForListeningPort("2222/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 		).WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
