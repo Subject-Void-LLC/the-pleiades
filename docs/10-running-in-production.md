@@ -2106,11 +2106,19 @@ roots, and an explicit certificate-to-account mapping (`New-Item -Path
 WSMan:\localhost\ClientCertificate`). The client certificate must carry a UPN in
 its subject alternative name and Client Authentication in its extended key usage,
 or the mapping cannot match it. One more that is easy to miss because it fails
-differently: the mapped account needs WinRM's own service ACL to grant it, not only
-membership of `Remote Management Users`. Where it does not, the certificate
-authenticates and the session is then refused with a WS-Man `AccessDenied` when it
-tries to create a shell. `examples/windows_lab/winrm-cert-setup.ps1` configures all
-of this, and `winrm-cert-teardown.ps1` removes it.
+differently: the mapped account needs WinRM's own service ACL (the RootSDDL) to grant
+it. Where it does not, the certificate authenticates and the session is then refused
+with a WS-Man `AccessDenied` when it tries to create a shell.
+`examples/windows_lab/winrm-cert-setup.ps1` configures all of this for one
+least-privilege account, and `winrm-cert-teardown.ps1` removes it. The account is a
+standard user whose password nobody knows, granted WinRM access by its own SID rather
+than through a group, denied console, Remote Desktop, batch and service logon, and
+denied every other fixed drive except the folders you name with `-ReadPath` and
+`-WritePath`. The script does not run `winrm quickconfig`, which on a machine outside
+a domain sets `LocalAccountTokenFilterPolicy` and opens the HTTP listener to the whole
+Private network; it deletes the certificate authority's private key once the two
+certificates are issued. Run it from an elevated PowerShell with
+`-ExecutionPolicy Bypass`.
 
 **Pleiades caps this path at TLS 1.2, and the reason is a limitation in Go rather than
 in Windows.** TLS 1.3 replaced renegotiation with post-handshake authentication, which

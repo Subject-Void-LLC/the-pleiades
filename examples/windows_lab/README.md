@@ -66,6 +66,29 @@ IPv6. That is why `inventory.yaml` carries the same machine twice and why
 a trip to the console. Note the square brackets around the address, which the URL the
 transport builds requires.
 
+## The certificate lab account
+
+`winrm-cert-setup.ps1` sets this host up for certificate authentication on 5986, for one
+account that can do only what a lab run needs. It is a standard user with a random
+password that is used once, to map the certificate, and never shown; it reaches WinRM
+through its own RootSDDL entry, not a group; it cannot log on at the console, over
+Remote Desktop, or as a batch job or service; and on every fixed drive except the
+system drive it is denied everything but the folders named with `-ReadPath` and
+`-WritePath`. The certificate authority's private key is deleted once the server and
+client certificates exist, and the client's once it is exported, so nothing on the host
+can issue a certificate the host trusts. What it granted is recorded in
+`lab-state.json`, which `winrm-cert-teardown.ps1` reads to revoke exactly that.
+
+```powershell
+# elevated; the deny on the other drives writes into every file there, once
+powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab
+powershell -ExecutionPolicy Bypass -File .\winrm-cert-teardown.ps1
+```
+
+The client identity lands in `%USERPROFILE%\pleiades-gate` as `client.pfx` and
+`client.pfx.passphrase`, readable only by you. Import it with `pleiades add-credential
+<device> --pfx client.pfx --passphrase-stdin < client.pfx.passphrase`, then delete both.
+
 ## Running it
 
 ```bash

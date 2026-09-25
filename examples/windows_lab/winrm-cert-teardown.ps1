@@ -30,9 +30,18 @@
     If it cannot be started (its startup type is Disabled), the script
     changes nothing and says so.
 
+    What the setup granted the lab account is revoked by that account's
+    SID, from the lab-state.json the setup wrote (or, without it, by
+    finding the SID where the setup puts it): its WinRM access entry, its
+    logon-right denials, and every ACL entry it added, including the deny
+    at the root of each other fixed drive, which is removed across every
+    file it was written into.
+
     Four things it leaves in place, three of which a switch removes,
     because each may predate the lab and a teardown that undoes somebody
-    else's configuration is worse than one that leaves a little behind:
+    else's configuration is worse than one that leaves a little behind.
+    The current setup changes none of them; an older one ran winrm
+    quickconfig, which did:
 
       - The WinRM service. winrm quickconfig may have started something a
         person wanted, and a teardown that turns off remote management is a
@@ -66,6 +75,15 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $Tag = 'PleiadesGate'
+
+# Shared with the setup, so revoking uses the same code that granted.
+. (Join-Path $PSScriptRoot 'winrm-lab-common.ps1')
+
+# What the setup granted, if it recorded it: the account's SID and every
+# path it changed. Read before step 9 deletes it.
+$statePath = Join-Path $OutputDirectory 'lab-state.json'
+$state = $null
+if (Test-Path -LiteralPath $statePath) { $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json }
 
 # Every tagged name is the tag, a space, and a role ('PleiadesGate CA'), so
 # the space is part of the match and 'PleiadesGateway' is not ours.
@@ -272,7 +290,78 @@ Get-NetFirewallRule -DisplayName $TagPattern -ErrorAction SilentlyContinue | For
     }
 }
 
-Write-Step 7 "local account '$LocalUser' and its profile"
+Write-Step 7 "what '$LocalUser' was granted"
+# By SID, from the setup's record or from the account itself, so nothing
+# another account holds is touched.
+$grantedSid = $null
+if ($state -and $state.sid) { $grantedSid = [string]$state.sid }
+elseif ($existing = Get-LocalUser -Name $LocalUser -ErrorAction SilentlyContinue) { $grantedSid = $existing.SID.Value }
+if (-not $grantedSid) {
+    Write-Host '   no account and no record of one; nothing to revoke'
+} else {
+    # Remote Management Users, which an older setup always granted.
+    if (Get-LocalGroupMember -SID 'S-1-5-32-580' -ErrorAction SilentlyContinue | Where-Object { $_.SID.Value -eq $grantedSid }) {
+        try {
+            Remove-LocalGroupMember -SID 'S-1-5-32-580' -Member $grantedSid -ErrorAction Stop
+            Write-Host '   removed from Remote Management Users'
+        } catch { Write-Leftover "membership of Remote Management Users: $($_.Exception.Message)" }
+    }
+    # The RootSDDL entry naming this SID; it can name no one else.
+    $sddl = (Get-Item WSMan:\localhost\Service\RootSDDL).Value
+    $pattern = "\(A;;[A-Z]+;;;" + [regex]::Escape($grantedSid) + "\)"
+    if ($sddl -match $pattern) {
+        try {
+            Set-Item WSMan:\localhost\Service\RootSDDL ($sddl -replace $pattern, '') -Force -ErrorAction Stop
+            Write-Host '   removed its WinRM access entry'
+        } catch { Write-Leftover "its RootSDDL entry: $($_.Exception.Message)" }
+    }
+    # The logon rights it was denied.
+    $rights = @('SeDenyInteractiveLogonRight', 'SeDenyRemoteInteractiveLogonRight', 'SeDenyBatchLogonRight', 'SeDenyServiceLogonRight')
+    if ($state -and $state.denyRights) { $rights = @($state.denyRights) }
+    if ($rights.Count -gt 0) {
+        try {
+            Set-DenyRights -Sid $grantedSid -Rights $rights -Remove
+            Write-Host "   removed from $($rights.Count) logon right(s)"
+        } catch { Write-Leftover "its logon-right denials: $($_.Exception.Message)" }
+    }
+    # File system. A drive-root deny is removed across every file it was
+    # written into, which takes as long as setting it did.
+    $denies = @()
+    $grants = @()
+    if ($state) {
+        $denies = @($state.deniedRoots) + @($state.systemRoot, $state.programData, $state.publicPath)
+        $grants = @($state.readPaths) + @($state.writePaths)
+    } else {
+        # No record: look for this SID on the places the setup changes,
+        # and touch only one where it is actually present. The folders a
+        # setup was given with -ReadPath and -WritePath are not knowable
+        # without the record.
+        $candidates = @(Get-OtherFixedDriveRoot) + @([IO.Path]::GetPathRoot($env:SystemRoot),
+            [Environment]::GetFolderPath('CommonApplicationData'), $env:PUBLIC)
+        $denies = @($candidates | Where-Object { Test-AclNames $_ $grantedSid })
+        Write-Leftover "any grant on folders given to the setup with -ReadPath or -WritePath, since $statePath is missing; remove one with: icacls <folder> /remove *$grantedSid"
+    }
+    foreach ($path in @($denies | Where-Object { $_ })) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $failed = Invoke-Icacls $path /remove:d "*$grantedSid"
+        if ($failed -gt 0) { Write-Leftover "its deny entry at $path, where icacls reported $failed failure(s)" }
+        Write-Host ("   removed its deny entry from {0} in {1:N0} s" -f $path, $clock.Elapsed.TotalSeconds)
+    }
+    foreach ($path in @($grants | Where-Object { $_ })) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $failed = Invoke-Icacls $path /remove:g "*$grantedSid"
+        if ($failed -gt 0) { Write-Leftover "its grant at $path, where icacls reported $failed failure(s)" }
+        Write-Host "   removed its grant from $path"
+    }
+}
+$hideKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
+if ($null -ne (Get-ItemProperty $hideKey -Name $LocalUser -ErrorAction SilentlyContinue)) {
+    Remove-ItemProperty $hideKey -Name $LocalUser -ErrorAction SilentlyContinue
+    Write-Host '   removed its sign-in screen entry'
+}
+
+Write-Step 8 "local account '$LocalUser' and its profile"
 # The profile is found by the account's SID, so no other account's profile
 # can match. It goes first, and the account only once it has gone: if the
 # profile cannot be removed, the account is kept so that a later run can
@@ -352,12 +441,12 @@ Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
         }
     }
 
-Write-Step 8 'exported files'
-# Only the two files the setup writes, by literal path, and the directory
+Write-Step 9 'exported files'
+# Only the files the setup writes, by literal path, and the directory
 # only if that leaves it empty. The setup accepts a directory that already
 # exists, so the directory itself is not evidence that everything in it is
 # the lab's.
-foreach ($file in 'client.pfx', 'ca.cer') {
+foreach ($file in 'client.pfx', 'client.pfx.passphrase', 'ca.cer', 'lab-state.json') {
     $path = Join-Path $OutputDirectory $file
     if (Test-Path -LiteralPath $path) {
         try {
@@ -379,7 +468,7 @@ if (Test-Path -LiteralPath $OutputDirectory) {
 }
 
 if ($RestoreSDDL) {
-    Write-Step 9 'RootSDDL'
+    Write-Step 10 'RootSDDL'
     $sddl = (Get-Item WSMan:\localhost\Service\RootSDDL).Value
     if ($sddl -match '\(A;;GA;;;RM\)') {
         try {
@@ -394,7 +483,7 @@ if ($RestoreSDDL) {
 }
 
 if ($RestoreTokenFilterPolicy) {
-    Write-Step 10 'LocalAccountTokenFilterPolicy'
+    Write-Step 11 'LocalAccountTokenFilterPolicy'
     # Absent is the Windows default, and it takes effect at the next remote
     # sign-in with no restart.
     $policyKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
@@ -410,7 +499,7 @@ if ($RestoreTokenFilterPolicy) {
     }
 }
 
-Write-Step 11 'WinRM service'
+Write-Step 12 'WinRM service'
 if ($StopWinRM) {
     Stop-Service WinRM -Force -ErrorAction SilentlyContinue
     Set-Service WinRM -StartupType Manual -ErrorAction SilentlyContinue
