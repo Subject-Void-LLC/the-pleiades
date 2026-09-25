@@ -202,3 +202,53 @@ function Set-ComLaunchGrant([string] $AppId, [string] $Sid, [switch] $Remove,
     }
     $true
 }
+
+# Grants, or with -Remove revokes, one SID's entry in a service's own DACL,
+# and returns whether the DACL changed. The entry is replaced, never
+# duplicated, and nothing else in the DACL is touched. A SACL, when the
+# service has one, is written back as it was read.
+function Set-ServiceGrant([string] $Service, [string] $Sid, [string] $Rights, [switch] $Remove) {
+    $sddl = ((& sc.exe sdshow $Service) -join '').Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $sddl.StartsWith('D:')) { throw "reading $Service's security descriptor failed: $sddl" }
+    $descriptor = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddl
+    $target = New-Object Security.Principal.SecurityIdentifier -ArgumentList $Sid
+    $acl = $descriptor.DiscretionaryAcl
+    $removed = 0
+    for ($i = $acl.Count - 1; $i -ge 0; $i--) {
+        if ($acl[$i] -is [Security.AccessControl.CommonAce] -and $acl[$i].SecurityIdentifier -eq $target) {
+            $acl.RemoveAce($i)
+            $removed++
+        }
+    }
+    if ($Remove -and $removed -eq 0) { return $false }
+    if (-not $Remove) {
+        $template = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "D:(A;;$Rights;;;$Sid)"
+        $acl.InsertAce($acl.Count, $template.DiscretionaryAcl[0])
+    }
+    $sacl = if ($sddl -match '(S:.*)$') { $Matches[1] } else { '' }
+    $output = & sc.exe sdset $Service ($descriptor.GetSddlForm('Access') + $sacl)
+    if ($LASTEXITCODE -ne 0) { throw "writing $Service's security descriptor failed: $output" }
+    $true
+}
+
+# Where Windows reads "Do not forcefully unload the user registry at user
+# logoff". Set, a user's registry stays loaded after that user's last
+# session ends for as long as a process still holds it open.
+$ForceUnloadPolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'
+
+# The policy's current value as recorded for a teardown: the number, or
+# 'absent'.
+function Get-ForceUnloadPolicy {
+    $value = (Get-ItemProperty -Path $ForceUnloadPolicyKey -Name DisableForceUnload -ErrorAction SilentlyContinue).DisableForceUnload
+    if ($null -eq $value) { 'absent' } else { [int]$value }
+}
+
+# Sets the policy to $Value, where 'absent' removes it.
+function Set-ForceUnloadPolicy($Value) {
+    if ("$Value" -eq 'absent') {
+        Remove-ItemProperty -Path $ForceUnloadPolicyKey -Name DisableForceUnload -ErrorAction SilentlyContinue
+    } else {
+        New-Item -Path $ForceUnloadPolicyKey -Force | Out-Null
+        New-ItemProperty -Path $ForceUnloadPolicyKey -Name DisableForceUnload -Value ([int]$Value) -PropertyType DWord -Force | Out-Null
+    }
+}

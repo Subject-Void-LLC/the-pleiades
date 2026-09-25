@@ -34,7 +34,8 @@
     SID, from the lab-state.json the setup wrote (or, without it, by
     finding the SID where the setup puts it): its WinRM access entry, its
     logon-right denials, its COM launch entries on VirtualBox's servers,
-    and every ACL entry it added, including the deny
+    its Cryptographic Services entry, the DisableForceUnload value it
+    found, and every ACL entry it added, including the deny
     at the root of each other fixed drive, which is removed across every
     file it was written into.
 
@@ -333,6 +334,17 @@ if (-not $grantedSid) {
         try {
             if (Set-ComLaunchGrant -AppId $id -Sid $grantedSid -Remove) { Write-Host "   removed its COM launch entry on $id" }
         } catch { Write-Leftover "its COM launch entry on ${id}: $($_.Exception.Message)" }
+    }
+    # Cryptographic Services, where the setup's entry names this SID alone.
+    try {
+        if (Set-ServiceGrant -Service CryptSvc -Sid $grantedSid -Remove) { Write-Host '   removed its Cryptographic Services entry' }
+    } catch { Write-Leftover "its Cryptographic Services entry: $($_.Exception.Message)" }
+    # The machine-wide policy, put back to what the setup found.
+    if ($state -and $state.PSObject.Properties['forceUnloadPrior'] -and $null -ne $state.forceUnloadPrior) {
+        try {
+            Set-ForceUnloadPolicy $state.forceUnloadPrior
+            Write-Host "   restored DisableForceUnload to $($state.forceUnloadPrior)"
+        } catch { Write-Leftover "DisableForceUnload, which should be $($state.forceUnloadPrior): $($_.Exception.Message)" }
     }
     # File system. A drive-root deny is removed across every file it was
     # written into, which takes as long as setting it did.

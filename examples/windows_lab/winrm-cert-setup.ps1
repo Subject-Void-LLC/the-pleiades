@@ -27,8 +27,10 @@
       - On the system drive, what any standard user has, except creating
         entries at the drive root or the ProgramData root, and writing
         under the Public profile.
-      - With -AllowVirtualBox, local launch and activation of VirtualBox's
-        two COM servers, so VBoxManage works from its WinRM logon.
+      - With -AllowVirtualBox, what VBoxManage and a VM need from a WinRM
+        logon, each measured on a real host: local launch and activation of
+        VirtualBox's two COM servers, and query access to Cryptographic
+        Services (see the parameter).
 
     What it does not get, and why:
       - A password anyone knows. The password is random, is used once to
@@ -44,6 +46,9 @@
       - Administrator rights of any kind.
 
     What it changes on the machine beyond the account:
+      - With -AllowVirtualBox, the "do not forcefully unload the user
+        registry" policy (DisableForceUnload), machine-wide; the teardown
+        restores the value it found.
       - It starts the WinRM service. It does NOT run winrm quickconfig,
         which on a machine outside a domain sets LocalAccountTokenFilterPolicy
         (every local administrator gets an unfiltered token remotely) and
@@ -88,6 +93,22 @@
     logons, and a WinRM logon is a network one. A run without it removes a
     grant an earlier run made.
 
+    It also grants -CryptSvcRights on Cryptographic Services. A network
+    logon cannot query that service, so Windows' catalog lookup reports it
+    not running, every catalog-signed system DLL reads as unsigned, and
+    VirtualBox's hardening refuses to load the hypervisor API a VM needs.
+
+    And it sets DisableForceUnload. The account's registry is unloaded when
+    its last WinRM shell closes, and the VBoxSVC a running VM keeps alive
+    then fails every call that reads the registry (REGDB_E_READREGDB); with
+    the policy, the registry stays loaded while VBoxSVC holds it.
+
+.PARAMETER CryptSvcRights
+    The service rights granted on Cryptographic Services with
+    -AllowVirtualBox, as SDDL: LC, query status, by default, the least
+    expected to let the catalog lookup see the service running. Widen it
+    only if a signature check still fails, and say why.
+
 .PARAMETER OutputDirectory
     Where client.pfx, its passphrase file, ca.pem and lab-state.json are
     written, readable only by the user running this script.
@@ -110,6 +131,7 @@ param(
     [string]   $Upn             = 'pleiades-gate@pleiades.local',
     [switch]   $AddToRemoteManagementUsers,
     [switch]   $AllowVirtualBox,
+    [string]   $CryptSvcRights  = 'LC',
 
     # Leave the account a standard user's access to the other fixed drives
     # instead of denying it there. Off by default: see step 4.
@@ -314,20 +336,41 @@ $granted = $cleaned -replace '(D:P)', ('$1' + "(A;;$ShellRights;;;$sid)")
 Set-Item WSMan:\localhost\Service\RootSDDL $granted -Force
 Write-Host "   $ShellRights for $sid"
 
-Write-Step 8 "VirtualBox's COM servers for '$LocalUser' alone"
+Write-Step 8 "VirtualBox for '$LocalUser'"
 $vboxAppIds = @(Get-VirtualBoxAppId)
+# The policy's value before any run of this script set it, carried from an
+# earlier run's record, so a re-run does not record its own setting as the
+# original.
+$previousState = $null
+$previousStatePath = Join-Path $OutputDirectory 'lab-state.json'
+if (Test-Path -LiteralPath $previousStatePath) { $previousState = Get-Content -LiteralPath $previousStatePath -Raw | ConvertFrom-Json }
+$forceUnloadPrior = if ($previousState -and $previousState.PSObject.Properties['forceUnloadPrior'] -and $null -ne $previousState.forceUnloadPrior) {
+    $previousState.forceUnloadPrior
+} else {
+    Get-ForceUnloadPolicy
+}
 if ($AllowVirtualBox) {
     if ($vboxAppIds.Count -ne 2) {
         throw 'VirtualBox is not installed here: VBoxSVC.exe and VBoxSDS.exe have no registered AppID. Install it, or drop -AllowVirtualBox.'
     }
     foreach ($id in $vboxAppIds) {
         [void](Set-ComLaunchGrant -AppId $id -Sid $sid)
-        Write-Host "   local launch and activation on $id"
+        Write-Host "   COM local launch and activation on $id"
     }
+    [void](Set-ServiceGrant -Service CryptSvc -Sid $sid -Rights $CryptSvcRights)
+    Write-Host "   $CryptSvcRights on Cryptographic Services, so signature checks work from its logon"
+    Set-ForceUnloadPolicy 1
+    Write-Host "   DisableForceUnload set machine-wide (was $forceUnloadPrior); the teardown restores it" -ForegroundColor Yellow
 } else {
     foreach ($id in $vboxAppIds) {
         if (Set-ComLaunchGrant -AppId $id -Sid $sid -Remove) { Write-Host "   removed launch on $id, which an earlier run granted" }
     }
+    if (Set-ServiceGrant -Service CryptSvc -Sid $sid -Remove) { Write-Host '   removed its Cryptographic Services entry, which an earlier run granted' }
+    if ("$forceUnloadPrior" -ne "$(Get-ForceUnloadPolicy)") {
+        Set-ForceUnloadPolicy $forceUnloadPrior
+        Write-Host "   restored DisableForceUnload to $forceUnloadPrior, which an earlier run changed"
+    }
+    $forceUnloadPrior = $null
     if ($vboxAppIds.Count -gt 0) {
         Write-Host '   not granted: VirtualBox is installed, and VBoxManage over WinRM needs -AllowVirtualBox' -ForegroundColor Yellow
     } else {
@@ -390,6 +433,8 @@ Write-Host '   client and CA private keys removed from this machine'
     publicPath   = $publicProfile
     denyRights   = @($DenyRights)
     comAppIds    = @(if ($AllowVirtualBox) { $vboxAppIds })
+    serviceGrants = @(if ($AllowVirtualBox) { 'CryptSvc' })
+    forceUnloadPrior = $forceUnloadPrior
     shellRights  = $ShellRights
 } | ConvertTo-Json | Set-Content -Path (Join-Path $OutputDirectory 'lab-state.json') -Encoding UTF8
 
