@@ -181,6 +181,10 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	}
 	// The device's own pinned authority and server name, if it names any.
 	opts := winrmexec.WithDeviceTLS(winrmexec.Options{Timeout: timeout}, devicetls.For(device))
+	// A command that is expected to cut its own connection is doing its
+	// job when the wait for it runs out, so it is left running; any other
+	// command is stopped then, rather than left on the device.
+	opts.LeaveRunningOnTimeout = expectDisconnect
 	// A device that says where its interpreters live, or where commands
 	// start, is honored; one that does not gets the stock paths.
 	if dev, ok := device.(capability.WindowsShellCapable); ok {

@@ -252,6 +252,13 @@ type Options struct {
 	// registry under %USERPROFILE%, is the case that decided this) finds
 	// nothing it was set up with. The WS-Man option is WINRS_NOPROFILE.
 	NoProfile bool
+
+	// LeaveRunningOnTimeout keeps a command running on the device when
+	// Timeout expires, rather than stopping it and closing its shell. A
+	// caller whose command is expected to cut its own connection (a
+	// network change) sets it: there the timeout means the command is
+	// doing its job, and stopping it could leave the change half made.
+	LeaveRunningOnTimeout bool
 }
 
 // operationResult is one finished WinRM operation, or the error that

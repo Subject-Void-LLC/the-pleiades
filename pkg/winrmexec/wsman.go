@@ -42,6 +42,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/masterzen/winrm"
 	"github.com/masterzen/winrm/soap"
@@ -84,6 +85,28 @@ type exchange struct {
 	transport poster
 	url       string
 	params    winrm.Parameters
+
+	// mu guards shellID and commandID, which run records as the service
+	// assigns them, so a caller that gave up on run can still stop what
+	// it started.
+	mu        sync.Mutex
+	shellID   string
+	commandID string
+}
+
+// started returns the shell and command run has opened so far; either is
+// empty until the service has assigned it.
+func (x *exchange) started() (shellID, commandID string) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.shellID, x.commandID
+}
+
+// record keeps the IDs the service assigned.
+func (x *exchange) record(shellID, commandID string) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.shellID, x.commandID = shellID, commandID
 }
 
 // shellSpec is what a shell create message carries beyond the defaults.
@@ -131,6 +154,7 @@ func (x *exchange) run(ctx context.Context, line, stdin string, spec shellSpec) 
 	if err != nil {
 		return Result{}, &NotStartedError{Err: err}
 	}
+	x.record(shellID, "")
 	// Best effort: a shell left open is reclaimed by the service's own
 	// idle timeout, so a failure here is not worth failing the task over.
 	defer func() { _, _ = x.post(winrm.NewDeleteShellRequest(x.url, shellID, &x.params)) }()
@@ -145,6 +169,7 @@ func (x *exchange) run(ctx context.Context, line, stdin string, spec shellSpec) 
 	if err != nil {
 		return Result{}, fmt.Errorf("winrm: starting the command: %w", err)
 	}
+	x.record(shellID, commandID)
 	if err := x.sendStdin(shellID, commandID, stdin); err != nil {
 		x.terminate(shellID, commandID)
 		return Result{}, err

@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"time"
+
+	"github.com/masterzen/winrm"
 )
 
 // Command is one thing to run on a Windows device.
@@ -157,11 +160,57 @@ func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Op
 		}
 		return out.res, out.err
 	case <-ctx.Done():
+		if !opts.LeaveRunningOnTimeout && stopAbandoned(x, target, auth, opts) {
+			return Result{}, fmt.Errorf(
+				"winrm: %s: gave up waiting for %s after %s, then stopped the command and closed its shell; anything it "+
+					"changed before that stays changed", ctx.Err(), target.Host, describeTimeout(opts.Timeout))
+		}
 		return Result{}, fmt.Errorf(
 			"winrm: %s: gave up waiting for %s after %s. The command may still be running on the device, and if it "+
 				"changed the network configuration it has probably already taken effect; this says only that no "+
 				"answer came back in time",
 			ctx.Err(), target.Host, describeTimeout(opts.Timeout))
+	}
+}
+
+// abandonedCleanupBound is how long stopAbandoned waits for the device.
+const abandonedCleanupBound = 10 * time.Second
+
+// stopAbandoned tells the service to stop the command x started and to
+// close its shell, and reports whether both were sent and answered.
+//
+// It uses a fresh exchange, because x's connection is still parked in the
+// request that never came back, and the NTLM transport's message
+// encryption is not safe to share between concurrent requests. It waits
+// at most abandonedCleanupBound, since a device that stopped answering
+// would otherwise hold the caller a second time; a shell the service
+// never hears about is reclaimed by its own idle timeout, two hours by
+// default, with its command still running until then. That is what this
+// exists to prevent: a process that exits after a timeout cannot stop the
+// command later.
+func stopAbandoned(x *exchange, target Target, auth Auth, opts Options) bool {
+	shellID, commandID := x.started()
+	if shellID == "" {
+		return false
+	}
+	done := make(chan bool, 1)
+	go func() {
+		fresh, err := newExchange(target, auth, opts)
+		if err != nil {
+			done <- false
+			return
+		}
+		if commandID != "" {
+			fresh.terminate(shellID, commandID)
+		}
+		_, err = fresh.post(winrm.NewDeleteShellRequest(fresh.url, shellID, &fresh.params))
+		done <- err == nil
+	}()
+	select {
+	case ok := <-done:
+		return ok
+	case <-time.After(abandonedCleanupBound):
+		return false
 	}
 }
 
