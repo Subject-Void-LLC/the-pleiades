@@ -44,9 +44,12 @@ func onboardRouter(t *testing.T, o api.Onboarder) http.Handler {
 }
 
 // TestDeviceOnboard_AnswersEachOutcome maps each onboarding outcome to its
-// status, and a failed probe still carries the result with its reason.
+// status, a failed probe still carries the result with its reason, and a
+// success carries the result's warnings.
 func TestDeviceOnboard_AnswersEachOutcome(t *testing.T) {
-	done := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "active", Capabilities: []string{"HTTPAPICapable"}, Changed: true}
+	const warning = "device api1 allows TLS 1.0 and 1.1 (tls_allow_deprecated_versions), which RFC 8996 deprecates"
+	done := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "active", Capabilities: []string{"HTTPAPICapable"}, Changed: true,
+		Warnings: []string{warning}}
 	failed := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "onboarding", Error: "the probe proved nothing: refused"}
 	for _, tc := range []struct {
 		name   string
@@ -85,6 +88,10 @@ func TestDeviceOnboard_AnswersEachOutcome(t *testing.T) {
 				var got map[string]any
 				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || got["_links"] == nil {
 					t.Errorf("body %s is not a result with links", rr.Body.String())
+				}
+				// The warning a weakened record carries reaches the caller.
+				if w, _ := got["warnings"].([]any); len(w) != 1 || w[0] != warning {
+					t.Errorf("warnings %v, want the one the result carried", got["warnings"])
 				}
 			}
 		})
