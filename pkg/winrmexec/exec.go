@@ -152,6 +152,9 @@ func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Op
 
 	select {
 	case out := <-done:
+		if cmd.Shell == ShellPowerShell {
+			out.res.Stderr = decodeCLIXML(out.res.Stderr)
+		}
 		return out.res, out.err
 	case <-ctx.Done():
 		return Result{}, fmt.Errorf(
