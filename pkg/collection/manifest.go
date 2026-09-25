@@ -116,10 +116,11 @@ type Reversibility struct {
 // can never loosen it.
 type Manifest struct {
 	// SupportedTransports names the transports this method can run over
-	// (for example "ssh"). It is a plain string set rather than a
-	// reference to a concrete transport type: only one transport exists
-	// in this codebase today, and binding this field to it ahead of a
-	// second transport existing would be premature structure.
+	// (for example "ssh" or "winrm"). It is a plain string set rather
+	// than a reference to a concrete transport type: several transports
+	// exist, but no phase has yet claimed typing this field against them.
+	// Nothing checks it against a device either, so today it documents a
+	// method rather than gating one; RequiredCapabilities is what gates.
 	SupportedTransports []string `json:"supportedTransports,omitempty"`
 
 	// RequiredCapabilities is what a device must structurally implement

@@ -42,7 +42,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
-| [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM. |
+| [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM. |
 | [facts.gather](facts/gather.md) | implemented | Gathers baseline system facts from the target (OS, kernel, distribution). |
 | [file.block.remove](file/block/remove.md) | implemented | Removes a marked, multi-line block of text from a file. |
 | [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |

@@ -26,6 +26,7 @@ var Devices = []devicescaffold.Config{
 			capability.NameWinRM,
 			capability.NameWindowsService,
 			capability.NameWindowsFeature,
+			capability.NameWindowsShell,
 			capability.NameNetworkAddressable,
 		},
 	},

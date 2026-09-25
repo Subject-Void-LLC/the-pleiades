@@ -525,15 +525,24 @@ undo.
 **A command: `transport.Transport`.** If one operation sends a command string
 and gets back standard output, standard error and an exit status, the protocol
 is command-shaped. The engine's built-in task types (`ssh_exec`, `serial_exec`,
-`serialtcp_exec`, `telnet_exec`) reach devices through `transport.Transport` in
-`internal/transport`, each named by a `TransportBinding`. Reuse that interface
-unchanged.
+`serialtcp_exec`, `telnet_exec`, `winrm_exec`) reach devices through
+`transport.Transport` in `internal/transport`, each named by a
+`TransportBinding`. Reuse that interface unchanged.
+
+A command-shaped protocol that can also run a command through a named shell
+implements `transport.ShellTransport` beside it, rather than widening `Exec`.
+WinRM is the one that does: `Exec` runs a Windows command line that no shell
+parses, and `ExecShell` runs a script through cmd.exe or PowerShell when a task
+sets `params.shell`. The executor asks for `ShellTransport` only when a task
+names a shell, and refuses a task that names one its device's transport cannot
+offer. See [the three Windows execution modes](#the-three-windows-execution-modes).
 
 **A primitive a Collection calls: a `pkg/` package.** A Collection method may
 import only `pkg/`, so anything a method calls lives there, whatever its shape:
-`pkg/remoteexec` for SSH commands, `pkg/winrmexec` for WinRM. WinRM moved to
-`pkg/` because of that layering rule, not because of its shape. It does not
-implement `transport.Transport`, and it never needed to.
+`pkg/remoteexec` for SSH commands, `pkg/winrmexec` for WinRM. The engine's own
+adapter over each (`internal/transport/ssh`, `internal/transport/winrm`) is a
+thin translation onto the same primitive, so a Collection method and a
+`winrm_exec` task send exactly the same WS-Man messages.
 
 **Anything that is not a command: a narrow port of its own.** Some protocols
 have no command string, no standard output and no exit status. NETCONF is
@@ -605,6 +614,64 @@ return client.Put(ctx, dst, src, size, 0o644)
 One gap to know about first: `sdk.Connect` dials the device directly. It does
 not yet follow the device's bastion route, so a method that has to reach a
 device behind a bastion needs that closed before it can ship.
+
+## The three Windows execution modes
+
+A Windows host can run a command three genuinely different ways, and a task
+names which one. The WinRM service starts every command through `cmd.exe /C`,
+whatever the client asks: the WS-Man option `WINRS_SKIP_CMD_SHELL` exists to ask
+it not to, and Windows does not honor it (measured, and refused outright when
+marked as required). So Pleiades escapes every command line until that
+`cmd.exe` passes it through unchanged, the same technique the Rust standard
+library adopted for this problem after CVE-2024-24576, and the only parser
+that acts on a command is the one the task chose.
+
+| Mode | What reads the command | Use it for | What it costs |
+|---|---|---|---|
+| `none` | only the program the command line names | running a program with arguments | no builtins, no variables, no pipes; the program parses its own arguments |
+| `cmd` | `cmd.exe /d /v:on /s /c` | a cmd builtin (`dir`, `set`, `%ERRORLEVEL%`) | one line only |
+| `powershell` | `powershell.exe -NoProfile -NonInteractive -EncodedCommand` | cmdlets, the pipeline, the language | a PowerShell start per task; the script travels base64 encoded, which more than doubles its length |
+
+Every mode shares one ceiling: the service's `cmd.exe` accepts at most 8191
+characters, counted after escaping, so a script or value too large for that
+belongs on standard input. The service's `cmd.exe` also runs any AutoRun command
+the host's registry configures, before the task's own command; that is the
+host's configuration, and nothing a client can switch off.
+
+`winrm_exec` takes the mode as `params.shell` (default `none`), and
+`exec.winrm.shell` takes it as `shell` (required).
+
+**Values travel as data, never as script text.** `cmd.exe` and PowerShell have
+disjoint metacharacter sets, so no one escape is safe for both, and a runbook
+value spliced into a script is code. Put values in `env` instead: each name
+arrives as an environment variable called `PLEIADES_` plus the name, read as
+`$env:PLEIADES_NAME` in PowerShell or `!PLEIADES_NAME!` in cmd. Not
+`%PLEIADES_NAME%`: cmd.exe expands that form before it parses the line, so a
+value containing `&` would run as a command, and a cmd script that reads one of
+its own values that way is refused. `cmd` mode turns on delayed expansion
+(`/v:on`) for exactly this, which means a pair of literal `!` characters in a
+cmd script needs escaping as `^^!`. An environment is visible to other
+processes on the device, so it is for data, never a secret. A secret belongs on
+standard input, which `pkg/winrmexec.RunWithStdin` provides for a method that
+needs one.
+
+**Exit codes are real.** PowerShell's `-EncodedCommand` normally reports only 0
+or 1. Pleiades adds one line after the script so a failing native program's own
+exit code survives, a failed cmdlet reports 1, and a script that recovers from
+an earlier failure reports 0.
+
+**The interpreters are named by absolute path.** With no shell in front of it,
+Windows looks for a bare program name in the working directory before the
+system directory, so a file called `powershell.exe` planted there would run
+instead. A Windows device's `cmd_path` and `powershell_path` properties say
+where its interpreters live (a device that should use PowerShell 7 names
+`pwsh.exe`), and `working_directory` says where commands start.
+
+**Building a Windows command line by hand is the one hard part.** For `none`,
+use `winrmexec.CommandLine(program, args...)`, which quotes each argument the
+way the standard Windows argument parser expects: a program that uses it
+receives exactly the arguments given. `cmd.exe` does not use that parser, which
+is why `cmd` mode builds its own line.
 
 ## External Collections
 

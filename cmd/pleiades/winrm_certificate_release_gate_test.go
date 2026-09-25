@@ -133,6 +133,18 @@ func winrmCertificateGate(t *testing.T) (host string, cred labCredential) {
 		pfxPath:  os.Getenv(envWinRMPFX),
 		pfxPass:  os.Getenv(envWinRMPFXPassword),
 	}
+	// The passphrase may instead be named by a file, which is how
+	// winrm-cert-setup.ps1 hands it over (readable only by its owner), so
+	// it need not be copied into an environment variable at all.
+	if cred.pfxPass == "" {
+		if path := os.Getenv(envWinRMPFXPassword + "_FILE"); path != "" {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading %s_FILE: %v", envWinRMPFXPassword, err)
+			}
+			cred.pfxPass = strings.TrimRight(string(raw), "\r\n")
+		}
+	}
 
 	switch {
 	case host == "":

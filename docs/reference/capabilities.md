@@ -43,5 +43,6 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsCapable` | - | - |
 | `WindowsFeatureCapable` | - | - |
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
+| `WindowsShellCapable` | - | - |
 
-33 capabilities registered.
+34 capabilities registered.

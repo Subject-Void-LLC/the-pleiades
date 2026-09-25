@@ -102,6 +102,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/tlscert": 88.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/topology": 95.3,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport/hopchain": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp": 94.0,

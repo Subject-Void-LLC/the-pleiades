@@ -1,4 +1,4 @@
-// Package winrmexec runs a script on a Windows device over WinRM, and is
+// Package winrmexec runs a command on a Windows device over WinRM, and is
 // the single place this platform does that.
 //
 // It exists for the reason pkg/remoteexec and pkg/remotefile exist. A
@@ -7,52 +7,44 @@
 // host cannot use an adapter living under internal/ no matter how much
 // of the same work it needs.
 //
-// # What works, what does not, and why that is not a matter of taste
+// # Three execution modes, each with exactly one parser
 //
-// A Windows target can run a command three ways, and this package
-// supports two of them:
+// A Windows target can run a command three genuinely different ways, and
+// Shell names which:
 //
-//   - ShellPowerShell works. The script is UTF-16LE encoded and base64ed
-//     into "powershell.exe -EncodedCommand <base64>".
-//   - ShellCmd works. The script goes to cmd.exe, which is the only way
-//     to reach a cmd builtin (dir, set, for, %ERRORLEVEL%).
-//   - ShellNone, meaning direct execution of a program with an argument
-//     vector nothing parses, is REFUSED rather than approximated.
+//   - ShellNone runs a command line directly: a program and its
+//     arguments, parsed only by that program (CommandLine quotes one for
+//     the standard Windows parser). Nothing else reads it.
+//   - ShellCmd runs a one-line script through cmd.exe, which is the only
+//     way to reach a cmd builtin (dir, set, for, %ERRORLEVEL%).
+//   - ShellPowerShell runs a script through powershell.exe, base64
+//     encoded as -EncodedCommand requires.
 //
-// The refusal is the honest option rather than a missing feature.
-// [MS-WSMV] 3.1.4.11 defines a WS-Man option, WINRS_SKIP_CMD_SHELL, that
-// decides whether the service runs the command directly or hands it to
-// cmd.exe, and it defaults to FALSE. The library below hardcodes it to
-// "FALSE" while building the Command message inline (request.go:76-77)
-// and exposes no seam to change it: NewExecuteCommandRequest is
-// exported, but Client.sendRequest, Shell.client, Shell.id and
-// newCommand are not, so a caller can build a corrected request and has
-// no way to post it. Claiming a command runs verbatim while it is
-// actually parsed by cmd.exe would be a lie with security consequences,
-// so this package says no instead. Getting ShellNone requires an
-// upstream pull request or a fork.
+// The WinRM service starts every command through `cmd.exe /C` and cannot
+// be told not to: the WS-Man option that asks it to is not honored by
+// Windows (measured; cmdexe.go has the detail). So every mode's line is
+// escaped until that cmd.exe passes it through unchanged, and the parser
+// that acts on a command's bytes is still only the one the caller chose:
+// the program itself for ShellNone, the cmd.exe ShellCmd names, or the
+// powershell.exe ShellPowerShell names. This package builds the two WS-Man
+// messages it needs itself (wsman.go) and posts them through the
+// library's own authenticated, encrypted transport.
 //
-// # Why the two supported modes are safe under a cmd.exe nobody asked for
+// # Data travels as data
 //
-// Because the option is stuck at FALSE, every command this package sends
-// is parsed by cmd.exe on the far side. For ShellCmd that is precisely
-// what the caller asked for. For ShellPowerShell it is harmless, and the
-// reason is worth stating rather than assuming: the command line is
-// "powershell.exe -EncodedCommand" followed by base64, whose alphabet is
-// A-Z, a-z, 0-9, "+", "/" and "=". Not one cmd.exe metacharacter appears
-// in that set, so no script content, however hostile, can reach cmd.exe
-// as syntax. The encoding that exists to carry a script through a
-// command line safely is also what makes this defect unreachable there.
+// A script is the caller's own text and runs verbatim. Values a script
+// needs arrive beside it rather than inside it: as environment variables
+// set on the shell (Command.Env), or on stdin (Command.Stdin), which is
+// also the only channel for a secret, since a command line and an
+// environment are both visible to other processes on the device. Neither
+// needs escaping for either shell, which matters because cmd.exe and
+// PowerShell have disjoint metacharacter sets and no single escape is
+// safe for both. Where a value must be spliced into PowerShell text
+// anyway, QuotePS is the one correct way to do it.
 //
-// The library's second defect needs a real defense. It wraps the command
-// in CDATA by concatenation, `"<![CDATA[" + command + "]]>"`
-// (request.go:83), with no escaping of a literal "]]>" in the content. A
-// command containing that sequence closes the CDATA section early and
-// injects raw XML into the SOAP body, which is a live injection vector
-// with nothing to do with any shell's metacharacters. Run rejects it on
-// the ShellCmd path, where a caller's bytes reach the SOAP body raw. The
-// PowerShell path needs no such check for the same reason as above:
-// neither "]" nor ">" is in the base64 alphabet.
+// Text is checked before it is sent (CheckText): a WS-Man message is XML,
+// which cannot carry most control characters, and an escaper that
+// replaced them would run a different command than the one written.
 package winrmexec
 
 import (
@@ -90,10 +82,6 @@ const (
 // every ordinary task to wait out a pathological one.
 const DefaultTimeout = 60 * time.Second
 
-// cdataTerminator is the sequence that ends a CDATA section, and the one
-// the library below fails to escape.
-const cdataTerminator = "]]>"
-
 // Shell names which interpreter runs a script on the far side.
 //
 // This is an enum rather than a boolean because "no shell" is a third
@@ -106,8 +94,8 @@ const cdataTerminator = "]]>"
 type Shell int
 
 const (
-	// ShellNone runs the program directly, with an argument vector no
-	// interpreter parses. Not available over WinRM; see the package doc.
+	// ShellNone runs a command line directly: a program and its
+	// arguments, parsed only by that program. See the package doc.
 	ShellNone Shell = iota
 	// ShellCmd runs the script through cmd.exe, the only way to reach a
 	// cmd builtin.
@@ -236,121 +224,29 @@ type Options struct {
 	Timeout time.Duration
 
 	// DisableEncryption turns off WinRM message encryption on the HTTP
-	// path. It exists to be refused loudly rather than used: see Run.
+	// path. It exists to be refused loudly rather than used: see Execute.
 	DisableEncryption bool
-}
 
-// Run executes script on target through shell, authenticating with auth.
-//
-// The Result and error contract is pkg/remoteexec's exactly: a non-zero
-// Result.ExitCode is the remote script reporting failure and is not a Go
-// error, while a non-nil error means the outcome could not be determined
-// at all.
-func Run(ctx context.Context, target Target, auth Auth, shell Shell, script string, opts Options) (Result, error) {
-	if script == "" {
-		return Result{}, fmt.Errorf("winrm: empty script")
-	}
-	// Resolved before the cleartext check below, because certificate
-	// authentication selects HTTPS on its own and would otherwise be
-	// refused here for a risk it does not take.
-	opts = opts.resolve(auth)
-	if opts.DisableEncryption && !opts.HTTPS {
-		return Result{}, fmt.Errorf("winrm: DisableEncryption requires HTTPS: over plain HTTP it would send the credential exchange and every script in cleartext")
-	}
+	// CmdPath and PowerShellPath are the interpreters ShellCmd and
+	// ShellPowerShell start, as absolute paths on the device. Empty means
+	// DefaultCmdPath and DefaultPowerShellPath. See those constants for
+	// why a bare program name is never used.
+	CmdPath        string
+	PowerShellPath string
 
-	// Everything the caller can get wrong is checked before a client is
-	// built or a credential is read. Ordering these later would report a
-	// credential problem to an author whose actual mistake was naming a
-	// shell this transport cannot run.
-	switch shell {
-	case ShellPowerShell, ShellCmd:
-		// Supported.
-	case ShellNone:
-		return Result{}, fmt.Errorf(
-			"winrm: shell %q is not available: the WinRM service decides between direct execution and cmd.exe with the "+
-				"WINRS_SKIP_CMD_SHELL option and this package cannot set it, so it will not claim a command runs "+
-				"verbatim when it would be parsed by cmd.exe. Name the interpreter instead: shell %q or shell %q",
-			ShellNone, ShellPowerShell, ShellCmd)
-	default:
-		return Result{}, fmt.Errorf("winrm: unknown shell %v", shell)
-	}
+	// WorkingDirectory is where a command starts on the device. Empty
+	// leaves the choice to the WinRM service, which is the account's
+	// profile directory, rather than guessing a drive root.
+	WorkingDirectory string
 
-	// The ShellCmd path puts the caller's bytes into the SOAP body raw,
-	// so it is the one that must defend against the library's unescaped
-	// CDATA terminator. ShellPowerShell needs no such check: the script
-	// is base64 encoded before it reaches the body.
-	if shell == ShellCmd && strings.Contains(script, cdataTerminator) {
-		return Result{}, fmt.Errorf(
-			"winrm: script contains %q, which would close the CDATA section in the SOAP request early and inject raw XML",
-			cdataTerminator)
-	}
-
-	client, err := newClient(target, auth, opts)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// The deadline is enforced HERE rather than handed to the library,
-	// because the library discards both of the things that would
-	// normally carry it.
-	//
-	// Windows refuses unencrypted WinRM by default, so every operation
-	// this package performs goes through winrm.Encryption. Its
-	// Transport method builds a bare &http.Client{}: no Timeout, and the
-	// default transport, whose ResponseHeaderTimeout is unset and
-	// therefore unlimited. The endpoint's own Timeout is applied by the
-	// UNencrypted transport only, which is the path a default-configured
-	// Windows host never takes. Its two requests are then built with
-	// http.NewRequest rather than NewRequestWithContext, so the context
-	// passed to RunPSWithContext never reaches the HTTP layer at all.
-	// The field that would let a caller fix any of this, Encryption's
-	// httpClient, is unexported.
-	//
-	// The measured consequence, which is what prompted this: a task that
-	// reconfigured a device's own network address, destroying the
-	// connection carrying it, blocked for two minutes fifty-one seconds
-	// and then three minutes ten seconds on separate runs. Neither
-	// Options.Timeout nor a context deadline shortened either one.
-	//
-	// What this fix does and does not buy is worth stating plainly. The
-	// CALLER is released on time. The goroutine below is not: it stays
-	// parked in the library until the operating system tears the socket
-	// down, holding one connection and one goroutine until it does.
-	// That is a real cost and it is the smaller one, because the
-	// alternative is an operator watching a runbook hang with no way to
-	// bound it. Genuinely cancelling the in-flight request needs the
-	// library to accept a context, which is an upstream change.
-	ctx, cancel := withOperationDeadline(ctx, opts.Timeout)
-	defer cancel()
-
-	// Buffered, so the goroutine below can always deliver and exit even
-	// when nobody is left waiting for it.
-	done := make(chan operationResult, 1)
-	go func() {
-		var stdout, stderr string
-		var code int
-		var runErr error
-		if shell == ShellPowerShell {
-			stdout, stderr, code, runErr = client.RunPSWithContext(ctx, script)
-		} else {
-			stdout, stderr, code, runErr = client.RunWithContextWithString(ctx, script, "")
-		}
-		done <- operationResult{res: Result{Stdout: stdout, Stderr: stderr, ExitCode: code}, err: runErr}
-	}()
-
-	select {
-	case out := <-done:
-		if out.err != nil {
-			return Result{}, fmt.Errorf("winrm: %w", out.err)
-		}
-		return out.res, nil
-	case <-ctx.Done():
-		return Result{}, fmt.Errorf(
-			"winrm: %s: gave up waiting for %s after %s. The script may still be running on the device, and if it "+
-				"changed the network configuration it has probably already taken effect; this says only that no "+
-				"answer came back in time",
-			ctx.Err(), target.Host, describeTimeout(opts.Timeout))
-	}
+	// NoProfile asks the service not to load the account's Windows user
+	// profile, which saves the cost of creating one on a first login.
+	// It is off by default because a command without the profile sees
+	// the Default profile's registry and folders instead of its own
+	// account's, so a per-user tool (VirtualBox, which keeps its VM
+	// registry under %USERPROFILE%, is the case that decided this) finds
+	// nothing it was set up with. The WS-Man option is WINRS_NOPROFILE.
+	NoProfile bool
 }
 
 // operationResult is one finished WinRM operation, or the error that
@@ -416,13 +312,14 @@ func unbracket(host string) string {
 	return host
 }
 
-// newClient builds a winrm.Client for one operation.
+// newExchange builds the client, and the transport it posts through, for
+// one operation.
 //
 // A client is built per call rather than cached per target because the
 // credential is an argument to the call, not a property of this package,
 // and a cache keyed by target alone would hand one device's session to
 // whichever credential asked for it second.
-func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
+func newExchange(target Target, auth Auth, opts Options) (*exchange, error) {
 	if err := auth.Validate(); err != nil {
 		return nil, err
 	}
@@ -448,7 +345,10 @@ func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
 		unbracket(target.Host), port, opts.HTTPS, opts.Insecure, opts.CACert,
 		auth.CertificatePEM, auth.PrivateKeyPEM, timeout)
 
-	params := *winrm.DefaultParameters
+	// The transport is built here rather than inside the library's
+	// decorator so this package holds the same instance the client uses:
+	// wsman.go posts the messages it builds itself through it.
+	var transporter winrm.Transporter
 	switch {
 	case auth.usesCertificate():
 		// TLS mutual authentication, through this package's own transport
@@ -461,27 +361,25 @@ func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
 		// variation on one, because it sends no Basic header at all.
 		// Auth.Validate has already refused every combination that would
 		// reach here with only half a pair.
-		params.TransportDecorator = func() winrm.Transporter { return &certificateTransport{} }
+		transporter = &certificateTransport{}
 
 	case !opts.DisableEncryption && !opts.HTTPS:
 		// SPNEGO session encryption over HTTP. Windows refuses
 		// unencrypted WinRM by default, so without this the very first
 		// request comes back 415 rather than working and then leaking.
-		params.TransportDecorator = func() winrm.Transporter {
-			enc, err := winrm.NewEncryption("ntlm")
-			if err != nil {
-				// Unreachable for the literal "ntlm": NewEncryption only
-				// rejects protocols it does not know. Falling back keeps
-				// this from panicking and the request then fails loudly
-				// at the service.
-				return &winrm.ClientNTLM{}
-			}
-			return enc
+		enc, err := winrm.NewEncryption("ntlm")
+		if err != nil {
+			// Unreachable for the literal "ntlm": NewEncryption only
+			// rejects protocols it does not know.
+			return nil, fmt.Errorf("winrm: building NTLM encryption: %w", err)
 		}
+		transporter = enc
 
 	default:
-		params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientNTLM{} }
+		transporter = &winrm.ClientNTLM{}
 	}
+	params := *winrm.DefaultParameters
+	params.TransportDecorator = func() winrm.Transporter { return transporter }
 
 	// Username and password are empty on the certificate path, which is
 	// correct rather than a gap: that transport sends no Basic header, and
@@ -493,7 +391,7 @@ func newClient(target Target, auth Auth, opts Options) (*winrm.Client, error) {
 		// here rather than at the handshake.
 		return nil, fmt.Errorf("winrm: building client for %s:%d: %w", target.Host, port, err)
 	}
-	return client, nil
+	return &exchange{client: client, transport: transporter, url: endpointURL(endpoint), params: client.Parameters}, nil
 }
 
 // DefaultProbeInterval is how often WaitUntilReachable retries.

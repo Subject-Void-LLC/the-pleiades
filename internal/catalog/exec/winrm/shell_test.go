@@ -3,6 +3,7 @@ package winrm_test
 import (
 	"context"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -95,22 +96,26 @@ func TestRefusesBadParams(t *testing.T) {
 		{name: "no command", params: map[string]any{"shell": "powershell"}, wantText: "command"},
 		{name: "no shell", params: map[string]any{"command": "hostname"}, wantText: "shell"},
 		{
-			// The refusal that matters most: "none" would mean running a
-			// program with an argument vector nothing parses, and this
-			// transport cannot promise that.
-			name:     "shell none is refused",
-			params:   map[string]any{"command": "hostname", "shell": "none"},
-			wantText: "WINRS_SKIP_CMD_SHELL",
-		},
-		{
 			name:     "unknown shell lists the valid values",
 			params:   map[string]any{"command": "hostname", "shell": "bash"},
 			wantText: "powershell",
 		},
 		{
-			name:     "cmd script closing the CDATA section",
-			params:   map[string]any{"command": "echo ]]> hi", "shell": "cmd"},
-			wantText: "CDATA",
+			// cmd.exe /c stops at the first line break, so a second line
+			// would be silently dropped.
+			name:     "multi-line cmd script",
+			params:   map[string]any{"command": "echo a\necho b", "shell": "cmd"},
+			wantText: "one line",
+		},
+		{
+			name:     "env that is not a map",
+			params:   map[string]any{"command": "hostname", "shell": "none", "env": "A=1"},
+			wantText: "must be a map",
+		},
+		{
+			name:     "a character WS-Man cannot carry",
+			params:   map[string]any{"command": "hostname\x00", "shell": "none"},
+			wantText: "cannot carry",
 		},
 	}
 	for _, tt := range tests {
@@ -289,5 +294,45 @@ func TestAcceptsAFloatTimeout(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "not a whole number") {
 		t.Errorf("a float carrying a whole number was refused: %v", err)
+	}
+}
+
+// shellDevice is a WinRM device that also says where its interpreters
+// live and where commands start, as windows.Server does.
+type shellDevice struct {
+	*winrmDevice
+	cmdPath, powerShellPath, workingDirectory string
+}
+
+func (d *shellDevice) CmdPath() string          { return d.cmdPath }
+func (d *shellDevice) PowerShellPath() string   { return d.powerShellPath }
+func (d *shellDevice) WorkingDirectory() string { return d.workingDirectory }
+
+// TestHonorsTheDevicesInterpreterPaths proves the device's own paths reach
+// the command, with no network: a path the command line cannot carry is
+// refused naming that path, which the default path never would be.
+func TestHonorsTheDevicesInterpreterPaths(t *testing.T) {
+	desc, ok := collection.Lookup("exec.winrm.shell")
+	if !ok {
+		t.Fatal("exec.winrm.shell is not registered")
+	}
+	tests := []struct {
+		name   string
+		dev    *shellDevice
+		shell  string
+		wanted string
+	}{
+		{name: "powershell_path", dev: &shellDevice{winrmDevice: device(), powerShellPath: `C:\bad"path\pwsh.exe`}, shell: "powershell", wanted: strconv.Quote(`C:\bad"path\pwsh.exe`)},
+		{name: "cmd_path", dev: &shellDevice{winrmDevice: device(), cmdPath: `C:\bad"path\cmd.exe`}, shell: "cmd", wanted: strconv.Quote(`C:\bad"path\cmd.exe`)},
+		{name: "working_directory", dev: &shellDevice{winrmDevice: device(), workingDirectory: "C:\\bad\x00dir"}, shell: "powershell", wanted: "working directory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := desc.Invoke(context.Background(), &ctxStub{stats: map[string]any{}}, tt.dev,
+				map[string]any{"command": "hostname", "shell": tt.shell})
+			if err == nil || !strings.Contains(err.Error(), tt.wanted) {
+				t.Errorf("err = %v, want it to name %q, the device's own setting", err, tt.wanted)
+			}
+		})
 	}
 }

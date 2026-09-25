@@ -74,6 +74,7 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 			capability.Name("WinRMCapable"),
 			capability.Name("WindowsServiceCapable"),
 			capability.Name("WindowsFeatureCapable"),
+			capability.NameWindowsShell,
 			capability.NameNetworkAddressable,
 		},
 		rec.Capabilities,

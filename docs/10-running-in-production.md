@@ -2049,6 +2049,22 @@ Controller-to-Runner path still carries no certificates at all. Traffic between 
 Controller, the Runners, the database and the broker is unencrypted inside the
 cluster unless you put a service mesh there yourself.
 
+**WinRM (`winrm_exec`, `exec.winrm.shell`).** A Windows device is reached over
+WinRM with NTLM and message encryption on 5985, or by client certificate on 5986
+(below). A task runs its command one of three ways, named by `shell`: `none`
+runs a Windows command line with no shell acting on it, `cmd` runs one line
+through `cmd.exe`, and `powershell` runs a script through PowerShell. The WinRM
+service starts every command through `cmd.exe` and cannot be told not to, so
+Pleiades escapes each command line until it passes through unchanged, and the
+parser that acts on a command is the one the task named;
+[Extending Pleiades](11-extending-pleiades.md#the-three-windows-execution-modes)
+has the table of what each mode costs. Values a script needs go in `env`, never
+into the script text. A connection that fails before any command was sent is
+retried twice, with backoff; a rejected credential is not, because repeating it
+can lock the account, and nothing is retried once a command has started. A
+Windows device configured behind a bastion is refused rather than dialed
+directly, because WinRM through a hop chain is not supported yet.
+
 **Presenting a certificate TO a managed device is real, and it is a different
 thing.** The paragraph above is about the mesh, Controller to Runner. This is about
 the far end: a Runner authenticating to a Windows host over WinRM with a client

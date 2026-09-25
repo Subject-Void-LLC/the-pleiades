@@ -31,12 +31,12 @@ It is also the example that broke this lab machine twice, and the comments in
 
 ## What actually goes wrong, in the order you will hit it
 
-**`shell: powershell` is required, not decorative.** The WinRM transport refuses
-`shell: none`. That mode means running a program directly with an argument vector
-nothing parses, and the WS-Man option deciding between direct execution and `cmd.exe`
-is pinned to `cmd.exe` by the underlying library, so the transport will not claim a
-command runs verbatim when it would actually be parsed by a shell. `shell: cmd` is the
-other supported value.
+**Name the shell.** These runbooks use `shell: powershell`, because what they read and
+change is PowerShell's to do. The other two modes exist too: `shell: cmd` runs one line
+through `cmd.exe` for its builtins, and `shell: none` runs a program with its arguments
+reaching it exactly as written. The WinRM service starts every command through `cmd.exe`
+whatever it is asked, so Pleiades escapes each line until that `cmd.exe` passes it through
+unchanged, and the parser a task names is the only one that acts on it.
 
 **Run these with `--verbose`.** `pleiades run` prints only whether each task changed
 something unless you ask for more, and every runbook here exists to read state back off

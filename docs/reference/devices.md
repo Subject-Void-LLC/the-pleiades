@@ -14,7 +14,7 @@ Every registered inventory device type, its vendor package, and the capabilities
 | `generic_http` | `generic` | `NetworkAddressableCapable`; discovered: `HTTPAPICapable` | generic, discovered at onboarding |
 | `generic_netconf` | `generic` | `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `NetconfCapable` | generic, discovered at onboarding |
 | `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable` | generic, discovered at onboarding |
-| `windows_server` | `windows` | `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, `WindowsFeatureCapable`, `NetworkAddressableCapable` | generated |
+| `windows_server` | `windows` | `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, `WindowsFeatureCapable`, `WindowsShellCapable`, `NetworkAddressableCapable` | generated |
 | `aws_account` | `aws` | `AWSAPICapable` | generated |
 | `catalyst_center` | `catalyst` | `CatalystAPICapable` | generated |
 | `cisco_switch` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkCLICapable`, `NetworkAddressableCapable` | generated |
