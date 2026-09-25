@@ -99,3 +99,31 @@ func FuzzSessionChild(f *testing.F) {
 		}
 	})
 }
+
+// failingWriter refuses every write, as a closed response pipe does.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+// TestSessionChild_UnwritableResponseExitsNonZero proves a response that
+// cannot be written ends the session as a broken exchange.
+func TestSessionChild_UnwritableResponseExitsNonZero(t *testing.T) {
+	in := sessionRequests(t, wire.ChildRequest{FQCN: nativeIPCEchoMethodName, Mode: string(collection.ModeExecute)})
+	var errOut bytes.Buffer
+	if code := runCollectionSession(context.Background(), bytes.NewReader(in), failingWriter{}, &errOut); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "failed to write response") {
+		t.Errorf("stderr %q does not say why", errOut.String())
+	}
+}
+
+// TestRunChildFor_OnlyTheTwoChildArguments proves anything but the two
+// child arguments, and no argument at all, selects no child.
+func TestRunChildFor_OnlyTheTwoChildArguments(t *testing.T) {
+	for _, args := range [][]string{nil, {}, {"--internal-collection-runnerx"}, {"healthcheck"}} {
+		if _, ok := RunChildFor(context.Background(), args); ok {
+			t.Errorf("RunChildFor(%q) selected a child", args)
+		}
+	}
+}

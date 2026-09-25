@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -190,4 +192,49 @@ func pumpUnlessStalled(dst, src net.Conn, stalled *atomic.Bool) {
 			return
 		}
 	}
+}
+
+// TestPool_UnresolvableTrustIsNotPooled covers a known_hosts that cannot
+// be read or found: the Pool does not pool, and the dial it falls back to
+// reports the problem itself.
+func TestPool_UnresolvableTrustIsNotPooled(t *testing.T) {
+	srv := startPoolServer(t)
+	p := NewPool(0)
+	t.Cleanup(func() { _ = p.Close() })
+	auth := PasswordAuth(srv.Username, srv.Password)
+
+	missing := New(Options{KnownHostsPath: filepath.Join(t.TempDir(), "absent")})
+	if _, err := p.Connect(context.Background(), missing, "web1", target(srv), auth); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Connect with a missing known_hosts returned %v, want the dial's own refusal", err)
+	}
+
+	t.Setenv("HOME", "")
+	t.Setenv(KnownHostsEnv, "")
+	if _, err := p.Connect(context.Background(), New(Options{}), "web1", target(srv), auth); err == nil {
+		t.Error("Connect with no known_hosts source at all succeeded")
+	}
+	if len(p.entries) != 0 {
+		t.Errorf("%d connections pooled with no verifiable trust", len(p.entries))
+	}
+}
+
+// TestPool_ExpireLeavesALentConnection covers an idle timer that fires
+// after its connection was lent again: the borrower keeps it.
+func TestPool_ExpireLeavesALentConnection(t *testing.T) {
+	srv := startPoolServer(t)
+	p := NewPool(0)
+	t.Cleanup(func() { _ = p.Close() })
+	conn, err := p.Connect(context.Background(), New(Options{InsecureSkipHostKeyVerify: true}), "web1", target(srv), PasswordAuth(srv.Username, srv.Password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := p.entries["web1"]
+	p.expire("web1", e)
+	if p.entries["web1"] != e {
+		t.Fatal("expire removed a connection that was lent")
+	}
+	if _, err := conn.Run(context.Background(), "true"); err != nil {
+		t.Fatalf("the borrower's connection stopped working: %v", err)
+	}
+	_ = conn.Close()
 }

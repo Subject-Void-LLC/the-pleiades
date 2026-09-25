@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -240,5 +241,75 @@ func TestAdapter_Execute_PersistConnections(t *testing.T) {
 		if got := srv.Logins() - before; got != tc.want {
 			t.Errorf("persist %v: %d logins for three tasks, want %d", tc.persist, got, tc.want)
 		}
+	}
+}
+
+// sessionExitMethod ends its child process without answering, as a
+// method that crashes the child would.
+const sessionExitMethod = "nativesessiontest.exits"
+
+func init() {
+	collection.MustRegister(collection.Descriptor{Name: sessionExitMethod, Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}}, Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		fmt.Fprintln(os.Stderr, "the child is leaving")
+		os.Exit(3)
+		return collection.Result{}, nil
+	}})
+}
+
+// TestSession_ChildThatDiesIsReplaced proves a child that exits without
+// answering fails that call, naming its stderr, and the next call starts
+// a fresh child.
+func TestSession_ChildThatDiesIsReplaced(t *testing.T) {
+	device := sessionDevice(nil)
+	s := newTestSession(t, device)
+	first := callPID(t, s.invoke, sessionPIDMethod, collection.ModeExecute, device, nil)
+	desc, _ := collection.Lookup(sessionExitMethod)
+	_, _, err := s.invoke(context.Background(), desc, device, nil, collection.ModeExecute)
+	if err == nil || !strings.Contains(err.Error(), "the child is leaving") {
+		t.Fatalf("a dead child's call returned %v, want an error naming its stderr", err)
+	}
+	if next := callPID(t, s.invoke, sessionPIDMethod, collection.ModeExecute, device, nil); next == first {
+		t.Fatal("the call after a dead child reused it")
+	}
+}
+
+// TestSession_Refusals covers the calls a session does not run in its
+// child: a device that is not a dispatched one, an external Collection
+// (its own process already, so the one-shot path runs it in this one),
+// and a child binary that cannot start.
+func TestSession_Refusals(t *testing.T) {
+	device := sessionDevice(nil)
+	s := newTestSession(t, device)
+	desc, _ := collection.Lookup(sessionPIDMethod)
+	if _, _, err := s.invoke(context.Background(), desc, &inventorytest.Stub{StubName: "x"}, nil, collection.ModeExecute); err == nil {
+		t.Error("a device that is not a dispatched one was accepted")
+	}
+
+	external := desc
+	external.Provider = &collection.Provider{Program: "fixture"}
+	_, facts, err := s.invoke(context.Background(), external, device, nil, collection.ModeExecute)
+	if err != nil || facts["pid"] != fmt.Sprint(os.Getpid()) {
+		t.Errorf("an external method ran with facts %v, err %v; want this process's pid", facts, err)
+	}
+
+	broken := (&ipcCollectionExecutor{exePath: "/nonexistent/pleiades-runner"}).newSession(device.Payload())
+	t.Cleanup(broken.Close)
+	if _, _, err := broken.invoke(context.Background(), desc, device, nil, collection.ModeExecute); err == nil || !strings.Contains(err.Error(), "failed to start the session child") {
+		t.Errorf("a child that cannot start returned %v", err)
+	}
+}
+
+// TestCappedBuffer keeps what fits, counts the rest, and never makes the
+// copy feeding it fail.
+func TestCappedBuffer(t *testing.T) {
+	b := &cappedBuffer{max: 4}
+	if n, err := b.Write([]byte("abc")); n != 3 || err != nil {
+		t.Fatalf("Write = %d, %v", n, err)
+	}
+	if n, err := b.Write([]byte("defg")); n != 4 || err != nil {
+		t.Fatalf("Write past the cap = %d, %v; want every byte reported written", n, err)
+	}
+	if got := b.String(); got != "abcd\n[3 more bytes not kept]" {
+		t.Fatalf("String = %q", got)
 	}
 }
