@@ -62,11 +62,13 @@ const (
 // negotiates.
 const stdinChunk = 64 * 1024
 
-// operationTimeout is the WS-Man OperationTimeout on every message. A
-// Receive with no output to return waits this long and then answers with
-// an OperationTimeout fault, which the receive loop treats as "nothing
-// yet" and asks again. It is shorter than any HTTP timeout on the path,
-// so the service always answers before a client-side timer could fire.
+// operationTimeout is the WS-Man OperationTimeout on every message. It is
+// shorter than any HTTP timeout on the path, so the service always answers
+// before a client-side timer could fire. A Receive for a command that has
+// written nothing is eventually answered with a TimedOut fault, which the
+// receive loop treats as "nothing yet" and asks again; measured on a
+// Windows 11 host, that fault first arrives once a command has been silent
+// for about a minute, and shorter silences never draw it.
 const operationTimeout = "PT20S"
 
 // poster is the one method this file needs from a winrm.Transporter: post
@@ -216,7 +218,23 @@ func isNoOutputYet(err error) bool {
 	if errors.As(err, &urlErr) && urlErr.Timeout() {
 		return true
 	}
-	return strings.Contains(err.Error(), "OperationTimeout")
+	return timedOutFault.MatchString(faultBody(err))
+}
+
+// timedOutFault matches the fault a Receive answers with when the command
+// wrote nothing within OperationTimeout, by its WS-Man subcode or its
+// WS-Man error code, never by its message, which Windows translates.
+var timedOutFault = regexp.MustCompile(`<s:Value>\s*w:TimedOut\s*</s:Value>|Code="2150858793"`)
+
+// faultBody returns the SOAP reply an error carries: the certificate
+// transport's whole reply, or, for the library's transports, the error's
+// own text, which quotes the whole reply.
+func faultBody(err error) string {
+	var fault *httpFault
+	if errors.As(err, &fault) {
+		return fault.body
+	}
+	return err.Error()
 }
 
 // header starts a message's header with what every message here carries.

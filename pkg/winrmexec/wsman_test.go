@@ -241,7 +241,7 @@ func TestExchange_RunsTheWholeConversation(t *testing.T) {
 		"Create":  {{body: shellReply}},
 		"Command": {{body: cmdReply}},
 		"Receive": {
-			{err: errors.New("http error 500: ... OperationTimeout ...")},
+			{err: errors.New("http error 500: " + timedOutFaultBody(t))},
 			{body: output("half ", "", -1)},
 			{body: output("done", "warn", 123)},
 		},

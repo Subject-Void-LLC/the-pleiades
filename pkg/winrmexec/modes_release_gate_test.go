@@ -395,3 +395,24 @@ func TestModesStress(t *testing.T) {
 	report("powershell, sequential", measure(t, 20, 1, Command{Shell: ShellPowerShell, Script: "$env:USERNAME"}))
 	report("cmd, 4 at a time", measure(t, 20, 4, Command{Shell: ShellCmd, Script: "ver"}))
 }
+
+// TestModesReleaseGate_ASilentMinute runs a command that writes nothing
+// for longer than a minute, which is when a real host answers a waiting
+// Receive with its TimedOut fault; shorter silences never draw it, so no
+// quick command could catch what this does. Over the certificate
+// transport the fault once arrived cut short, was taken for a failure, and
+// ended every such command at sixty seconds: an installer, an import, an
+// update. It takes about seventy-five seconds.
+func TestModesReleaseGate_ASilentMinute(t *testing.T) {
+	target, auth, opts := gateHost(t)
+	opts.Timeout = 3 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+	defer cancel()
+	res, err := Run(ctx, target, auth, ShellPowerShell, "Start-Sleep 75; 'slept 75'", opts)
+	if err != nil {
+		t.Fatalf("a command silent for 75 seconds: %v", err)
+	}
+	if strings.TrimSpace(res.Stdout) != "slept 75" || res.ExitCode != 0 {
+		t.Errorf("result = %+v", res)
+	}
+}

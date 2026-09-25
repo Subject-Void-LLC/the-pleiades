@@ -191,9 +191,32 @@ func (t *certificateTransport) Post(_ *winrm.Client, message *soap.SoapMessage) 
 			describeBody(body, response.StatusCode))
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("winrm: %s answered %d: %s", t.url, response.StatusCode, snippet(body))
+		return "", &httpFault{url: t.url, status: response.StatusCode, body: string(body)}
 	}
 	return string(body), nil
+}
+
+// httpFault is a SOAP reply with a status other than 200: a WS-Man fault.
+//
+// It keeps the whole body. What identifies the fault, its subcode and its
+// WS-Man code, comes after an envelope header of about 800 bytes, and the
+// sentence an operator can act on after that, so a body cut short answers
+// neither question. One cut to 512 bytes made the receive loop take the
+// routine "no output yet" fault for a failure, ending every command that
+// wrote nothing for twenty seconds.
+type httpFault struct {
+	url    string
+	status int
+	body   string
+}
+
+// Error names the endpoint and status, and the fault's own sentence when
+// it has one, or the start of the body when it has none.
+func (f *httpFault) Error() string {
+	if m := faultText.FindStringSubmatch(f.body); m != nil {
+		return fmt.Sprintf("winrm: %s answered %d: %s", f.url, f.status, strings.TrimSpace(m[1]))
+	}
+	return fmt.Sprintf("winrm: %s answered %d: %s", f.url, f.status, snippet([]byte(f.body)))
 }
 
 // describeContentType names an absent content type rather than printing an
