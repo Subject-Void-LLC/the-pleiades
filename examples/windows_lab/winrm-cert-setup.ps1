@@ -27,10 +27,8 @@
       - On the system drive, what any standard user has, except creating
         entries at the drive root or the ProgramData root, and writing
         under the Public profile.
-      - With -AllowVirtualBox, what VBoxManage and a VM need from a WinRM
-        logon, each measured on a real host: local launch and activation of
-        VirtualBox's two COM servers, and query access to Cryptographic
-        Services (see the parameter).
+      - With -AllowVirtualBox, local launch and activation of VirtualBox's
+        two COM servers, so VBoxManage works from its WinRM logon.
 
     What it does not get, and why:
       - A password anyone knows. The password is random, is used once to
@@ -93,21 +91,10 @@
     logons, and a WinRM logon is a network one. A run without it removes a
     grant an earlier run made.
 
-    It also grants -CryptSvcRights on Cryptographic Services. A network
-    logon cannot query that service, so Windows' catalog lookup reports it
-    not running, every catalog-signed system DLL reads as unsigned, and
-    VirtualBox's hardening refuses to load the hypervisor API a VM needs.
-
     And it sets DisableForceUnload. The account's registry is unloaded when
     its last WinRM shell closes, and the VBoxSVC a running VM keeps alive
     then fails every call that reads the registry (REGDB_E_READREGDB); with
     the policy, the registry stays loaded while VBoxSVC holds it.
-
-.PARAMETER CryptSvcRights
-    The service rights granted on Cryptographic Services with
-    -AllowVirtualBox, as SDDL: LC, query status, by default, the least
-    expected to let the catalog lookup see the service running. Widen it
-    only if a signature check still fails, and say why.
 
 .PARAMETER OutputDirectory
     Where client.pfx, its passphrase file, ca.pem and lab-state.json are
@@ -131,7 +118,6 @@ param(
     [string]   $Upn             = 'pleiades-gate@pleiades.local',
     [switch]   $AddToRemoteManagementUsers,
     [switch]   $AllowVirtualBox,
-    [string]   $CryptSvcRights  = 'LC',
 
     # Leave the account a standard user's access to the other fixed drives
     # instead of denying it there. Off by default: see step 4.
@@ -357,8 +343,9 @@ if ($AllowVirtualBox) {
         [void](Set-ComLaunchGrant -AppId $id -Sid $sid)
         Write-Host "   COM local launch and activation on $id"
     }
-    [void](Set-ServiceGrant -Service CryptSvc -Sid $sid -Rights $CryptSvcRights)
-    Write-Host "   $CryptSvcRights on Cryptographic Services, so signature checks work from its logon"
+    # An earlier run granted query access on Cryptographic Services; measured
+    # not to help a VM start, so it is removed rather than kept.
+    if (Set-ServiceGrant -Service CryptSvc -Sid $sid -Remove) { Write-Host '   removed its Cryptographic Services entry, which did not help and is not needed' }
     Set-ForceUnloadPolicy 1
     Write-Host "   DisableForceUnload set machine-wide (was $forceUnloadPrior); the teardown restores it" -ForegroundColor Yellow
 } else {
@@ -433,7 +420,6 @@ Write-Host '   client and CA private keys removed from this machine'
     publicPath   = $publicProfile
     denyRights   = @($DenyRights)
     comAppIds    = @(if ($AllowVirtualBox) { $vboxAppIds })
-    serviceGrants = @(if ($AllowVirtualBox) { 'CryptSvc' })
     forceUnloadPrior = $forceUnloadPrior
     shellRights  = $ShellRights
 } | ConvertTo-Json | Set-Content -Path (Join-Path $OutputDirectory 'lab-state.json') -Encoding UTF8

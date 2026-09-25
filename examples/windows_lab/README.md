@@ -80,16 +80,15 @@ only administrators, SYSTEM and interactive logons, and a WinRM logon is a netwo
 without the grant `VBoxManage list vms` fails with `E_ACCESSDENIED`. The grant is local
 launch and local activation, on those two AppIDs only, for this account's SID only; an
 AppID with no launch permission of its own keeps the machine default's entries beside it.
-Two more things a VM needs from a WinRM logon come with the same switch, each found by a
-failure on a real host. The account gets query access (`LC`) on Cryptographic Services:
-a network logon cannot query that service, so Windows' catalog lookup reports it not
-running, every catalog-signed system DLL reads as unsigned, and VirtualBox's hardening
-refuses to load the hypervisor API (`VERR_LDRVI_NOT_SIGNED` for `WinHvPlatform.dll`). And
-the machine-wide policy "do not forcefully unload the user registry at user logoff"
-(`DisableForceUnload`) is set: the account's registry is unloaded when its last WinRM shell
-closes, and the VBoxSVC a running VM keeps alive would then fail every later call with
-`REGDB_E_READREGDB`. The teardown removes the service entry and restores the policy's
-earlier value.
+The same switch sets the machine-wide policy "do not forcefully unload the user registry at
+user logoff" (`DisableForceUnload`): the account's registry is unloaded when its last WinRM
+shell closes, and the VBoxSVC a running VM keeps alive would then fail every later call
+with `REGDB_E_READREGDB`. The teardown restores the policy's earlier value.
+
+**A VM does not yet start from this account.** VirtualBox's hardening verifies Windows'
+own DLLs, and Windows' catalog signature check fails for a non-interactive, non-admin
+logon (`VERR_LDRVI_NOT_SIGNED` for `WinHvPlatform.dll`; VirtualBox ticket 20341). Query
+access on Cryptographic Services was tried and does not help.
 The certificate authority's private key is deleted once the server and
 client certificates exist, and the client's once it is exported, so nothing on the host
 can issue a certificate the host trusts. What it granted is recorded in
