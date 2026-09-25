@@ -5174,3 +5174,15 @@ and the steps were what stopped, so the fix changed nothing: two days later (202
 failed on the identical symptom. Reading the library's step code (`wait/host_port.go`, `wait/log.go`) showed
 the second layer in minutes. The test that would have caught it reads each step's `Timeout()`.
 
+## 244. When one of two sibling paths carries a guard, check the other one
+
+**Rule.** When code guards one path and a sibling path does the same thing (a direct dial and a
+tunneled one, a create and an update, a v1 and a v2 route), read the sibling for the same guard before
+assuming it has one. Better, move the guard into one helper both call, so a third sibling gets it by
+calling the helper.
+
+**Why.** FAILURE_PATTERNS 352. `pkg/remoteexec`'s direct dial closed its connection when its context
+ended, with a comment explaining why the handshake needed it. The tunneled dial, a few dozen lines
+away, did the same handshake without the guard, and a silent target behind a bastion could hold a run
+forever. The fix put the guard in `closeOnDone`, which both paths now call.
+

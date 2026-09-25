@@ -9880,3 +9880,62 @@ one call site's helper, each fails the named test.
 **Lesson.** When a bound passes through layers, test the value at the layer that enforces it. 310's
 test read a value the library kept, and not the one the library obeyed. See `LESSONS_LEARNED.md` #243.
 
+## 351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
+
+**Symptom.** `make ci` on 2026-09-25 (`e3d84b9`) failed its race pass on `cmd/runner`:
+`panic: test timed out after 30m0s` with `TestSSHMeshReleaseGate_RealSecretThroughTheFullChain`
+running for 26m56s. The stack showed `captureRealHostKey` in `ssh.NewClientConn`, inside
+`readVersion`. The same package had passed alone under `-race` hours earlier.
+
+**Root cause.** The helper dialed the sshd container's published port and ran the handshake on that
+connection with nothing bounding it. `ssh.ClientConfig.Timeout`, which it set, bounds only `ssh.Dial`'s
+TCP connect, not a handshake over a connection the caller dialed. The container was declared ready on
+the image's init log line, which says nothing about sshd listening, and a published port accepts a
+connection before the server behind it does (entry 346). So the read of the version banner waited for
+bytes that were never coming. `cmd/pleiades` carried an identical copy.
+
+**Fix.** `testsupport.CaptureHostKey` sets a deadline on every attempt's connection and retries until
+the server completes a handshake or `SSHDStartupTimeout` has passed. Both copies call it.
+`TestCaptureHostKey_ASilentServerIsBounded` runs it against a listener that accepts and never writes,
+and gives up at its bound; without the deadline that test hangs exactly as CI did.
+`TestCaptureHostKey_RetriesPastASilentConnection` shows a silent first connection is retried past.
+
+**Class.** C15 (unbounded wait on a peer; CWE-1088)
+**Portable.** yes: any test harness that handshakes with a container on a port a proxy accepted
+**Detector.** a listener that accepts and never writes, and an assertion that the caller returns within its bound; see ~/vuln-corpus/README.md
+
+**Lesson.** See `LESSONS_LEARNED.md` #243: the timeout that was set bounded a layer that never blocked.
+
+## 352. The SSH handshake with a device reached through a bastion had no bound at all
+
+**Symptom.** Found 2026-09-25 while fixing entry 351, by reading the other callers of
+`ssh.NewClientConn`, then measured. `pkg/remoteexec`'s `dialThroughHop` opened a channel through the
+bastion and ran the target's handshake over it with nothing bounding it. Against a target that
+accepts the forwarded connection and never sends an SSH version, `Runner.Run` with a two second
+context stayed blocked at `hop.go:73` until the test's own thirty second timeout
+(`TestConnect_HopChain_ASilentTargetIsBounded`, before the fix).
+
+**Root cause.** `ssh.NewClientConn` takes no context, a connection tunneled through an SSH channel
+does not support deadlines, and `ssh.ClientConfig.Timeout` bounds only `ssh.Dial`. The direct path,
+`realDial`, already closed its connection when its context ended, which is the one way to unblock that
+handshake, with a comment saying why. The tunneled path had been written without the guard, and its
+context was passed only to opening the channel.
+
+**Fix.** The guard is now one helper, `closeOnDone`, beside `handshakeContext` (the caller's context
+bounded by `config.Timeout` when set), and both paths use them. `closeOnDone`'s stop now also waits for
+its goroutine to exit, so a deferred cancel right after a successful handshake cannot race it into
+closing the new connection. `TestConnect_HopChain_ASilentTargetIsBounded` returns at the context's two
+seconds.
+
+**What it would get an attacker.** Anyone who controls the endpoint at a device's address behind a
+bastion (the device itself, or anything that can answer on that address and port) could hold a Crawl
+run, or a Runner's task and the device lease it holds, for as long as they liked, by accepting the
+connection and saying nothing. No credential is needed. Measured in-process; no upstream fix applies,
+since the library documents that `Timeout` covers only `Dial`.
+
+**Class.** C15 (unbounded wait on a peer; CWE-1088, CWE-400)
+**Portable.** yes: any SSH jump-host, proxy or tunnel code that calls `ssh.NewClientConn` itself
+**Detector.** a listener that accepts and never writes behind the hop, and an assertion that the call returns within its context; see ~/vuln-corpus/README.md
+
+**Lesson.** See `LESSONS_LEARNED.md` #244.
+

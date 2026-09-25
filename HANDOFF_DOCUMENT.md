@@ -54,7 +54,23 @@ time. The package passes alone in 35 seconds. The cause is a test-harness defect
 FAILURE_PATTERNS 310's fix bounded testcontainers' wait group at two minutes, but each step inside the
 group kept the library's own 60-second default, so the bound never applied (FAILURE_PATTERNS 350,
 LESSONS 243). Fixed on this branch for Postgres, Toxiproxy, LocalStack and one SSH gate, with a test
-that reads each step's own timeout. `make ci` is to be rerun on this branch's tip.
+that reads each step's own timeout.
+
+**The rerun on `e3d84b9` failed differently.** `cmd/runner` hit go test's 30-minute timeout, because a
+test helper read an SSH banner with no deadline from a port Docker's proxy had accepted
+(FAILURE_PATTERNS 351). It is fixed by `testsupport.CaptureHostKey`, which bounds each attempt and
+retries.
+
+**Security finding, measured and fixed (FAILURE_PATTERNS 352).** Found by checking the other callers
+of the same SSH call. Through a bastion, the handshake with the device had no bound:
+`ssh.NewClientConn` takes no context, a tunneled connection supports no deadline, and
+`ssh.ClientConfig.Timeout` covers only `ssh.Dial`. So anything answering on a device's address behind
+a bastion could hold a run, or a Runner's task and its device lease, for as long as it liked. It only
+had to accept the connection and send nothing, with no credential. `pkg/remoteexec`'s direct dial
+already had the guard. Both paths now share it (`closeOnDone`, `handshakeContext`), and
+`TestConnect_HopChain_ASilentTargetIsBounded` returns at its context's two seconds where before it hung.
+No upstream fix applies. Recorded in the vulnerability corpus as new class C15, unbounded wait on a
+peer. What happens next with it (a tracked issue, anything further) is the user's decision.
 
 Also fixed on the way: the Runner's per-dispatch executor had lost its check that a call's device is
 the dispatched one, when the address-only type check was removed. A bound executor now refuses any

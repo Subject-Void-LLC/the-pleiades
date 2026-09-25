@@ -276,6 +276,7 @@ story, per `.AGENTS/AGENTS.md`.
 241. **Tick a multi-clause checklist item only when each clause cites its own proof; split out or leave open any clause with none (2026-09-25).**
 242. **Assert a "does no I/O" claim on the calls a package makes, not on its imports: `time.LoadLocation` reads the disk from a non-I/O package (2026-09-25).**
 243. **Test a bound at the layer that enforces it: a deadline a wrapper records is no bound when an inner layer applies its own default (2026-09-25).**
+244. **When one of two sibling paths carries a guard, check the other, and move the guard into one helper both call (2026-09-25).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
