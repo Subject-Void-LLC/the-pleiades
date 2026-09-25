@@ -5075,3 +5075,18 @@ the native one differs (`Call.Fixed`, `Entry.Adjust`), and say so in a review wh
 
 Read both sides' defaults for every argument a task may omit, and write the source's default
 explicitly into the converted call.
+
+## 237. A reused login is keyed by everything that gave it its meaning, and anything that leaves its state unknown ends it
+
+Phase 110 keeps one SSH connection per device open between tasks. A connection is a login: made with
+one credential, to one address, under one host key policy, verified against one known_hosts file's
+content. Reusing it for a task whose own login would differ in any of those is running that task with
+another task's authority, so the pool's key holds all of them (the credential as a keyed digest, never
+the secret), and the known_hosts content is re-checked before every reuse because a person editing that
+file means "check again now". Equally, a connection is only as good as the state it is in: a terminal
+left in configuration mode, a NETCONF lock, a command cut off mid-flight, or an account whose groups just
+changed all mean the next task would inherit something it did not ask for, so each of those ends the
+connection rather than returning it.
+
+When reusing an authenticated session, key it by every input that decided what the login may do, and
+close it, not return it, whenever what happened on it cannot be proven harmless to the next user.

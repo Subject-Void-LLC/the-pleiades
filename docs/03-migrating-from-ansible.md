@@ -118,6 +118,13 @@ blocked, so a script cannot mistake an incomplete conversion for a finished one.
   asks you to confirm each one.
 - **`import_tasks`** is inlined as a block. `include_tasks`, roles, `import_playbook`
   and `template` are blocked.
+- **`meta: reset_connection`** becomes `pleiades.builtin.connection.reset`, which closes
+  the SSH connection a run keeps open to the device so the next task logs in again, as
+  Ansible's does. `flush_handlers`, `noop`, `refresh_inventory`, `clear_facts` and
+  `clear_host_errors` are dropped with an info finding; any other `meta` is blocked.
+  Connections persist between a device's tasks by default, like Ansible's
+  `ControlPersist`; see
+  [Connection persistence](10-running-in-production.md#connection-persistence).
 
 **The report is a worklist for an editor too.** `--json` prints the same model the text
 view renders, described by the generated
@@ -126,6 +133,10 @@ stable `code` from a closed set (listed on the
 [module conversions](reference/ansible-modules.md#finding-codes) page), its playbook
 position `at`, and its runbook position `emitted`, so a finding can be shown on the
 runbook line it concerns and linked to the source task.
+
+**How fast a converted runbook runs.** [Performance compared with Ansible](15-performance.md)
+runs one playbook and its conversion on 1 to 200 hosts. The runbook finished 24 to 41 times
+sooner, and at 200 hosts it used about 57 times less CPU on the machine running it.
 
 ## Worked example: a real playbook and runbook, side by side
 

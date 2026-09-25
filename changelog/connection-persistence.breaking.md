@@ -1,0 +1,1 @@
+SSH connections now persist between a device's tasks by default, where every task used to log in afresh. A device's session log shows one session per run instead of one per task, and a credential revoked on the device mid-run does not stop tasks already connected; set `persist_connections` to off (or pass `--persist-connections=false`) to keep the old behavior.

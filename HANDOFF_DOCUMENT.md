@@ -4,94 +4,95 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 35 (Ansible Playbook Migration, v0.3.0) is COMPLETE at 21 of 21 work items, UNCOMMITTED, on
-`feature/playbook-migration`**, cut from `1c9bb8b` (main after PR #40 merged Phase 77 and the tftpxfer
-fix). The one open item is "Provide Commit Message": the messages, one per logical commit, are in the
-session's closing report, with a tree for each. The user commits. **Next is Phase 46** (the user's
-instruction), whose open classifier item now has Phase 35's classes to consume.
+**Phase 35 is committed and pushed** (seven commits ending `0b5fe4e` on `feature/playbook-migration`,
+push-gate passed). **Phase 110 (Connection Persistence), written this session at the user's request, is
+built and verified except `make ci`, and UNCOMMITTED on the same branch.** The user commits; the
+messages are in the session's closing report. Phase 46 is next after it, per the user.
 
-### What shipped, as six commits
+### What Phase 110 is
 
-- **(a) strict runbook keys, malformed targets, undeclared params.** Every key a runbook, task or
-  `metadata:` does not define is refused (a reflect-driven walker over the parsed tree, since
-  `(*yaml.Node).Decode` has no `KnownFields`); JSON refuses near-miss case and repeated keys; a present
-  `params.target` must be a non-empty string; `ParamsRule` refuses a parameter a method does not
-  declare; `import_tasks` reads through `os.OpenRoot`. The seven examples' `metadata.mcp*` blocks are
-  gone (nothing read them; Phase 71 carries the note).
-- **(a2) the Runner validates what it is dispatched** before any task runs (FAILURE_PATTERNS 322).
-- **(b) native `tags:`** with `--tags`/`--skip-tags`, Ansible's own selection rule, on every tier's
-  default selection.
-- **(c) the translator core** in `internal/forge/playbook`: `playbook.Translate` is a pure library call
-  returning runbooks and a report of findings with stable codes and both positions.
-- **(d) the module tables**, checked against the registry and against `ansible-doc -j`.
-- **(e) `pleiades forge migrate-playbook`**, exiting 3 when anything needs a person.
-- **(f) gates and docs**: the release gate, a behavior gate against real Ansible, generated
-  `docs/reference/ansible-modules.md` and `docs/reference/schemas/migration-report.json`, docs/03 and
-  docs/01, changelogs, the corpus measurement, and the roadmap writes below.
+Every Collection task used to log in to its device afresh. The user asked for Ansible's
+`ControlPersist`: on by default, switchable off for extra security, set at stepped levels where the most
+specific direct setting wins, and off meaning the old behavior. Decided with the user: one child per
+dispatch on the Walk tier; a connection lives for one run or dispatch (closed at its end or after 60 s
+idle); off wins between the job's ladder and the device's.
 
-### Deviations, recorded in IMPLEMENTATION.md under Phase 35
-
-A key walker, not `KnownFields`; the report is `model.go` plus `report_text.go`; four classes, with
-`observe` added for reads; `netconf_config` tasks setting `target` are blocked until Phase 108; no Walk
-tier tag filter until Phase 109; and `file.directory` changed outside the phase's package (below).
-
-### Findings this session (FAILURE_PATTERNS 327 to 338; LESSONS 233 to 236)
-
-Security-relevant, each fixed and proven: raw playbook file names reached the terminal (329, C1);
-refusal messages printed playbook values (330, C7); a negated condition over a registered result ran a
-task on every device when one matched (331, C9); two YAML merge keys resolved the opposite way from
-Ansible's loader (332); and **`file.directory` left the parents it creates at the umask's mode**, so a
-private tree under a new parent was world-readable after conversion (335). That last one is a change to
-a shipped Collection method, made because the behavior gate proved it; its changelog is
-`changelog/file-directory-parents.security.md`. The rest are correctness fixes (327, 328, 333, 334, 336,
-337, 338). Corpus: C1, C7 and C9 got "Seen in" lines, and 332 joined the parser-differential note.
+- **`pkg/remoteexec.Pool`**, reached through `sdk.Connect` when the `RunbookContext` implements
+  `sdk.ConnectionPooler`, so no method changed. Keyed by device, address, a per-process HMAC of the
+  credential (`Auth.identity`), host key mode and known_hosts path; reuse also needs the known_hosts
+  content unchanged and a keepalive answered in 3 s. A shell, subsystem, streamed process or cut-off
+  command taints the connection, which then closes at `Close`.
+- **Crawl:** `pleiades run --persist-connections` (default true), the `persist_connections` device
+  property over the hierarchy (`engine.PersistFor`; a non-boolean is off).
+- **Walk:** runbook launch field `persist_connections` (`on`/`off`); fan-out ANDs it with the device
+  ladder into `wire.DispatchPayload.PersistConnections` (absent means off); the native adapter runs such
+  a dispatch through one session child (`--internal-collection-session`,
+  `internal/adapters/native/ipc_session.go`). `external.ServeChild` is unchanged; the session loop uses
+  the new `external.InvokeRequestWithPool`. Every TestMain routes children through `native.RunChildFor`.
+- **Login changes:** `Manifest.EndsLoginSession` on the six identity methods; new
+  `pleiades.builtin.connection.reset` (catalog now 82 registered, 79 implemented, 70 checkable), which
+  `migrate-playbook` maps `meta: reset_connection` to.
+- **Measured** (same containers as Phase 35's benchmark): ten reads 0.092 s with persistence, 0.232 s
+  without, 2.783 s for Ansible's default; the target's sshd logged 5 logins for 5 runs, against 50.
 
 ### Verification run
 
-Package tests under `-race` for everything touched, all passing: `internal/forge/playbook`,
-`internal/engine`, `internal/validate`, `internal/adapters/native`, `internal/catalog/file` (with
-`block` and `line`), `tools/gendocs`, `tools/docs-lint`, `internal/archtest`, `internal/clispec`,
-`internal/redact` and `internal/catalog/fragment`. `cmd/pleiades` and `cmd/runner` were run by their
-named gates, not as whole packages under `-race`; `make ci` covers that. Release gates, each against real dependencies: `TestMigratePlaybookReleaseGate`
-(real Ansible syntax check, real binary), `TestMigratePlaybook_BehaviorMatchesAnsible` (real Ansible
-and a real sshd, trees compared), `TestEntries_ArgsMatchAnsibleCore` and `TestMergeKeys_MatchAnsible`
-(ansible-core 2.19.11 in the pinned image), `TestCLI_TagsSelectWhatRuns` and the Runner's
-`TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal`. Fuzz, count-bounded with
-`-fuzzminimizetime 2s`: `FuzzTranslate` 300,000, `FuzzWhenToCEL` 300,001, `FuzzKVArgs` 500,000,
-`FuzzSelect` 500,000, `FuzzRunForgeMigratePlaybook` 30,000, `FuzzBuildFromYAML` 3,000,000,
-`FuzzDAGBuilder` 1,000,025. Every new test was mutation-checked; two that survived their first mutation
-were strengthened (LESSONS 235). Coverage: `internal/forge/playbook` 92.1% (floor added), and every
-touched package at or above its floor. `vet` under both tag sets, `gofmt`, `docs-lint` clean.
+`-race` on every touched package, passing: `pkg/remoteexec` (pool tests also `-count=5`), `pkg/sdk`,
+`pkg/external`, `pkg/wire`, `pkg/collection`, `internal/engine`, `internal/adapters/native` (session
+tests `-count=3`), `internal/dispatch`, `internal/launch/...`, `internal/catalog/pleiades/...`,
+`internal/forge/...`, `internal/archtest`, `internal/clispec`, `tools/gendocs`; plus every one of the 35
+packages that use the in-process SSH server (its `Close` changed), without `-race`. Every pool safety
+check was mutation-tested. `FuzzSessionChild` ran 303,193 execs clean. Release gates against real
+sshd: `TestCLI_RunPersistsConnections` and, over real NATS, `TestSSHMeshReleaseGate_PersistentConnectionLogsInOnce`.
+`cmd/runner` in full: one failure in four runs whose test name was lost (output not captured; the
+package is on flaky-packages.json), then three clean runs. `tests/e2e`: see the closing report; two
+compose gates fail before starting because something else (the `dvwa` container) holds 127.0.0.1:8080.
 
-**NOT yet run: `make ci` in full**, which on this machine has to run alone and is the user's call.
+**NOT yet run: `make ci` in full**, which has to run alone and is the user's call. Coverage floors were
+not re-checked by `tools/coverage-check`.
+
+### Added later in the session: `--forks` and the Ansible scaling benchmark
+
+- `pleiades run --forks N` (1 to 1000, default 5, Ansible's), `TestCLI_RunForks`.
+- `tools/ansiblebench` (Python, manual, like `tools/genrrulefixtures`) and its report,
+  `docs/15-performance.md`, with raw results in `tools/ansiblebench/results/2026-09-24.json`. 27
+  measurements (1 to 200 hosts, 5 and 25 wide), all passing: Pleiades 24 to 41 times faster, about 57
+  times less control-node CPU per task at 200 hosts, 9 to 14 times less control memory, 62 times less
+  network. docs/10's persistence numbers now come from it (the first comparison's target ran `sshd`
+  unprivileged and understated logins, FAILURE_PATTERNS 341).
+- Getting there: the harness first died when zombies from Ansible's orphans (reaped by nobody under
+  `sleep` as PID 1) exhausted the machine's task table (FAILURE_PATTERNS 343), and it lost its results
+  on that failure (342). Both fixed in the harness.
 
 ### Decisions for the user
 
-1. **Phases 108 and 109 are written with a proposed version, v0.5.0.** 108 moves the device selector
-   out of `params` (the S1 decision); 109 gives a runbook launch `job_tags`/`skip_tags`. Place them.
-2. **The corpus says `include_tasks` is the largest blocker in public roles (40 constructs) and no phase
-   owns it.** The table is in IMPLEMENTATION.md just before Phase 87.
-3. **FAILURE_PATTERNS 335 (CWE-276, incorrect default permissions) fits none of the corpus's classes.**
-   Whether `~/vuln-corpus` gains a class for it is yours.
-4. The migration command rebuilds each runbook twice and allocates about 650 MB for a 5,000-task
-   playbook (peak RSS about 230 MB at the 10,000-task cap). Bounded, so left; building the output tree
-   directly would cut it, if it ever matters.
-
-### Next
-
-Commit the six commits (messages in the closing report), run `make ci` alone, then Phase 46.
+0. **FAILURE_PATTERNS 343 applies to production.** `internal/adapters/legacy/docker_orchestrator.go`
+   runs `ansible-playbook` as PID 1 with no init; a 20-host run through that shape left 191 zombies
+   under it, one per task execution, until the container exited. A playbook large enough (hosts times
+   tasks in the tens of thousands) could exhaust a Runner host's task table in one run. The fix is to
+   start the container with an init (`HostConfig.Init`); not made, pending your decision.
+1. Phase 110's version is proposed as v0.3.0, beside Phase 35.
+2. `persist_connections` needs Organization and Project levels and a System setting; written as items
+   in Phases 103c and 104.
+3. `net.ssh.ping` deliberately always logs in afresh; the transport actions (`ssh_exec` and kin) and
+   external Collection programs never pool.
 
 ### Files changed this session
 
-New: `internal/forge/playbook/` (whole package, with `testdata/`), `internal/engine/schema_keys*.go`,
-`json_strict.go`, `ansible_keywords.go`, `task_syntax_json.go`, `task_target.go`, `tags.go`,
-`select.go`, `chain.go`, `task_validate.go` and their tests, `internal/validate/params_rule.go`,
-`internal/adapters/native/validate.go`, `internal/catalog/fragment/`, `internal/redact/names.go`,
-`cmd/pleiades/forge_migrate_playbook.go`, `tag_flags.go` and their tests and gates,
-`cmd/runner/validate_dispatch_release_gate_test.go`, `tools/gendocs/ansible_modules.go`,
-`reportschema.go`, `tools/docs-lint/golits.go`, the generated `docs/reference/ansible-modules.md` and
-`docs/reference/schemas/migration-report.json`, and eight changelog fragments. Changed: the engine
-builder, the validate rules, the native adapter, `internal/catalog/file/directory.go`, catalogdata's
-file docs, the examples, docs/01, docs/03, docs/11, generated references, `coverage-floor.json`, and
-the FAILURE_PATTERNS and LESSONS files. Gitignored: `.SPECIFICATION/IMPLEMENTATION.md`,
-`.SPECIFICATION/SECURITY_ATTESTATION.md`.
+Also, later: `cmd/pleiades/run_forks_test.go`, `internal/engine/executor.go` (`DefaultMaxConcurrency`
+exported), `tools/ansiblebench/` (`bench.py`, `Dockerfile.target`, `results/2026-09-24.json`),
+`docs/15-performance.md`, the README, docs/03 and docs/10 links, `changelog/run-forks.added.md`, and
+FAILURE_PATTERNS 341 to 343.
+
+New: `pkg/remoteexec/pool.go`, `pool_health.go` and tests; `internal/engine/persist_connections.go` and
+test; `internal/launch/persist.go`; `internal/adapters/native/ipc_session.go`, `ipc_session_child.go`
+and tests; `internal/catalog/pleiades/builtin/connection/`; `internal/forge/catalogdata/collections_session.go`;
+`internal/dispatch/worker_persist_test.go`; `cmd/pleiades/persist_connections_release_gate_test.go`;
+`cmd/runner/persist_mesh_release_gate_test.go`; three changelog fragments; the generated module page.
+Changed: `pkg/remoteexec` (auth identity, taint and use-after-close guards, test server), `pkg/sdk`,
+`pkg/external`, `pkg/wire`, `pkg/collection` (the manifest field), the identity methods, the engine's
+collection executor and context, the runbook launch kind, the dispatch worker, the native adapter,
+`cmd/runner` routing, `cmd/pleiades/run.go`, `internal/clispec`, the translator's `meta` handling,
+generated references, docs/01, docs/03, docs/10, README, CLAUDE.md, the FAILURE_PATTERNS (339, 340) and
+LESSONS (237) files. Gitignored: `.SPECIFICATION/IMPLEMENTATION.md` (Phase 110; items in 103c and 104),
+`.SPECIFICATION/SECURITY_ATTESTATION.md` (PW.9).

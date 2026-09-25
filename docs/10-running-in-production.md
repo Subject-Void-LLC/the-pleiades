@@ -1560,6 +1560,77 @@ that until recently this was the only thing that worked inside the shipped runne
 image, so a runbook inherited from that period may be carrying it for a reason that
 no longer exists.
 
+### Connection persistence
+
+A run keeps one SSH connection per device open between that device's tasks, the way
+Ansible's `ControlPersist` does, so a runbook of ten tasks against a device logs in
+once rather than ten times. On the CLI the connection lasts for the `pleiades run`; on
+the Controller and Runner it lasts for one device's dispatch. Either way it closes when
+the run ends, or after 60 seconds without a task. Measured against a real root `sshd`
+([Performance compared with Ansible](15-performance.md)), ten tasks on one host took 0.10 s with
+it and 0.63 s without, and 200 hosts took 3.2 s against 23.7 s at 5 devices at a time; the run
+logs in once per device instead of once per task.
+
+It is on by default and can be turned off at two ladders. **Off at either one is off.**
+
+- **The run's own setting.** `pleiades run --persist-connections=false` on the CLI, or
+  the `persist_connections` launch field (`on` or `off`) on a job template, a saved
+  configuration or a launch, resolved like every other launch field: the most specific
+  layer that sets it wins.
+- **The device's hierarchy.** A `persist_connections: false` property on an inventory, a
+  group or a device (`pleiades add-host web --set persist_connections=false` on the
+  CLI). The most specific level that sets it wins, so a device can turn it back on
+  beneath a group that turned it off. A value that is not a boolean reads as off, so a
+  mistyped `"no"` or a quoted `"true"` never leaves it on by accident.
+
+**When a kept connection is not reused.** Reuse is refused, and a fresh login made
+instead, whenever reuse could mean anything a fresh login would not:
+
+- the task's address, credential, host key setting or `known_hosts` file differs from
+  the one the connection was made with;
+- the `known_hosts` file has changed at all since the login, so a host key you just
+  removed is checked again at once rather than honored through an older login;
+- the connection does not answer an SSH keepalive. A dead one is replaced before any
+  command is sent. A device that gives no answer within three seconds is not kept for
+  the rest of the run, so it costs a fresh login per task rather than a timeout per
+  task;
+- the last task on it opened an interactive terminal (`net.cli.*`, `net.ios.*`), a
+  NETCONF session or a streamed transfer, or had a command cut off by a timeout or a
+  cancel. That connection is closed rather than handed to the next task, since whatever
+  state it was left in is not the next task's to inherit.
+
+`net.ssh.ping` always logs in afresh, because proving that a login works right now is
+what it is for. The legacy transport actions (`ssh_exec` and its kin, with their
+routes through a jump host) are not kept either, and neither are the connections an
+external Collection program makes, since each call to one is its own process.
+
+**Changes to the login itself.** A connection made before a change to the account it
+logs in as does not see that change: a group it was just added to, a new shell, a
+changed limit, or a new `AllowUsers` line in `sshd_config`. The `identity.user.*` and
+`identity.group.*` methods close the connection after a real run for exactly that
+reason. For a change they cannot see, such as `usermod` run through `exec.command`, add
+a `pleiades.builtin.connection.reset` task, which is Ansible's `meta: reset_connection`
+and is what `migrate-playbook` converts that to. The next task logs in again.
+
+**Why you might turn it off.** The trade is fewer logins against a login that lasts
+longer:
+
+- a credential revoked on the device part way through a run does not stop tasks that
+  run over a connection made before the revocation;
+- a device whose session log is your audit trail records one session for the run's
+  tasks rather than one per task;
+- on the Runner, one process serves every task of a dispatch, so the dispatch's
+  credential stays in that process's memory for the dispatch rather than for one task.
+  It already travels on the dispatch message itself, so this lengthens how long it is
+  held rather than where.
+
+Turn it off where a per-task login or an immediate revocation matters more than the
+time saved. With it off, each task logs in and closes exactly as it did before this
+setting existed.
+
+A Controller older than this setting sends dispatches without it, and a Runner reads
+that as off. A Runner older than it ignores it and logs in per task.
+
 ### Bastions and hop chains
 
 A device that is only reachable through a jump host does not need a second

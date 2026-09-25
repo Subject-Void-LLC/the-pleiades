@@ -341,6 +341,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 336. A module named `guard` would have become a placeholder with the guard's name
 337. A nested import_tasks was looked for only in the playbook's directory
 338. An empty list literal in a condition evaluated to None
+339. The test SSH server's Close waited forever on a connection its client kept open
+340. An outside timeout on the end-to-end suite left a kind cluster running
+341. The first Ansible comparison's target ran sshd unprivileged, understating every login about threefold
+342. The benchmark stopped at its first failed run and kept only what it had printed
+343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

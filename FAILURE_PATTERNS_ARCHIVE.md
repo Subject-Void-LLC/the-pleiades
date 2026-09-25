@@ -9601,3 +9601,100 @@ rules read as Python's None. Python answers False.
 **Fix.** A list literal starts as `[]any{}` (`internal/forge/playbook/whencel.go`).
 
 **Lesson.** Where nil and empty mean different things downstream, construct the empty one explicitly.
+
+## 339. The test SSH server's Close waited forever on a connection its client kept open
+
+**Symptom.** Found while building connection persistence (Phase 110). `remoteexectest.Server.Close`
+closed the listener and then waited for every connection goroutine to finish. A goroutine finishes only
+when its client disconnects, so a test whose client kept a connection open past the test (a pool, which
+exists to do exactly that) would hang in its cleanup instead of failing.
+
+**Root cause.** The server assumed every client closes its connection before the test ends, which was
+true of every caller until a caller existed whose job is to not close it.
+
+**Fix.** The server tracks its live connections and `Close` ends them before it waits
+(`DropConnections`, which a test also calls to simulate a device dropping idle flows). `Live()` and
+`Logins()` let a test prove from the server's side that a connection really closed and how many logins
+really happened.
+
+**Lesson.** A test server's shutdown must not depend on its clients' good behavior: end what it serves,
+then wait.
+
+## 340. An outside timeout on the end-to-end suite left a kind cluster running
+
+**Symptom.** Found in Phase 110: `timeout 590 go test ./tests/e2e/` killed the suite mid-run, and a
+`pleiades-release-gate-<pid>` kind cluster (`tests/e2e/packaging_kind_test.go`) stayed up afterwards,
+holding memory on a machine already short of it. It was removed by hand with `kind delete cluster`.
+
+**Root cause.** A killed test binary runs no `t.Cleanup`. testcontainers' reaper collects the containers
+it started, but the kind cluster is created through the kind CLI, which nothing reaps.
+
+**Fix.** None in code. The suite is run with `go test -timeout` long enough for it (45 minutes here), and
+a leftover cluster is found with `docker ps --filter name=pleiades-release-gate`.
+
+**Lesson.** Anything a test creates outside testcontainers survives a killed run; give such a suite the
+time it needs rather than a shorter outside kill, and check for leftovers after any interrupted run.
+
+## 341. The first Ansible comparison's target ran sshd unprivileged, understating every login about threefold
+
+**Symptom.** Found in Phase 110 while building `tools/ansiblebench`. The earlier benchmark (Phase 35's,
+then Phase 110's first) used `lscr.io/linuxserver/openssh-server`, where one Pleiades login cost about
+22 ms. On the Alpine target the user chose for the scaling benchmark, the same login cost about 60 ms:
+ten tasks with persistence off took 0.64 s instead of 0.23 s. A memory limit, the OpenSSH version
+(9.7 and 10.0 alike) and the password hash (SHA-512 on both) were each ruled out by measurement.
+
+**Root cause.** The linuxserver image runs `sshd` as uid 1000, so it skips the per-connection privilege
+separation a root `sshd` performs. Real servers run `sshd` as root, so the earlier target measured a
+cheaper login than any real device offers, flattering whichever variant logs in most.
+
+**Fix.** The benchmark's target (`tools/ansiblebench/Dockerfile.target`) runs `sshd` as root, and the
+published numbers (docs/03) come from it; the earlier figures are superseded.
+
+**Lesson.** A benchmark target is part of the measurement: check that it does per-operation work the
+way a real system does before comparing numbers against it.
+
+## 342. The benchmark stopped at its first failed run and kept only what it had printed
+
+**Symptom.** Found in Phase 110: the first full `tools/ansiblebench` run lost every measured row when
+Ansible failed at 200 hosts, because results were written only at the end and a failed run ended the
+whole benchmark; and its single `docker rm -f` of 201 containers left 45 stopped but not removed.
+
+**Root cause.** The harness treated a failure as a bug in itself rather than as a result, and trusted
+one bulk removal.
+
+**Fix.** Results are rewritten after every row; a failed run is recorded with the out-of-memory kills
+the runner's cgroup counted and the tool's first error line, its full output saved; containers carry a
+label and are removed in chunks until none is left.
+
+**Lesson.** In a benchmark, a tool failing under load is a result: record it with its cause and keep
+measuring.
+
+## 343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
+
+**Symptom.** Found in Phase 110's scaling benchmark. After the 100-host rounds, every fork on the machine
+began failing with EAGAIN: Ansible (`[Errno 11] Resource temporarily unavailable`), Pleiades (`runtime:
+failed to create new OS thread (have 5 already; errno=11)`, exit 2) and an unrelated shell alike. A
+host-wide sampler showed root-owned processes climbing by about one per Ansible task execution (627 to
+4,430 during one 200-host run), and a 20-host run left 460 zombies, all children of the runner
+container's PID 1 (`sleep infinity`): 400 `python3.12` (one per task per host) and 60 `ssh`.
+
+**Root cause.** Ansible leaves orphans (dead worker processes, its persisted `ssh` connections) for PID 1
+to reap, as any init does. `sleep` as PID 1 never reaps, so each became a zombie holding a kernel task
+slot until the container was removed. With `--init` (docker-init as PID 1) the same run left none. The
+production shape has the same defect: `internal/adapters/legacy/docker_orchestrator.go` starts
+`ansible-playbook` itself as PID 1 with no init, and Python does not reap children it did not start; a
+20-host run through that shape accumulated 191 zombies under it before it exited. The container is
+removed after each run, so they do not outlive it, but a large enough playbook (hosts times tasks in the
+tens of thousands) can exhaust the Runner host's task table within one run, failing every process on
+that host.
+
+**Fix.** The benchmark's runner starts with `--init`. The adapter is NOT fixed in this change: set the
+container's init (`HostConfig.Init`) in `DockerOrchestrator.Run`, and gate it with a many-task run that
+counts zombies. Recorded for the user's decision.
+
+**Lesson.** Anything that runs a process tree in a container needs an init as PID 1 unless its PID 1 is
+known to reap orphans; a tool behaving correctly on a normal host is not evidence either way.
+
+**Class.** none of C1 to C14 (uncontrolled resource consumption; CWE-400, CWE-772)
+**Portable.** yes: any container whose PID 1 is an application or `sleep` rather than an init
+**Detector.** run a process-spawning workload in the container and count zombies whose parent is PID 1; see ~/vuln-corpus/README.md
