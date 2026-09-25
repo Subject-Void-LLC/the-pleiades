@@ -532,6 +532,53 @@ var DeleteDevice = Endpoint{
 	},
 }
 
+// onboardResultSchema is what one onboarding did.
+var onboardResultSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device":         map[string]any{"type": "string"},
+		"type":           map[string]any{"type": "string", "description": "The device's generic type."},
+		"protocol":       map[string]any{"type": "string", "description": "The protocol the probe spoke: ssh, netconf, http or grpc."},
+		"previous_state": map[string]any{"type": "string"},
+		"state":          map[string]any{"type": "string", "description": "active after a successful probe; onboarding after a failed first one."},
+		"capabilities":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The capabilities the device's answers proved."},
+		"added":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"removed":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"facts":          map[string]any{"type": "object", "description": "Bounded text the device reported, such as a NETCONF server's capability URNs or a gRPC server's services."},
+		"changed":        map[string]any{"type": "boolean", "description": "Whether anything was written."},
+		"error":          map[string]any{"type": "string", "description": "Why the probe proved nothing, when it did not."},
+	},
+}
+
+// OnboardDevice is POST /inventory/devices/{name}/onboard: probe a generic
+// device and record what it proved.
+var OnboardDevice = Endpoint{
+	Name:    "onboard_device",
+	Method:  http.MethodPost,
+	Pattern: "/inventory/devices/{name}/onboard",
+	Scope:   auth.ScopeInventoryOnboard,
+	Rel:     auth.RelOnboard,
+	Summary: "Onboard a generic device",
+	Description: "Probes a generic device (generic_ssh, generic_netconf, generic_http, generic_grpc) over its " +
+		"protocol from the Controller, authenticating with the device's stored credential, and records the " +
+		"capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, " +
+		"then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an " +
+		"active device re-probes it and writes only what changed. It needs inventory:onboard, which " +
+		"inventory:write does not imply: this is the only way a device is granted a capability its Go type " +
+		"does not declare.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The probe succeeded; the result says what was recorded.", Schema: onboardResultSchema},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The device's type is not a generic one, so its capabilities come from its Go type.", Schema: errorSchema("")},
+		{Status: http.StatusBadGateway, Description: "The probe proved nothing: the device could not be reached, refused the credential, or did not speak its protocol. The result carries the reason.", Schema: onboardResultSchema},
+	},
+}
+
 // inventorySchema describes one Inventory: a named, shareable set of
 // devices a runbook can be dispatched against.
 //
@@ -839,6 +886,7 @@ var Endpoints = []Endpoint{
 	GetDevice,
 	UpdateDevice,
 	DeleteDevice,
+	OnboardDevice,
 	ListRunbooks,
 	GetRunbook,
 	ListInventories,

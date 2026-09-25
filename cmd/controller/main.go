@@ -125,6 +125,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
@@ -1389,6 +1390,13 @@ func main() {
 	// path that rebuilds one read back out of storage. A second factory
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
+	// Onboarding runs here, in the Controller, as a sync plugin does: the
+	// probe connects from this process with the device's credential from
+	// the same store a dispatch reads, and no Runner is involved.
+	onboardSecrets := onboard.SecretsFrom(deviceCredentials)
+	devices.WithOnboarder(func(ctx context.Context, name string) (onboard.Result, error) {
+		return onboard.Onboard(ctx, repo, name, onboardSecrets, time.Now)
+	})
 	// One canceller, shared by the JSON API below and the browser's own
 	// Cancel button, so the two cannot mean different things by stopping a
 	// job. It settles the record through jobStore and signals a Runner
@@ -1540,13 +1548,14 @@ func main() {
 		apispec.ListCredentialInputSources.Name: credentials.ListCredentialInputSources,
 		apispec.SetCredentialInputSources.Name:  credentials.SetCredentialInputSources,
 
-		apispec.ListDevices.Name:  devices.List,
-		apispec.CreateDevice.Name: devices.Create,
-		apispec.GetDevice.Name:    devices.Get,
-		apispec.UpdateDevice.Name: devices.Update,
-		apispec.DeleteDevice.Name: devices.Delete,
-		apispec.ListRunbooks.Name: catalog.List,
-		apispec.GetRunbook.Name:   catalog.Get,
+		apispec.ListDevices.Name:   devices.List,
+		apispec.CreateDevice.Name:  devices.Create,
+		apispec.GetDevice.Name:     devices.Get,
+		apispec.UpdateDevice.Name:  devices.Update,
+		apispec.DeleteDevice.Name:  devices.Delete,
+		apispec.OnboardDevice.Name: devices.Onboard,
+		apispec.ListRunbooks.Name:  catalog.List,
+		apispec.GetRunbook.Name:    catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,
