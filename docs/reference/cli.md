@@ -34,6 +34,22 @@ add a host to the static inventory
 
 `pleiades add-host web01 --type linux_server --tags prod,web`
 
+## pleiades set-host
+
+change an existing host's properties
+
+`pleiades set-host <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --set | `key=value` | - | device property to add or replace, as key=value (repeatable) |
+| --unset | `string` | - | device property to remove (repeatable) |
+
+`pleiades set-host web01 --set port=2222`
+
+`pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`
+
 ## pleiades add-credential
 
 store an encrypted credential for a device

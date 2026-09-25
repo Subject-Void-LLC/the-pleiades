@@ -57,7 +57,7 @@ it) and grants a package manager only when both its tools answer; the NETCONF pr
 server's `<hello>`; the HTTP probe makes one verified, authenticated request to the base URL,
 and reads the OpenAPI document when `openapi_path` names one; the gRPC probe asks the standard
 health and reflection services. Nothing else grants a discovered capability: `add-host --set`,
-a hand-written `hosts.yaml` and a sync plugin are each refused if they name the `discovered`
+`set-host`, a hand-written `hosts.yaml` and a sync plugin are each refused if they name the `discovered`
 property, and a classification rule cannot add to a generic type. A generic device starts
 `discovered`, which runs nothing, and is `active` once onboarding succeeds.
 

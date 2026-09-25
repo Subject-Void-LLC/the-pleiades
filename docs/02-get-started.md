@@ -53,6 +53,16 @@ hosts:
         port: 2222
 ```
 
+The device is built as its type before it is written, so a property that type refuses is
+refused here, not on the first run. To change a host later, `set-host` adds or replaces a
+property with `--set` and removes one with `--unset`, each change a revision in the host's
+history:
+
+```console
+$ pleiades set-host web1 --set port=2200
+updated host "web1": set port
+```
+
 A device with no type of its own gets a generic one, and its capabilities come from the
 device rather than from the inventory. It starts `discovered`, which runs nothing, until it
 is onboarded once its credential is stored (step 4):

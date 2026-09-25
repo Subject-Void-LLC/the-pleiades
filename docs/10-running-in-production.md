@@ -2165,6 +2165,9 @@ pleiades add-host win1 --type windows_server --set host=win1.lab --set port=5986
   --set "tls_ca_pem=$(cat ca.pem)"
 ```
 
+When the authority is re-issued, pin the new one on the same device:
+`pleiades set-host win1 --set "tls_ca_pem=$(cat ca.pem)"`.
+
 Both properties apply to the HTTPS listener only. A `windows_server` refuses them on port
 5985, and a run refuses them over HTTP, where a password credential connects, because a
 pin that is never checked would look like verification. The other device TLS properties

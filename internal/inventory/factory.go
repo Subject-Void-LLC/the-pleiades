@@ -59,3 +59,20 @@ func (f *ItemFactory) Build(rec record.Record) (inventory.InventoryItem, error) 
 
 	return constructor(rec)
 }
+
+// Rebuild constructs item afresh through f from its current type,
+// properties, tags and state, and returns the constructor's error.
+// AddInfo changes a property without the item's type seeing it, so a
+// caller that edits an item calls this before saving it: a value the type
+// would refuse on the next load is refused now, before it is written.
+func (f *ItemFactory) Rebuild(item inventory.InventoryItem) error {
+	deviceType, err := itemDeviceType(item)
+	if err != nil {
+		return err
+	}
+	_, err = f.Build(record.Record{
+		ID: item.ID(), Name: item.Name(), Type: deviceType,
+		Properties: item.Properties().Raw(), Tags: item.Tags(), State: item.State(),
+	})
+	return err
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -197,14 +198,22 @@ func runAddHost(args []string) error {
 		tags = strings.Split(*tagsFlag, ",")
 	}
 
-	hosts = append(hosts, inventory.HostSpec{
+	spec := inventory.HostSpec{
 		ID:         uuid.New().String(),
 		Name:       name,
 		Type:       resolvedType,
 		Classify:   classifyPath,
 		Tags:       tags,
 		Properties: props.values,
-	})
+	}
+	// Built once as its type before it is written, so a property the type
+	// refuses is refused here rather than on the first run.
+	if _, err := inventory.NewItemFactory().Build(record.Record{
+		ID: pkginventory.DeviceID(spec.ID), Name: name, Type: resolvedType, Properties: spec.Properties,
+	}); err != nil {
+		return fmt.Errorf("host %q not added: %w", name, err)
+	}
+	hosts = append(hosts, spec)
 
 	if err := inventory.WriteHosts(path, hosts); err != nil {
 		return err

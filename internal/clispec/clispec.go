@@ -102,6 +102,20 @@ var Root = Command{
 			Examples: []string{"pleiades add-host web01 --type linux_server --tags prod,web"},
 		},
 		{
+			Name:       "set-host",
+			Positional: "<name>",
+			Synopsis:   "change an existing host's properties",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "set", Type: "key=value", Default: "", Doc: "device property to add or replace, as key=value (repeatable)"},
+				{Name: "unset", Type: "string", Default: "", Doc: "device property to remove (repeatable)"},
+			},
+			Examples: []string{
+				"pleiades set-host web01 --set port=2222",
+				`pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`,
+			},
+		},
+		{
 			Name:       "add-credential",
 			Positional: "<device>",
 			Synopsis:   "store an encrypted credential for a device",

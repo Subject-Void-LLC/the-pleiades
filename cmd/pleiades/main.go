@@ -25,6 +25,7 @@ type commandFunc func(args []string) error
 var commands = map[string]commandFunc{
 	"init":           runInit,
 	"add-host":       runAddHost,
+	"set-host":       runSetHost,
 	"add-credential": runAddCredential,
 	"onboard":        runOnboard,
 	"validate":       runValidate,
