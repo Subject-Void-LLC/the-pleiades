@@ -115,8 +115,9 @@ func gateHost(t *testing.T) (Target, Auth, Options) {
 	}
 	opts := Options{Timeout: 3 * time.Minute}
 	// PLEIADES_WINRM_CA names the authority that issued the host's
-	// listener certificate (winrm-cert-setup.ps1 writes it as ca.cer, DER),
-	// so the server is verified rather than trusted blindly.
+	// listener certificate (winrm-cert-setup.ps1 writes it as ca.pem), so
+	// the server is verified rather than trusted blindly. A DER file, the
+	// ca.cer an older run of the setup wrote, is accepted here too.
 	if caPath := os.Getenv("PLEIADES_WINRM_CA"); caPath != "" {
 		raw, err := os.ReadFile(caPath)
 		if err != nil {

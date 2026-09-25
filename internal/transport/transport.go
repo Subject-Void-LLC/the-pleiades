@@ -13,6 +13,7 @@ import (
 	"context"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
 )
 
@@ -113,6 +114,15 @@ type Target struct {
 	// unedited on this field specifically, since a zero-value Target
 	// already has a nil Route.
 	Route []Hop
+
+	// TLS is how a transport that speaks TLS verifies Endpoint: the
+	// authority and server name the device's own record pins
+	// (pkg/devicetls), read by internal/engine from the device. The zero
+	// value is the system's roots and the dialed host's name. It says whom
+	// to trust at the address rather than how to reach it, and a transport
+	// with no TLS never reads it; the device type is what refuses a pin
+	// its connection could not apply.
+	TLS devicetls.Settings
 }
 
 // Hop is one intermediate connection reached before a Target's own

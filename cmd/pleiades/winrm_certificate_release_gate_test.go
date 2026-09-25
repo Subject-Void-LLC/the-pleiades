@@ -89,6 +89,13 @@ const (
 	// certificate it yields is what authenticates.
 	envWinRMPFX         = "PLEIADES_WINRM_PFX"
 	envWinRMPFXPassword = "PLEIADES_WINRM_PFX_PASSWORD"
+
+	// envWinRMCA names a PEM file holding the authority that issued the
+	// host's listener certificate (winrm-cert-setup.ps1 writes ca.pem).
+	// The gate pins it on the device with add-host, as an operator does,
+	// so the host is verified without touching the system's roots. Unset,
+	// the host's certificate must chain to a root the system trusts.
+	envWinRMCA = "PLEIADES_WINRM_CA"
 )
 
 // labCredential is how the gate supplies its client identity: either a PEM
@@ -166,6 +173,10 @@ func winrmCertificateGate(t *testing.T) (host string, cred labCredential) {
 // certificateGateProject builds a project whose one device is reached by
 // certificate rather than by password.
 //
+// When envWinRMCA is set, its authority is pinned on the device with
+// add-host --set tls_ca_pem, the way an operator reaches a host whose
+// listener certificate comes from a private authority.
+//
 // Port 5986 is set explicitly. A windows_server device defaults to 5985,
 // the cleartext listener, and a certificate credential aimed at it is
 // refused by design, so leaving the default would make this gate fail for a
@@ -177,8 +188,18 @@ func certificateGateProject(t *testing.T, host string, cred labCredential) strin
 	if out, err := runPleiades(t, dir, "init"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "add-host", "win-cert-gate",
-		"--type", "windows_server", "--set", "host="+host, "--set", "port=5986"); err != nil {
+	addHost := []string{"add-host", "win-cert-gate", "--type", "windows_server", "--set", "host=" + host, "--set", "port=5986"}
+	if caPath := os.Getenv(envWinRMCA); caPath != "" {
+		raw, err := os.ReadFile(caPath)
+		if err != nil {
+			t.Fatalf("reading %s: %v", envWinRMCA, err)
+		}
+		if !strings.Contains(string(raw), "-----BEGIN CERTIFICATE-----") {
+			t.Fatalf("%s must name a PEM file, which is what tls_ca_pem takes; winrm-cert-setup.ps1 writes ca.pem", envWinRMCA)
+		}
+		addHost = append(addHost, "--set", "tls_ca_pem="+string(raw))
+	}
+	if out, err := runPleiades(t, dir, addHost...); err != nil {
 		t.Fatalf("add-host: %v\n%s", err, out)
 	}
 

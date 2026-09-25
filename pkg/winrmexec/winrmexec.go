@@ -217,6 +217,11 @@ type Options struct {
 	// when HTTPS is set. Empty means the system pool.
 	CACert []byte
 
+	// ServerName is the name the server's certificate is checked against
+	// when it is not the host being dialed, as when a host is reached by
+	// an address its certificate does not name. Empty means the host.
+	ServerName string
+
 	// Timeout bounds a single operation, enforced by this package
 	// rather than by the library underneath it. Zero means
 	// DefaultTimeout. A deadline already on the caller's context wins
@@ -324,6 +329,13 @@ func newExchange(target Target, auth Auth, opts Options) (*exchange, error) {
 		return nil, err
 	}
 	opts = opts.resolve(auth)
+	// A pinned authority or server name over HTTP would be ignored, and a
+	// caller who pinned one believes the host is being verified.
+	if !opts.HTTPS && (len(opts.CACert) > 0 || opts.ServerName != "") {
+		return nil, fmt.Errorf("winrm: a pinned authority or TLS server name applies only over HTTPS, and this " +
+			"connection is HTTP (a password credential uses NTLM message encryption over HTTP): use a certificate " +
+			"credential on the HTTPS listener, or remove the pin")
+	}
 
 	port := ResolvePort(target.Port, opts.HTTPS)
 	if auth.usesCertificate() {
@@ -344,6 +356,7 @@ func newExchange(target Target, auth Auth, opts Options) (*exchange, error) {
 	endpoint := winrm.NewEndpoint(
 		unbracket(target.Host), port, opts.HTTPS, opts.Insecure, opts.CACert,
 		auth.CertificatePEM, auth.PrivateKeyPEM, timeout)
+	endpoint.TLSServerName = opts.ServerName
 
 	// The transport is built here rather than inside the library's
 	// decorator so this package holds the same instance the client uses:

@@ -98,7 +98,7 @@ func (t *winrmTransport) ExecShell(ctx context.Context, target transport.Target,
 		return transport.Result{}, err
 	}
 
-	opts := t.opts
+	opts := winrmexec.WithDeviceTLS(t.opts, target.TLS)
 	if req.WorkingDirectory != "" {
 		opts.WorkingDirectory = req.WorkingDirectory
 	}

@@ -67,6 +67,9 @@ type Settings struct {
 	ClientCertificate bool
 
 	roots *x509.CertPool
+	// caPEM is the pinned authority as written, for a client that takes
+	// PEM rather than a pool (pkg/winrmexec's does).
+	caPEM []byte
 }
 
 // Configured is implemented by a device whose TLS is set from its record.
@@ -134,6 +137,7 @@ func Parse(props inventory.Properties) (Settings, error) {
 			return Settings{}, fmt.Errorf("property %s holds no PEM certificate", CAPEMProperty)
 		}
 		s.roots = pool
+		s.caPEM = []byte(text)
 	}
 	return s, nil
 }
@@ -153,6 +157,10 @@ func (s Settings) Deprecated() bool { return s.floor() < tls.VersionTLS12 }
 // PinnedCA reports whether the settings trust a pinned authority rather
 // than the system's roots.
 func (s Settings) PinnedCA() bool { return s.roots != nil }
+
+// CAPEM returns the pinned authority as PEM, or nil when the settings use
+// the system's roots.
+func (s Settings) CAPEM() []byte { return s.caPEM }
 
 // Warnings says, in words a person acts on, what each weakening in s
 // allows for the named device. It is empty for the default settings.

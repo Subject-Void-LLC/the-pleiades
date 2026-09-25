@@ -29,6 +29,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -178,7 +179,8 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	opts := winrmexec.Options{Timeout: timeout}
+	// The device's own pinned authority and server name, if it names any.
+	opts := winrmexec.WithDeviceTLS(winrmexec.Options{Timeout: timeout}, devicetls.For(device))
 	// A device that says where its interpreters live, or where commands
 	// start, is honored; one that does not gets the stock paths.
 	if dev, ok := device.(capability.WindowsShellCapable); ok {

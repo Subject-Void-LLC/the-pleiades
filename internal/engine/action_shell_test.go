@@ -5,13 +5,25 @@ package engine_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
@@ -149,4 +161,41 @@ func TestWinRMTarget(t *testing.T) {
 	if _, ok := engine.WinRMTarget(&inventorytest.Stub{StubName: "plain"}); ok {
 		t.Error("WinRMTarget accepted a device with no WinRM accessors")
 	}
+}
+
+// TestWinRMTarget_CarriesTheDevicesPin builds a real windows_server whose
+// record pins an authority, as add-host writes one, and checks the Target
+// the winrm_exec binding hands the transport carries that pin. A device
+// that pins nothing hands over the zero value, the system's roots.
+func TestWinRMTarget_CarriesTheDevicesPin(t *testing.T) {
+	caPEM := selfSignedPEM(t)
+	item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server",
+		Properties: map[string]inventory.PropertyValue{"host": "win1", "port": 5986, devicetls.CAPEMProperty: caPEM}})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	target, ok := engine.WinRMTarget(item)
+	if !ok || !target.TLS.PinnedCA() || string(target.TLS.CAPEM()) != caPEM {
+		t.Errorf("WinRMTarget(pinned) = pinned %v, ok %v", target.TLS.PinnedCA(), ok)
+	}
+	plain, _ := engine.WinRMTarget(newWindowsDevice())
+	if plain.TLS.PinnedCA() {
+		t.Error("a device pinning nothing handed over a pin")
+	}
+}
+
+// selfSignedPEM returns a self-signed CA certificate as PEM.
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "lab CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

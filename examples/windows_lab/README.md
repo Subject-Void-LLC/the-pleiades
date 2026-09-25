@@ -85,9 +85,20 @@ powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso
 powershell -ExecutionPolicy Bypass -File .\winrm-cert-teardown.ps1
 ```
 
-The client identity lands in `%USERPROFILE%\pleiades-gate` as `client.pfx` and
-`client.pfx.passphrase`, readable only by you. Import it with `pleiades add-credential
-<device> --pfx client.pfx --passphrase-stdin < client.pfx.passphrase`, then delete both.
+What Pleiades needs lands in `%USERPROFILE%\pleiades-gate`, readable only by you: the
+authority as `ca.pem`, and the client identity as `client.pfx` and
+`client.pfx.passphrase`. From that directory, add the host with its authority pinned, so it
+is verified without adding the lab's CA to anything else's trust, then import the identity
+and delete both of its files:
+
+```bash
+pleiades add-host win-lab --type windows_server --set host=<address> --set port=5986 \
+  --set "tls_ca_pem=$(cat ca.pem)"
+pleiades add-credential win-lab --pfx client.pfx --passphrase-stdin < client.pfx.passphrase
+```
+
+A setup run from before `ca.pem` existed wrote only `ca.cer`; `certutil -encode ca.cer ca.pem`
+converts it.
 
 ## Running it
 

@@ -1,8 +1,9 @@
 // Tests for the WinRM Adapter's translation and retry policy.
 //
-// These swap winrmexec.Execute for a recording stand-in, so they prove
+// Most swap winrmexec.Execute for a recording stand-in, so they prove
 // what the Adapter asks pkg/winrmexec to do and how it treats each kind
-// of failure. They prove nothing about a real WinRM service: the Release
+// of failure; the pinned-authority test runs the real one against a real
+// TLS listener. None proves anything about a real WinRM service: the Release
 // Gate in cmd/pleiades runs winrm_exec in all three modes against a real
 // Windows host.
 package winrm
@@ -14,9 +15,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +30,8 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -198,5 +205,56 @@ func TestExecShell_UnlocksAPFXCredential(t *testing.T) {
 	tr, calls = recording(ok("", 0))
 	if _, err := tr.Exec(context.Background(), target, bad, "x"); err == nil || len(*calls) != 0 {
 		t.Errorf("wrong passphrase: err = %v, calls = %d", err, len(*calls))
+	}
+}
+
+// TestExecShell_VerifiesAgainstTheTargetsPin runs the real Adapter, with
+// the real winrmexec.Execute, against a real TLS listener whose authority
+// the system does not trust. The pin reaches the handshake only through
+// the Target, which is how the engine hands a device's tls_ca_pem over:
+// without it the handshake fails on the unknown authority, and with it the
+// handshake succeeds and the listener's reply, which is not SOAP, is what
+// fails.
+func TestExecShell_VerifiesAgainstTheTargetsPin(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not soap"))
+	}))
+	defer server.Close()
+	host, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "https://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, _ := strconv.Atoi(portText)
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	pinned, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: string(caPEM)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "lab"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certCred := credential.Credential{
+		CertificatePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		PrivateKeyPEM:  pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}),
+	}
+
+	tr := New(winrmexec.Options{Timeout: 10 * time.Second})
+	endpoint := transport.NetworkEndpoint{Host: host, Port: port}
+	_, err = tr.Exec(context.Background(), transport.Target{Endpoint: endpoint}, certCred, "whoami")
+	if err == nil || !strings.Contains(err.Error(), "unknown authority") {
+		t.Errorf("no pin: err = %v, want an unknown-authority failure", err)
+	}
+	_, err = tr.Exec(context.Background(), transport.Target{Endpoint: endpoint, TLS: pinned}, certCred, "whoami")
+	if err == nil || strings.Contains(err.Error(), "certificate") || !strings.Contains(err.Error(), "rather than SOAP") {
+		t.Errorf("pinned: err = %v, want the handshake to succeed and the reply refused as not SOAP", err)
 	}
 }

@@ -147,6 +147,11 @@ func (t *certificateTransport) Transport(endpoint *winrm.Endpoint) error {
 		}
 		config.RootCAs = pool
 	}
+	if endpoint.TLSServerName != "" {
+		// The certificate is checked against this name rather than the
+		// host dialed; verification itself is unchanged.
+		config.ServerName = endpoint.TLSServerName
+	}
 
 	t.client = &http.Client{Transport: &http.Transport{
 		Proxy:           http.ProxyFromEnvironment,

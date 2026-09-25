@@ -79,7 +79,7 @@
     if a run is refused, and say why.
 
 .PARAMETER OutputDirectory
-    Where client.pfx, its passphrase file, ca.cer and lab-state.json are
+    Where client.pfx, its passphrase file, ca.pem and lab-state.json are
     written, readable only by the user running this script.
 
 .EXAMPLE
@@ -333,7 +333,13 @@ Export-PfxCertificate -Cert $client -FilePath $pfxPath `
     -Password (ConvertTo-SecureString $passphrase -AsPlainText -Force) | Out-Null
 [IO.File]::WriteAllText($passphrasePath, $passphrase)
 $passphrase = $null
-Export-Certificate -Cert $ca -FilePath (Join-Path $OutputDirectory 'ca.cer') -Type CERT | Out-Null
+# The authority as PEM, which is what a device's tls_ca_pem takes, so the
+# host is verified without adding this lab's CA to the client's roots.
+$caPemPath = Join-Path $OutputDirectory 'ca.pem'
+$caPem = "-----BEGIN CERTIFICATE-----`n" +
+    [Convert]::ToBase64String($ca.RawData, [Base64FormattingOptions]::InsertLineBreaks) +
+    "`n-----END CERTIFICATE-----`n"
+[IO.File]::WriteAllText($caPemPath, $caPem)
 # The client's key now lives only in the PFX, and the CA's nowhere: neither
 # is needed on this machine, and a CA key here could issue certificates this
 # machine trusts.
@@ -358,9 +364,11 @@ Restart-Service WinRM
 Write-Host "`n=== done ===" -ForegroundColor Green
 Write-Host "bundle      $pfxPath"
 Write-Host "passphrase  $passphrasePath (readable by you and SYSTEM only)"
-Write-Host "authority   $(Join-Path $OutputDirectory 'ca.cer')"
-Write-Host "`nImport the bundle into Pleiades, then delete both files:"
-Write-Host "   pleiades add-credential <device> --pfx <bundle> --passphrase-stdin < <passphrase file>"
+Write-Host "authority   $caPemPath"
+Write-Host "`nAdd this host to Pleiades, pinning its authority, from the directory above:"
+Write-Host '   pleiades add-host <device> --type windows_server --set host=<address> --set port=5986 --set "tls_ca_pem=$(cat ca.pem)"'
+Write-Host "Import the bundle, then delete it and its passphrase file:"
+Write-Host "   pleiades add-credential <device> --pfx client.pfx --passphrase-stdin < client.pfx.passphrase"
 Write-Host "If a first connection is refused a shell, re-run with -ShellRights widened or"
 Write-Host "-AddToRemoteManagementUsers; if the logon itself fails, drop one entry from -DenyRights."
 Write-Host "Undo all of this with winrm-cert-teardown.ps1"

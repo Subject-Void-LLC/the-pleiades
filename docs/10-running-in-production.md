@@ -1610,7 +1610,9 @@ that needs more refuses by name.
 ### Device TLS: pinning, mutual TLS, and old devices
 
 A `generic_http` or `generic_grpc` device's TLS is set on the device's own record, and the
-onboarding probe and `http.request`'s device mode both use it:
+onboarding probe and `http.request`'s device mode both use it. A `windows_server` takes
+`tls_ca_pem` and `tls_server_name` for its WinRM HTTPS listener, and refuses the rest (see
+the WinRM section below):
 
 | Property | Meaning |
 |---|---|
@@ -2151,19 +2153,31 @@ this platform is built to reach fleets of machines it does not own. Note that Pl
 currently caps the version unconditionally, so today this only removes the *server* side
 of the obstacle; see the gap below.
 
-**Three transport settings are not reachable yet, and this is the honest limit of the
-feature.** `pkg/winrmexec` accepts a CA bundle, an HTTPS flag and a verification toggle,
-and nothing in a runbook or a device can set any of them; the TLS version cap is a fourth
-setting in the same unreachable place. Two consequences follow, and a private PKI
-deployment has to plan around both:
+**A private authority is trusted by pinning it on the device.** A host whose HTTPS
+listener has a certificate from a private authority (the lab script's, or an internal
+PKI) is verified against that authority when the device's record pins it, with the same
+`tls_ca_pem` and `tls_server_name` properties a `generic_http` device takes (above). The
+pin applies to that device alone: the Runner host's roots are not changed, and no other
+device trusts the authority.
 
-- The server's own certificate must be trusted by the **Runner host's system trust
-  store**, because there is no way to hand this transport an internal authority.
-- Even a target configured for upfront negotiation cannot currently be reached over TLS
-  1.3, because the cap cannot be lifted per device.
+```bash
+pleiades add-host win1 --type windows_server --set host=win1.lab --set port=5986 \
+  --set "tls_ca_pem=$(cat ca.pem)"
+```
 
-Making these settable from device properties, the way `port` already is, is the work that
-closes both. It is a named gap rather than a design decision.
+Both properties apply to the HTTPS listener only. A `windows_server` refuses them on port
+5985, and a run refuses them over HTTP, where a password credential connects, because a
+pin that is never checked would look like verification. The other device TLS properties
+(`tls_min_version`, the weakening flags and `tls_client_certificate`) are refused on a
+`windows_server`: this path is capped at TLS 1.2, and its client certificate is the
+credential's.
+
+**Two settings are not reachable yet, and this is the honest limit of the feature.**
+Nothing on a device sends a password credential over HTTPS, so password authentication
+always uses HTTP with message encryption. And the TLS 1.2 cap cannot be lifted per
+device, so even a target configured for upfront negotiation cannot be reached over TLS
+1.3. Making both settable from the device, the way `port` already is, is the work that
+closes them. It is a named gap rather than a design decision.
 
 **A PKCS#12 bundle is the other way to supply the same identity, and the only one that
 accepts a passphrase.** Put the base64 of the `.pfx` in a `pfx_bundle` input and bind

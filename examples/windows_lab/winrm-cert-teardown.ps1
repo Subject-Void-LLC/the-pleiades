@@ -446,7 +446,8 @@ Write-Step 9 'exported files'
 # only if that leaves it empty. The setup accepts a directory that already
 # exists, so the directory itself is not evidence that everything in it is
 # the lab's.
-foreach ($file in 'client.pfx', 'client.pfx.passphrase', 'ca.cer', 'lab-state.json') {
+# ca.cer is what the setup wrote before it wrote ca.pem.
+foreach ($file in 'client.pfx', 'client.pfx.passphrase', 'ca.pem', 'ca.cer', 'lab-state.json') {
     $path = Join-Path $OutputDirectory $file
     if (Test-Path -LiteralPath $path) {
         try {
