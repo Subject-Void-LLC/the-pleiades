@@ -9972,3 +9972,139 @@ a `make ci` on this machine can fail here with nothing wrong in the code.
 
 **Lesson.** A container's readiness has two sides. Wait for the side the test dials, not only the side
 the container reports, and when that wait fails, say which side.
+
+## 354. Every PowerShell quoting helper doubled only the ASCII apostrophe, and a typographic quote ended the literal
+
+**Symptom.** Found by reading, then measured on 2026-09-25 against Windows PowerShell 5.1 (Windows 11
+build 26200). `pkg/winrmsvc` and `pkg/winrmdism` each built PowerShell with a private `quotePS` that
+wrapped a value in single quotes and doubled every `'`. A service or feature name containing U+2019
+(or U+2018, U+201A, U+201B) closed the literal early. Placed in the exact shape those packages send,
+`Cmdlet -Name <quoted> -ErrorAction SilentlyContinue`, the name
+`x<U+2019>; Write-Output INJECTED; Get-Variable -Name <U+2019>y` ran `Write-Output INJECTED` for all
+four characters. The value is a task's `name` parameter, so anyone able to set it (a survey answer, an
+extra var) could run PowerShell on the device as the WinRM account, often an administrator, instead of
+naming a service.
+
+**Root cause.** The PowerShell language specification's `single-quote-character` is five characters,
+not one: the apostrophe and four typographic quotes, and a single-quoted literal ends at any of them.
+Both helpers carried a doc comment saying doubling the apostrophe was "the complete defense", copied
+from one package to the other with a note accepting the duplication "until a third package needs it".
+
+**Fix.** One shared `winrmexec.QuotePS` doubles all five, as PowerShell's own
+`CodeGeneration.EscapeSingleQuotedStringContent` does; both packages call it and their copies are gone.
+`TestQuotePS_TheMeasuredPayloadStaysOneLiteral` replays the measured payload through a Go model of the
+tokenizer, `TestParsePSSingleQuoted_ModelMatchesTheMeasuredBreakout` proves the model reproduces the
+real breakout under the old rule, `FuzzQuotePS` checks the property for any input, and each fails when
+the old rule is restored.
+
+**Lesson.** An escape is complete only against the target parser's own definition of the character
+class, and a hand-written doc comment claiming completeness is a claim to test, not a reason to stop.
+A helper copied into a second package is the moment to share it, because the next fix lands in one
+copy.
+
+**Class.** C13 (OS command injection), incomplete-quoting variant
+**Portable.** yes: any code escaping for PowerShell by doubling only the apostrophe
+**Detector.** a file building PowerShell that escapes with `replace("'", "''")` alone, case-insensitive,
+controlled against a known hit; swept across every repo in `~` on 2026-09-25 with no other instance.
+See ~/vuln-corpus/README.md C13.
+
+## 355. The WinRM lab setup script gave its account far more than a lab run needs, and weakened the host for everyone
+
+**Symptom.** Found in review on 2026-09-25, when the user asked whether the account the script
+creates was scoped to least privilege. `examples/windows_lab/winrm-cert-setup.ps1`, run on the
+development machine on 2026-09-20:
+
+- ran `winrm quickconfig`, which on a machine outside a domain sets `LocalAccountTokenFilterPolicy`
+  (every local administrator gets an unfiltered token over a remote connection) and opens the HTTP
+  listener on 5985 to the whole Private network, while the lab needs neither;
+- granted `(A;;GA;;;RM)` in WinRM's RootSDDL: full control, to every current and future member of
+  Remote Management Users, not to the one account;
+- added the account to Remote Management Users, which also opens remote WMI;
+- printed the account's password, which was also the PFX passphrase, so whoever read it could log in
+  with a password over 5985 from the local network;
+- left the lab CA's private key in the machine store for a year while the CA sat in Trusted Root, able
+  to issue a certificate the host would trust for any name, and left the client's private key on the
+  host after exporting it;
+- left the account a standard user's access to the other fixed drives, where Authenticated Users hold
+  Modify at the root (measured on this host: `D:` and `G:`).
+
+Measured on the host the same day: the account and the RootSDDL grant were gone, but the CA and client
+certificates were still in `LocalMachine\My` with their private keys.
+
+**Root cause.** The script was written to make the certificate path work and to be undone cleanly,
+which it did; nobody listed what the account needed and compared it with what it got. `winrm
+quickconfig` was used for its one wanted effect, starting the service, and brought its other effects
+with it.
+
+**Fix.** Rewritten: the service is started directly; the RootSDDL entry names the account's SID with
+read and execute; no group membership; console, Remote Desktop, batch and service logon denied
+(`secedit`, read back after applying); a random password never shown and not reused; the account
+denied at the root of every other fixed drive except the folders named with `-ReadPath` and
+`-WritePath`; the CA and client private keys deleted once used; trust stores given public-only
+certificates; the PFX passphrase in a file only its owner can read; everything granted recorded in
+`lab-state.json`, which the teardown reads to revoke it. Shared helpers in `winrm-lab-common.ps1`,
+exercised without elevation (the policy-file editor against a realistic export, the ACL helper
+against a scratch folder); all three scripts parse clean. Not yet run elevated: the minimum
+`-ShellRights`, whether the account needs Remote Management Users, and whether the certificate logon
+needs any denied logon right are measured by the first real connection.
+
+**Lesson.** A setup script for an automation identity is an access grant, and it gets the same review:
+list what the job needs, compare it line by line with what the script grants, and prefer the command
+that does one thing over the convenience command that does five.
+
+**Class.** C16 (over-granted automation identity), new
+**Portable.** yes: any bootstrap script for a remote-management account (WinRM, SSH, service accounts)
+**Detector.** setup scripts running `winrm quickconfig`/`Enable-PSRemoting`, setting
+`LocalAccountTokenFilterPolicy` or `AllowUnencrypted`, granting a broad group full rights, or printing
+a generated password; controlled against the old script, swept across `~` on 2026-09-25 with no other
+instance. See ~/vuln-corpus/README.md C16.
+
+## 356. Windows ignores WINRS_SKIP_CMD_SHELL, so every WinRM command still ran through cmd.exe while the tests said it did not
+
+**Symptom.** Found on 2026-09-25, the first time Phase 75's WinRM modes gate ran against a real Windows
+11 host (build 26200). A program started in `none` mode received no arguments at all; a `cmd` script
+failed with `'#34' is not recognized`; a missing program came back as an exit status rather than a
+fault. Meanwhile the gate's own subtest "every Command message skipped cmd.exe" passed: all twelve
+captured envelopes carried `WINRS_SKIP_CMD_SHELL=TRUE`.
+
+**Root cause.** Two, and the first is the one that matters. (1) Windows does not honor the option.
+`%CMDCMDLINE%` inside a command showed `cmd.exe /C <line>` whatever the Command element held (the whole
+line, or the program with separate Arguments elements, `TRUE` or `true`), and the option marked
+`MustComply="true"` was refused as not valid. Phase 75's design rested on the option working, and the
+unit and wire tests asserted that it was sent, which it was. (2) The WinRM service does not decode
+numeric character references: Go's `xml.EscapeText` wrote a double quote as `&#34;`, which reached
+cmd.exe literally, while `&amp;` arrived as `&`.
+
+**Fix.** Every mode's line is now escaped until the service's `cmd.exe /C` passes it through unchanged
+(`pkg/winrmexec/cmdexe.go`: a caret before each metacharacter after the program, `%` included, and an
+extra quote pair around a line that starts with a quoted program), the technique Rust adopted after
+CVE-2024-24576. The option is sent as FALSE. XML text is escaped with the three predefined entities only.
+The 8191 character limit applies to every mode, after escaping. Evidence: `FuzzTransparentLine` against a
+model of `cmd.exe /C` (`cmdSlashC`, with two control tests and two mutations it catches), and on the real
+host `TestModesReleaseGate` (exact arguments from a spaced path including `c&d|e`, `%PATH%`, `q"uote`,
+`!bang!`; a near-limit line whole; a `& echo` value printed as text) and
+`TestWinRMModesGate_ThreeModesThroughTheBinary`.
+
+**Lesson.** A test that captures the request proves what was asked, not what happened. Assert the effect
+on the real system (here, the command line the program actually received), and treat a protocol
+option as unproven until something on the far side shows it took effect.
+
+**Class.** C13 (OS command injection), forced-shell variant (BatBadBut)
+**Portable.** yes: any remote or local execution path where a shell is interposed whatever the caller asks
+**Detector.** run a program that reports its own command line or argv through the path, with metacharacters
+in the arguments; see ~/vuln-corpus/README.md C13.
+
+## 357. The WinRM Adapter mapped credential fields by hand and sent no credential for a PKCS#12 bundle
+
+**Symptom.** `winrm_exec` against a device whose credential was stored with `add-credential --pfx`
+failed with "credential is empty", found by the first run of the modes gate through the real binary.
+
+**Root cause.** `internal/transport/winrm` built `winrmexec.Auth` from four named fields of
+`credential.Credential` and never looked at `PFXBase64`, while every Collection reaches WinRM through
+`winrmexec.AuthFromSecrets(credential.Flatten(...))`, which unlocks the bundle.
+
+**Fix.** The Adapter uses the same shared vocabulary. `TestExecShell_UnlocksAPFXCredential` builds a
+real bundle, and a wrong passphrase is refused before anything is sent.
+
+**Lesson.** Where a shared translation exists, a second hand-written one is a second place a new
+credential form has to be remembered, and the one that forgets fails only for that form.

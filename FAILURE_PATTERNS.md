@@ -356,6 +356,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
 352. The SSH handshake with a device reached through a bastion had no bound at all
 353. A test broker was declared ready while its published port still refused every connection
+354. Every PowerShell quoting helper doubled only the ASCII apostrophe, and a typographic quote ended the literal
+355. The WinRM lab setup script gave its account far more than a lab run needs, and weakened the host for everyone
+356. Windows ignores WINRS_SKIP_CMD_SHELL, so every WinRM command still ran through cmd.exe while the tests said it did not
+357. The WinRM Adapter mapped credential fields by hand and sent no credential for a PKCS#12 bundle
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

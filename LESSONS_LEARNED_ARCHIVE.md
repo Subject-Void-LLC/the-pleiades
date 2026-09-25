@@ -5186,3 +5186,41 @@ ended, with a comment explaining why the handshake needed it. The tunneled dial,
 away, did the same handshake without the guard, and a silent target behind a bastion could hold a run
 forever. The fix put the guard in `closeOnDone`, which both paths now call.
 
+
+## 245. A value is data only if the parser reads it after parsing: check when a shell expands a variable before trusting the variable
+
+**Rule.** Passing a value to a script as an environment variable keeps it out of the script text, and
+that only helps if the shell expands the variable after it has parsed the line. Measure it for each
+shell before relying on it, and when a shell has an early form and a late form, allow only the late
+one.
+
+**Why.** Phase 75's plan said environment variables "survive every language mode" and that a cmd
+parameter containing `& calc.exe` would spawn nothing. Measured on 2026-09-25, cmd.exe expands
+`%NAME%` before it parses special characters, so a value `a & echo INJECTED` read that way ran the
+echo. Its delayed form, `!NAME!` under `/v:on`, printed the value as text, and PowerShell's `$env:NAME`
+was inert bare and inside a double-quoted string. `cmd` mode now turns on delayed expansion and refuses
+a script that reads one of its own values as `%NAME%` (`checkCmdEnvReads`).
+
+## 246. A capability's parent is a promise to every method requiring the parent: check what they need before choosing one
+
+**Rule.** Declaring a child capability declares its parent (`capability.Resolves`), so before giving a
+capability a parent, list the methods that require the parent and check each one can actually run on
+every device that will declare the child. When one cannot, and nothing else gates it, leave the parent
+off and say why in the capability's doc comment.
+
+**Why.** Phase 75 planned `WindowsShellCapable` under `CommandExecCapable`, which is semantically true:
+a Windows shell device can run a command outside a shell. But `exec.command` and `exec.shell` require
+`CommandExecCapable` and speak SSH only, and no code checks a method's `SupportedTransports` against a
+device, so every Windows server would have passed `pleiades validate` for them and failed at run time.
+The parent waits for transport validation (Phase 75's new item).
+
+## 247. A captured request proves what was asked, not what happened: assert the effect on the far side
+
+**Rule.** When behavior depends on the far side honoring something the client sends (a protocol
+option, a header, a flag), a test that inspects the outgoing request proves only that it was sent.
+Prove the effect with an observation the far side cannot fake: what the program actually received,
+what the file actually contains. Until then, call the option unproven.
+
+**Why.** FAILURE_PATTERNS 356. Phase 75 pinned `WINRS_SKIP_CMD_SHELL=TRUE` and its gate asserted the
+option on twelve captured envelopes, all passing, while Windows ignored the option on every one of
+them. `%CMDCMDLINE%` inside the command, one line of cmd.exe, showed the wrapper at once.
