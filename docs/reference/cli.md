@@ -86,6 +86,7 @@ build, validate, and run a runbook
 | --allow-unchecked | `string` | - | a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed |
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
+| --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
 
 `pleiades run runbooks/site.yaml`

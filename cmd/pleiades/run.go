@@ -52,6 +52,10 @@ import (
 // journal is written, and the command ends non-zero if anything went
 // unchecked. engine.WithMode carries the mode; see internal/engine's
 // check.go for the rules it enforces.
+// maxForks is the most devices one run works on at once, the same bound
+// the runbook launch kind's forks field sets on the Controller.
+const maxForks = 1000
+
 func runRunbook(args []string) error {
 	// splitPositional rather than fs.Arg(0), for the same reason
 	// add-host and the forge subcommands use it: Go's flag package stops
@@ -61,7 +65,7 @@ func runRunbook(args []string) error {
 	// runbook path is the thing a person types first.
 	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true, "persist-connections": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--persist-connections=false] [--verbose] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--forks 5] [--persist-connections=false] [--verbose] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -81,6 +85,7 @@ func runRunbook(args []string) error {
 	})
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
 	persist := fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
+	forks := fs.Int("forks", engine.DefaultMaxConcurrency, "how many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default)")
 	selection := tagFlags(fs)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -92,6 +97,9 @@ func runRunbook(args []string) error {
 	mode, err := collection.ParseMode(*modeFlag)
 	if err != nil {
 		return fmt.Errorf("--mode: %w", err)
+	}
+	if *forks < 1 || *forks > maxForks {
+		return fmt.Errorf("--forks must be between 1 and %d, got %d", maxForks, *forks)
 	}
 
 	// External Collections register before anything reads the registry:
@@ -295,7 +303,7 @@ func runRunbook(args []string) error {
 		locks,
 		event.NewInProcessBus(),
 		engine.NewInProcessWorkflowContext(),
-		0,
+		*forks,
 		engine.WithJournal(sink),
 		engine.WithMode(mode),
 		// This command's user may run every loaded program for real, so a
