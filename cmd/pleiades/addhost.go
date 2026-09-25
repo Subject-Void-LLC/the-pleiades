@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
 
@@ -31,6 +32,9 @@ func (k *keyValueList) Set(s string) error {
 	key, value, ok := strings.Cut(s, "=")
 	if !ok {
 		return fmt.Errorf("--set expects key=value, got %q", s)
+	}
+	if pkginventory.IsReservedProperty(key) {
+		return fmt.Errorf("--set cannot write property %s: only onboarding writes it (pleiades onboard)", key)
 	}
 	if k.values == nil {
 		k.values = map[string]interface{}{}

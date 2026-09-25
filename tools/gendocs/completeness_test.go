@@ -12,6 +12,7 @@ import (
 	// init() has run, and the device gates below would then pass by proving
 	// nothing.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -79,6 +80,9 @@ func TestDeviceRowsMatchLiveRegistry(t *testing.T) {
 	}
 	for _, d := range catalogdata.Devices {
 		rendered[d.TypeKey] = true
+	}
+	for _, key := range generic.Types() {
+		rendered[key] = true
 	}
 
 	for key := range live {
@@ -218,5 +222,17 @@ func TestFragmentsAreComplete(t *testing.T) {
 				t.Errorf("fragment %q: param %q (index %d) has no Description", name, p.Name, i)
 			}
 		}
+	}
+}
+
+// TestGenericDeviceRows proves every generic type renders: each one's
+// constructor builds from genericExampleProperties.
+func TestGenericDeviceRows(t *testing.T) {
+	rows, err := genericDeviceRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(generic.Types()) {
+		t.Fatalf("%d rows for %d generic types", len(rows), len(generic.Types()))
 	}
 }

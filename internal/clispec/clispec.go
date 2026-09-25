@@ -121,6 +121,20 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "onboard",
+			Positional: "<device>",
+			Synopsis:   "probe a generic device over its protocol and record what it proved",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},
+				{Name: "timeout", Type: "duration", Default: "30s", Doc: "how long the probe may take"},
+			},
+			Examples: []string{
+				"pleiades onboard edge01",
+				"pleiades onboard api01 --json",
+			},
+		},
+		{
 			Name:       "validate",
 			Positional: "[runbook.yaml]",
 			Synopsis:   "check a runbook against the inventory",

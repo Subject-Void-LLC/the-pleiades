@@ -29,12 +29,14 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // viewSweepOnce registers the view table exactly once for this package.
@@ -276,6 +278,7 @@ func satisfiableCapabilities(t *testing.T) map[capability.Name]bool {
 			Name:         "archtest-probe",
 			Type:         typeKey,
 			Capabilities: allNames,
+			Properties:   genericProbeProperties(typeKey),
 		})
 		if err != nil {
 			t.Fatalf("constructing a fully classified %q device failed: %v", typeKey, err)
@@ -659,5 +662,25 @@ func describeDocDiff(want, got collection.Doc) string {
 		return fmt.Sprintf("SeeAlso: catalogdata has %v, the manifest has %v", want.SeeAlso, got.SeeAlso)
 	default:
 		return ""
+	}
+}
+
+// genericProbeProperties returns what a generic device type needs to be
+// fully equipped, and nil for any other type. A generic type ignores
+// classification (its capabilities come from the device), so the sweep's
+// "declare everything" is, for it, a discovery granting everything
+// onboarding may grant, plus the address properties its constructor
+// requires. The question stays the one the sweep asks: could onboarding
+// ever make this capability true.
+func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
+	grants := generic.Discoverable(typeKey)
+	if grants == nil {
+		return nil
+	}
+	return map[string]inventory.PropertyValue{
+		"host":                       "archtest.invalid",
+		generic.BaseURLProperty:      "https://archtest.invalid",
+		generic.GRPCTargetProperty:   "archtest.invalid:443",
+		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "archtest", Capabilities: grants}.Property(),
 	}
 }

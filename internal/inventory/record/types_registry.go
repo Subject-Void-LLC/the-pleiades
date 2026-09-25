@@ -38,7 +38,12 @@ var typesRegistry = registry.New[Constructor]()
 // other packages register here too. internal/archtest forbids production
 // code from calling it.
 func SnapshotForTest() func() {
-	return typesRegistry.SnapshotForTest()
+	restoreTypes := typesRegistry.SnapshotForTest()
+	restoreOnboarded := onboardedTypes.SnapshotForTest()
+	return func() {
+		restoreTypes()
+		restoreOnboarded()
+	}
 }
 
 // RegisterType adds deviceType's constructor to the shared registry. Each

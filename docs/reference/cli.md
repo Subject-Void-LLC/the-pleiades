@@ -55,6 +55,22 @@ store an encrypted credential for a device
 
 `pleiades add-credential win01 --certificate client.pem --key client.key`
 
+## pleiades onboard
+
+probe a generic device over its protocol and record what it proved
+
+`pleiades onboard <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print the result as JSON, in the same model the text shows |
+| --timeout | `duration` | `30s` | how long the probe may take |
+
+`pleiades onboard edge01`
+
+`pleiades onboard api01 --json`
+
 ## pleiades validate
 
 check a runbook against the inventory

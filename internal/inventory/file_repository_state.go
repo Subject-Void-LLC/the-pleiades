@@ -52,6 +52,11 @@ type sidecarEntry struct {
 	// buildRecord still falls back to the "file" default.
 	Source         string     `yaml:"source,omitempty"`
 	SourceSyncedAt *time.Time `yaml:"source_synced_at,omitempty"`
+	// Discovered is the device's inventory.DiscoveredProperty, kept here
+	// rather than in hosts.yaml because onboarding writes it and no person
+	// does: hosts.yaml is the hand-edited file, and a host there naming the
+	// property is refused (refuseReservedProperties).
+	Discovered map[string]any `yaml:"discovered,omitempty"`
 }
 
 // sidecarRevision is the on-disk form of inventory.Revision.
@@ -169,4 +174,34 @@ func fromRevisions(revs []inventory.Revision) []sidecarRevision {
 		}
 	}
 	return rows
+}
+
+// refuseReservedProperties refuses a hosts.yaml host that sets a property
+// only the platform writes. Such a host was written by hand, and the
+// property it names grants capabilities only onboarding may grant.
+func refuseReservedProperties(h HostSpec) error {
+	for key := range h.Properties {
+		if inventory.IsReservedProperty(key) {
+			return fmt.Errorf("host %s: property %s is written only by onboarding (pleiades onboard), never in %s", h.Name, key, DefaultInventoryFilename)
+		}
+	}
+	return nil
+}
+
+// splitDiscovered returns props without inventory.DiscoveredProperty, for
+// hosts.yaml, and that property's value, for the sidecar. The value is nil
+// when props does not carry it.
+func splitDiscovered(props map[string]any) (map[string]any, map[string]any) {
+	value, ok := props[inventory.DiscoveredProperty]
+	if !ok {
+		return props, nil
+	}
+	rest := make(map[string]any, len(props)-1)
+	for k, v := range props {
+		if k != inventory.DiscoveredProperty {
+			rest[k] = v
+		}
+	}
+	discovered, _ := value.(map[string]any)
+	return rest, discovered
 }

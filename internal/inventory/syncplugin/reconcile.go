@@ -204,6 +204,11 @@ func createDevice(
 	cls Classification,
 	source inventory.SourceAuthority,
 ) (Outcome, string, error) {
+	for key := range raw.Properties {
+		if inventory.IsReservedProperty(key) {
+			return "", "", fmt.Errorf("sync plugin %q: %s sets property %s, which only onboarding writes", cfg.Name, raw.Name, key)
+		}
+	}
 	rec := raw
 	rec.Type = cls.Type
 	rec.Capabilities = cls.Capabilities

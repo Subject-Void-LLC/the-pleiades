@@ -33,7 +33,9 @@ import "testing"
 // track consumers could not see. That is LESSONS_LEARNED.md #155's "ask
 // the question from both ends" missing from the very file the rule is
 // about; TestEveryPkgRegistryImporterIsOnTheAllowlist below is the other
-// end.
+// end. internal/inventory/onboard's prober table (Phase 111) is the
+// newest; internal/inventory/record also holds the onboarded-type table
+// beside its device-type one.
 var registryConsumers = map[string]bool{
 	modulePath + "/pkg/capability":                true,
 	modulePath + "/internal/inventory/record":     true,
@@ -44,6 +46,7 @@ var registryConsumers = map[string]bool{
 	modulePath + "/internal/launchable":           true,
 	modulePath + "/internal/credtype":             true,
 	modulePath + "/internal/engine":               true,
+	modulePath + "/internal/inventory/onboard":    true,
 }
 
 // TestKnownRegistryConsumersImportPkgRegistry asserts every package on the

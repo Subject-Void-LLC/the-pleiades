@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -66,8 +67,9 @@ func (r *fileRepository) Create(ctx context.Context, item inventory.InventoryIte
 	// no sidecar entry at all: buildRecord already reads a missing entry as
 	// exactly that. Writing one anyway would add a row carrying nothing the
 	// default does not already say.
+	_, discovered := splitDiscovered(item.Properties().Raw())
 	if item.Version() == 0 && len(item.History()) == 0 && item.Source().Plugin == "" &&
-		item.State() == inventory.StateActive {
+		item.State() == record.InitialState(spec.Type) && discovered == nil {
 		return nil
 	}
 
@@ -104,12 +106,13 @@ func hostSpecFromItem(item inventory.InventoryItem) (HostSpec, error) {
 		tagStrings = append(tagStrings, string(t))
 	}
 
+	properties, _ := splitDiscovered(item.Properties().Raw())
 	return HostSpec{
 		ID:         string(item.ID()),
 		Name:       item.Name(),
 		Type:       deviceType,
 		Tags:       tagStrings,
-		Properties: item.Properties().Raw(),
+		Properties: properties,
 	}, nil
 }
 
@@ -129,6 +132,7 @@ func (r *fileRepository) createSidecarEntry(item inventory.InventoryItem) error 
 		State:   item.State().String(),
 		History: fromRevisions(item.History()),
 	}
+	_, entry.Discovered = splitDiscovered(item.Properties().Raw())
 	if src := item.Source(); src.Plugin != "" {
 		entry.Source = src.Plugin
 		if !src.SyncedAt.IsZero() {

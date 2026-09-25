@@ -26,6 +26,7 @@ var commands = map[string]commandFunc{
 	"init":           runInit,
 	"add-host":       runAddHost,
 	"add-credential": runAddCredential,
+	"onboard":        runOnboard,
 	"validate":       runValidate,
 	"run":            runRunbook,
 	"forge":          runForge,

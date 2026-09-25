@@ -184,9 +184,10 @@ func (r *fileRepository) GetByName(ctx context.Context, name string) (inventory.
 // buildRecord converts one HostSpec plus its (possibly absent) sidecar
 // entry into the storage-agnostic Record the factory hydrates. A host with
 // no sidecar entry yet has never been through Save, so it defaults to
-// version 0 and StateActive, the same default HydrateHosts (yaml_plugin.go)
-// uses for the read-only StaticYAMLPlugin path: "a host listed in the file
-// is immediately active." withHistory controls whether the sidecar's
+// version 0 and record.InitialState, the same default HydrateHosts
+// (yaml_plugin.go) uses for the read-only StaticYAMLPlugin path: a host
+// listed in the file is immediately active, unless its type is one only
+// onboarding makes active. withHistory controls whether the sidecar's
 // stored audit trail is attached, so GetGroup's list view and GetByName's
 // full read share this one conversion instead of two copies of it.
 func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHistory bool) (record.Record, error) {
@@ -200,6 +201,9 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 	}
 	deviceID := inventory.DeviceID(id)
 
+	if err := refuseReservedProperties(h); err != nil {
+		return record.Record{}, err
+	}
 	deviceType, err := ResolveHostType(h, r.ruleSet)
 	if err != nil {
 		return record.Record{}, err
@@ -219,7 +223,8 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		// map[string]PropertyValue are the same type; no conversion needed.
 		Properties: h.Properties,
 		Tags:       toTags(h.Tags), // toTags is unexported in yaml_plugin.go, same package
-		State:      inventory.StateActive,
+		// Active, or discovered for a type only onboarding makes active.
+		State: record.InitialState(deviceType),
 		// Source is deliberately left zero when the sidecar recorded none.
 		// It used to default to Plugin: "file", which conflated two
 		// different questions: where the data is stored, and which sync
@@ -236,8 +241,8 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 
 	entry, idx := findSidecarEntry(sidecar, deviceID)
 	if idx == -1 {
-		// Never saved: the defaults above (version 0, StateActive, no
-		// history) stand as-is.
+		// Never saved: the defaults above (version 0, the type's initial
+		// state, no history) stand as-is.
 		return rec, nil
 	}
 
@@ -267,6 +272,14 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 	}
 	if withHistory {
 		rec.History = toRevisions(entry.History)
+	}
+	if entry.Discovered != nil {
+		props := make(map[string]inventory.PropertyValue, len(h.Properties)+1)
+		for k, v := range h.Properties {
+			props[k] = v
+		}
+		props[inventory.DiscoveredProperty] = entry.Discovered
+		rec.Properties = props
 	}
 	return rec, nil
 }
