@@ -339,6 +339,18 @@ if (-not $grantedSid) {
     try {
         if (Set-ServiceGrant -Service CryptSvc -Sid $grantedSid -Remove) { Write-Host '   removed its Cryptographic Services entry' }
     } catch { Write-Leftover "its Cryptographic Services entry: $($_.Exception.Message)" }
+    # VirtualBox's autostart service, and the service-logon right its
+    # installer granted.
+    try {
+        if (Remove-VBoxAutostart $LocalUser $grantedSid) { Write-Host '   removed its VirtualBox autostart service and its service-logon right' }
+    } catch { Write-Leftover "its VirtualBox autostart service: $($_.Exception.Message)" }
+    if ($state -and $state.PSObject.Properties['autostartConfigPrior'] -and $null -ne $state.autostartConfigPrior) {
+        try {
+            Set-AutostartConfigVariable $state.autostartConfigPrior
+            Remove-Item -LiteralPath (Join-Path (Join-Path $env:ProgramData 'PleiadesGate') 'autostart.cfg') -Force -ErrorAction SilentlyContinue
+            Write-Host "   restored VBOXAUTOSTART_CONFIG to $($state.autostartConfigPrior)"
+        } catch { Write-Leftover "VBOXAUTOSTART_CONFIG, which should be $($state.autostartConfigPrior): $($_.Exception.Message)" }
+    }
     # The machine-wide policy, put back to what the setup found.
     if ($state -and $state.PSObject.Properties['forceUnloadPrior'] -and $null -ne $state.forceUnloadPrior) {
         try {

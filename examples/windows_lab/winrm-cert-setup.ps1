@@ -96,6 +96,18 @@
     then fails every call that reads the registry (REGDB_E_READREGDB); with
     the policy, the registry stays loaded while VBoxSVC holds it.
 
+.PARAMETER VirtualBoxAutostart
+    With -AllowVirtualBox, install VirtualBox's own autostart service
+    (VBoxAutostartSvc) for this account, so a VM can start under a service
+    logon. From a WinRM logon it cannot: Windows' catalog signature check
+    fails for a non-admin, non-interactive logon, and VirtualBox's
+    hardening then refuses the hypervisor API (VirtualBox ticket 20341).
+    It lifts the account's service-logon denial, lets the service manager
+    keep the account's password for the service, sets the machine
+    environment variable VBOXAUTOSTART_CONFIG, and grants the account start
+    and query on that one service. Experimental: whether a service logon
+    passes the check is what it tests.
+
 .PARAMETER OutputDirectory
     Where client.pfx, its passphrase file, ca.pem and lab-state.json are
     written, readable only by the user running this script.
@@ -118,6 +130,7 @@ param(
     [string]   $Upn             = 'pleiades-gate@pleiades.local',
     [switch]   $AddToRemoteManagementUsers,
     [switch]   $AllowVirtualBox,
+    [switch]   $VirtualBoxAutostart,
 
     # Leave the account a standard user's access to the other fixed drives
     # instead of denying it there. Off by default: see step 4.
@@ -131,6 +144,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($VirtualBoxAutostart -and -not $AllowVirtualBox) {
+    throw '-VirtualBoxAutostart needs -AllowVirtualBox: the service drives VirtualBox as this account.'
+}
+# The autostart service runs as this account, so its service-logon denial
+# is the one left out; step 8 lifts it.
+if ($VirtualBoxAutostart) { $DenyRights = @($DenyRights | Where-Object { $_ -ne 'SeDenyServiceLogonRight' }) }
 $Tag = 'PleiadesGate'
 
 function Write-Step($n, $text) { Write-Host "`n== $n. $text ==" -ForegroundColor Cyan }
@@ -365,14 +384,58 @@ if ($AllowVirtualBox) {
     }
 }
 
+# VirtualBox's autostart service, so a VM can start under a service logon.
+$autostartService = Get-VBoxAutostartServiceName $LocalUser
+$autostartConfigPrior = if ($previousState -and $previousState.PSObject.Properties['autostartConfigPrior'] -and $null -ne $previousState.autostartConfigPrior) {
+    $previousState.autostartConfigPrior
+} else {
+    Get-AutostartConfigVariable
+}
+$autostartConfig = Join-Path (Join-Path $env:ProgramData 'PleiadesGate') 'autostart.cfg'
+if ($VirtualBoxAutostart) {
+    # Its denial is lifted only here: step 3 left it out of the list, and
+    # an earlier run may have set it.
+    Set-DenyRights -Sid $sid -Rights 'SeDenyServiceLogonRight' -Remove
+    New-Item -ItemType Directory -Force -Path (Split-Path $autostartConfig) | Out-Null
+    @('default_policy = deny', ".\$LocalUser = {", '    allow = true', '}') | Set-Content -Path $autostartConfig -Encoding ASCII
+    Set-AutostartConfigVariable $autostartConfig
+    # A new password each run, so the service is reinstalled with it. The
+    # installer reads it from a file readable only by the user running this
+    # script, deleted as soon as the installer returns.
+    [void](Remove-VBoxAutostart $LocalUser $sid)
+    $passwordFile = Join-Path $OutputDirectory ('autostart-' + [guid]::NewGuid())
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+    try {
+        [IO.File]::WriteAllText($passwordFile, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr))
+        $output = & $VBoxAutostartExe install --user=".\$LocalUser" --password-file=$passwordFile 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "installing $autostartService failed: $output" }
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        Remove-Item -LiteralPath $passwordFile -Force -ErrorAction SilentlyContinue
+    }
+    [void](Set-ServiceGrant -Service $autostartService -Sid $sid -Rights 'LCRP')
+    Write-Host "   $autostartService installed; the account may start and query it, and nothing else"
+    Write-Host "   service logon allowed for this account; VBOXAUTOSTART_CONFIG set machine-wide (was $autostartConfigPrior)" -ForegroundColor Yellow
+} else {
+    if (Remove-VBoxAutostart $LocalUser $sid) { Write-Host "   removed $autostartService, which an earlier run installed" }
+    if ("$autostartConfigPrior" -ne "$(Get-AutostartConfigVariable)") {
+        Set-AutostartConfigVariable $autostartConfigPrior
+        Write-Host "   restored VBOXAUTOSTART_CONFIG to $autostartConfigPrior"
+    }
+    Remove-Item -LiteralPath $autostartConfig -Force -ErrorAction SilentlyContinue
+    $autostartService = $null
+    $autostartConfigPrior = $null
+}
+
 Write-Step 9 'certificate-to-account mapping'
 Get-ChildItem WSMan:\localhost\ClientCertificate -ErrorAction SilentlyContinue | ForEach-Object {
     if ((Get-ChildItem $_.PSPath | Where-Object Name -eq 'Subject').Value -eq $Upn) {
         Remove-Item $_.PSPath -Recurse -Force
     }
 }
-# The mapping is the one place the password is used; WinRM keeps it
-# encrypted. Nothing else ever sees it.
+# The mapping is one of the two places the password is used, and WinRM
+# keeps it encrypted; the other is the autostart service's logon, which
+# the service manager keeps. Nothing else ever sees it.
 New-Item WSMan:\localhost\ClientCertificate -Subject $Upn -URI * -Issuer $ca.Thumbprint `
     -Credential (New-Object Management.Automation.PSCredential($LocalUser, $password)) -Force | Out-Null
 $password = $null
@@ -421,6 +484,8 @@ Write-Host '   client and CA private keys removed from this machine'
     denyRights   = @($DenyRights)
     comAppIds    = @(if ($AllowVirtualBox) { $vboxAppIds })
     forceUnloadPrior = $forceUnloadPrior
+    autostartService = $autostartService
+    autostartConfigPrior = $autostartConfigPrior
     shellRights  = $ShellRights
 } | ConvertTo-Json | Set-Content -Path (Join-Path $OutputDirectory 'lab-state.json') -Encoding UTF8
 

@@ -252,3 +252,39 @@ function Set-ForceUnloadPolicy($Value) {
         New-ItemProperty -Path $ForceUnloadPolicyKey -Name DisableForceUnload -Value ([int]$Value) -PropertyType DWord -Force | Out-Null
     }
 }
+
+# VirtualBox's own autostart service, installed per account: the one way
+# VirtualBox offers to start a VM under a service logon rather than the
+# caller's.
+$VBoxAutostartExe = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxAutostartSvc.exe'
+
+# The service name VBoxAutostartSvc gives an account on this machine: its
+# fixed prefix, the computer name in lower case, and the account name.
+function Get-VBoxAutostartServiceName([string] $LocalUser) {
+    "VBoxAutostartSvc$($env:COMPUTERNAME.ToLower())$LocalUser"
+}
+
+# The machine environment variable VBoxAutostartSvc reads its policy file
+# from, as recorded for a teardown: the value, or 'absent'.
+function Get-AutostartConfigVariable {
+    $value = [Environment]::GetEnvironmentVariable('VBOXAUTOSTART_CONFIG', 'Machine')
+    if ($null -eq $value) { 'absent' } else { $value }
+}
+
+# Sets the variable to $Value, where 'absent' removes it.
+function Set-AutostartConfigVariable([string] $Value) {
+    if ($Value -eq 'absent') { $Value = $null }
+    [Environment]::SetEnvironmentVariable('VBOXAUTOSTART_CONFIG', $Value, 'Machine')
+}
+
+# Removes the account's autostart service and the service-logon right its
+# installer granted, and returns whether there was a service to remove.
+function Remove-VBoxAutostart([string] $LocalUser, [string] $Sid) {
+    $name = Get-VBoxAutostartServiceName $LocalUser
+    if (-not (Get-Service -Name $name -ErrorAction SilentlyContinue)) { return $false }
+    Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
+    $output = & $VBoxAutostartExe delete --user=".\$LocalUser" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "removing $name failed: $output" }
+    Set-DenyRights -Sid $Sid -Rights 'SeServiceLogonRight' -Remove
+    $true
+}

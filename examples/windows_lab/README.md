@@ -89,6 +89,12 @@ with `REGDB_E_READREGDB`. The teardown restores the policy's earlier value.
 own DLLs, and Windows' catalog signature check fails for a non-interactive, non-admin
 logon (`VERR_LDRVI_NOT_SIGNED` for `WinHvPlatform.dll`; VirtualBox ticket 20341). Query
 access on Cryptographic Services was tried and does not help.
+`-VirtualBoxAutostart` tests the one way VirtualBox offers around that: its own autostart
+service (`VBoxAutostartSvc`), installed for this account so a VM starts under a service
+logon rather than a network one. It lifts only the account's service-logon denial, lets the
+service manager keep the account's password for that service, sets the machine variable
+`VBOXAUTOSTART_CONFIG` to a policy allowing this account alone, and lets the account start
+and query that one service. The teardown removes all of it.
 The certificate authority's private key is deleted once the server and
 client certificates exist, and the client's once it is exported, so nothing on the host
 can issue a certificate the host trusts. What it granted is recorded in
