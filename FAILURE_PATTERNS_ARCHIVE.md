@@ -9688,9 +9688,12 @@ removed after each run, so they do not outlive it, but a large enough playbook (
 tens of thousands) can exhaust the Runner host's task table within one run, failing every process on
 that host.
 
-**Fix.** The benchmark's runner starts with `--init`. The adapter is NOT fixed in this change: set the
-container's init (`HostConfig.Init`) in `DockerOrchestrator.Run`, and gate it with a many-task run that
-counts zombies. Recorded for the user's decision.
+**Fix.** The benchmark's runner starts with `--init`, and `DockerOrchestrator.Run` sets
+`HostConfig.Init` (fixed 2026-09-24 at the user's go-ahead). `TestDockerOrchestrator_ReapsOrphans` (a
+Python PID leaves fifty orphans in the adapter's image; none stays a zombie) and
+`TestAnsibleReleaseGate_LeavesNoZombies` (twenty `raw` tasks through the real adapter against a real
+sshd, then a check that fails the job on any zombie) both fail with the init removed: the command ran
+as PID 1 with 50 zombies, and the check exited non-zero.
 
 **Lesson.** Anything that runs a process tree in a container needs an init as PID 1 unless its PID 1 is
 known to reap orphans; a tool behaving correctly on a normal host is not evidence either way.
@@ -9698,3 +9701,31 @@ known to reap orphans; a tool behaving correctly on a normal host is not evidenc
 **Class.** none of C1 to C14 (uncontrolled resource consumption; CWE-400, CWE-772)
 **Portable.** yes: any container whose PID 1 is an application or `sleep` rather than an init
 **Detector.** run a process-spawning workload in the container and count zombies whose parent is PID 1; see ~/vuln-corpus/README.md
+
+## 344. A host classified at add time lost its classification's capabilities on load
+
+**Symptom.** Found 2026-09-24 while auditing which capabilities a real device can satisfy (Phase 111's
+preparation). `pleiades add-host web1 --classify linux_server,debian_family` produced a host that never
+declared `AptCapable`: a real `pleiades run` of `pkg.install` against a real Debian sshd was refused
+with "requires capability PackageManagerCapable". The unit tests passed, because they handed the
+classification's capabilities to the constructor directly and never went through the file inventory.
+
+**Root cause.** `add-host` writes both the resolved `type` and the `classify` path, and
+`inventory.ResolveHostCapabilities` returned nothing whenever `type` was present, treating the path as
+provenance only. So every classified host lost what its classification granted. It stayed invisible
+because the capabilities classification grants (`AptCapable`) were ones no device type implemented
+anyway: that gap was disclosed and allowlisted (`acceptedUnsatisfiableCapabilities`), and with it open
+nothing could exercise the path that would have closed it.
+
+**Fix.** The path contributes capabilities when it resolves to the same type that was saved; a path
+that resolves elsewhere, or not at all, contributes nothing and is not an error
+(`TestResolveHostCapabilities_ClassifyBesideType`). With the disclosed gap closed at the same time
+(`linux_server` implements the package manager, firewall and account accessors, and declares them
+from classification or its `firewalld` property), `TestCLI_PackageAndAccountMethodsReachARealDevice`
+runs `identity.group.create` and `pkg.install` through the real binary against a real Debian device.
+The database inventory stores no classification at all, so a device there still gets only its type's
+baseline; Phase 111's storage item carries that.
+
+**Lesson.** A gap disclosed as "not reachable yet" needs a test that fails while it is open and passes
+once it closes, run through the real path. Otherwise the path that would close it can break unseen,
+because nothing can use it.

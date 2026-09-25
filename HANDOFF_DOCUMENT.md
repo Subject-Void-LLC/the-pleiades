@@ -64,13 +64,25 @@ not re-checked by `tools/coverage-check`.
   `sleep` as PID 1) exhausted the machine's task table (FAILURE_PATTERNS 343), and it lost its results
   on that failure (342). Both fixed in the harness.
 
+### Later still: the adapter fix, a reach audit, and Phase 111 started
+
+- **The Ansible adapter runs with an init** (FAILURE_PATTERNS 343, fixed).
+- **Eighteen implemented methods could not run on any real device** (`pkg.*`, `fw.firewalld.*`,
+  `identity.*`): no device type implemented their capabilities, a disclosed and allowlisted gap.
+  Closed: `linux_server` implements the accessors and declares them from classification or the
+  `firewalld` property. Closing it exposed FAILURE_PATTERNS 344 (classified hosts lost their
+  capabilities on load), also fixed; LESSONS 238. Proven through the real binary on a real Debian sshd.
+- **Phase 111** (generic SSH, NETCONF, HTTP API and gRPC device types, capabilities discovered at
+  onboarding) is written into the tracker, with items in Phases 74 and 97 for RESTCONF, gNMI and SNMP;
+  the user chose `grpc/java-example-hostname` for the gRPC gate. The prerequisite above is its first
+  item. Next: the capability-tree fix (`NetconfCapable` embeds `NetworkCLICapable`), then onboarding.
+- The push gate caught three coverage floors and a `gosec` narrowing; both fixed (the `gosec` one
+  folded into the pool commit by a plumbing rebuild, since it was never pushed).
+
 ### Decisions for the user
 
-0. **FAILURE_PATTERNS 343 applies to production.** `internal/adapters/legacy/docker_orchestrator.go`
-   runs `ansible-playbook` as PID 1 with no init; a 20-host run through that shape left 191 zombies
-   under it, one per task execution, until the container exited. A playbook large enough (hosts times
-   tasks in the tens of thousands) could exhaust a Runner host's task table in one run. The fix is to
-   start the container with an init (`HostConfig.Init`); not made, pending your decision.
+0. Resolved: FAILURE_PATTERNS 343 is fixed (`HostConfig.Init`, proven by two tests that fail without
+   it), at your go-ahead.
 1. Phase 110's version is proposed as v0.3.0, beside Phase 35.
 2. `persist_connections` needs Organization and Project levels and a System setting; written as items
    in Phases 103c and 104.

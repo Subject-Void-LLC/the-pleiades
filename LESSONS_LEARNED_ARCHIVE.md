@@ -5090,3 +5090,16 @@ connection rather than returning it.
 
 When reusing an authenticated session, key it by every input that decided what the login may do, and
 close it, not return it, whenever what happened on it cannot be proven harmless to the next user.
+
+## 238. A disclosed gap needs a test that fails while it is open
+
+Eighteen implemented methods could not run on any real device, because no device type implemented the
+capabilities they required. That was disclosed honestly, in each package's doc comment and in an
+allowlist with written reasons. But the disclosure was the only thing watching it, and a disclosure
+does not fail. While the gap stayed open, the path that would close it (a classification granting
+`AptCapable` to a `linux_server`) broke unseen: `add-host` saved the type beside the classification,
+and loading dropped the classification's capabilities (FAILURE_PATTERNS 344). Closing the first gap
+exposed the second only because the proof ran through the real binary against a real device.
+
+When a gap is accepted, write the end-to-end test that will pass once it closes, and keep it failing
+(or skipped with a named reason) until then, so the closing work finds every break on the way.
