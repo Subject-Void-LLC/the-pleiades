@@ -1,0 +1,1 @@
+A service or feature name containing a typographic single quote (such as U+2019) can no longer end the quoted value in the PowerShell that `svc.windows.*`, the generic `svc.*` methods on Windows, and `win.feature.*` send, which let the rest of the name run as PowerShell on the device.

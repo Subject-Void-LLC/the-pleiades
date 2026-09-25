@@ -125,7 +125,7 @@ type statusResult struct {
 // name.
 func Status(ctx context.Context, session Session, name string) (State, error) {
 	script := "$ErrorActionPreference = 'Stop'\n" +
-		"$svc = Get-Service -Name " + quotePS(name) + " -ErrorAction SilentlyContinue\n" +
+		"$svc = Get-Service -Name " + winrmexec.QuotePS(name) + " -ErrorAction SilentlyContinue\n" +
 		"if ($svc) {\n" +
 		"  [PSCustomObject]@{Exists=$true; Status=$svc.Status.ToString(); StartType=$svc.StartType.ToString()} | ConvertTo-Json -Compress\n" +
 		"} else {\n" +
@@ -200,7 +200,7 @@ func Disable(ctx context.Context, session Session, name string) error {
 // this package builds every script with that line first rather than
 // trusting Result.ExitCode to reflect a plain cmdlet failure.
 func runVerb(ctx context.Context, session Session, verb, name string) error {
-	script := "$ErrorActionPreference = 'Stop'\n" + verb + " -Name " + quotePS(name)
+	script := "$ErrorActionPreference = 'Stop'\n" + verb + " -Name " + winrmexec.QuotePS(name)
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", verb, name, err)
@@ -214,7 +214,7 @@ func runVerb(ctx context.Context, session Session, verb, name string) error {
 // setStartupType runs Set-Service -StartupType against one service name.
 func setStartupType(ctx context.Context, session Session, name, startupType string) error {
 	script := "$ErrorActionPreference = 'Stop'\n" +
-		"Set-Service -Name " + quotePS(name) + " -StartupType " + startupType
+		"Set-Service -Name " + winrmexec.QuotePS(name) + " -StartupType " + startupType
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
 	if err != nil {
 		return fmt.Errorf("Set-Service %s -StartupType %s: %w", name, startupType, err)
@@ -223,20 +223,6 @@ func setStartupType(ctx context.Context, session Session, name, startupType stri
 		return fmt.Errorf("Set-Service %s -StartupType %s exited %d: %s", name, startupType, result.ExitCode, firstLine(result.Stderr))
 	}
 	return nil
-}
-
-// quotePS renders s as a PowerShell single-quoted string literal, safe
-// to splice into a script this package builds.
-//
-// PowerShell recognizes no escape sequences and performs no variable
-// interpolation inside single quotes, and the literal's only special
-// character is the quote itself, which the language doubles rather than
-// backslash-escapes to embed one literally. Doubling every embedded quote
-// character is therefore the complete defense, the same "this is the
-// whole escape and nothing else needs handling" role remoteexec.QuoteArg
-// plays for a POSIX shell word.
-func quotePS(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // firstLine returns the first line of s, trimmed, so an error message
