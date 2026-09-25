@@ -37,5 +37,5 @@ func RunCollectionChild(ctx context.Context) int {
 // what lets a Collection result be indistinguishable to the engine
 // whichever kind of child produced it.
 func runCollectionChild(ctx context.Context, in io.Reader, response io.Writer, errOut io.Writer) int {
-	return external.ServeChild(ctx, collection.Lookup, in, response, errOut)
+	return external.ServeChildWith(ctx, collection.Lookup, in, response, errOut, dispatchedDevice)
 }

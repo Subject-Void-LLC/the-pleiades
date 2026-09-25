@@ -40,6 +40,14 @@ const (
 // its externally reachable host and port.
 func startReleaseGateContainer(t *testing.T) (string, int) {
 	t.Helper()
+	_, host, port := startReleaseGateSSHD(t)
+	return host, port
+}
+
+// startReleaseGateSSHD is startReleaseGateContainer that also returns the
+// container, for a test that reads the server's own log.
+func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) {
+	t.Helper()
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        testsupport.SSHDImage,
@@ -62,10 +70,12 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 		// published port FROM the host in a retry loop, which is the
 		// check the log strategy cannot make, so the container is not
 		// declared ready until the address every test here uses actually
-		// accepts a connection.
+		// accepts a connection. Each step names the bound itself: a step
+		// with none stops at testcontainers' own sixty seconds whatever
+		// the group allows (FAILURE_PATTERNS 350).
 		WaitingFor: wait.ForAll(
-			wait.ForLog("done."),
-			wait.ForListeningPort("2222/tcp"),
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			wait.ForListeningPort("2222/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 		).WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -85,7 +95,7 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 	if err != nil {
 		t.Fatalf("failed to get mapped port: %v", err)
 	}
-	return host, int(mapped.Num())
+	return container, host, int(mapped.Num())
 }
 
 // captureRealHostKey opens a bootstrap connection to addr using a
@@ -99,30 +109,10 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 // default, fail-closed host key verification path.
 func captureRealHostKey(t *testing.T, addr string) ssh.PublicKey {
 	t.Helper()
-	var captured ssh.PublicKey
-	config := &ssh.ClientConfig{
-		User: releaseGateSSHUser,
-		Auth: []ssh.AuthMethod{ssh.Password(releaseGateSSHPassword)},
-		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
-			captured = key
-			return nil
-		},
-		Timeout: 10 * time.Second,
-	}
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
-	if err != nil {
-		t.Fatalf("bootstrap dial to %s failed: %v", addr, err)
-	}
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
-	if err != nil {
-		t.Fatalf("bootstrap ssh handshake with %s failed: %v", addr, err)
-	}
-	client := ssh.NewClient(sshConn, chans, reqs)
-	defer client.Close()
-	if captured == nil {
-		t.Fatal("expected to capture a real host key from the container")
-	}
-	return captured
+	// Bounded and retried: a handshake over a connection the published
+	// port accepted before sshd listened used to wait on the version
+	// banner until go test's own timeout (FAILURE_PATTERNS 351).
+	return testsupport.CaptureHostKey(t, addr, releaseGateSSHUser, releaseGateSSHPassword)
 }
 
 // verifyOverSSH opens its own independent SSH connection to addr (never

@@ -121,13 +121,29 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "onboard",
+			Positional: "<device>",
+			Synopsis:   "probe a generic device over its protocol and record what it proved",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},
+				{Name: "timeout", Type: "duration", Default: "30s", Doc: "how long the probe may take"},
+			},
+			Examples: []string{
+				"pleiades onboard edge01",
+				"pleiades onboard api01 --json",
+			},
+		},
+		{
 			Name:       "validate",
 			Positional: "[runbook.yaml]",
 			Synopsis:   "check a runbook against the inventory",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
+				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 			},
-			Examples: []string{"pleiades validate runbooks/site.yaml"},
+			Examples: []string{"pleiades validate runbooks/site.yaml", "pleiades validate runbooks/site.yaml --tags web"},
 		},
 		{
 			Name:       "run",
@@ -139,12 +155,18 @@ var Root = Command{
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each task's own output (stdout, exit status, diffs), not just whether it changed"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
 				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed"},
+				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
+				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
+				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000; the default is Ansible's own"},
+				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says"},
 			},
 			Examples: []string{
 				"pleiades run runbooks/site.yaml",
 				"pleiades run runbooks/site.yaml --verbose",
 				"pleiades run runbooks/site.yaml --mode check --verbose",
 				"pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command",
+				"pleiades run runbooks/site.yaml --tags web --skip-tags slow",
+				"pleiades run runbooks/site.yaml --persist-connections=false",
 			},
 		},
 		{
@@ -317,6 +339,20 @@ var Root = Command{
 					},
 					Examples: []string{
 						"pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary \"converts a CIDR prefix length to its dotted-decimal netmask.\" --param cidr:string --return string",
+					},
+				},
+				{
+					Name:       "migrate-playbook",
+					Positional: "<playbook.yml>",
+					Synopsis:   "convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one",
+					Flags: []Flag{
+						{Name: "out", Type: "string", Default: "runbooks", Doc: "directory to write the converted runbooks into, created when missing"},
+						{Name: "json", Type: "bool", Default: "false", Doc: "print the migration report as JSON, the same model the text view renders"},
+						{Name: "force", Type: "bool", Default: "false", Doc: "replace runbooks an earlier conversion wrote"},
+					},
+					Examples: []string{
+						"pleiades forge migrate-playbook site.yml",
+						"pleiades forge migrate-playbook playbooks/web.yml --out runbooks --json",
 					},
 				},
 			},

@@ -53,6 +53,12 @@ import (
 
 func init() {
 	record.RegisterType({{quote .TypeKey}}, {{.ConstructorName}})
+	// The property keys this type's constructor and accessors read, which
+	// are all of a device that travels to a Runner. Add each key an
+	// accessor reads as you write it: internal/archtest's
+	// TestDispatchPropertiesAreWhatTheCodeReads holds this list equal to
+	// the keys the package reads, and refuses one that names a secret.
+	record.RegisterDispatchProperties({{quote .TypeKey}})
 }
 
 // {{.StructName}} implements inventory.InventoryItem.

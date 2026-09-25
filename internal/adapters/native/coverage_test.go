@@ -11,49 +11,31 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// TestNewDeviceRunbookContext_CarriesPayloadSecrets proves the one thing
-// that makes PLAN.md Section 17's Just-in-Time delivery real on the
-// in-process path: the secrets the Controller attached to the wire payload
-// are what a Collection method's InjectSecrets actually returns, rather
-// than the empty set internal/engine.NewDeviceRunbookContext returns
-// (which ignores its device argument entirely).
-func TestNewDeviceRunbookContext_CarriesPayloadSecrets(t *testing.T) {
-	device := newWireDevice(wire.DispatchPayload{
+// TestRunbookContextFor_CarriesPayloadSecrets proves the one thing that
+// makes PLAN.md Section 17's Just-in-Time delivery real on the in-process
+// path: the secrets the Controller attached to the wire payload are what a
+// Collection method's InjectSecrets returns, whatever device type the
+// Runner rebuilt, since the context is bound to the dispatch rather than
+// read back out of the device.
+func TestRunbookContextFor_CarriesPayloadSecrets(t *testing.T) {
+	payload := wire.DispatchPayload{
 		DeviceName: "core-1",
 		Secrets:    map[string]string{"username": "admin", "password": "hunter2"},
-	})
-
-	rc, err := newDeviceRunbookContext(context.Background(), device)
-	if err != nil {
-		t.Fatalf("newDeviceRunbookContext: %v", err)
 	}
-	secrets := rc.InjectSecrets()
-
-	if got := secrets["username"]; got != "admin" {
-		t.Errorf("InjectSecrets()[\"username\"] = %q, want %q", got, "admin")
-	}
-	if got := secrets["password"]; got != "hunter2" {
-		t.Errorf("InjectSecrets()[\"password\"] = %q, want %q", got, "hunter2")
-	}
-}
-
-// TestNewDeviceRunbookContext_NonWireDeviceGetsNoSecrets covers the
-// defensive type-assertion fallback. It is unreachable through this
-// package's own composition (singleDeviceResolver only ever yields a
-// *wireDevice), so the assertion that matters is the security-relevant
-// one: an unexpected device type must yield NO secrets rather than
-// silently carrying another device's.
-func TestNewDeviceRunbookContext_NonWireDeviceGetsNoSecrets(t *testing.T) {
-	rc, err := newDeviceRunbookContext(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("newDeviceRunbookContext: %v", err)
-	}
-	if got := rc.InjectSecrets(); len(got) != 0 {
-		t.Errorf("InjectSecrets() = %v, want empty for a non-wireDevice", got)
+	for _, device := range []inventory.InventoryItem{newWireDevice(payload), nil} {
+		rc, err := runbookContextFor(payload)(context.Background(), device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secrets := rc.InjectSecrets()
+		if secrets["username"] != "admin" || secrets["password"] != "hunter2" {
+			t.Errorf("InjectSecrets() = %v for device %T", secrets, device)
+		}
 	}
 }
 
@@ -153,23 +135,34 @@ func TestRunCollectionChild_ResponseWriteFailureExitsNonZero(t *testing.T) {
 	}
 }
 
-// TestIPCCollectionExecutor_Invoke_RejectsNonWireDevice covers the parent
-// side's own type guard. This is the exact failure the SSH mesh Release
-// Gate surfaced once for real (FAILURE_PATTERNS.md #86, where a nil device
-// reached this seam), so it is worth an ordinary unit test that fails fast
-// rather than only a container test that takes ten seconds to say so.
-func TestIPCCollectionExecutor_Invoke_RejectsNonWireDevice(t *testing.T) {
+// TestIPCCollectionExecutor_Invoke_RefusesADeviceItWasNotDispatchedFor
+// covers the parent side's own guard. A nil device reaching this seam was
+// a real failure the SSH mesh Release Gate surfaced (FAILURE_PATTERNS.md
+// #86), and a bound executor handed another device would run the call
+// against the dispatched one, since the child rebuilds its device from the
+// payload. Each refusal happens before any child starts.
+func TestIPCCollectionExecutor_Invoke_RefusesADeviceItWasNotDispatchedFor(t *testing.T) {
 	exec, err := newIPCCollectionExecutor(nil)
 	if err != nil {
 		t.Fatalf("newIPCCollectionExecutor: %v", err)
 	}
-
-	_, _, err = exec.invoke(context.Background(), collection.Descriptor{Name: "x.y"}, nil, nil, collection.ModeExecute)
-	if err == nil {
-		t.Fatal("invoke() = nil error, want a refusal for a non-*wireDevice device")
-	}
-	if !strings.Contains(err.Error(), "wireDevice") {
-		t.Errorf("invoke() error = %q, want it to name the expected type", err)
+	bound := exec.forDispatch(wire.DispatchPayload{DeviceName: "web1"})
+	for name, tc := range map[string]struct {
+		exec   *ipcCollectionExecutor
+		device inventory.InventoryItem
+		want   string
+	}{
+		"no device":                  {exec, nil, "handed no device"},
+		"a typed nil device":         {bound, (*wireDevice)(nil), "handed no device"},
+		"unbound, not address-only":  {exec, &inventorytest.Stub{StubName: "web1"}, "has no dispatch"},
+		"bound, another device name": {bound, &inventorytest.Stub{StubName: "web2"}, `bound to device "web1" and was handed "web2"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := tc.exec.invoke(context.Background(), collection.Descriptor{Name: "x.y"}, tc.device, nil, collection.ModeExecute)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("invoke() error = %v, want it to contain %q", err, tc.want)
+			}
+		})
 	}
 }
 

@@ -497,6 +497,68 @@ func TestDirectory_AppliesTheModeOnCreate(t *testing.T) {
 	}
 }
 
+// TestDirectory_GivesCreatedParentsTheAttributes proves every parent a run
+// creates gets the task's mode, as ansible.builtin.file gives it, and a
+// parent that already existed keeps its own. Without it a private
+// directory under a new parent is reachable through a parent the umask
+// left open.
+func TestDirectory_GivesCreatedParentsTheAttributes(t *testing.T) {
+	server := startDirServer(t)
+	rc := newDirContext(server)
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(base, "one", "two", "three")
+	params := dirParams(path)
+	params["mode"] = "0700"
+
+	if _, err := file.Directory(context.Background(), rc, newDirDevice(server), params); err != nil {
+		t.Fatalf("Directory: %v", err)
+	}
+	for _, created := range []string{path, filepath.Dir(path), filepath.Dir(filepath.Dir(path))} {
+		info, err := os.Stat(created)
+		if err != nil {
+			t.Fatalf("os.Stat(%s): %v", created, err)
+		}
+		if got := info.Mode().Perm(); got != 0o700 {
+			t.Errorf("%s was created with mode %04o, want the task's %04o", created, got, 0o700)
+		}
+	}
+	if info, err := os.Stat(base); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("the parent that already existed was changed: %v %v", info.Mode(), err)
+	}
+}
+
+// TestDirectory_ParentReadAndParentAttributeFailures drives the two new
+// ways a run creating parents can fail partway, with a session budget
+// picking the failing command: the read of the first missing parent,
+// which fails before anything is created, and the chmod of a created
+// parent, which fails after the directory itself is made and says so,
+// naming the parent.
+func TestDirectory_ParentReadAndParentAttributeFailures(t *testing.T) {
+	for _, tc := range []struct {
+		budget  int
+		want    string
+		created bool
+	}{
+		{1, "stat", false},
+		{5, "a parent it created", true},
+	} {
+		server := startDirServerWithSessionBudget(t, tc.budget)
+		path := filepath.Join(t.TempDir(), "one", "two")
+		params := dirParams(path)
+		params["mode"] = "0700"
+		_, err := file.Directory(context.Background(), newDirContext(server), newDirDevice(server), params)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("budget %d: error = %v, want it to name %q", tc.budget, err, tc.want)
+		}
+		if _, statErr := os.Stat(path); (statErr == nil) != tc.created {
+			t.Errorf("budget %d: directory exists = %v, want %v", tc.budget, statErr == nil, tc.created)
+		}
+	}
+}
+
 // TestDirectory_ConvergedRunReportsNoChange is the single most important
 // property this method has, so it asserts it three ways: the second run
 // reports no change, the mode on disk did not move, and the diff records

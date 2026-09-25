@@ -61,8 +61,19 @@ func FuzzDAGBuilder(f *testing.F) {
 	// FAILURE_PATTERNS.md #62).
 	f.Add(deeplyNestedPayload(500))
 
+	// Strict JSON (json_strict.go): wrong-case keys, repeated keys, deep
+	// nesting, trailing data and a malformed target.
+	f.Add([]byte(`{"id":"j1","tasks":[{"name":"a","FQCN":"noop"}]}`))
+	f.Add([]byte(`{"id":"j2","tasks":[{"name":"a","fqcn":"noop","fqcn":"ssh_exec"}]}`))
+	f.Add([]byte(`[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]`))
+	f.Add([]byte(`{"id":"j3","tasks":[]} {"id":"j4"}`))
+	f.Add([]byte(`{"id":"j5","tasks":[{"name":"a","fqcn":"noop","params":{"target":1.5}}]}`))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		// Just ensure it doesn't panic on arbitrary byte slices
-		builder.Build(payload)
+		// Never panic, and never build a DAG carrying a malformed target.
+		dag, err := builder.Build(payload)
+		if err == nil {
+			assertTargetsAreNonEmptyStrings(t, dag)
+		}
 	})
 }

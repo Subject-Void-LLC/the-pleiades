@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**78 of 81 methods are implemented.**
+**79 of 82 methods are implemented.**
 
 ## Implemented
 
@@ -88,6 +88,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [wait.path](modules/wait/path.md)
 - [wait.search](modules/wait/search.md)
 - [facts.gather](modules/facts/gather.md)
+- [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
 
 ## Declared, not yet implemented
 

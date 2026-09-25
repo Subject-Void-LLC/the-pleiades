@@ -86,29 +86,19 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 	}, nil
 }
 
-// newDeviceRunbookContext is the newContext function
+// runbookContextFor is the newContext function
 // engine.NewCollectionActionExecutor calls to build the sdk.RunbookContext
-// a Collection method's Invoke receives. device is always the *wireDevice
-// this package's own Execute built for this call (singleDeviceResolver
-// never resolves any other value), so its embedded wire.DispatchPayload
-// already carries whatever secrets the Controller attached at dispatch
-// time (PLAN.md Section 17's Just-in-Time delivery principle) -- no
-// second credential lookup happens here. The type-assertion fallback is a
-// defensive measure against a structural invariant of this package's own
-// composition, not an expected runtime case: it can only be reached if a
-// future change hands engine.Executor a TargetResolver other than
-// singleDeviceResolver.
-// It returns a nil error unconditionally, and that is the honest answer
-// rather than a signature it does not use: nothing here can fail,
-// because the secrets are already in hand. It is the Crawl tier that has
-// a credential store to read and therefore a failure to report, which is
-// why engine.RunbookContextFunc carries an error at all.
-func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
-	wd, ok := device.(*wireDevice)
-	if !ok {
-		return engine.NewRunbookContext(nil), nil
+// a Collection method's Invoke receives, bound to one dispatch: its
+// secrets are the ones the Controller attached to payload at dispatch time
+// (PLAN.md Section 17's Just-in-Time delivery principle), whatever device
+// type the Runner rebuilt, so no second credential lookup happens here.
+// It never fails: the secrets are already in hand. It is the Crawl tier
+// that has a credential store to read and therefore a failure to report,
+// which is why engine.RunbookContextFunc carries an error at all.
+func runbookContextFor(payload wire.DispatchPayload) engine.RunbookContextFunc {
+	return func(context.Context, inventory.InventoryItem) (sdk.RunbookContext, error) {
+		return engine.NewRunbookContext(payload.Secrets), nil
 	}
-	return engine.NewRunbookContext(wd.Payload().Secrets), nil
 }
 
 // Execute implements runner.ExecutionAdapter. It resolves payload's
@@ -154,8 +144,49 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
 	}
 
-	device := newWireDevice(payload)
+	device, err := dispatchedDevice(payload)
+	if err != nil {
+		refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
+		refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		refused.EventData.Message = err.Error()
+		if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
+		}
+		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
+	}
+
+	// The same plan-time checks `pleiades validate` and `pleiades run`
+	// make, before any task runs, against the one device this dispatch
+	// names and resolved exactly as the executor below resolves it. The
+	// Runner used to go straight from the cached DAG to the executor, so
+	// an unregistered or declared-only method, an undeclared parameter,
+	// or check_mode on an uncheckable task failed only when its own task
+	// was reached, after earlier tasks had already changed the device.
+	if err := validateDispatch(dag, device, mode); err != nil {
+		// Ended in the job's own log, like any other finished run, so a
+		// reader sees why nothing ran rather than a run that started and
+		// never finished. The findings name tasks, methods, parameter
+		// names and this device, never a value.
+		refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
+		refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		refused.EventData.Message = err.Error()
+		if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
+		}
+		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
+	}
 	credentials := credential.NewStaticStore(payload.Secrets)
+
+	// A dispatch whose connections persist runs its Collection calls
+	// through one child for its whole life, whose pool keeps the device's
+	// SSH login open between tasks (ipc_session.go). Otherwise each call
+	// spawns a child of its own and logs in afresh.
+	invoke := a.ipc.forDispatch(payload).invoke
+	if payload.PersistConnections {
+		session := a.ipc.newSession(payload)
+		defer session.Close()
+		invoke = session.invoke
+	}
 	actions := engine.NewCollectionActionExecutor(
 		// nil inventory.Repository: this per-task subprocess has no live
 		// database connection of its own (see
@@ -163,8 +194,8 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// full reasoning), so hop-chain resolution is skipped entirely
 		// here, exactly a direct connection.
 		engine.NewTransportActionExecutor(a.bindings, credentials, nil, engine.NewBuiltinActionExecutor()),
-		newDeviceRunbookContext,
-		engine.WithCollectionInvoker(a.ipc.invoke),
+		runbookContextFor(payload),
+		engine.WithCollectionInvoker(invoke),
 	)
 
 	// A fresh, private lock.Manager, never a real distributed one: this
@@ -268,6 +299,17 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	}
 	secrets = append(secrets, injectedValues...)
 
+	// Each warning a task recorded (sdk.StatWarnings) reaches the job log
+	// once per dispatch, masked, before the completion that summarizes it.
+	for _, warning := range runWarnings(result, secrets) {
+		event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		event.EventData.Message = "WARNING: " + warning
+		if err := a.publish(ctx, payload.JobID, event); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+		}
+	}
+
 	status, message := summarize(result, changed, secrets)
 	if mode == collection.ModeCheck {
 		message = "check: " + message + checkSummary(result)
@@ -336,4 +378,30 @@ func uncheckedCount(result engine.RunResult) int {
 		}
 	}
 	return n
+}
+
+// runWarnings collects the warnings every task of result recorded, masked
+// and each once, in the order they first appear.
+func runWarnings(result engine.RunResult, secrets []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, node := range result.Nodes {
+		var warnings []string
+		switch list := node.Stats[sdk.StatWarnings].(type) {
+		case []string:
+			warnings = list
+		case []any:
+			for _, w := range list {
+				warnings = append(warnings, fmt.Sprint(w))
+			}
+		}
+		for _, w := range warnings {
+			masked := redact.Text(secrets, w)
+			if !seen[masked] {
+				seen[masked] = true
+				out = append(out, masked)
+			}
+		}
+	}
+	return out
 }

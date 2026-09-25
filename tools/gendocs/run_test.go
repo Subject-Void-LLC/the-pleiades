@@ -22,6 +22,19 @@ func TestRun_Idempotent(t *testing.T) {
 		t.Fatalf("os.Getwd(): %v", err)
 	}
 	tmp := t.TempDir()
+	// The report schema's descriptions are the report model's doc
+	// comments, read from its source at the repository-relative path the
+	// generator is run from; the scratch root gets that one input.
+	model, err := os.ReadFile(filepath.Join(origWD, "..", "..", reportModelFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, filepath.Dir(reportModelFile)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, reportModelFile), model, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatalf("os.Chdir(%s): %v", tmp, err)
 	}
@@ -72,6 +85,8 @@ func TestRun_Idempotent(t *testing.T) {
 	assertExists(filepath.Join(outputDir, "schemas", "runbook.schema.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "inventory.schema.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "module-catalog.json"))
+	assertExists(filepath.Join(outputDir, "schemas", "migration-report.json"))
+	assertExists(filepath.Join(outputDir, "ansible-modules.md"))
 	assertExists(filepath.Join(wellKnownDir, "runbook.schema.json"))
 	assertExists(filepath.Join(wellKnownDir, "inventory.schema.json"))
 	assertExists(filepath.Join(wellKnownDir, "module-catalog.json"))

@@ -4,6 +4,7 @@ package external
 import (
 	"sync"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -30,9 +31,22 @@ type RunbookContext struct {
 	mu      sync.Mutex
 	secrets map[string][]byte
 	facts   map[string]interface{}
+	// pool, when set, lends the method's SSH connections (see
+	// InvokeRequestWithPool). It holds no secret: a pooled connection
+	// keeps only a keyed digest of the credential it logged in with.
+	pool *remoteexec.Pool
 }
 
-var _ sdk.RunbookContext = (*RunbookContext)(nil)
+var (
+	_ sdk.RunbookContext   = (*RunbookContext)(nil)
+	_ sdk.ConnectionPooler = (*RunbookContext)(nil)
+)
+
+// ConnectionPool implements sdk.ConnectionPooler: the pool this call's
+// connections are lent from, or nil when every Connect logs in afresh.
+func (c *RunbookContext) ConnectionPool() *remoteexec.Pool {
+	return c.pool
+}
 
 // NewRunbookContext builds a RunbookContext over secrets, which it copies
 // into its own mutable storage rather than referencing the caller's map,

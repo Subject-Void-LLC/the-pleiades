@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -14,17 +15,27 @@ import (
 // validation core (internal/validate) against them. All of the actual
 // rule logic lives there; this function only wires the CLI surface.
 func runValidate(args []string) error {
+	// The runbook is optional and may come before or after the flags, so
+	// it is pulled out first (splitPositional); every validate flag takes
+	// a value.
+	runbookArg, rest, err := splitPositional(args, nil)
+	if err != nil && !errors.Is(err, errMissingPositional) {
+		return fmt.Errorf("usage: pleiades validate [runbook.yaml] [--tags a,b] [--skip-tags c] [--dir .]: %w", err)
+	}
+
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(args); err != nil {
+	selection := tagFlags(fs)
+	if err := fs.Parse(rest); err != nil {
 		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("usage: pleiades validate [runbook.yaml]")
 	}
 
 	runbook := filepath.Join(*dir, inventory.DefaultRunbookDir, inventory.DefaultSampleRunbook)
-	if fs.NArg() == 1 {
-		runbook = fs.Arg(0)
-	} else if fs.NArg() > 1 {
-		return fmt.Errorf("usage: pleiades validate [runbook.yaml]")
+	if runbookArg != "" {
+		runbook = runbookArg
 	}
 
 	// External Collections register first, so a runbook calling one of
@@ -33,7 +44,7 @@ func runValidate(args []string) error {
 		return err
 	}
 
-	items, dag, err := loadWorld(*dir, runbook)
+	items, dag, err := loadWorld(*dir, runbook, *selection)
 	if err != nil {
 		return err
 	}

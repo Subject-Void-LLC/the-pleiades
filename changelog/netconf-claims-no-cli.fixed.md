@@ -1,0 +1,1 @@
+Declaring `NetconfCapable` no longer claims a command line. The capability used to sit under `NetworkCLICapable`, so a device that declared NETCONF satisfied `net.cli.command` and `net.cli.config` whether or not it had a prompt. A device with both, as a Cisco router with NETCONF enabled has, declares both; nothing changes for the two Cisco types, which already did.

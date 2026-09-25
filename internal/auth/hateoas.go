@@ -150,6 +150,11 @@ const (
 	// runbook:execute implies, so a caller may be granted checks without
 	// being granted changes.
 	RelCheck LinkRel = "check"
+
+	// RelOnboard is the affordance that onboards a generic device: probe
+	// it over its protocol and record what it proved. It carries
+	// inventory:onboard.
+	RelOnboard LinkRel = "onboard"
 )
 
 // Affordance is one candidate action, described purely in authorization

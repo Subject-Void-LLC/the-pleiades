@@ -66,6 +66,16 @@ func TestRouteFor(t *testing.T) {
 			want: routeAgent,
 		},
 		{
+			name: "the collection session argument is the session child",
+			args: []string{native.InternalCollectionSessionArg},
+			want: routeCollectionSession,
+		},
+		{
+			name: "an argument after the session child does not change the route",
+			args: []string{native.InternalCollectionSessionArg, healthcheckCommand},
+			want: routeCollectionSession,
+		},
+		{
 			name: "an argument after the collection child does not change the route",
 			args: []string{native.InternalCollectionRunnerArg, healthcheckCommand},
 			want: routeCollectionChild,

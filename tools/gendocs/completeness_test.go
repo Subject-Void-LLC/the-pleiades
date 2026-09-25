@@ -5,12 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	// Blank-imported for the reason internal/inventory/builtins.go itself
 	// exists: record.AllTypes is empty until every vendor device package's
 	// init() has run, and the device gates below would then pass by proving
 	// nothing.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -51,8 +53,8 @@ func TestImplementedMethodsHaveCompleteDocs(t *testing.T) {
 				t.Errorf("%s: implemented but Doc.Examples is empty", fqcn)
 			}
 			for _, name := range m.Doc.Fragments {
-				if _, ok := catalogdata.Fragments[name]; !ok {
-					t.Errorf("%s: references fragment %q, not present in catalogdata.Fragments", fqcn, name)
+				if _, ok := fragment.Builtin[name]; !ok {
+					t.Errorf("%s: references fragment %q, not present in fragment.Builtin", fqcn, name)
 				}
 			}
 		})
@@ -78,6 +80,9 @@ func TestDeviceRowsMatchLiveRegistry(t *testing.T) {
 	}
 	for _, d := range catalogdata.Devices {
 		rendered[d.TypeKey] = true
+	}
+	for _, key := range generic.Types() {
+		rendered[key] = true
 	}
 
 	for key := range live {
@@ -208,7 +213,7 @@ func TestRenderPlugins_FailsClosed(t *testing.T) {
 // an incomplete Fragment would silently produce an incomplete-looking row
 // with no test catching it.
 func TestFragmentsAreComplete(t *testing.T) {
-	for name, frag := range catalogdata.Fragments {
+	for name, frag := range fragment.Builtin {
 		for i, p := range frag.Params {
 			if p.Type == "" {
 				t.Errorf("fragment %q: param %q (index %d) has no Type", name, p.Name, i)
@@ -217,5 +222,17 @@ func TestFragmentsAreComplete(t *testing.T) {
 				t.Errorf("fragment %q: param %q (index %d) has no Description", name, p.Name, i)
 			}
 		}
+	}
+}
+
+// TestGenericDeviceRows proves every generic type renders: each one's
+// constructor builds from genericExampleProperties.
+func TestGenericDeviceRows(t *testing.T) {
+	rows, err := genericDeviceRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(generic.Types()) {
+		t.Fatalf("%d rows for %d generic types", len(rows), len(generic.Types()))
 	}
 }

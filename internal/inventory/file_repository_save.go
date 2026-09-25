@@ -127,6 +127,8 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 			entry.SourceSyncedAt = &syncedAt
 		}
 	}
+	var hostProperties map[string]any
+	hostProperties, entry.Discovered = splitDiscovered(item.Properties().Raw())
 	if entryIdx == -1 {
 		sidecar.Hosts = append(sidecar.Hosts, entry)
 	} else {
@@ -139,7 +141,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 		return fmt.Errorf("failed to write inventory state for %s: %w", item.Name(), err)
 	}
 
-	hosts[hostIdx].Properties = item.Properties().Raw()
+	hosts[hostIdx].Properties = hostProperties
 	if err := writeHostsAtomic(r.hostsPath, original, hosts); err != nil {
 		return fmt.Errorf("failed to write inventory for %s: %w", item.Name(), err)
 	}

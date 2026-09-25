@@ -81,6 +81,10 @@ type Subsystem struct {
 // ctx governs the whole session, not just this call; see Subsystem's own
 // doc comment for why, and for what a caller sees after it is done.
 func (c *Conn) Subsystem(ctx context.Context, name string) (*Subsystem, error) {
+	// A subsystem can hold device state past its own close (a NETCONF
+	// datastore lock), so a borrowed connection that opened one is closed
+	// rather than reused.
+	c.taint()
 	s, err := c.openStream(ctx, name+" subsystem", func(session *ssh.Session) error {
 		return session.RequestSubsystem(name)
 	})

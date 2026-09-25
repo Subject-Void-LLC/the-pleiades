@@ -23,8 +23,8 @@ import (
 // is what lets TestIPCCollectionExecutor_Invoke_RealSubprocess below spawn
 // a genuine second OS process without any Docker or external binary.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == InternalCollectionRunnerArg {
-		os.Exit(RunCollectionChild(context.Background()))
+	if code, ok := RunChildFor(context.Background(), os.Args[1:]); ok {
+		os.Exit(code)
 	}
 	os.Exit(m.Run())
 }

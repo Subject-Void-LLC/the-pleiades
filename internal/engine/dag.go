@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"reflect"
 	"regexp"
 )
 
@@ -169,6 +173,10 @@ type WorkflowDef struct {
 	// CheckModeFlag for what is accepted and why false is refused.
 	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
 
+	// Tags applies to every task in the runbook, as a play's tags do in
+	// Ansible: each task inherits them (propagateTags, tags.go).
+	Tags TagList `json:"tags,omitempty" yaml:"tags,omitempty"`
+
 	// PreTasks runs before Tasks, in order. It is the runbook's setup
 	// phase, mirroring an Ansible play's pre_tasks:.
 	PreTasks []Task `json:"pretasks,omitempty" yaml:"pretasks,omitempty"`
@@ -226,6 +234,12 @@ type Task struct {
 	// key down onto every task it covers (propagateCheckMode), so the
 	// executor reads only this field. See CheckModeFlag.
 	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
+
+	// Tags are the names --tags and --skip-tags select this task by. A
+	// block's or parallel group's tags pass down to its children, and a
+	// task tagged never runs only when a run names one of its tags
+	// (tags.go).
+	Tags TagList `json:"tags,omitempty" yaml:"tags,omitempty"`
 
 	// RegisterMask names fields of this task's own ActionResult.Stats (once
 	// computed), dotted paths into nested values allowed, whose values must
@@ -404,6 +418,18 @@ type DAG struct {
 	// from the returned order even though they still appear in Nodes and
 	// Conditions.
 	EntryPoint string
+
+	// Selection is the tag filter this DAG's Nodes, Adjacency and
+	// Conditions were projected with (Select, select.go). The builder
+	// applies the zero value, Ansible's default: every task except one
+	// tagged never.
+	Selection TagFilter
+
+	// full is every task and compiled condition the builder produced,
+	// before any tag selection, so Select can project the same runbook
+	// again with another filter without rebuilding it. Nil for a DAG
+	// assembled by hand, which Select then treats as its own full set.
+	full *fullGraph
 }
 
 // EdgeType classifies an Adjacency edge by which of its source node's
@@ -485,6 +511,11 @@ func NewBuilder(celEvaluator Evaluator) *Builder {
 // import_tasks task in payload fails with a clear error; use
 // BuildFromYAMLFile for a runbook that uses import_tasks.
 func (b *Builder) Build(payload []byte) (*DAG, error) {
+	// Before the sugar rewrite, which decodes into a map and so would
+	// quietly keep only the last of two repeated keys.
+	if _, err := parseJSONKeyTree(payload); err != nil && !errors.Is(err, errNotJSON) {
+		return nil, err
+	}
 	normalized, err := normalizeWorkflowJSON(payload)
 	if err != nil {
 		return nil, err
@@ -500,10 +531,23 @@ func (b *Builder) Build(payload []byte) (*DAG, error) {
 			return nil, err
 		}
 	}
+	// Exact-case keys at every level (encoding/json would match "FQCN" to
+	// fqcn). A payload the tree reader cannot parse is left to the decoder
+	// below, which reports it in its own words.
+	if tree, err := parseJSONKeyTree(normalized); err == nil {
+		if err := checkKnownKeys(tree, reflect.TypeFor[WorkflowDef](), "json", ""); err != nil {
+			return nil, err
+		}
+	}
 
 	var def WorkflowDef
-	if err := json.Unmarshal(normalized, &def); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(normalized))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to unmarshal JSON: trailing data after the runbook")
 	}
 	return b.buildFromDef(def, "")
 }
@@ -521,15 +565,16 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	if err := resolveImportTasks(&def, baseDir); err != nil {
 		return nil, err
 	}
-	// After imports, so an imported file's tasks inherit the check_mode of
-	// the import_tasks task that pulled them in.
+	// After imports, so an imported file's tasks inherit the check_mode and
+	// tags of the import_tasks task that pulled them in.
 	propagateCheckMode(&def)
+	propagateTags(&def)
 
 	switch def.Type {
 	case "", "native":
 		// Default. Proceed normally.
 	case "ansible":
-		return nil, fmt.Errorf("runbook declares type %q, which this engine cannot execute yet (no native Ansible execution path exists in this repository); see PLAN.md Section 23 for the planned interop path", def.Type)
+		return nil, fmt.Errorf("runbook declares type %q, which the native engine does not run; '%s <file>' converts a playbook to a native runbook, and %s also covers running one unchanged", def.Type, migrateCommand, migrationGuide)
 	default:
 		return nil, fmt.Errorf("unrecognized runbook type %q: expected \"native\" (the default) or \"ansible\"", def.Type)
 	}
@@ -566,43 +611,16 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Conditions: make(map[string]*ConditionProgram),
 	}
 
-	// Walk pretasks, tasks, and posttasks as three independent happy-path
-	// chains, each producing the entry (first) and exit (last) node ID
-	// reached within it. An empty list contributes no section at all
-	// (entry == ""), so it is skipped when stitching the three chains
-	// together below: a runbook missing pretasks or posttasks still
-	// builds a correct chain rather than one with dangling empty edges.
-	type section struct{ entry, exit string }
-	var sections []section
-	for _, list := range []struct {
-		tasks  []Task
-		prefix string
-	}{
-		{def.PreTasks, "pretasks"},
-		{def.Tasks, "tasks"},
-		{def.PostTasks, "posttasks"},
-	} {
-		entry, exit, err := b.synthesizeChain(dag, list.tasks, list.prefix)
-		if err != nil {
-			return nil, err
-		}
-		if entry != "" {
-			sections = append(sections, section{entry: entry, exit: exit})
-		}
+	// Every task is registered here, validated and compiled, whatever its
+	// tags: a task a filter leaves out must still be a task that would
+	// build (chain.go, then Select below).
+	w := chainWalker{
+		dag:      dag,
+		register: func(task *Task, id string) error { return b.registerTask(dag, task, id) },
+		include:  func(*Task) bool { return true },
 	}
-
-	// Stitch the (up to three) non-empty sections together in order: the
-	// exit of one section connects to the entry of the next.
-	for i := 1; i < len(sections); i++ {
-		prev := sections[i-1]
-		dag.Adjacency[prev.exit] = append(dag.Adjacency[prev.exit], EdgeConfig{To: sections[i].entry})
-	}
-
-	// The first non-empty section's entry is the whole chain's entry
-	// point. If every one of PreTasks, Tasks, and PostTasks is empty,
-	// sections is empty and EntryPoint stays "".
-	if len(sections) > 0 {
-		dag.EntryPoint = sections[0].entry
+	if err := w.wire(def.PreTasks, def.Tasks, def.PostTasks); err != nil {
+		return nil, err
 	}
 
 	// Cycle Detection (DFS). The graph is built entirely by this
@@ -612,7 +630,14 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		return nil, fmt.Errorf("circular dependency detected in workflow DAG")
 	}
 
-	return dag, nil
+	// Ansible's default selection, --tags all, leaves out a task tagged
+	// never. Applied here so every tier gets it without asking. A runbook
+	// with no tags at all is unchanged by it, so it is not projected.
+	dag.full = &fullGraph{nodes: dag.Nodes, conditions: dag.Conditions}
+	if len(dag.TagNames()) == 0 {
+		return dag, nil
+	}
+	return Select(dag, TagFilter{})
 }
 
 // dfsColor is hasCycle's own per-node visitation state: white (never

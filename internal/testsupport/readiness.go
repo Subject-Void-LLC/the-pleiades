@@ -32,6 +32,20 @@
 // means, these will not follow on their own. Each one says which upstream
 // definition it mirrors, at which version, so the next dependency bump has
 // something to check against.
+//
+// # Every step carries the bound too, not only the group
+//
+// The group's deadline is not the whole of it. Each strategy inside a
+// ForAll also applies its OWN startup timeout, sixty seconds when none is
+// set (wait.defaultStartupTimeout), as a context.WithTimeout of its own
+// beneath the group's; and a ForAll's WithStartupTimeoutDefault only sets a
+// context around the step, which the step then narrows back to sixty. So
+// the first version of these helpers, which set the group's deadline and
+// nothing else, still gave up at sixty seconds on every step, and
+// internal/backup kept failing exactly as before (FAILURE_PATTERNS 350).
+// The only setting a step obeys is its own WithStartupTimeout, so every
+// step here names ContainerStartupTimeout, and
+// TestReadinessCarriesTheAgreedBound reads each one back.
 package testsupport
 
 import (
@@ -58,8 +72,9 @@ import (
 // that can lag the server.
 func PostgresReady() testcontainers.CustomizeRequestOption {
 	return testcontainers.WithWaitStrategyAndDeadline(ContainerStartupTimeout,
-		wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		wait.ForListeningPort("5432/tcp"),
+		wait.ForLog("database system is ready to accept connections").WithOccurrence(2).
+			WithStartupTimeout(ContainerStartupTimeout),
+		wait.ForListeningPort("5432/tcp").WithStartupTimeout(ContainerStartupTimeout),
 	)
 }
 
@@ -75,6 +90,25 @@ func PostgresReady() testcontainers.CustomizeRequestOption {
 func ToxiproxyReady() testcontainers.CustomizeRequestOption {
 	return testcontainers.WithWaitStrategyAndDeadline(ContainerStartupTimeout,
 		wait.ForHTTP("/version").WithPort(tctoxiproxy.ControlPort).
-			WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }),
+			WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }).
+			WithStartupTimeout(ContainerStartupTimeout),
+	)
+}
+
+// LocalStackReady waits for a LocalStack container's health endpoint,
+// under ContainerStartupTimeout.
+//
+// The localstack module sets its step's own timeout to 120 seconds but
+// installs it through WithWaitStrategy, whose group deadline is sixty, so
+// the group gave up first and the step's two minutes never applied.
+// Passed as an ordinary option to localstack.Run, which applies the
+// caller's options after its own, so this one replaces the module's.
+//
+// Mirrors testcontainers-go/modules/localstack@v0.43.0's own strategy: an
+// HTTP 200 from /_localstack/health on port 4566.
+func LocalStackReady() testcontainers.CustomizeRequestOption {
+	return testcontainers.WithWaitStrategyAndDeadline(ContainerStartupTimeout,
+		wait.ForHTTP("/_localstack/health").WithPort("4566/tcp").
+			WithStartupTimeout(ContainerStartupTimeout),
 	)
 }

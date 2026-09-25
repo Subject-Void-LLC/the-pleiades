@@ -30,10 +30,10 @@ This README covers only what is specific to these two files.
 | Record current version | `cisco.ios.ios_facts` | `net.cli.command` |
 | Check flash free space | `ansible.netcommon.cli_command` | `net.cli.command` |
 | Back up running config | `cisco.ios.ios_config` (`backup: true`) | `net.ios.config` (`backup: true`) |
-| Copy image to flash | `ansible.netcommon.cli_command` | `net.cli.command` |
+| Copy image to flash | `ansible.netcommon.cli_command` (answers a prompt) | `net.cli.command` (cannot; see below) |
 | Verify image checksum | `ansible.netcommon.cli_command` | `net.cli.command` |
-| Set boot variable, save | `cisco.ios.ios_config` | `net.ios.config` |
-| Reload | `ansible.netcommon.cli_command` | `net.cli.command` |
+| Set boot variable, save | `cisco.ios.ios_config` (`save_when: modified`) | `net.ios.config`, then `net.ios.save` |
+| Reload | `ansible.netcommon.cli_command` (answers a prompt) | `net.cli.command` (cannot; see below) |
 | Wait for the switch to come back | `ansible.builtin.wait_for` | `pleiades.builtin.wait.port` |
 | Re-check version | `cisco.ios.ios_facts` | `net.cli.command` |
 | Record run report data | `ansible.builtin.set_stats` | `pleiades.builtin.set_metadata` |
@@ -72,8 +72,7 @@ the module name becomes the mapping key, and its arguments are that key's value 
     command: "show version | include Version"
 ```
 
-Both compile to the exact same `*DAG` (confirmed: `pleiades validate` reports identical findings
-against both files), and both syntaxes are supported forever, including mixed task by task within
+Both compile to the exact same `*DAG` (`pleiades validate` gives both files the same result), and both syntaxes are supported forever, including mixed task by task within
 one runbook. A task may set at most one non-reserved key: writing two module names on the same
 task, or combining sugar with an explicit `fqcn:`/`block:`, is a clear build-time error rather
 than a silent guess at which one you meant.
@@ -85,8 +84,16 @@ than a silent guess at which one you meant.
 Pleiades runbooks have no `vars:` section and no string interpolation in `params:` at all
 (`internal/engine`'s `Task.Params` is a literal `map[string]interface{}`, nothing renders it).
 The Pleiades runbook repeats the literal image filename and checksum in every task instead.
-A real template renderer is a planned shared primitive, not built yet, so this is a current
-gap, not a design choice you should copy.
+The shared template renderer exists but is not applied to task params yet, so this is a
+current gap, not a design choice you should copy.
+
+**No answers to interactive prompts.** The playbook's `cli_command` tasks answer IOS's own
+questions with `prompt:` and `answer:` ("Destination filename" on copy, "[confirm]" on reload).
+No native method can answer an interactive prompt yet, and `pleiades validate` refuses a
+parameter a method does not declare, so the runbook does not pretend to pass them. The copy
+works once the switch has `file prompt quiet` configured, which stops IOS asking. The reload
+cannot be answered at all yet: that task waits on the prompt and fails after its 30 second
+bound, so reload the switch by hand at that point. The runbook's comments say the same.
 
 **No block-level `when`.** Ansible lets you put `when:` on the whole `block:` and it gates
 every task inside at once, which is how you would normally write "skip the whole upgrade if
@@ -113,8 +120,8 @@ running_config.stdout` (the register name as an optional, `stat.<register>`-addr
 prefix; a bare `stdout` would work identically). Ansible has no per-value secrecy on a registered
 result, only a whole-task `no_log: true`; Pleiades masks the named field the instant this same
 task registers it, before anything downstream can see or publish it unmasked, the same guarantee
-a password field gets. `pleiades run` (not shown running here, since nothing in this runbook
-executes yet, see below) would still substring-scrub that value out of every later printed line
+a password field gets. `pleiades run` also
+substring-scrubs that value out of every later printed line
 for the rest of the run, even one from a completely unrelated task that happens to echo it back.
 
 **Credentials never live in the runbook or inventory file.** The Ansible side references
@@ -131,51 +138,39 @@ and the OTEL trace tying one "Run" click to every step across every device. They
 platform around the runbook, not in the file itself; see
 [Start here](../../docs/01-start-here.md) for what is real and tested today.
 
-## Current status: this does not execute yet
+## Current status
 
-Everything above describes the *shape* of the two files, not a claim that the Pleiades one
-runs today. `net.cli.command`, `net.ios.config`, and `pleiades.builtin.wait.port` are registered
-in the Forge collection catalog with the right capability and manifest metadata (so `pleiades
-validate` can check them, and IDE tooling can discover them). The real dispatcher
-(`engine.NewCollectionActionExecutor`) does reach every one of them, and refuses each with an
-explicit "declared but not yet implemented" error rather than a silent no-op: no method in this
-runbook has a real implementation behind it yet. Running `pleiades validate` against this exact
-runbook reports that honestly instead of pretending:
+Every method this runbook calls is implemented, and `pleiades validate` passes both files:
 
 ```
 $ pleiades validate runbooks/upgrade_ios_xe.yaml
-[collection] node "pretasks[0]": task pretasks[0] (name "Record the currently running version") calls "net.cli.command", which is declared but not yet implemented
-...
-pleiades: validation failed
+validate: no issues found
 ```
 
-`pleiades.builtin.set_metadata` does not show up in that output at all, and that is also honest,
-not a gap: unlike `net.cli.command`/`net.ios.config`/`wait.port`, `set_metadata` is a real,
-working, tested builtin today (`internal/engine/action.go`), reached through the engine's builtin
-action path rather than the Collection dispatcher, so it is deliberately exempted from the
-"declared but not yet implemented" check every Collection FQCN still gets.
+Three things still stop it running end to end against a real switch, each stated at the task
+it affects:
 
-and `pleiades run` refuses to execute for the same reason ("validation failed, not
-executing"). `rescue:` has the same kind of gap one level down: the schema accepts it and
-`pleiades validate` checks it structurally, but the Crawl-tier executor does not run rescue or
-always handlers yet either (`internal/engine/tasktree.go`: "there is no executor yet to give it
-real meaning"). None of this is a mistake in this example. It is what
-`pleiades forge new-collection`-generated stubs are supposed to do: report they are not
-implemented rather than silently claim success.
+- The image copy needs `file prompt quiet` on the switch, since the step cannot answer IOS's
+  "Destination filename" question (see "No answers to interactive prompts" above).
+- The reload cannot answer "[confirm]" at all yet, so that step fails after 30 seconds and the
+  switch has to be reloaded by hand.
+- `rescue:` is accepted and checked, but the executor does not run rescue or always tasks yet,
+  so a failure inside the block ends the run without recording the rollback instructions.
 
-If you want a runbook that actually executes against the current binary, `pleiades init`
+`pleiades.builtin.set_metadata` is a working builtin reached through the engine's own action path
+rather than a Collection method, which is why it needs no catalog entry.
+
+If you want a runbook that runs end to end against the current binary, `pleiades init`
 scaffolds one (`runbooks/sample.yaml`, `fqcn: noop`), or see
 [the Crawl-tier quickstart](../../docs/02-get-started.md), which runs a real `ssh_exec` task
-against a real device. This example shows the DSL you will write once each declared method it
-uses above is really implemented, compared honestly against the Ansible playbook it is meant to
-replace.
+against a real device.
 
 ## Try it
 
 ```
 cd examples/upgrade_ios/pleiades
 pleiades validate runbooks/upgrade_ios_xe.yaml
-pleiades validate runbooks/upgrade_ios_xe_sugar.yaml   # same findings, different syntax
+pleiades validate runbooks/upgrade_ios_xe_sugar.yaml   # same result, different syntax
 ```
 
 ```

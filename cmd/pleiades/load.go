@@ -25,7 +25,7 @@ import (
 // A CLI subcommand has no cancellation surface of its own yet, so a fresh
 // background context is used here rather than threading one through every
 // subcommand's flag parsing.
-func loadWorld(dir, runbookPath string) ([]pkginventory.InventoryItem, *engine.DAG, error) {
+func loadWorld(dir, runbookPath string, selection engine.TagFilter) ([]pkginventory.InventoryItem, *engine.DAG, error) {
 	ctx := context.Background()
 
 	inventoryPath := filepath.Join(dir, inventory.DefaultInventoryFilename)
@@ -65,6 +65,13 @@ func loadWorld(dir, runbookPath string) ([]pkginventory.InventoryItem, *engine.D
 	dag, err := engine.NewBuilder(eval).BuildFromYAMLFile(runbookPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build DAG from %s: %w", runbookPath, err)
+	}
+	// The builder has already applied the default selection (every task
+	// but one tagged never); a --tags or --skip-tags projects it again.
+	if !selection.IsZero() {
+		if dag, err = engine.Select(dag, selection); err != nil {
+			return nil, nil, fmt.Errorf("failed to select tasks from %s: %w", runbookPath, err)
+		}
 	}
 
 	return items, dag, nil

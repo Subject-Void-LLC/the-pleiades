@@ -65,10 +65,17 @@ type Hop struct {
 // right now, never the hop that is tunneling it).
 func dialThroughHop(hopClient *ssh.Client) dialFunc {
 	return func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		conn, err := hopClient.DialContext(ctx, "tcp", addr)
+		// The same bound realDial's handshake runs under. Without it a
+		// target that accepts the forwarded connection and never sends
+		// an SSH version held the run forever, whatever the caller's
+		// context said (FAILURE_PATTERNS 352).
+		dialCtx, cancel := handshakeContext(ctx, config)
+		defer cancel()
+		conn, err := hopClient.DialContext(dialCtx, "tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("open tunneled channel to %s: %w", addr, err)
 		}
+		defer closeOnDone(dialCtx, conn)()
 
 		sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 		if err != nil {

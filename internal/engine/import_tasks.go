@@ -138,7 +138,7 @@ func resolveOneImport(task *Task, baseDir string, resolving map[string]bool, dep
 		return nil, fmt.Errorf("import_tasks: exceeded max import depth of %d (a possible unbounded import chain)", maxTaskNestingDepth)
 	}
 
-	full, err := resolveImportPath(baseDir, file)
+	full, rel, err := resolveImportPath(baseDir, file)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func resolveOneImport(task *Task, baseDir string, resolving map[string]bool, dep
 	resolving[full] = true
 	defer delete(resolving, full)
 
-	data, err := os.ReadFile(full) // #nosec G304 -- full is resolveImportPath's own output, verified below to stay under baseDir
+	data, err := readInsideDir(baseDir, rel)
 	if err != nil {
 		return nil, fmt.Errorf("import_tasks: reading %q: %w", full, err)
 	}
@@ -172,24 +172,42 @@ func resolveOneImport(task *Task, baseDir string, resolving map[string]bool, dep
 // still resolve to a path under baseDir (via filepath.Rel, refusing a
 // ".." prefix), the same no-escape-by-construction style
 // internal/forge/genutil.ValidateSegment already uses for a generated
-// identifier's own path component.
-func resolveImportPath(baseDir, userPath string) (string, error) {
+// identifier's own path component. It returns the full path, which
+// names the file in errors and in cycle detection, and the path relative
+// to baseDir, which is what readInsideDir opens.
+//
+// This check is lexical, so it cannot see a symlink; readInsideDir is
+// what keeps a symlink from reading outside baseDir.
+func resolveImportPath(baseDir, userPath string) (full, rel string, err error) {
 	if userPath == "" {
-		return "", fmt.Errorf("import_tasks: params.file is required and must be a non-empty string")
+		return "", "", fmt.Errorf("import_tasks: params.file is required and must be a non-empty string")
 	}
 	if filepath.IsAbs(userPath) {
-		return "", fmt.Errorf("import_tasks: params.file %q must be a relative path", userPath)
+		return "", "", fmt.Errorf("import_tasks: params.file %q must be a relative path", userPath)
 	}
 
-	full := filepath.Clean(filepath.Join(baseDir, userPath))
+	full = filepath.Clean(filepath.Join(baseDir, userPath))
 
-	rel, err := filepath.Rel(baseDir, full)
+	rel, err = filepath.Rel(baseDir, full)
 	if err != nil {
-		return "", fmt.Errorf("import_tasks: resolving params.file %q: %w", userPath, err)
+		return "", "", fmt.Errorf("import_tasks: resolving params.file %q: %w", userPath, err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("import_tasks: params.file %q escapes the runbook's own directory", userPath)
+		return "", "", fmt.Errorf("import_tasks: params.file %q escapes the runbook's own directory", userPath)
 	}
 
-	return full, nil
+	return full, rel, nil
+}
+
+// readInsideDir reads rel from inside dir through os.Root, which refuses
+// any path, symlinks included, that resolves outside dir. The lexical
+// check in resolveImportPath alone let a symlink inside the runbook's
+// directory point anywhere the process could read.
+func readInsideDir(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(rel)
 }

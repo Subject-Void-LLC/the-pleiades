@@ -39,9 +39,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// net.ios.ping and net.ios.save, the first Cisco IOS methods that read
 	// and parse a device's own output rather than only sending lines to
 	// it, all three built on the interactive CLI transport that phase
-	// introduced. This test pins the number down so a future accidental
-	// entry loss or duplication is a build failure, not a silent gap.
-	const wantCollections = 81
+	// introduced. Connection persistence added the 82nd,
+	// pleiades.builtin.connection.reset, Ansible's meta: reset_connection.
+	// This test pins the number down so a future accidental entry loss or
+	// duplication is a build failure, not a silent gap.
+	const wantCollections = 82
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

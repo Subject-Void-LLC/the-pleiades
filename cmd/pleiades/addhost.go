@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
 
@@ -30,6 +32,9 @@ func (k *keyValueList) Set(s string) error {
 	key, value, ok := strings.Cut(s, "=")
 	if !ok {
 		return fmt.Errorf("--set expects key=value, got %q", s)
+	}
+	if pkginventory.IsReservedProperty(key) {
+		return fmt.Errorf("--set cannot write property %s: only onboarding writes it (pleiades onboard)", key)
 	}
 	if k.values == nil {
 		k.values = map[string]interface{}{}
@@ -113,10 +118,15 @@ func splitPositional(args []string, boolFlags map[string]bool) (positional strin
 		positional = a
 	}
 	if positional == "" {
-		return "", nil, fmt.Errorf("missing positional argument")
+		return "", nil, errMissingPositional
 	}
 	return positional, rest, nil
 }
+
+// errMissingPositional is splitPositional's error for args with no
+// positional argument, so a command whose positional is optional can
+// tell that case from a real parse error.
+var errMissingPositional = errors.New("missing positional argument")
 
 // runAddHost appends one host to the static inventory file, generating a
 // stable DeviceID so a later rename in the file does not orphan it. The

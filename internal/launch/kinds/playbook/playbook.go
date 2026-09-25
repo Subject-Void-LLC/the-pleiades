@@ -64,11 +64,12 @@ func init() {
 				Label: "LABELS",
 				Help:  "Free-text markers for finding this run later.",
 			},
-			// The two fields this kind has and the native one does not,
+			// The two fields this kind has and the native one does not yet,
 			// which is the concrete reason the field set is per kind rather
-			// than a fixed set of columns. Tags are an Ansible concept with
-			// no native equivalent, and declaring them on both kinds would
-			// put a control on the runbook launch form that nothing reads.
+			// than a fixed set of columns. Native runbooks have tags too
+			// (engine.Select), but the Runner does not apply a filter yet,
+			// so declaring them on the runbook kind would put a control on
+			// its launch form that nothing reads.
 			//
 			// Named job_tags rather than tags, matching AWX's own field name
 			// rather than this project's earlier choice, because an import

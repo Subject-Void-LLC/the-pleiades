@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -136,14 +137,14 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 	return os.WriteFile(path, []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
 }
 
-// writeParameters resolves doc.Fragments against catalogdata.Fragments and
+// writeParameters resolves doc.Fragments against fragment.Builtin and
 // renders every fragment's params ahead of the method's own, so a shared
 // parameter (a credential shape, a pagination knob) always appears first
 // and identically worded everywhere it is used.
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
-		if frag, ok := catalogdata.Fragments[name]; ok {
+		if frag, ok := fragment.Builtin[name]; ok {
 			params = append(params, frag.Params...)
 		}
 	}

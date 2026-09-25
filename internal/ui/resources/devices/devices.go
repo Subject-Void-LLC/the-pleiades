@@ -169,18 +169,28 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 				tags = append(tags, pkginventory.Tag(t))
 			}
 			item, err := factory.Build(record.Record{
-				ID:     newDeviceID(),
-				Name:   v.Get("name"),
-				Type:   v.Get("type"),
-				Tags:   tags,
-				State:  pkginventory.StateActive,
+				ID:   newDeviceID(),
+				Name: v.Get("name"),
+				Type: v.Get("type"),
+				Tags: tags,
+				// Active, or discovered for a type only onboarding makes
+				// active.
+				State:  record.InitialState(v.Get("type")),
 				Source: pkginventory.SourceAuthority{Plugin: "ui"},
 			})
 			if err != nil {
 				// The factory refuses a type no builtin registers, which
 				// is the caller's mistake and belongs on the field that
-				// carried it rather than as a 500.
-				errs.Add("type", "That device type is not registered in this build.")
+				// carried it rather than as a 500. A registered type can
+				// refuse too, when it needs a property this form has no
+				// field for (generic_http's base_url, generic_grpc's
+				// target), and saying "not registered" then would send
+				// the person looking for the wrong problem.
+				if _, registered := record.LookupType(v.Get("type")); registered {
+					errs.Add("type", "That device type needs properties this form cannot set; add it with pleiades add-host or a sync.")
+				} else {
+					errs.Add("type", "That device type is not registered in this build.")
+				}
 				return nil, errs
 			}
 			return item, errs

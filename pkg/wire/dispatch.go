@@ -160,6 +160,14 @@ type DispatchPayload struct {
 	// changes nothing about a real run.
 	ExternalChecks bool `json:"external_checks,omitempty"`
 
+	// PersistConnections is whether the Runner may keep one SSH connection
+	// to this device open between the dispatch's tasks, rather than
+	// logging in afresh for each. The Controller sets it only when both
+	// the job's own setting and the device's hierarchy allow it, so off at
+	// either wins. Absent or false, every task logs in afresh, which is
+	// what a Controller that predates this field gets.
+	PersistConnections bool `json:"persist_connections,omitempty"`
+
 	// Kind is the launch kind this dispatch is, which is what the Runner
 	// routes on to choose an execution adapter.
 	//
@@ -235,6 +243,17 @@ type DispatchPayload struct {
 	// which is sound only because that structural check already happened
 	// upstream of this payload ever existing.
 	Capabilities []capability.Name `json:"capabilities"`
+
+	// DeviceType and DeviceProperties let the Runner rebuild the device as
+	// its real type (record.LookupType), so every accessor answers on the
+	// Runner as it does on the Controller. DeviceProperties holds only the
+	// keys that type declares its accessors read
+	// (record.RegisterDispatchProperties) and the device's discovery,
+	// never any other property: an operator may keep anything in one. Both
+	// are absent from an older Controller's payload, and a Runner given
+	// none falls back to a device built from DeviceHost and SSHPort alone.
+	DeviceType       string         `json:"device_type,omitempty"`
+	DeviceProperties map[string]any `json:"device_properties,omitempty"`
 
 	// Secrets is the flattened credential for DeviceName, resolved by the
 	// Controller at dispatch time (PLAN.md Section 17's Just-in-Time

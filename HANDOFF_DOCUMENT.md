@@ -4,160 +4,107 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 77 (SFTP/SCP) is COMPLETE at 12 of 12 and COMMITTED on `feature/sftp-scp`** as `662ffb1`,
-`5a89ecc` and `4f6f5a2`, cut from `265a38d` (main after PR #39 merged Phase 101 and the dependabot otel
-bump). **The `pkg/tftpxfer` fix for FAILURE_PATTERNS 317 is done and UNCOMMITTED** on the same
-branch, meant as a fourth, separate `fix(tftpxfer)` commit (below). Phase 77 was the last open phase in
-v0.2.0, which the tracker now reports as 636 of 636: **v0.2.0 is cuttable.** Cutting it, and moving
-`buildinfo.CurrentRelease` to `0.3.0`, is a separate change the user has not asked for.
+**Phase 110 (connection persistence) and Phase 111 (generic device types) are committed and pushed on
+`feature/playbook-migration` (push gate passed at `6530e2e`).** On 2026-09-25 the user answered the open
+decisions: put the Walk-tier fix in Phase 111, run `make ci`, leave versioning, and build TLS and mutual
+TLS for `generic_http`, with deprecated TLS allowed only explicitly, loudly, and never by default. That
+follow-up is built on branch `phase-111b` (from `6530e2e`) and described below; the previous status
+(Phase 111 itself) is in the archive.
 
-### What shipped
+### What the follow-up is
 
-The user chose to build **both SFTP and legacy SCP** (the checklist named only SFTP), behind one narrow
-port:
+- **Device TLS (`pkg/devicetls`)**, used by `generic_http`, `generic_grpc`, both onboarding probes and
+  `http.request`'s device mode: `tls_ca_pem` (a pinned authority instead of the system roots),
+  `tls_server_name`, `tls_min_version` (1.2 default, 1.3 allowed), and `tls_client_certificate` (mutual
+  TLS from the stored certificate and key, or a PKCS#12 bundle). Certificates are always verified.
+- **Weakening, only per device, each behind its own flag, each warned on every use** (the user's rule;
+  saved as a memory): `tls_allow_deprecated_versions` for TLS 1.0/1.1; the separate
+  `tls_allow_legacy_ciphers` for 3DES, RC4 and RSA key exchange (the user's choice for the second tier;
+  SSL 3.0 is impossible in Go); and `http_allow_plaintext_credentials` for a credential over `http://`,
+  whose warning says to rotate it (the user reversed "keep refusing" to "explicit allow"). A flag that
+  allows nothing is refused. `generic_grpc` refuses both TLS weakenings (HTTP/2 forbids them) and still
+  refuses a credential over plaintext. `http.request`'s device mode refuses `validate_certs: false`.
+- **Warnings reach the person:** `sdk.StatWarnings`, printed by `pleiades run` always; a `task.warning`
+  job-log event on the Walk tier; `onboard.Result.Warnings` on the CLI and the API.
+- **Downgrade proof first, as the user asked:** a 35-handshake matrix in `pkg/devicetls`, then the HTTP
+  probe, the gRPC probe and `http.request` each shown to refuse a TLS 1.0-only or 3DES-only server by
+  default and reach it only with its flag, a modern server still negotiating TLS 1.3; every such test
+  mutation-checked. `TestOnlyDevicetlsLowersTLS` keeps every weak version and suite name in
+  `pkg/devicetls`.
+- **Walk tier:** a Runner rebuilds each dispatched device as its real type (`record.LookupType`) from
+  `wire.DispatchPayload.DeviceType`/`DeviceProperties`, which carry only the keys the type declares its
+  accessors read (`record.RegisterDispatchProperties`, one small file per device package) plus its
+  discovery. `TestDispatchPropertiesAreWhatTheCodeReads` holds each package's declaration equal to what
+  its code reads and refuses a secret-named key (two validated exemptions, each self-verifying). The
+  forge scaffold emits an empty declaration. An older Controller's payload falls back to the
+  address-only device. Found on the way: the Controller's worker would have skipped every generic HTTP
+  or gRPC device for having no `host` (FAILURE_PATTERNS 348, LESSONS 240), fixed by falling back to the
+  declared address.
 
-- **`pkg/filexfer`**: the port (`Store` with `Put`/`Get`, optional `Stater`), a `Path` only the pure
-  `Resolve` can build (so an escape is refused before anything is dialed), `Contained` and `LeafKind`
-  (the one physical containment rule both protocols use), `ExactReader`/`LimitWriter`, typed errors.
-  Stdlib only, held to a no-I/O import allowlist by `internal/archtest`.
-- **`pkg/sftpxfer`**: `Open(ctx, rwc)` over `Conn.Subsystem(ctx, "sftp")` with `github.com/pkg/sftp`
-  v1.13.11 (the one new dependency). Containment resolved on the client with LSTAT/READLINK. Atomic
-  replace through a private 0700 directory and `posix-rename@openssh.com`.
-- **`pkg/scpxfer`**: one POSIX script per transfer that reports physical paths and waits for the Go
-  client's verdict before running `scp -t`/`-f`; atomic replace through `mktemp -d` and `mv -f`.
-- **`pkg/remoteexec`**: `Conn.Start` returning a streaming `Process`; `Subsystem` and `Process` share
-  one unexported `stream`. Every existing `TestSubsystem_` test passed unedited.
-- **`linux.Server.FileTransferRoot()`**: property `file_transfer_root`, no default; the capability is
-  declared only when it is set, and a bad value is refused at inventory load.
-- **Test support**: `testsupport.StartSSHD` (with `KnownHosts`, `RootExec`, `InstallClientKey`), and the
-  shared release-gate suite `pkg/filexfer/filexfertest`, which both adapters run word for word.
+### Verification
 
-### Deviations from the plan approved after discovery
+The Walk-tier gate is `TestGenericWalkReleaseGate_DeviceAccessorsReachTheRunner` (`cmd/runner`),
+passing under `-race` with the rest of `cmd/runner` and `cmd/pleiades`. Five touched packages had
+fallen below their coverage floors (native, sdk, generic, `catalog/http`, onboard). Tests covering
+the new refusals and the warning events bring each back above its floor.
 
-The plan was approved before the second-opinion design review returned; that review, and what building
-the code then showed, changed these parts of it. Each was reported to the user when it was made.
+**`make ci` on `6530e2e` failed in its coverage pass, twice.** Every step before coverage passed. Then
+`internal/backup`'s Postgres container missed readiness at exactly 60 seconds, on different tests each
+time. The package passes alone in 35 seconds. The cause is a test-harness defect, not contention:
+FAILURE_PATTERNS 310's fix bounded testcontainers' wait group at two minutes, but each step inside the
+group kept the library's own 60-second default, so the bound never applied (FAILURE_PATTERNS 350,
+LESSONS 243). Fixed on this branch for Postgres, Toxiproxy, LocalStack and one SSH gate, with a test
+that reads each step's own timeout.
 
-From the design review:
+**The rerun on `e3d84b9` failed differently.** `cmd/runner` hit go test's 30-minute timeout, because a
+test helper read an SSH banner with no deadline from a port Docker's proxy had accepted
+(FAILURE_PATTERNS 351). It is fixed by `testsupport.CaptureHostKey`, which bounds each attempt and
+retries. The same run's `internal/event` failure, and one more in the next run, were a broker whose
+published port refused connections after it said it was ready (FAILURE_PATTERNS 353). In one run it
+stayed refused for two minutes, so this is Docker Desktop's port forwarding going dead, cause not
+diagnosed, not a short lag. `StartNATS` now waits for the port to answer with a NATS greeting, and a
+port that never does fails in the harness, naming it. That is a clearer failure, not a cure.
 
-1. `FileTransferCapable` is declared only when `file_transfer_root` is set, and an unusable value is
-   refused at inventory load. The plan declared it on every `linux_server` and refused at transfer time,
-   which would let a method pass plan-time validation and then fail.
-2. `remoteexec` keeps its `Subsystem` type and adds `Start`/`Process`, both over one unexported `stream`.
-   The plan renamed `Subsystem` to `Channel`; keeping it let every existing test prove the refactor
-   unedited.
-3. The port is `filexfer.Store`, `Get` takes a limit, `Put` is all-or-nothing, and `Mode` is a named type.
-   The plan had `FileTransport`, no limit, and `fs.FileMode`.
-4. SCP runs one script per transfer that waits for the client's verdict, so the check and the write
-   share one pinned working directory. The plan ran a separate check command before `scp`.
-5. SFTP writes its temporary file inside a private 0700 directory, because `pkg/sftp` creates files with
-   no permission attributes. The plan used a temporary sibling file.
-6. The archtest staleness guard was changed to catch either condition, and both dead allowlist entries
-   were removed. The plan only rewrote the FileTransfer entry's text.
-7. The device reference gained conditional capabilities for hand-written types, which also listed
-   `cisco_router`'s `NetconfCapable` for the first time. Not in the plan.
+**Security finding, measured and fixed (FAILURE_PATTERNS 352).** Found by checking the other callers
+of the same SSH call. Through a bastion, the handshake with the device had no bound:
+`ssh.NewClientConn` takes no context, a tunneled connection supports no deadline, and
+`ssh.ClientConfig.Timeout` covers only `ssh.Dial`. So anything answering on a device's address behind
+a bastion could hold a run, or a Runner's task and its device lease, for as long as it liked. It only
+had to accept the connection and send nothing, with no credential. `pkg/remoteexec`'s direct dial
+already had the guard. Both paths now share it (`closeOnDone`, `handshakeContext`), and
+`TestConnect_HopChain_ASilentTargetIsBounded` returns at its context's two seconds where before it hung.
+No upstream fix applies. Recorded in the vulnerability corpus as new class C15, unbounded wait on a
+peer. What happens next with it (a tracked issue, anything further) is the user's decision.
 
-From building it:
+Also fixed on the way: the Runner's per-dispatch executor had lost its check that a call's device is
+the dispatched one, when the address-only type check was removed. A bound executor now refuses any
+other device by name, and a nil one, before a child starts.
 
-1. SFTP containment is resolved on the client with LSTAT and READLINK, not with the server's REALPATH,
-   because `pkg/sftp`'s own server answers REALPATH lexically.
-2. `remoteexectest` now ends a session when the command exits, a harness change outside the planned
-   files, and SCP's `receive` closes its input before waiting for the device to end.
-3. One shared sshd starter (`testsupport.StartSSHD`, with a fixture probe test and `InstallClientKey`)
-   replaced the per-package container starts the plan described.
-4. The benchmarks dial a fresh connection per operation, so the comparison with the OpenSSH clients,
-   which must connect every time, is fair.
-5. The `pkg/tftpxfer` NUL finding was recorded and left for the user's decision, not fixed in its own
-   commit as the plan said, because it is a security fix in a package this phase does not otherwise touch.
-6. Every new Go file got a file-level doc comment, which `commitgate` requires of an added file and the
-   plan did not mention.
+### Attestation evidence hunt (2026-09-25)
 
-### Findings that changed the work
+The roadmap's attestation checker reported four security problems: finished Fuzz/Stress,
+Schema/Injection and Release Gate items citing nothing it could check (Phases 20, 53, 54, 55, 57, 74a,
+79, 83, 96a, 96b, 96c). Each item now carries a dated evidence line in the tracker, and the checker
+reports zero. Tracing them found real gaps, recorded as FAILURE_PATTERNS 349 and LESSONS 241 and 242:
 
-1. **pkg/sftp's server answers REALPATH lexically**, so the planned containment check would have
-   failed open against any server built on that library (FAILURE_PATTERNS 313, LESSONS 229).
-2. **The in-process SSH harness ended a session on input EOF, not on command exit**, unlike sshd, and
-   deadlocked the first client whose command refuses early. Fixed in `remoteexectest`; all 32 packages
-   using it pass (FAILURE_PATTERNS 314, LESSONS 231).
-3. **The archtest staleness guard needed both conditions**, so two dead allowlist entries lived on, and
-   `FileTransferCapable`'s doc cited a docs/10 disclosure that never existed (FAILURE_PATTERNS 315).
-4. **The device reference could not show a conditional capability on a hand-written type**, so
-   `cisco_router`'s `NetconfCapable` was never listed (FAILURE_PATTERNS 316).
-5. **A fuzz counter froze during minimization** and one time-bounded run ended FAIL with no crasher;
-   both were rerun properly before any count was recorded (FAILURE_PATTERNS 318, LESSONS 232).
+- **Phase 96c's Release Gate is re-opened.** No test runs one dispatch, severed and healed over real
+  NATS and Toxiproxy past the old two-minute window, and counts it delivered exactly once. The halves
+  exist separately (the admission check on an in-memory store; 96a's recovery with no dedup).
+- **Two ticked items were split** into open items for their unbuilt halves: 96c's dedup-table cost
+  benchmark, and Phase 79's fuzzing of the sign-in email (only the password is fuzzed).
+- **Phase 55's "no I/O" claim was false** (`ShiftTimezone` reads the zone database). The claim is now
+  exact and enforced by `TestFiltersDoNoNetworkFileOrProcessIO`.
+- **Phase 20's Helm audit, recorded after the fact:** four chart values are interpolated unquoted into
+  `nats.conf` and the broker StatefulSet. All came from later phases and all are supplied by the
+  installer, so none crosses a trust boundary. No finding.
 
-### `pkg/tftpxfer` fix (FAILURE_PATTERNS 317), done after the phase, uncommitted
+The tracker cites `TestFiltersDoNoNetworkFileOrProcessIO` from four phases, so those citations read as
+missing until this branch lands.
 
-The user approved five changes, and all five are in. `validateFilename`, now in `filename.go`, refuses
-control and format characters, invalid UTF-8 and names over `MaxFilenameBytes` (493), and every
-refusal wraps the new `ErrInvalidFilename`. `Get` and `Put` recover a panic inside `pin/tftp` into an
-error (`panic.go`), and a panic in the caller's own reader or writer is raised again unchanged.
-`FuzzValidateFilename` asserts properties of both verdicts. The existing rules are unchanged, and a
-backslash is still allowed.
+### Decisions for the user
 
-One addition the cap needed: `Options.BlockSize` must now be 0 or 512 to 65464. Its digits share the
-same 516-byte buffer, so without that bound the 493 cap would not hold. The old refusal tests dialed
-port 1 with no server, so a network error also passed them. They were replaced by
-`TestRefusedFilenamesNeverLeaveTheProcess`, which proves no datagram leaves.
-
-### Open decision for the user (found while fixing 317, not fixed)
-
-**A server that answers a block size request with less than 512 truncates a download silently.**
-`pin/tftp` ignores such an answer and keeps reading 512-byte blocks, so the server's first smaller
-block reads as the last one. Measured with a throwaway probe: a server answering a request for 1024
-with 256 (RFC 2348 allows 8 and up) made `Get` return 256 bytes of 1024 with a nil error. The new
-512 floor stops this package from asking for such a size, but a server may still answer smaller.
-tftpd-hpa's floor is 512, so the common Linux server does not do this. Two possible fixes:
-
-- Request `tsize` on `Get` and compare it with the bytes received. This catches every server that
-  supports `tsize`, but costs 8 bytes of the name budget (493 becomes 485).
-- Report upstream that the client should abort with error 8 when it rejects an OACK value, as RFC 2347
-  says.
-
-docs/10 now tells operators about this. Whether to report it upstream is the user's call.
-
-Also recorded, out of scope: `sdk.Connect` dials a device directly and ignores its bastion route, so
-the first Collection method built on these libraries cannot reach a device behind a bastion until
-that is closed. docs/10 and Book 11 both say so.
-
-### Verification run
-
-Green: `go build`, `gofmt`, `vet` under both tag sets, `go mod tidy -diff`, `gosec` (the same 23
-waived findings, no new waiver), `govulncheck` (nothing reached), `docs-lint`, gendocs tests, the
-touched archtests, the tracker's own tests. Under `-race`: `pkg/filexfer` 98.8%, `pkg/sftpxfer` 95.1%,
-`pkg/scpxfer` 94.3%, `pkg/remoteexec` 94.5%, `internal/inventory/devices/linux` 100%. Both release gates
-against OpenSSH 10.3, including one real bastion hop and 256 MiB each way. Six fuzz targets, 29.1 million
-executions, no crashers. Four falsifications, each failing as it should.
-
-`make docs-gen-check` differs from the last commit by exactly the intended `devices.md` change, so it
-passes once this is committed.
-
-For the `pkg/tftpxfer` fix: `go test -race` green at 96.6% (floor 93.5), `FuzzValidateFilename` 20.4
-million executions in 90 seconds with no failure, and eight mutations each killed by the test
-written for it (control and format check, UTF-8 check, length cap, cap one byte too high, block size
-range, recovery in `receive`, caller panic swallowed, caller panic relabeled).
-
-**NOT yet run: `make ci` in full**, which on this machine has to run alone and is the user's call.
-
-### Next
-
-Commit the `pkg/tftpxfer` fix as its own `fix(tftpxfer)` commit (message in the session report),
-then run `make ci` alone. After that, v0.2.0 can be cut. The user decides the open block-size item
-above. The tracker's next phase in the walk is Phase 35.
-
-### Files changed this session
-
-New: `pkg/filexfer/` (with `filexfertest/`), `pkg/sftpxfer/`, `pkg/scpxfer/`, `pkg/remoteexec/stream.go`,
-`process.go`, `process_test.go`, `internal/inventory/devices/linux/filetransfer.go` and its test,
-`internal/testsupport/sshd.go` and its test, `internal/archtest/filexfer_test.go`,
-`changelog/sftp-scp-file-transfer.added.md`. Changed: `pkg/remoteexec/subsystem.go`,
-`pkg/remoteexec/remoteexectest/server.go`, `internal/inventory/devices/linux/server.go`,
-`internal/archtest/transport_reachability_test.go`, `pkg/capability/capabilities_network.go`,
-`pkg/remotefile/remotefile.go`, `tools/gendocs/devices.go`, `tools/gendocs/completeness_test.go`,
-`docs/reference/devices.md`, `docs/10-running-in-production.md`, `docs/11-extending-pleiades.md`,
-`Makefile`, `coverage-floor.json`, `go.mod`, `go.sum`, and the four FAILURE_PATTERNS/LESSONS files.
-Gitignored: `.SPECIFICATION/IMPLEMENTATION.md`, `.SPECIFICATION/SECURITY_ATTESTATION.md`.
-
-The `pkg/tftpxfer` fix, uncommitted: new `pkg/tftpxfer/filename.go`, `panic.go`, `filename_test.go`,
-`panic_test.go` and `changelog/tftp-filename-limits.security.md`; changed `pkg/tftpxfer/tftpxfer.go`,
-`tftpxfer_test.go`, `tftpxfer_fuzz_test.go`, `docs/10-running-in-production.md`, this file, and
-FAILURE_PATTERNS 317 in the archive. Gitignored: RV.2 in `.SPECIFICATION/SECURITY_ATTESTATION.md`.
+1. Versioning stays as proposed (the user's answer, 2026-09-25).
+2. The remaining TLS clients (WinRM, Catalyst Center, a full-URL `http.request`, Git over HTTPS) keep
+   their current fixed settings; the device-TLS model can extend to them when wanted.
+3. When to build what the hunt re-opened: 96c's exactly-once release gate (a real NATS and Toxiproxy
+   test that runs past two minutes), 96c's dedup benchmark, and 79's email fuzz.

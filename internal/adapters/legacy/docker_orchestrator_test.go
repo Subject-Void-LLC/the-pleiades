@@ -2,10 +2,12 @@ package legacy_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // TestDockerOrchestrator_RunsRealContainerAndCapturesOutput proves
@@ -66,5 +68,63 @@ func TestDockerOrchestrator_CapturesNonZeroExitCode(t *testing.T) {
 	}
 	if result.ExitCode != 7 {
 		t.Errorf("ExitCode = %d, want 7", result.ExitCode)
+	}
+}
+
+// orphanScript leaves fifty orphans, each a grandchild whose parent
+// exits at once, then waits for them to exit and counts the zombies in
+// the container. It runs as Python because ansible-playbook is Python,
+// and Python as PID 1 reaps only the children it started.
+const orphanScript = `import glob, os, time
+for _ in range(50):
+    pid = os.fork()
+    if pid == 0:
+        if os.fork() == 0:
+            time.sleep(0.2)
+            os._exit(0)
+        os._exit(0)
+    os.waitpid(pid, 0)
+time.sleep(1.5)
+zombies = 0
+for status in glob.glob("/proc/[0-9]*/status"):
+    try:
+        with open(status) as f:
+            if any(line.startswith("State:") and line.split()[1] == "Z" for line in f):
+                zombies += 1
+    except OSError:
+        pass
+print(f"pid={os.getpid()} zombies={zombies}", flush=True)
+`
+
+// TestDockerOrchestrator_ReapsOrphans proves the command runs under an
+// init rather than as PID 1, in the image the Ansible adapter runs: the
+// command's own pid is not 1, and the fifty orphans it leaves are reaped
+// rather than left as zombies. Without an init the command is PID 1 and
+// all fifty stay zombies until the container exits (FAILURE_PATTERNS
+// 343).
+func TestDockerOrchestrator_ReapsOrphans(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real-Docker container test in short mode")
+	}
+	image := testsupport.BuildAnsibleRunnerImage(t)
+	result, err := legacy.NewDockerOrchestrator().Run(context.Background(), legacy.ContainerSpec{
+		Image: image,
+		Argv:  []string{"python3", "-c", orphanScript},
+	})
+	if err != nil {
+		t.Fatalf("Run returned unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0: output=%s", result.ExitCode, result.Output)
+	}
+	var pid, zombies int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(result.Output)), "pid=%d zombies=%d", &pid, &zombies); err != nil {
+		t.Fatalf("unreadable output %q: %v", result.Output, err)
+	}
+	if pid == 1 {
+		t.Errorf("the command ran as PID 1: nothing but itself can reap its orphans")
+	}
+	if zombies != 0 {
+		t.Errorf("%d zombies left in the container, want 0", zombies)
 	}
 }

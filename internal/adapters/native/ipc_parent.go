@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -40,6 +41,49 @@ type ipcCollectionExecutor struct {
 	// InternalCollectionRunnerArg to become the child.
 	exePath string
 	logger  *slog.Logger
+
+	// dispatch, when set, is the payload every call is made for: the
+	// Runner rebuilds the device as its real type, which carries no
+	// payload of its own (forDispatch).
+	dispatch *wire.DispatchPayload
+}
+
+// forDispatch returns this executor bound to payload.
+func (e *ipcCollectionExecutor) forDispatch(payload wire.DispatchPayload) *ipcCollectionExecutor {
+	bound := *e
+	bound.dispatch = &payload
+	return &bound
+}
+
+// payloadFor returns the payload a call against device is made for: the
+// bound dispatch, or the one an address-only device carries.
+//
+// A bound executor refuses every device but the one its dispatch names.
+// The child rebuilds its device from the payload, not from the device
+// handed in here, so without this check a call meant for another device
+// would run against the dispatched one. A nil device, typed or not, is
+// refused before anything reads it (FAILURE_PATTERNS 86).
+func (e *ipcCollectionExecutor) payloadFor(device inventory.InventoryItem) (wire.DispatchPayload, error) {
+	if device == nil || isNilPointer(device) {
+		return wire.DispatchPayload{}, errors.New("ipc collection executor was handed no device")
+	}
+	if e.dispatch != nil {
+		if name := device.Name(); name != e.dispatch.DeviceName {
+			return wire.DispatchPayload{}, fmt.Errorf("ipc collection executor is bound to device %q and was handed %q", e.dispatch.DeviceName, name)
+		}
+		return *e.dispatch, nil
+	}
+	if wd, ok := device.(*wireDevice); ok {
+		return wd.Payload(), nil
+	}
+	return wire.DispatchPayload{}, fmt.Errorf("ipc collection executor has no dispatch for device %T", device)
+}
+
+// isNilPointer reports whether v is a typed nil pointer, which an
+// interface holds as non-nil and whose methods may dereference it.
+func isNilPointer(v any) bool {
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 // newIPCCollectionExecutor resolves this process's own executable path
@@ -61,11 +105,10 @@ func newIPCCollectionExecutor(logger *slog.Logger) (*ipcCollectionExecutor, erro
 // (never stdout, which the Collection method's own arbitrary output uses
 // instead, captured and masked separately below).
 func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}, mode collection.Mode) (collection.Result, map[string]interface{}, error) {
-	wd, ok := device.(*wireDevice)
-	if !ok {
-		return collection.Result{}, nil, fmt.Errorf("ipc collection executor requires a *wireDevice, got %T", device)
+	payload, err := e.payloadFor(device)
+	if err != nil {
+		return collection.Result{}, nil, err
 	}
-	payload := wd.Payload()
 
 	// An external Collection already runs in a process of its own: its
 	// registered method is the loader's proxy, which starts the external
@@ -81,18 +124,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return e.invokeInProcess(ctx, desc, device, params, mode, payload.Secrets)
 	}
 
-	req := wire.ChildRequest{
-		FQCN:         desc.Name,
-		Mode:         string(mode),
-		Params:       params,
-		JobID:        payload.JobID,
-		DeviceID:     payload.DeviceID,
-		DeviceName:   payload.DeviceName,
-		DeviceHost:   payload.DeviceHost,
-		SSHPort:      payload.SSHPort,
-		Capabilities: payload.Capabilities,
-		Secrets:      payload.Secrets,
-	}
+	req := childRequest(desc, mode, params, payload)
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
@@ -178,6 +210,25 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to decode subprocess response: %w (stderr: %s)", desc.Name, read.err, capturedErr)
 	}
 	return childAnswer(desc.Name, mode, read.resp, secrets)
+}
+
+// childRequest is the one request a child is sent for a call of desc in
+// mode with params, against the device payload names.
+func childRequest(desc collection.Descriptor, mode collection.Mode, params map[string]interface{}, payload wire.DispatchPayload) wire.ChildRequest {
+	return wire.ChildRequest{
+		FQCN:             desc.Name,
+		Mode:             string(mode),
+		Params:           params,
+		JobID:            payload.JobID,
+		DeviceID:         payload.DeviceID,
+		DeviceName:       payload.DeviceName,
+		DeviceHost:       payload.DeviceHost,
+		SSHPort:          payload.SSHPort,
+		Capabilities:     payload.Capabilities,
+		Secrets:          payload.Secrets,
+		DeviceType:       payload.DeviceType,
+		DeviceProperties: payload.DeviceProperties,
+	}
 }
 
 // childAnswer is what a child's decoded response means for a call of the

@@ -29,22 +29,17 @@
 // handling already has. A task naming either concept today has no
 // parameter to spend it on; this package's own Doc says so.
 //
-// # The capability this cannot reach yet
+// # The capability, and the devices that satisfy it
 //
-// capability.PosixAccountCapable exists (pkg/capability/capabilities_posix.go)
-// and is what RequiredCapabilities below names, but no device type in
-// this repository structurally implements it today, the same gap
-// pkg/apt/apt.go documents for capability.AptCapable: PasswdPath has no
-// real accessor anywhere. That is settled, intentional architecture
-// (internal/inventory/devices/linux/server_test.go's
-// TestNewServer_UnionsClassificationCapabilities is the regression
-// proof, for a sibling capability), not an oversight this package's own
-// tests can or should paper over. The practical consequence:
-// identity.user.create, identity.user.modify and identity.user.remove
-// are implemented and tested here, against a real in-process SSH server
-// with fake getent/useradd/usermod/userdel on PATH, exactly the tier
-// pkg.apt.* already ships at, but are not yet reachable against a real
-// inventory device through the platform end to end.
+// capability.PosixAccountCapable (pkg/capability/capabilities_posix.go) is
+// what RequiredCapabilities below names. linux_server implements its
+// accessor (internal/inventory/devices/linux/packages.go) and declares it
+// when classified linux_server,debian_family or linux_server,rhel_family,
+// the families that ship the shadow tools these methods run (useradd,
+// usermod, userdel); busybox systems do not, so no Linux server claims it
+// by default. cmd/pleiades's TestCLI_PackageAndAccountMethodsReachARealDevice
+// runs identity.group.create through the real binary against a real
+// Debian device.
 package user
 
 import (

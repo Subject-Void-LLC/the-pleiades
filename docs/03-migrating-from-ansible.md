@@ -37,13 +37,106 @@ locking is in-process only and does not exclude a second `pleiades run`, see
 
 **Does not exist yet, and a runbook cannot express it:** Jinja templating anywhere in
 `params:` (a runbook's params map is always a literal value), `loop:`/`with_items:`,
-`handlers:`/`notify:`, `tags:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
+`handlers:`/`notify:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
 `changed_when:`/`failed_when:`, `group_vars:`/`host_vars:`, and inventory-level `vars:`
 of any kind. See the keyword map below for the complete, itemized list.
 
 None of these are secret gaps. They are the honest distance between "what Ansible
 does today" and "what Pleiades does today," and closing them is most of the open
 roadmap.
+
+Some of them still convert. `pleiades forge migrate-playbook` (next section) unrolls a
+loop over a list the playbook fixes and writes in a variable the playbook defines once,
+so the runbook it writes holds only literal values; what it cannot do that way, it
+refuses by name.
+
+## Converting a playbook: `pleiades forge migrate-playbook`
+
+```bash
+pleiades forge migrate-playbook site.yml              # writes runbooks/site.yaml
+pleiades forge migrate-playbook site.yml --json       # the same report, as JSON
+pleiades validate                                     # then check the result
+```
+
+The command reads a playbook, and every `import_tasks` and `vars_files` file it names
+inside the playbook's own directory, and writes one native runbook per run of plays on
+the same `hosts:` into `--out` (default `runbooks/`). It never runs anything, never
+contacts a device, and never overwrites a file unless `--force` is given. Beside the
+runbooks it prints a **migration report**: every construct that did not convert
+cleanly, once each, with the playbook line and column it came from and the runbook line
+it landed on.
+
+Each finding has an **outcome**:
+
+- **converted**: the runbook says what the playbook said.
+- **info**: dropped or resolved with no effect on a run (a `debug` task, a resolved
+  variable).
+- **review**: converted or dropped with a bounded difference a person should read
+  (`notify` dropped, `become` dropped, a condition reading a registered result).
+- **blocked**: not converted. The task becomes an unrunnable placeholder and the runbook
+  cannot run until a person resolves it.
+
+The rule behind every drop is that a construct is only ever dropped when its absence
+makes the task do less or fail sooner. Anything that would make a converted task do more,
+run somewhere else, or expose a value is **blocked** instead. A value that looks secret,
+by its variable's name or its shape, and any vault-encrypted value, is never copied into
+a runbook or printed in the report; the report names things and points at lines, and
+never prints a value from the playbook.
+
+**An incomplete conversion cannot run, on either tier.** When anything is blocked, the
+runbook is written as `<name>.incomplete.yaml`, its first task is a guard, and each
+blocked task is a placeholder calling `ansible.unconverted.<module>`, a namespace nothing
+can register. `pleiades validate` and `pleiades run` refuse it and name each one, and a
+Runner validates every runbook it is dispatched before running a task, so the same
+refusal holds in the Walk tier. Placeholders carry none of the original task's
+arguments, since those can hold secrets; the report links each one back to its line in
+the playbook. To finish a conversion, resolve each blocked finding, delete the guard,
+and rename the file to `<name>.yaml`.
+
+The command exits 0 when nothing needs a person, and 3 when anything is a review or
+blocked, so a script cannot mistake an incomplete conversion for a finished one.
+
+**What converts and how:**
+
+- **Modules** are mapped by the converter's own tables, generated into
+  [Ansible module conversions](reference/ansible-modules.md): which native method each
+  module and state becomes, which arguments map, which are dropped and which block. A
+  module not on that page is blocked with `module.unmapped`. Each converted task gets a
+  **class**: *asserted* (a desired state the method compares first), *computed*,
+  *imperative* (a command, whose effect is known only by running it) or *observe* (a
+  read), declared by the table rather than guessed.
+- **Variables** resolve only when the playbook gives one exactly one literal value, and
+  each resolution is listed in the report by name and line, never by value. A fact, a
+  magic variable, a `-e` extra variable, or anything set at run time blocks the task that
+  reads it.
+- **Loops** over a list the playbook fixes become one task per item. A loop over a list
+  known only at run time blocks.
+- **Conditions** in a bounded Jinja subset (comparisons, `and`/`or`/`not`, `in`,
+  `is defined`, and the `bool`, `int` and `length` filters) become CEL. A condition over
+  a registered result holds only when it holds on every device the earlier task ran on,
+  because a native condition is evaluated once per task, not once per host; the report
+  asks you to confirm each one.
+- **`import_tasks`** is inlined as a block. `include_tasks`, roles, `import_playbook`
+  and `template` are blocked.
+- **`meta: reset_connection`** becomes `pleiades.builtin.connection.reset`, which closes
+  the SSH connection a run keeps open to the device so the next task logs in again, as
+  Ansible's does. `flush_handlers`, `noop`, `refresh_inventory`, `clear_facts` and
+  `clear_host_errors` are dropped with an info finding; any other `meta` is blocked.
+  Connections persist between a device's tasks by default, like Ansible's
+  `ControlPersist`; see
+  [Connection persistence](10-running-in-production.md#connection-persistence).
+
+**The report is a worklist for an editor too.** `--json` prints the same model the text
+view renders, described by the generated
+[migration report schema](reference/schemas/migration-report.json). Every finding has a
+stable `code` from a closed set (listed on the
+[module conversions](reference/ansible-modules.md#finding-codes) page), its playbook
+position `at`, and its runbook position `emitted`, so a finding can be shown on the
+runbook line it concerns and linked to the source task.
+
+**How fast a converted runbook runs.** [Performance compared with Ansible](15-performance.md)
+runs one playbook and its conversion on 1 to 200 hosts. The runbook finished 24 to 41 times
+sooner, and at 200 hosts it used about 57 times less CPU on the machine running it.
 
 ## Worked example: a real playbook and runbook, side by side
 
@@ -56,36 +149,36 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 
 ## Playbook to runbook keyword map
 
-| Ansible playbook key | Pleiades runbook key | Notes |
-|---|---|---|
-| `hosts:` | `hosts:` | Same meaning: a default target. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. |
-| `pre_tasks:` | `pretasks:` | Same phase, no underscore. |
-| `tasks:` | `tasks:` | Same. |
-| `post_tasks:` | `posttasks:` | Same phase, no underscore. |
-| `block:` | `block:` | Same grouping. |
-| `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). |
-| `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. |
-| `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. |
-| `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. |
-| none | `when_or:` | New. A list ORed instead of ANDed. |
-| none | `when_cel:` | New. One raw CEL expression, for a condition `when`/`when_or` cannot express. |
-| none | `register_mask:` | New. Masks a field of this task's own registered result the instant it registers. |
-| none | `secret_mask:` | New. Retroactively masks a named, already-registered result's fields. |
-| none | `lock_acquisition:` | New. `per_device_as_reached` (default) or `all_at_plan_time`. |
-| none | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. |
-| `name:` | `name:` | Same, free-form label. |
-| module name as a task key (e.g. `ansible.builtin.copy:`) | `fqcn:` + `params:`, or module-as-key sugar | See [Two ways to write a task](../examples/upgrade_ios/README.md#two-ways-to-write-a-pleiades-task). |
-| `vars:` (play or task level) | *(not supported)* | No template rendering exists; see [What transfers](#what-transfers-and-what-does-not). |
-| `{{ jinja }}` anywhere in a module's args | *(not supported)* | `params:` is always a literal value. |
-| `loop:` / `with_items:` | *(not supported)* | A task runs once per its target device, never once per list item. |
-| `handlers:` / `notify:` | *(not supported)* | No handler mechanism exists. |
-| `tags:` | *(not supported)* | No tag-based task selection. |
-| `become:` / `become_user:` | *(not supported)* | No privilege-escalation directive; a Collection method's own `ExecutionContext.RequiresElevation` states this instead, as data, not as a runbook key. |
-| `serial:` | *(not supported)* | No batched-rollout control. |
-| `roles:` | *(not supported)* | No role mechanism yet; it is on the open roadmap. |
-| `ignore_errors:` | *(not supported)* | A failed task fails its run; no per-task override. |
-| `changed_when:` / `failed_when:` | *(not supported)* | A Collection method's own `Result.Changed` is the only changed signal; no runbook-level override. Read the change forward with `when_cel` instead, the way [the worked example](../examples/upgrade_ios/README.md) does for its checksum gate. |
-| `group_vars/` / `host_vars/` directories | *(not supported)* | No inventory-level variable layering of any kind. |
+| Ansible playbook key | Pleiades runbook key | Notes | What `migrate-playbook` does |
+|---|---|---|---|
+| `hosts:` | `hosts:` | Same meaning: a default target. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. | Kept: one device name or tag. `all` and `localhost` are reviewed; a pattern, a list or a template is blocked. |
+| `pre_tasks:` | `pretasks:` | Same phase, no underscore. | Converted. |
+| `tasks:` | `tasks:` | Same. | Converted. |
+| `post_tasks:` | `posttasks:` | Same phase, no underscore. | Converted. |
+| `block:` | `block:` | Same grouping. | Converted; a `when:` on it is pushed down onto each task inside. |
+| `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). | Converted, with a review finding: it does not run yet. |
+| `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. | Converted, with a review finding: it does not run yet. |
+| `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. | Kept. |
+| `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. | Translated to CEL for comparisons, `and`/`or`/`not`, `in`, `is defined` and the `bool`/`int`/`length` filters; anything else is blocked. |
+| none | `when_or:` | New. A list ORed instead of ANDed. | - |
+| none | `when_cel:` | New. One raw CEL expression, for a condition `when`/`when_or` cannot express. | - |
+| none | `register_mask:` | New. Masks a field of this task's own registered result the instant it registers. | - |
+| none | `secret_mask:` | New. Retroactively masks a named, already-registered result's fields. | - |
+| none | `lock_acquisition:` | New. `per_device_as_reached` (default) or `all_at_plan_time`. | - |
+| none | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. | - |
+| `name:` | `name:` | Same, free-form label. | Kept. |
+| module name as a task key (e.g. `ansible.builtin.copy:`) | `fqcn:` + `params:`, or module-as-key sugar | See [Two ways to write a task](../examples/upgrade_ios/README.md#two-ways-to-write-a-pleiades-task). | Mapped by the [module tables](reference/ansible-modules.md); a module they do not list is blocked. |
+| `vars:` (play or task level) | *(not supported)* | No template rendering exists; see [What transfers](#what-transfers-and-what-does-not). | A variable with exactly one literal value is written into the runbook, and listed in the report; anything else blocks the tasks that read it. |
+| `{{ jinja }}` anywhere in a module's args | *(not supported)* | `params:` is always a literal value. | Resolved when every variable it reads has one literal value, with a small set of filters; otherwise blocked. |
+| `loop:` / `with_items:` | *(not supported)* | A task runs once per its target device, never once per list item. | Unrolled into one task per item when the list is fixed in the playbook; a list known only at run time is blocked. |
+| `handlers:` / `notify:` | *(not supported)* | No handler mechanism exists. | Dropped, with review findings: a handler is not converted, so run its task explicitly where it was notified. |
+| `tags:` | `tags:` | Same meaning, on a runbook (a play's tags), a block or a task, and `pleiades run --tags`/`--skip-tags` select by them with Ansible's own rule, `always`, `never`, `all`, `tagged` and `untagged` included. A task tagged `never` does not run unless a run names one of its tags. A tag no task carries is refused rather than silently matching nothing. The Controller does not take a tag filter yet, so a dispatched job runs everything but `never` tasks. | Kept, except `all`, `tagged`, `untagged` or a template, which block. |
+| `become:` / `become_user:` | *(not supported)* | No privilege-escalation directive; a Collection method's own `ExecutionContext.RequiresElevation` states this instead, as data, not as a runbook key. | `become` is dropped with a review finding; a `become_user` other than root is blocked. |
+| `serial:` | *(not supported)* | No batched-rollout control. | Blocked: the runbook would change every device at once. |
+| `roles:` | *(not supported)* | No role mechanism yet; it is on the open roadmap. | Blocked. |
+| `ignore_errors:` | *(not supported)* | A failed task fails its run; no per-task override. | Dropped with a review finding: a failure ends the run. |
+| `changed_when:` / `failed_when:` | *(not supported)* | A Collection method's own `Result.Changed` is the only changed signal; no runbook-level override. Read the change forward with `when_cel` instead, the way [the worked example](../examples/upgrade_ios/README.md) does for its checksum gate. | `changed_when` is dropped; `failed_when: false` is treated as `ignore_errors`; any other `failed_when` is blocked. |
+| `group_vars/` / `host_vars/` directories | *(not supported)* | No inventory-level variable layering of any kind. | Not read, with a review finding: put per-device values in inventory properties. |
 
 ## Borrowed vocabulary: exact semantics
 
@@ -114,94 +207,47 @@ underneath. Where it matters:
 
 ## Module to FQCN map
 
-Sourced from the real catalog: every `<namespace>.<method>` name below is registered
-today and reachable through the real dispatcher. The
-authoritative, always-current version of just the Pleiades side is
-[the generated module catalog](reference/modules/index.md); this table adds the
-Ansible-side name for migration purposes and is maintained by hand alongside it, not
-yet emitted by `tools/gendocs` itself (a real gap: the `Doc` metadata contract has no
-field for an Ansible-equivalent name yet, so this table can drift from the catalog in
-a way the generated pages cannot; treat a mismatch as a documentation bug in this
-file, not in the catalog).
+**The modules the converter maps, and exactly how,** are on the generated
+[Ansible module conversions](reference/ansible-modules.md) page: which native method
+each module and state becomes, which arguments map, which are dropped and which block.
+It is built from the converter's own tables, so it cannot drift from what
+`migrate-playbook` does. The native side of each method, including the capabilities its
+manifest declares, is the generated [module catalog](reference/modules/index.md).
 
-Only the four `net.catalyst.*` rows are `implemented` today; every other FQCN below is
-`declared`: registered, validated, and refused at call time with an explicit "not
-implemented yet" error rather than a silent no-op. See
-[Implementation status](reference/implementation-status.md) for the exact list.
+Every native method on either page is `implemented` except `file.template`,
+`net.junos.config` and `net.eos.config`, which are `declared`: registered, validated,
+and refused at call time with an explicit "not implemented yet" error rather than a
+silent no-op. See [Implementation status](reference/implementation-status.md).
 
-**The Capability column is documentation, not a check.** It records the capability
-each method's manifest declares it needs. Nothing compares that to your inventory:
-`pleiades validate` checks capabilities only for the two legacy action names
-`ssh_exec` and `ios_backup`. Point any FQCN below at a device that lacks the listed
-capability and `validate` still reports no issues; the mismatch surfaces during the
-run instead. See [Start here](01-start-here.md#implementation-status).
+**The Capability column below is documentation, not a check.** It records the
+capability each method's manifest declares it needs. Nothing compares that to your
+inventory: `pleiades validate` checks capabilities only for the two legacy action names
+`ssh_exec` and `ios_backup`. Point any FQCN at a device that lacks the listed capability
+and `validate` still reports no issues; the mismatch surfaces during the run instead.
+See [Start here](01-start-here.md#implementation-status).
 
-**Execution**
+The rest of this section covers the native methods whose Ansible counterparts the
+converter does not map yet, so a task using one is blocked and written by hand, and
+where each kind of method runs.
 
-| Ansible | Pleiades FQCN | Capability |
-|---|---|---|
-| `ansible.builtin.command` | `exec.command` | `CommandExecCapable` |
-| `ansible.builtin.shell` | `exec.shell` | `ShellExecCapable` |
-
-**Packages**
+**Networking, by hand**
 
 | Ansible | Pleiades FQCN | Capability |
 |---|---|---|
-| `ansible.builtin.package` | `pkg.install`, `pkg.remove`, `pkg.upgrade` | `PackageManagerCapable` |
-| `ansible.builtin.apt` | `pkg.apt.install`, `pkg.apt.remove`, `pkg.apt.upgrade` | `AptCapable` |
-| `ansible.builtin.dnf` | `pkg.dnf.install`, `pkg.dnf.remove`, `pkg.dnf.upgrade` | `DnfCapable` |
-
-**Services**
-
-| Ansible | Pleiades FQCN | Capability |
-|---|---|---|
-| `ansible.builtin.service` | `svc.start`, `svc.stop`, `svc.restart`, `svc.enable`, `svc.disable` | `ServiceManagerCapable` |
-| `ansible.builtin.systemd` | `svc.systemd.start`/`.stop`/`.restart`/`.enable`/`.disable`/`.daemon_reload` | `SystemdCapable` |
-| `ansible.windows.win_service` | `svc.windows.start`/`.stop`/`.restart`/`.enable`/`.disable` | `WindowsServiceCapable` |
-
-**Identity**
-
-| Ansible | Pleiades FQCN | Capability |
-|---|---|---|
-| `ansible.builtin.user` | `identity.user.create`, `.modify`, `.remove` | `PosixAccountCapable` |
-| `ansible.builtin.group` | `identity.group.create`, `.modify`, `.remove` | `PosixAccountCapable` |
-
-**Files.** Ansible's `file` module takes one `state` parameter covering five unrelated
-operations. Here they are five separate methods.
-
-| Ansible | Pleiades FQCN | Capability |
-|---|---|---|
-| `ansible.builtin.copy` | `file.copy` | `POSIXFileSystemCapable` |
-| `ansible.builtin.template` | `file.template` | `POSIXFileSystemCapable` |
-| `ansible.builtin.file` | `file.directory`, `file.symlink`, `file.remove`, `file.touch`, `file.permissions` | `POSIXFileSystemCapable` |
-| `ansible.builtin.lineinfile` | `file.line.set`, `file.line.remove` | `POSIXFileSystemCapable` |
-| `ansible.builtin.blockinfile` | `file.block.set`, `file.block.remove` | `POSIXFileSystemCapable` |
-
-**Network devices**
-
-| Ansible | Pleiades FQCN | Capability |
-|---|---|---|
-| `ansible.netcommon.cli_command` | `net.cli.command` | `NetworkCLICapable` |
-| `ansible.netcommon.cli_config` | `net.cli.config` | `NetworkCLICapable` |
-| `ansible.netcommon.netconf_config` | `net.netconf.config` | `NetconfCapable` |
-| `cisco.ios.ios_config` | `net.ios.config` | `CiscoIOSCapable` |
-| `junipernetworks.junos.junos_config` | `net.junos.config` | `JunosCapable` |
-| `arista.eos.eos_config` | `net.eos.config` | `AristaEOSCapable` |
+| `junipernetworks.junos.junos_config` | `net.junos.config` (declared) | `JunosCapable` |
+| `arista.eos.eos_config` | `net.eos.config` (declared) | `AristaEOSCapable` |
 | `cisco.dnac.*_info` | `net.catalyst.device_facts`, `.reachability`, `.site_facts`, `.tag_facts` | `CatalystAPICapable` |
 
 The four `net.catalyst.*` methods are controller-side and read-only, against Cisco
-Catalyst Center's REST API. They are the only `implemented` rows in this whole table,
-verified against Cisco's public DevNet sandbox.
+Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 
 **Extended infrastructure**
 
 | Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
-| `ansible.posix.firewalld` | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
-| `ansible.posix.mount` | `fs.mount`, `fs.unmount` | `LinuxCapable` | target side |
+| `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
-| `community.general.unarchive` | `archive.extract` | `POSIXFileSystemCapable` | hybrid |
 | `community.docker.docker_container` | `container.docker.run`, `.stop`, `.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
 | `amazon.aws.s3_bucket` | `cloud.aws.s3.create_bucket`, `.delete_bucket` | `AWSAPICapable` | controller side |
@@ -220,7 +266,7 @@ and neither does `pleiades validate`. The table above proves the point:
 `fw.firewalld.*` ("target side") and `container.docker.*` ("hybrid") carry the same
 `executionContext` value, the same transport, and the same status, and differ only
 in a capability name. So do `archive.create` ("target side") and `archive.extract`
-("hybrid"). Identical manifests cannot produce two different column values, because
+(which the converter maps from `ansible.builtin.unarchive`, "hybrid"). Identical manifests cannot produce two different column values, because
 the column is not generated from them.
 
 **Execution side is decided at run time, from one thing only: whether the task ends
@@ -246,9 +292,13 @@ off the runbook and give every target-side task its own `params.target`. Ansible
 | Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
 | `ansible.builtin.uri` | `http.request` | none | controller side |
-| `ansible.builtin.wait_for` | `pleiades.builtin.wait.port`, `wait.path`, `wait.search` | `NetworkAddressableCapable` | hybrid |
-| `ansible.builtin.setup` | `facts.gather` | `FactGathererCapable` | target side |
+| `ansible.builtin.wait_for` with `path:` or `search_regex:` | `wait.path`, `wait.search` | `NetworkAddressableCapable` | hybrid |
 | `ansible.builtin.set_stats` | `set_metadata` (an engine builtin, not a Collection method) | none | controller side |
+
+`uri` is not converted because the two run in different places: `uri` calls the URL
+from the device, and `http.request` calls it from wherever the task runs, so which side
+should make the call is a person's decision. The converter maps `wait_for`'s port form
+to `pleiades.builtin.wait.port` and `setup` to `facts.gather` itself.
 
 `pleiades.builtin.wait.port` and `set_metadata` are not 1:1 ports of an Ansible
 module; they are native to Pleiades, which is why the first lives under a reserved
@@ -257,9 +307,11 @@ bare name rather than a Collection FQCN at all. `wait.path`/`wait.search` have n
 been renamed under `pleiades.builtin.` yet, an intentional inconsistency rather than
 an oversight.
 
-**Not yet in the catalog at all:** `ansible.builtin.debug`, `ansible.builtin.assert`,
-`ansible.builtin.fail`, `ansible.builtin.pause`, `ansible.builtin.git`, and anything
-from a Galaxy collection not listed above. A missing row here is either a gap to fill
+**Not yet in the catalog at all:** `ansible.builtin.assert`, `ansible.builtin.fail`,
+`ansible.builtin.pause`, `ansible.builtin.git`, `ansible.builtin.get_url`,
+`ansible.builtin.stat`, `ansible.builtin.cron`, and anything from a Galaxy collection not listed
+above (`ansible.posix.sysctl` among them). The
+converter drops `ansible.builtin.debug`, which only prints, with an info finding. A missing row here is either a gap to fill
 in a future phase, or a case for `forge new-collection` to add it yourself; see
 [Extending Pleiades](reference/index.md).
 

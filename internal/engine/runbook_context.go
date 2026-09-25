@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -30,13 +31,19 @@ type runbookContext struct {
 	// the composition root; an empty map means this run resolved none,
 	// which is different from failing to look them up.
 	secrets map[string]string
+
+	// pool, when set, lends this method's SSH connections from the run's
+	// pool (sdk.ConnectionPooler). The Collection executor sets it only
+	// for a device whose connections persist; see WithConnectionPool.
+	pool *remoteexec.Pool
 }
 
 // compile-time proof this satisfies both the SDK contract and the engine's
 // own fact-collection interface.
 var (
-	_ sdk.RunbookContext = (*runbookContext)(nil)
-	_ FactCollector      = (*runbookContext)(nil)
+	_ sdk.RunbookContext   = (*runbookContext)(nil)
+	_ FactCollector        = (*runbookContext)(nil)
+	_ sdk.ConnectionPooler = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.
@@ -55,6 +62,12 @@ func (c *runbookContext) InjectSecrets() map[string]string {
 		snapshot[k] = v
 	}
 	return snapshot
+}
+
+// ConnectionPool returns the pool this method's connections are lent
+// from, or nil when its device's connections do not persist.
+func (c *runbookContext) ConnectionPool() *remoteexec.Pool {
+	return c.pool
 }
 
 // SetStat records a statistic. It shares storage with EmitFact rather than

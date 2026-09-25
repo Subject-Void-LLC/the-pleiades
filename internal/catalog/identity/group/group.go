@@ -18,12 +18,10 @@
 // is why, unlike identity.user.*, this package has no desired/converge
 // pair: the comparison is a single int.
 //
-// # The capability this cannot reach yet
+// # The capability, and the devices that satisfy it
 //
-// Same gap as identity.user.*, for the same capability
-// (capability.PosixAccountCapable): no device type in this repository
-// structurally implements it. See internal/catalog/identity/user/user.go's
-// own doc comment for the full reasoning; it applies here verbatim.
+// The same as identity.user.*, for the same capability
+// (capability.PosixAccountCapable); see internal/catalog/identity/user/user.go.
 package group
 
 import (

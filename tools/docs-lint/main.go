@@ -100,9 +100,14 @@ func run() error {
 		}
 		findings = append(findings, fs...)
 	}
+	literalFindings, goFiles, err := scanGoLiterals(repoRoot)
+	if err != nil {
+		return fmt.Errorf("scanning Go string literals: %w", err)
+	}
+	findings = append(findings, literalFindings...)
 
 	if len(findings) == 0 {
-		fmt.Printf("docs-lint: %d file(s) scanned, no citation of a gitignored document found\n", len(targets))
+		fmt.Printf("docs-lint: %d file(s) and the string literals of %d Go file(s) scanned, no citation of a gitignored document found\n", len(targets), goFiles)
 		return nil
 	}
 

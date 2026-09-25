@@ -1,0 +1,1 @@
+`pleiades validate` and `pleiades run` now refuse a task that passes a parameter its Collection method does not declare, naming the parameter and listing what the method accepts. The method used to ignore such a parameter without a word, so a misspelled optional one ran with its default. An external Collection program must declare every parameter its methods read in `Doc.Params`.

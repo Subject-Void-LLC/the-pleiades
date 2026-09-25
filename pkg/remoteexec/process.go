@@ -65,6 +65,10 @@ type Process struct {
 // Starting a command is never retried: it may already have partially
 // run, and re-sending it could apply an unknown side effect twice.
 func (c *Conn) Start(ctx context.Context, command string) (*Process, error) {
+	// A streamed process is reused by nothing today, and one left running
+	// would outlive its task, so a borrowed connection that started one
+	// is closed rather than reused.
+	c.taint()
 	s, err := c.openStream(ctx, "remote command", func(session *ssh.Session) error {
 		return session.Start(command)
 	})

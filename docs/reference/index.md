@@ -26,4 +26,6 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Runbook JSON Schema](schemas/runbook.schema.json)
 - [Inventory JSON Schema](schemas/inventory.schema.json)
 - [Module catalog](schemas/module-catalog.json) (data, not a schema: every FQCN's full Manifest)
+- [Ansible module conversions](ansible-modules.md) (what `pleiades forge migrate-playbook` does with each module, and every finding code)
+- [Migration report JSON Schema](schemas/migration-report.json)
 - [OpenAPI document](schemas/openapi.json) (also served live at `/api/v1/openapi.json`)

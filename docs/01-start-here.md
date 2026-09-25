@@ -106,6 +106,18 @@ the payload, which still carries the resolved credential itself. Presenting a
 client certificate to a managed device, which is a different thing again, is
 also real.
 
+**A device with no type of its own can be managed.** Four generic device types,
+`generic_ssh`, `generic_netconf`, `generic_http` and `generic_grpc`, take their
+capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
+probes it over its protocol and records what its answers prove, and nothing else can
+grant one. Each is proven against a real server: a Debian host, a Netopeer2 NETCONF
+server, an HTTPS API and the gRPC project's own example server. A Runner rebuilds each
+dispatched device as its real type, from its type and only the properties its accessors
+read, so the same methods work on the Walk tier. A device's TLS is its own: a pinned
+authority, mutual TLS, and, for an old device, deprecated TLS versions, legacy ciphers or a
+credential over plain HTTP, each behind its own explicit flag and warned about on every use. See
+[Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types).
+
 **Credential types and injectors are real.** An administrator can define a credential
 type as data, over the API, with an input schema and an injector document, exactly as
 they would in AWX; a real AWX export decodes into it with no translation layer.
@@ -222,7 +234,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 81 registered methods across 16 namespaces; 78 are
+**The module catalog has 82 registered methods across 16 namespaces; 79 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
@@ -326,9 +338,20 @@ Things a real Ansible user will look for and not currently find:
   value, never rendered.
 - No `loop` / `with_items`. A task runs once per its target device, never once per
   list item.
-- No `handlers` / `notify`, no `tags`, no `become`, no `serial`, no `roles`, no
+- No `handlers` / `notify`, no `become`, no `serial`, no `roles`, no
   `ignore_errors`, no `changed_when` / `failed_when`.
+- `tags:` works on a runbook, a block or a task, with `pleiades run --tags` and
+  `--skip-tags` selecting by them exactly as Ansible does, `always` and `never`
+  included. The Controller and Runner do not take a tag filter yet: a dispatched
+  runbook runs every task except those tagged `never`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
+- A playbook converts with `pleiades forge migrate-playbook`, which writes native
+  runbooks and a report of everything a person must finish. It works around the gaps
+  above only where the playbook fixes the answer: a loop over a written list is
+  unrolled and a variable with one literal value is written in. Everything else it
+  cannot express is reported, and a runbook with anything blocked cannot run until a
+  person resolves it. See
+  [Migrating from Ansible](03-migrating-from-ansible.md#converting-a-playbook-pleiades-forge-migrate-playbook).
 - `check_mode:` narrows only. `true` works on a runbook, a block or a task, and `false`
   is refused, since it would run a task for real inside a check. Nine methods cannot
   answer a check, and each says why.

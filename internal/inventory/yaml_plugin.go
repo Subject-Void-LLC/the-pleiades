@@ -134,6 +134,9 @@ func HydrateHosts(factory *ItemFactory, hosts []HostSpec) ([]inventory.Inventory
 			id = h.Name
 		}
 
+		if err := refuseReservedProperties(h); err != nil {
+			return nil, fmt.Errorf("failed to hydrate host %q: %w", h.Name, err)
+		}
 		deviceType, err := ResolveHostType(h, ruleSet)
 		if err != nil {
 			return nil, fmt.Errorf("failed to hydrate host %q: %w", h.Name, err)
@@ -150,9 +153,10 @@ func HydrateHosts(factory *ItemFactory, hosts []HostSpec) ([]inventory.Inventory
 			Type:       deviceType,
 			Properties: h.Properties,
 			Tags:       toTags(h.Tags),
-			// Crawl tier has no onboarding pipeline (Section 6b is
-			// Walk-tier): a host listed in the file is immediately active.
-			State:        inventory.StateActive,
+			// A host listed in the file is immediately active, unless its
+			// type is one only onboarding makes active. This read-only
+			// path has no sidecar, so such a host stays discovered here.
+			State:        record.InitialState(deviceType),
 			Source:       inventory.SourceAuthority{Plugin: "static_yaml"},
 			Capabilities: caps,
 		}

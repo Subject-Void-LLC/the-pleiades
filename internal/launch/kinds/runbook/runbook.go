@@ -63,6 +63,12 @@ func init() {
 				Help:  "Variables the runbook reads. These merge across layers rather than replacing, so a launch adding one keeps the template's others.",
 			},
 			{
+				Name: launch.PersistConnectionsField, Type: launch.TypeChoice,
+				Choices: []string{launch.PersistOn, launch.PersistOff},
+				Label:   "PERSIST CONNECTIONS",
+				Help:    "on keeps one SSH connection per device open between its tasks; off logs in afresh for every task. A device, group or inventory whose own persist_connections is false stays off whatever this says.",
+			},
+			{
 				Name: "labels", Type: launch.TypeStringList,
 				Label: "LABELS",
 				Help:  "Free-text markers for finding this run later.",

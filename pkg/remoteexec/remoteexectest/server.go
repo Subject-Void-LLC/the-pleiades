@@ -132,6 +132,51 @@ type Server struct {
 	log      *commandLog
 	device   *Device
 	netconf  *NetconfDevice
+
+	// logins counts successful authentications, so a test can prove how
+	// many real logins a run made rather than trusting the client's own
+	// account of whether it reused a connection.
+	logins atomic.Int64
+
+	// live is every connection currently being served, so DropConnections
+	// and Close can end them from the server's side.
+	liveMu sync.Mutex
+	live   map[*cryptossh.ServerConn]struct{}
+}
+
+// Logins returns how many times a client has authenticated successfully.
+func (s *Server) Logins() int64 { return s.logins.Load() }
+
+// DropConnections closes every connection the server is serving, as a
+// device that reboots or a firewall that forgets idle flows would. A
+// client learns of it only when it next uses the connection.
+func (s *Server) DropConnections() {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	for c := range s.live {
+		_ = c.Close()
+	}
+}
+
+// Live returns how many connections the server is serving now, so a test
+// can prove a client really closed one rather than merely stopped using
+// it.
+func (s *Server) Live() int {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	return len(s.live)
+}
+
+// track registers c as live and returns the function that forgets it.
+func (s *Server) track(c *cryptossh.ServerConn) func() {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	s.live[c] = struct{}{}
+	return func() {
+		s.liveMu.Lock()
+		defer s.liveMu.Unlock()
+		delete(s.live, c)
+	}
 }
 
 // commandLog is every command the server was asked to run, in order.
@@ -162,12 +207,16 @@ func (s *Server) Addr() string {
 	return net.JoinHostPort(s.Host, fmt.Sprintf("%d", s.Port))
 }
 
-// Close stops the listener and waits for every connection goroutine to
-// finish, which is what keeps a still-running /bin/sh from outliving the
-// test that started it. It is safe to call more than once.
+// Close stops the listener, ends every live connection, and waits for
+// every connection goroutine to finish, which is what keeps a
+// still-running /bin/sh from outliving the test that started it. Ending
+// live connections is what lets a test close the server while a client
+// still holds one open, as a connection pool does. It is safe to call
+// more than once.
 func (s *Server) Close() {
 	s.closed.Do(func() {
 		_ = s.listener.Close()
+		s.DropConnections()
 		s.serving.Wait()
 	})
 }
@@ -196,11 +245,13 @@ func Start(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("remoteexectest: building a host key signer: %w", err)
 	}
 
+	var srv *Server
 	config := &cryptossh.ServerConfig{
 		PasswordCallback: func(c cryptossh.ConnMetadata, pass []byte) (*cryptossh.Permissions, error) {
 			if c.User() != username || string(pass) != password {
 				return nil, fmt.Errorf("denied")
 			}
+			srv.logins.Add(1)
 			return &cryptossh.Permissions{}, nil
 		},
 	}
@@ -219,7 +270,7 @@ func Start(opts Options) (*Server, error) {
 	remaining := int64(budget)
 	serving := &sync.WaitGroup{}
 
-	srv := &Server{
+	srv = &Server{
 		Host:     "127.0.0.1",
 		Port:     tcpAddr.Port,
 		HostKey:  signer.PublicKey(),
@@ -230,6 +281,7 @@ func Start(opts Options) (*Server, error) {
 		log:      &commandLog{},
 		device:   opts.Device,
 		netconf:  opts.Netconf,
+		live:     map[*cryptossh.ServerConn]struct{}{},
 	}
 
 	go func() {
@@ -241,7 +293,7 @@ func Start(opts Options) (*Server, error) {
 			serving.Add(1)
 			go func() {
 				defer serving.Done()
-				serveConn(conn, config, &remaining, srv.log, srv.device, srv.netconf)
+				serveConn(conn, config, &remaining, srv.log, srv.device, srv.netconf, srv.track)
 			}()
 		}
 	}()
@@ -261,13 +313,14 @@ func (s *Server) Secrets() map[string]string {
 // Errors are dropped rather than reported. The listener closing at
 // cleanup is the ordinary way this ends, and this runs on a background
 // goroutine that may outlive the test's own failure reporting.
-func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, log *commandLog, device *Device, netconf *NetconfDevice) {
+func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, log *commandLog, device *Device, netconf *NetconfDevice, track func(*cryptossh.ServerConn) func()) {
 	defer func() { _ = conn.Close() }()
 
 	serverConn, chans, reqs, err := cryptossh.NewServerConn(conn, config)
 	if err != nil {
 		return
 	}
+	defer track(serverConn)()
 	defer func() { _ = serverConn.Close() }()
 	go cryptossh.DiscardRequests(reqs)
 

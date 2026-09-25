@@ -79,6 +79,11 @@ const (
 	// re-executes this binary as (PLAN.md Section 17.5).
 	routeCollectionChild
 
+	// routeCollectionSession is a dispatch's long-lived collection child,
+	// used when its connections persist (internal/adapters/native's
+	// ipc_session.go).
+	routeCollectionSession
+
 	// routeHealthcheck is the container probe (this file).
 	routeHealthcheck
 
@@ -118,6 +123,9 @@ func isHealthcheckCommand(args []string) bool {
 func routeFor(args []string) commandRoute {
 	if isCollectionChildCommand(args) {
 		return routeCollectionChild
+	}
+	if len(args) > 0 && args[0] == native.InternalCollectionSessionArg {
+		return routeCollectionSession
 	}
 	if isHealthcheckCommand(args) {
 		return routeHealthcheck

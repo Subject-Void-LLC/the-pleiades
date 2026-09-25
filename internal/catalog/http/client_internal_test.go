@@ -44,7 +44,7 @@ func TestClient_HandshakeBudgetIsTheTaskTimeout(t *testing.T) {
 			const budget = 45 * time.Second
 			spec := requestSpec{timeout: budget, validateCerts: tc.validateCerts}
 
-			client := spec.client()
+			client := spec.client(nil)
 			transport, ok := client.Transport.(*nethttp.Transport)
 			if !ok {
 				t.Fatalf("client carries transport %T, want its own *http.Transport: a nil transport means the shared http.DefaultTransport, whose handshake cap this method cannot reach", client.Transport)
@@ -66,8 +66,8 @@ func TestClient_HandshakeBudgetIsTheTaskTimeout(t *testing.T) {
 // the verifying path returned a bare client and so shared the process-wide
 // default with everything else in the binary.
 func TestClient_DoesNotShareATransportBetweenTasks(t *testing.T) {
-	first := requestSpec{timeout: time.Second, validateCerts: true}.client()
-	second := requestSpec{timeout: time.Second, validateCerts: true}.client()
+	first := requestSpec{timeout: time.Second, validateCerts: true}.client(nil)
+	second := requestSpec{timeout: time.Second, validateCerts: true}.client(nil)
 
 	if first.Transport == second.Transport {
 		t.Error("two tasks were handed the same transport, so they share one connection pool")
@@ -85,7 +85,7 @@ func TestClient_DoesNotShareATransportBetweenTasks(t *testing.T) {
 // not fail any existing test: a client that skipped verification would
 // pass every test asserting a request succeeds.
 func TestClient_OnlySkipsVerificationWhenAsked(t *testing.T) {
-	verifying := requestSpec{timeout: time.Second, validateCerts: true}.client()
+	verifying := requestSpec{timeout: time.Second, validateCerts: true}.client(nil)
 	tr, ok := verifying.Transport.(*nethttp.Transport)
 	if !ok {
 		t.Fatalf("transport is %T", verifying.Transport)
@@ -94,7 +94,7 @@ func TestClient_OnlySkipsVerificationWhenAsked(t *testing.T) {
 		t.Error("the verifying path built a client that skips certificate verification")
 	}
 
-	skipping := requestSpec{timeout: time.Second, validateCerts: false}.client()
+	skipping := requestSpec{timeout: time.Second, validateCerts: false}.client(nil)
 	tr, ok = skipping.Transport.(*nethttp.Transport)
 	if !ok {
 		t.Fatalf("transport is %T", skipping.Transport)

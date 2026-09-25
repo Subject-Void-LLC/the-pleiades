@@ -84,9 +84,37 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 		InsecureSkipHostKeyVerify: BoolParam(params, ParamInsecureSkipHostKeyVerify),
 	})
 
-	conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: sshDev.SSHHost(), Port: port}, auth)
+	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: port}
+	var conn *remoteexec.Conn
+	if pool := poolOf(rc); pool != nil {
+		conn, err = pool.Connect(ctx, runner, device.Name(), target, auth)
+	} else {
+		conn, err = runner.Connect(ctx, nil, target, auth)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
 	return conn, nil
+}
+
+// ConnectionPooler is implemented by a RunbookContext whose run keeps SSH
+// connections open between tasks. Connect then borrows from the pool it
+// returns, keyed by the device's name, and the returned connection's
+// Close gives it back. A nil pool, or a context without this method,
+// means every Connect logs in afresh, which is also what a method sees
+// when an operator has turned persistence off.
+//
+// A method needs nothing to take part: it calls Connect and closes what
+// it got, exactly as before. The pool decides whether a connection is
+// safe to lend again (see remoteexec.Pool).
+type ConnectionPooler interface {
+	ConnectionPool() *remoteexec.Pool
+}
+
+// poolOf returns rc's connection pool, or nil when it keeps none.
+func poolOf(rc RunbookContext) *remoteexec.Pool {
+	if p, ok := rc.(ConnectionPooler); ok {
+		return p.ConnectionPool()
+	}
+	return nil
 }

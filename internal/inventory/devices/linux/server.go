@@ -27,8 +27,9 @@ func init() {
 // capability.CommandExecCapable), capability.SystemdCapable (which
 // embeds capability.ServiceManagerCapable),
 // capability.POSIXFileSystemCapable, capability.FactGathererCapable,
-// capability.NetworkAddressableCapable and
-// capability.FileTransferCapable (filetransfer.go).
+// capability.NetworkAddressableCapable,
+// capability.FileTransferCapable (filetransfer.go), and the package
+// manager, firewall and account capabilities (packages.go).
 type Server struct {
 	*record.Base
 }
@@ -56,7 +57,12 @@ type Server struct {
 //
 // FileTransferCapable joins the baseline only when the record sets a
 // valid file_transfer_root, and an invalid one is refused here; see
-// fileTransferBaseline.
+// fileTransferBaseline. FirewalldCapable joins it only when the record's
+// firewalld property is true (firewalldBaseline). AptCapable, DnfCapable
+// and PosixAccountCapable come from classification (debian_family,
+// rhel_family): which package manager a server has, and whether it has
+// the shadow tools (useradd, groupadd) the identity methods run, is per
+// distribution, so no Linux server claims them by default.
 func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 	baseline, err := fileTransferBaseline(rec, []capability.Name{
 		capability.NameSSHTransport,
@@ -68,6 +74,9 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 		capability.NameNetworkAddressable,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if baseline, err = firewalldBaseline(rec, baseline); err != nil {
 		return nil, err
 	}
 	base := record.NewBase(rec, policy.UnionSlices(baseline, rec.Capabilities))

@@ -87,7 +87,7 @@ type Agent struct {
 
 // defaultPoolSize is how many handleMessage workers Run starts when no
 // WithPoolSize option overrides it. It matches
-// engine.defaultMaxConcurrency and ansible-playbook's own default forks
+// engine.DefaultMaxConcurrency and ansible-playbook's own default forks
 // value, so a benchmark comparing this Agent's throughput against either
 // reference measures a comparable degree of parallelism rather than two
 // arbitrarily different ones.

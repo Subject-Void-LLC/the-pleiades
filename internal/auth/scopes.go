@@ -41,6 +41,14 @@ const (
 	// ScopeInventoryWrite grants create/update/delete access to inventory
 	// items, groups, and Inventories.
 	ScopeInventoryWrite Scope = "inventory:write"
+	// ScopeInventoryOnboard grants the right to onboard a generic device:
+	// connect to it over its protocol with its stored credential, and
+	// record the capabilities its answers prove. It is its own scope, and
+	// ScopeInventoryWrite does not imply it, because it does what writing
+	// inventory cannot: it reaches a device with a secret, and it grants
+	// capabilities, which no inventory write may (the discovered property
+	// is refused on every write path).
+	ScopeInventoryOnboard Scope = "inventory:onboard"
 	// ScopeAnnouncementRead grants the right to see operator
 	// announcements. It is separate from every other read scope because
 	// its natural audience is the widest one this platform has: anybody

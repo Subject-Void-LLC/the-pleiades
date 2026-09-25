@@ -77,9 +77,10 @@ const (
 
 // DeviceHandler serves the inventory device resource.
 type DeviceHandler struct {
-	repo    DeviceRepository
-	factory DeviceFactory
-	logger  *slog.Logger
+	repo      DeviceRepository
+	factory   DeviceFactory
+	logger    *slog.Logger
+	onboarder Onboarder
 }
 
 // NewDeviceHandler builds the device resource's handlers over repo.
@@ -275,7 +276,8 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := pkginventory.StateActive
+	// Active, or discovered for a type only onboarding makes active.
+	state := record.InitialState(deviceType)
 	if raw := deref(req.State); raw != "" {
 		parsed, err := pkginventory.ParseLifecycleState(raw)
 		if err != nil {

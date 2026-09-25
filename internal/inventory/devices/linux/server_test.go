@@ -45,15 +45,21 @@ func TestNewServer_BaselineCapabilities(t *testing.T) {
 // TestNewServer_UnionsClassificationCapabilities mirrors
 // cisco.TestNewRouter_UnionsClassificationCapabilities: classification-
 // derived Capabilities are unioned into the declared set at the data
-// layer, but HasCapability(NameApt) correctly stays false since Server
-// does not structurally implement AptCapable's methods -- "neither side
-// is trusted alone."
+// layer, and HasCapability holds only for what Server also structurally
+// implements -- "neither side is trusted alone." AptCapable, declared here,
+// is satisfied (packages.go); CiscoIOSCapable, also declared, is not, since
+// Server has none of its methods.
+//
+// This test once asserted that AptCapable stayed false, because Server did
+// not implement it, which kept pkg.apt.* off every real device. The
+// binding rule it demonstrated still holds, shown now with a capability a
+// Linux server really cannot back.
 func TestNewServer_UnionsClassificationCapabilities(t *testing.T) {
 	rec := record.Record{
 		ID:           "s1",
 		Name:         "s1",
 		Type:         "linux_server",
-		Capabilities: []capability.Name{capability.NameApt},
+		Capabilities: []capability.Name{capability.NameApt, capability.NameCiscoIOS},
 	}
 	item, err := linux.NewServer(rec)
 	if err != nil {
@@ -63,8 +69,11 @@ func TestNewServer_UnionsClassificationCapabilities(t *testing.T) {
 	if !item.HasCapability(capability.NameSSHTransport) || !item.HasCapability(capability.NameLinux) {
 		t.Error("expected the vendor baseline to survive alongside classification-derived capabilities")
 	}
-	if item.HasCapability(capability.NameApt) {
-		t.Error("expected HasCapability(AptCapable) to stay false: Server does not structurally implement it")
+	if !item.HasCapability(capability.NameApt) {
+		t.Error("expected the classification-derived AptCapable to be satisfied")
+	}
+	if item.HasCapability(capability.NameCiscoIOS) {
+		t.Error("expected HasCapability(CiscoIOSCapable) to stay false: Server does not structurally implement it")
 	}
 
 	found := false

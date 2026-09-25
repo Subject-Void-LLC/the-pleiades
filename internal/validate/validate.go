@@ -5,6 +5,9 @@
 package validate
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -23,6 +26,16 @@ type WorldView struct {
 	// it always had. LifecycleRule is the one rule that reads it, since a
 	// check may target a simulate-locked device and a real run may not.
 	Mode collection.Mode
+
+	// Resolver, when set, answers every target exactly as the executor
+	// that will run this runbook answers it, instead of the name-then-tag
+	// lookup over Items. It is the same engine.TargetResolver the executor
+	// is handed, so validation and execution cannot disagree about which
+	// devices a task reaches. The Runner sets it to its one-device
+	// resolver, which resolves every target, and a task with no target at
+	// all, to the device the dispatch names. Left nil (the CLI), a task
+	// with no target is controller-side and reaches no device.
+	Resolver engine.TargetResolver
 
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is
@@ -61,6 +74,9 @@ func (w WorldView) Resolve(target string) []inventory.InventoryItem {
 }
 
 func (w WorldView) resolveUncached(target string) []inventory.InventoryItem {
+	if w.Resolver != nil {
+		return w.Resolver.Resolve(target)
+	}
 	for _, item := range w.Items {
 		if item.Name() == target {
 			return []inventory.InventoryItem{item}
@@ -77,6 +93,19 @@ func (w WorldView) resolveUncached(target string) []inventory.InventoryItem {
 		}
 	}
 	return matches
+}
+
+// taskDevices returns the target task names (TaskTarget: its own, or
+// the runbook's hosts:) and the devices it reaches. A task that names no
+// target reaches the Resolver's answer for the empty target when a
+// Resolver is set, and no device otherwise, which is how the executor
+// treats it (engine's resolveDevices).
+func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.InventoryItem) {
+	target := engine.TaskTarget(w.DAG, task)
+	if target == "" && w.Resolver == nil {
+		return "", nil
+	}
+	return target, w.Resolve(target)
 }
 
 // Rule inspects a WorldView and returns the Findings it detects. A Rule
@@ -100,6 +129,11 @@ func Register(r Rule) {
 // Findings into one Report. It initializes world's Resolve cache once,
 // on its own local copy, before running any rule; see WorldView's
 // resolveCache field for why every rule ends up sharing it.
+//
+// The findings are sorted by node, then rule, then message. Rules walk
+// DAG.Nodes, a map, so without the sort the same runbook listed its
+// findings in a different order on every run, which a person comparing
+// two runs, or a test comparing output, reads as a change.
 func Validate(world WorldView) Report {
 	world.resolveCache = make(map[string][]inventory.InventoryItem)
 
@@ -107,5 +141,8 @@ func Validate(world WorldView) Report {
 	for _, r := range registry {
 		findings = append(findings, r(world)...)
 	}
+	slices.SortStableFunc(findings, func(a, b Finding) int {
+		return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.RuleName, b.RuleName), cmp.Compare(a.Message, b.Message))
+	})
 	return Report{Findings: findings}
 }

@@ -6,7 +6,7 @@ then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 69 of the 78 can predict what they would change before
+whether it can be reversed, and 70 of the 79 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
@@ -30,7 +30,7 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 81 registered methods; 78 are implemented.** Every
+- **The module catalog has 82 registered methods; 79 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only three are
@@ -133,6 +133,9 @@ mkdir my-project && cd my-project
 - [`docs/13-releases-and-stability.md`](docs/13-releases-and-stability.md) and
   [`docs/14-project.md`](docs/14-project.md): changelog, versioning, contributing,
   license, and where each of those actually lives today.
+- [`docs/15-performance.md`](docs/15-performance.md): the same work through Ansible and
+  Pleiades on 1 to 200 hosts, with time, CPU, memory, threads, logins, network and disk
+  measured, and how to rerun it.
 - [`docs/reference/`](docs/reference/index.md): the generated reference: module catalog,
   capability vocabulary, device types, sync plugins, runbook and task keys, the CLI
   ([`docs/reference/cli.md`](docs/reference/cli.md)), JSON Schemas, the OpenAPI document

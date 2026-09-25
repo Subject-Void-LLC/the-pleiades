@@ -88,6 +88,7 @@ func requireLocalStack(tb testing.TB) string {
 		ctx := context.Background()
 		ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,
 			testcontainers.WithEnv(map[string]string{"LOCALSTACK_AUTH_TOKEN": token}),
+			testsupport.LocalStackReady(),
 		)
 		if err != nil {
 			sharedContainerErr = fmt.Errorf("failed to start localstack container: %w", err)

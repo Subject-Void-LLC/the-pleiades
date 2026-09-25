@@ -168,3 +168,20 @@ func TestCollectionRule_PleiadesBuiltinSetMetadataExempted(t *testing.T) {
 		t.Fatalf("expected pleiades.builtin.set_metadata to be exempted, got findings: %v", findings)
 	}
 }
+
+// TestCollectionRule_NamesMigrationPlaceholders proves each name in the
+// reserved ansible namespace gets the message that fits it: the guard an
+// incomplete conversion starts with, a converter placeholder naming its
+// module, and any other ansible.* name as an unconverted module.
+func TestCollectionRule_NamesMigrationPlaceholders(t *testing.T) {
+	for fqcn, want := range map[string]string{
+		engine.IncompleteGuard:                                "the guard an incomplete conversion starts with",
+		engine.UnconvertedPrefix + "ansible.builtin.template": "did not convert (ansible.builtin.template)",
+		"ansible.builtin.copy":                                "an Ansible module that has not been converted",
+	} {
+		report := validate.Validate(validate.WorldView{DAG: dagWithOneTask(fqcn, "")})
+		if msg := report.String(); !strings.Contains(msg, want) {
+			t.Errorf("%s: message lacks %q: %s", fqcn, want, msg)
+		}
+	}
+}

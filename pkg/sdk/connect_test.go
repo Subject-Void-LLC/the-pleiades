@@ -92,6 +92,50 @@ func TestConnect_ReachesARealServer(t *testing.T) {
 	}
 }
 
+// pooledContext is a secretContext that lends from pool, as the engine's
+// context does for a device whose connections persist.
+type pooledContext struct {
+	*secretContext
+	pool *remoteexec.Pool
+}
+
+func (c *pooledContext) ConnectionPool() *remoteexec.Pool { return c.pool }
+
+// TestConnect_BorrowsFromThePool proves Connect lends from a context's
+// pool, so three connections log in once, and that a context holding a
+// nil pool, or none at all, logs in every time. The server's own login
+// count is the evidence.
+func TestConnect_BorrowsFromThePool(t *testing.T) {
+	srv := startServer(t)
+	device := &sshDevice{Stub: newStub(), host: srv.Host, port: srv.Port}
+	params := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	pool := remoteexec.NewPool(0)
+	t.Cleanup(func() { _ = pool.Close() })
+
+	connect := func(rc sdk.RunbookContext) {
+		t.Helper()
+		conn, err := sdk.Connect(context.Background(), rc, device, params, "test.connect")
+		if err != nil {
+			t.Fatalf("Connect: %v", err)
+		}
+		if _, err := conn.Run(context.Background(), "true"); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close()
+	}
+	for range 3 {
+		connect(&pooledContext{secretContext: newSecretContext(srv.Secrets()), pool: pool})
+	}
+	if got := srv.Logins(); got != 1 {
+		t.Fatalf("three connections through a pool: %d logins, want 1", got)
+	}
+	connect(&pooledContext{secretContext: newSecretContext(srv.Secrets())})
+	connect(newSecretContext(srv.Secrets()))
+	if got := srv.Logins(); got != 3 {
+		t.Fatalf("after two connections with no pool: %d logins, want 3", got)
+	}
+}
+
 // TestConnect_VerifiesTheHostKeyByDefault proves the fail-closed default
 // survives this wrapper: with no opt-out and a real known_hosts holding
 // the server's real key, the connection succeeds, and with an empty

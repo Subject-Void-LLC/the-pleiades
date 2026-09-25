@@ -27,8 +27,8 @@ func CapabilityRule(world WorldView) []Finding {
 			continue
 		}
 
-		target := engine.TaskTarget(world.DAG, task)
-		if target == "" {
+		target, devices := world.taskDevices(task)
+		if target == "" && len(devices) == 0 {
 			continue
 		}
 
@@ -41,7 +41,6 @@ func CapabilityRule(world WorldView) []Finding {
 			label = fmt.Sprintf("%s (name %q)", id, task.Name)
 		}
 
-		devices := world.Resolve(target)
 		if len(devices) == 0 {
 			findings = append(findings, Finding{
 				RuleName: "capability",

@@ -1,0 +1,1 @@
+Added `pleiades.builtin.connection.reset`, which closes the SSH connection a run keeps open to a device so its next task logs in again and sees a change to the account it logs in as, and `migrate-playbook` now converts `meta: reset_connection` to it. The `identity.user.*` and `identity.group.*` methods do the same on their own after a real run.

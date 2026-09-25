@@ -47,6 +47,30 @@ type Conn struct {
 	// addr is kept only to name the target in error messages, so a
 	// failure says which device it happened against.
 	addr string
+
+	// lease is set when this Conn was borrowed from a Pool: Close then
+	// gives the connection back instead of tearing it down, and anything
+	// that leaves the connection's state uncertain taints the lease so
+	// the Pool closes it rather than handing it to the next task.
+	lease *lease
+}
+
+// taint marks a borrowed connection as not to be reused. It does nothing
+// for a connection that was not borrowed.
+func (c *Conn) taint() {
+	if c.lease != nil {
+		c.lease.taint()
+	}
+}
+
+// usable refuses a borrowed Conn after its Close. A Conn that was really
+// closed fails on its own, but a borrowed one's connection may by then be
+// lent to another task, so without this a stale caller would run on it.
+func (c *Conn) usable() error {
+	if c.lease != nil && c.lease.isReleased() {
+		return errReleased
+	}
+	return nil
 }
 
 // Run runs command on this connection and returns its output and exit
@@ -77,8 +101,12 @@ func (c *Conn) Run(ctx context.Context, command string) (Result, error) {
 // nil stdin means the remote command sees an immediately-closed standard
 // input, which is what Run passes.
 func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader) (Result, error) {
+	if err := c.usable(); err != nil {
+		return Result{}, err
+	}
 	session, err := c.client.NewSession()
 	if err != nil {
+		c.taint()
 		return Result{}, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err)
 	}
 
@@ -116,6 +144,7 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 		// finished, and its exit status is the answer.
 		pipe, pipeErr := session.StdinPipe()
 		if pipeErr != nil {
+			c.taint()
 			return Result{}, fmt.Errorf("remoteexec: open stdin on %s: %w", c.addr, pipeErr)
 		}
 		copying.Add(1)
@@ -164,6 +193,10 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 		result.ExitCode = exitErr.ExitStatus()
 
 	default:
+		// The connection's state is now unknown (a command cut off
+		// mid-flight, or a transport failure), so a borrowed one is not
+		// handed to the next task.
+		c.taint()
 		// Report the caller's own cancellation as such. The raw error from
 		// Run in that case is whatever I/O failure resulted from the
 		// goroutine above closing the session, which describes the
@@ -190,6 +223,14 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 // closed regardless: a failure closing one connection must never leave
 // an earlier hop in the chain leaked.
 func (c *Conn) Close() error {
+	if c.lease != nil {
+		return c.lease.release()
+	}
+	return c.closeChain()
+}
+
+// closeChain closes every client in the chain, innermost first.
+func (c *Conn) closeChain() error {
 	var firstErr error
 	for i := len(c.chain) - 1; i >= 0; i-- {
 		if err := c.chain[i].Close(); err != nil && firstErr == nil {

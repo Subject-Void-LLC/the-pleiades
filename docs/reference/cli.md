@@ -55,6 +55,22 @@ store an encrypted credential for a device
 
 `pleiades add-credential win01 --certificate client.pem --key client.key`
 
+## pleiades onboard
+
+probe a generic device over its protocol and record what it proved
+
+`pleiades onboard <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print the result as JSON, in the same model the text shows |
+| --timeout | `duration` | `30s` | how long the probe may take |
+
+`pleiades onboard edge01`
+
+`pleiades onboard api01 --json`
+
 ## pleiades validate
 
 check a runbook against the inventory
@@ -64,8 +80,12 @@ check a runbook against the inventory
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
+| --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 
 `pleiades validate runbooks/site.yaml`
+
+`pleiades validate runbooks/site.yaml --tags web`
 
 ## pleiades run
 
@@ -80,6 +100,10 @@ build, validate, and run a runbook
 | --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
 | --allow-unchecked | `string` | - | a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed |
+| --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
+| --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
+| --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
+| --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
 
 `pleiades run runbooks/site.yaml`
 
@@ -88,6 +112,10 @@ build, validate, and run a runbook
 `pleiades run runbooks/site.yaml --mode check --verbose`
 
 `pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command`
+
+`pleiades run runbooks/site.yaml --tags web --skip-tags slow`
+
+`pleiades run runbooks/site.yaml --persist-connections=false`
 
 ## pleiades inventory
 
@@ -291,6 +319,22 @@ generate a new pkg/filters function and its starter test
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 
 `pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary "converts a CIDR prefix length to its dotted-decimal netmask." --param cidr:string --return string`
+
+### pleiades forge migrate-playbook
+
+convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one
+
+`pleiades forge migrate-playbook <playbook.yml> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --out | `string` | `runbooks` | directory to write the converted runbooks into, created when missing |
+| --json | `bool` | `false` | print the migration report as JSON, the same model the text view renders |
+| --force | `bool` | `false` | replace runbooks an earlier conversion wrote |
+
+`pleiades forge migrate-playbook site.yml`
+
+`pleiades forge migrate-playbook playbooks/web.yml --out runbooks --json`
 
 ## pleiades doc
 

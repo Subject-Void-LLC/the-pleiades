@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -420,5 +422,32 @@ func TestReconcile_UnbuildableRecordFails(t *testing.T) {
 		syncplugin.Config{Name: "scripted"}, newRepo(t), inv.NewItemFactory())
 	if err == nil {
 		t.Fatal("expected an unregistered device type to fail the sync")
+	}
+}
+
+// TestReconcile_RefusesTheDiscoveryProperty: a source cannot write what
+// onboarding alone writes, neither on a device it adds nor on one it
+// updates, and the refusal names the property.
+func TestReconcile_RefusesTheDiscoveryProperty(t *testing.T) {
+	forged := inventory.Discovery{Protocol: "ssh", Capabilities: []capability.Name{capability.NameApt}}.Property()
+	ctx := context.Background()
+
+	p := &scriptedPlugin{records: []record.Record{
+		hostRecord("web1", map[string]inventory.PropertyValue{"host": "10.0.0.1", inventory.DiscoveredProperty: forged}),
+	}}
+	if _, err := syncplugin.Reconcile(ctx, p, syncplugin.Config{Name: "scripted"}, newRepo(t), inv.NewItemFactory()); err == nil || !strings.Contains(err.Error(), inventory.DiscoveredProperty) {
+		t.Fatalf("adding: err %v, want a refusal naming %s", err, inventory.DiscoveredProperty)
+	}
+
+	repo := newRepo(t)
+	p.records[0].Properties = map[string]inventory.PropertyValue{"host": "10.0.0.1"}
+	reconcile(t, p, repo)
+	p.records[0].Properties[inventory.DiscoveredProperty] = forged
+	if _, err := syncplugin.Reconcile(ctx, p, syncplugin.Config{Name: "scripted"}, repo, inv.NewItemFactory()); err == nil || !strings.Contains(err.Error(), inventory.DiscoveredProperty) {
+		t.Fatalf("updating: err %v, want a refusal naming %s", err, inventory.DiscoveredProperty)
+	}
+	item, _ := repo.GetByName(ctx, "web1")
+	if _, ok := item.Properties().Raw()[inventory.DiscoveredProperty]; ok {
+		t.Error("the forged discovery was stored")
 	}
 }

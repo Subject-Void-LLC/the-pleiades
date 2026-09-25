@@ -37,7 +37,10 @@ func DefaultRuleSet() *RuleSet {
 			Capabilities:   []capability.Name{capability.NameLinux, capability.NameSSHTransport},
 		},
 		"linux_server.debian_family": {
-			Capabilities: []capability.Name{capability.NameApt},
+			Capabilities: []capability.Name{capability.NameApt, capability.NamePosixAccount},
+		},
+		"linux_server.rhel_family": {
+			Capabilities: []capability.Name{capability.NameDnf, capability.NamePosixAccount},
 		},
 		"network_device.cisco.ios": {
 			Type:           str("cisco_router"),

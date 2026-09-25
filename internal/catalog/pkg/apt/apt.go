@@ -19,29 +19,16 @@
 // every run forever, which is indistinguishable from a method that is
 // genuinely fixing something every time.
 //
-// # The capability this cannot reach yet
+// # The capability, and the devices that satisfy it
 //
-// capability.AptCapable exists (pkg/capability/capabilities_package.go)
-// and is what RequiredCapabilities below names, but no device type in
-// this repository structurally implements it today: PackageManagerName,
-// AptSourcesList and DnfRepoDir have no real accessor anywhere.
-// internal/inventory/devices/linux/server_test.go's
-// TestNewServer_UnionsClassificationCapabilities is a deliberate
-// regression proof of exactly this, for linux.Server specifically:
-// declaring AptCapable in a record's classification data is not enough,
-// because HasCapability also requires a structural Implements, and
-// nothing implements it. That is settled, intentional architecture
-// (package-manager family is genuinely per-distro data, unlike a
-// service manager which has a safe universal default), not an oversight
-// this package's own tests can or should paper over.
-//
-// The practical consequence: pkg.apt.install, pkg.apt.remove and
-// pkg.apt.upgrade are implemented and tested here, against a real SSH
-// server with a fake apt-get on PATH, exactly the tier svc.systemd.*
-// was accepted at (that namespace also ships with no container release
-// gate). They are not yet reachable against any real inventory device
-// through the platform end to end. Wiring a device type to
-// AptCapable/DnfCapable is separate, deliberate follow-up work.
+// capability.AptCapable (pkg/capability/capabilities_package.go) is what
+// RequiredCapabilities below names. linux_server implements its accessors
+// (internal/inventory/devices/linux/packages.go) but declares it only when
+// classified linux_server,debian_family: which package manager a server
+// has is per-distribution data, so no Linux server claims one by default.
+// cmd/pleiades's TestCLI_PackageAndAccountMethodsReachARealDevice runs
+// pkg.install, which dispatches here, through the real binary against a
+// real Debian device.
 package apt
 
 import (

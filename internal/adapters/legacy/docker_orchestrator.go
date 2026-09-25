@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	dockercontainer "github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -67,6 +68,26 @@ func (o *DockerOrchestrator) Run(ctx context.Context, spec ContainerSpec) (Conta
 		Files:      files,
 		Networks:   spec.Networks,
 		WaitingFor: wait.ForExit(),
+		// An init as PID 1 (Docker's own, what `docker run --init`
+		// starts), so the command runs as an ordinary child of it.
+		// ansible-playbook leaves orphans for PID 1 to reap: its
+		// persisted ssh connections, and processes its workers started
+		// that outlive them. As PID 1 itself it reaps only the children
+		// it started, so every orphan became a zombie holding a kernel
+		// task slot until the container exited, about one per task per
+		// host: a large enough playbook could exhaust the Runner host's
+		// task table within one run, failing every process on it
+		// (FAILURE_PATTERNS 343).
+		//
+		// Setting HostConfigModifier replaces testcontainers-go's default
+		// modifier, which only copies the request's deprecated host
+		// fields (Binds, CapAdd, NetworkMode, Privileged, Resources and
+		// the like). This request sets none of them, so nothing is lost;
+		// one set here later must be set in this function instead.
+		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
+			withInit := true
+			hc.Init = &withInit
+		},
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

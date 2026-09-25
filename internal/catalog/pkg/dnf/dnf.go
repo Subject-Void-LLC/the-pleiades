@@ -3,10 +3,9 @@
 //
 // See internal/catalog/pkg/apt's own doc comment for the shape this
 // mirrors (no new pkg/ primitive, read-first converge, and the
-// capability-wiring gap this namespace shares with it) and for
-// capability.DnfCapable's own state: declared in
-// pkg/capability/capabilities_package.go, structurally implemented by
-// no device type in this repository yet.
+// capability it names) and for capability.DnfCapable's: implemented by
+// linux_server and declared when it is classified
+// linux_server,rhel_family.
 package dnf
 
 import (

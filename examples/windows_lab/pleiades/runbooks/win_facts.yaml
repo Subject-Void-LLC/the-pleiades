@@ -6,9 +6,7 @@ id: win_facts
 hosts: win2025
 metadata:
   service_effecting: false
-  mcp: true
-  mcp_description: "Reads identity and network configuration from a Windows host over WinRM. Changes nothing."
-  mcp_impact: "None. Every task here only reads."
+  description: "Reads identity and network configuration from a Windows host over WinRM. Changes nothing."
 
 tasks:
   - name: Identify the host

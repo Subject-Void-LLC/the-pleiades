@@ -1,0 +1,30 @@
+- name: web tier
+  hosts: web
+  gather_facts: false
+  tags: [site]
+  vars:
+    app_dir: /srv/app
+    tools: [curl, git]
+    verbose: yes
+  pre_tasks:
+    - name: probe
+      ansible.builtin.command: /usr/bin/test -d {{ app_dir }}
+      register: probe
+  tasks:
+    - name: install tool
+      command: echo {{ item }}
+      loop: "{{ tools }}"
+      tags: tools
+    - name: deploy
+      block:
+        - name: build
+          shell: make -C {{ app_dir }}
+          args:
+            creates: "{{ app_dir }}/build"
+          when: probe.rc == 0
+        - name: report
+          command: echo built
+          when: verbose | bool
+      rescue:
+        - name: note failure
+          command: echo failed

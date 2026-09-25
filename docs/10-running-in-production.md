@@ -1009,7 +1009,16 @@ an operator.
   under "devices needing review", with its reason, including on a `--read-only` preview.
   Fix the source or wait for a plugin that can place the record; there is nothing in the
   inventory to promote.
-- **Added through the API or the web UI.** A device created there is `active`.
+- **Added through the API or the web UI.** A device created there is `active`, unless its
+  type is a generic one (below).
+- **A generic device is onboarded.** A `generic_ssh`, `generic_netconf`, `generic_http` or
+  `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
+  Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
+  moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
+  probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
+  answer. Onboarding refuses a device an administrator put in `quarantined`,
+  `simulate-locked`, `decommissioning` or `archived`. Onboarding an `active` device again
+  re-probes it and records only what changed.
 - **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
   such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`,
   which operators and admins hold. Each change is recorded as a revision in the device's
@@ -1559,6 +1568,147 @@ fleet-wide. Use it for a throwaway lab and treat it as a finding anywhere else. 
 that until recently this was the only thing that worked inside the shipped runner
 image, so a runbook inherited from that period may be carrying it for a reason that
 no longer exists.
+
+### Onboarding a generic device from the Controller
+
+The onboarding route runs the probe in the Controller process, as a sync does: the
+Controller connects to the device, not a Runner. So the Controller needs what a probe
+needs: the device's credential in the same per-device store a dispatch reads
+(`CONTROLLER_CREDENTIALS_DIR`), the device's host key in its known_hosts
+(`PLEIADES_KNOWN_HOSTS`, or its own `~/.ssh/known_hosts`) for `generic_ssh` and
+`generic_netconf`, and, for a `generic_http` or `generic_grpc` device, a way to trust its
+certificate: the system's roots, `SSL_CERT_FILE`, or the device's own `tls_ca_pem` (below). No
+probe skips a host key or a certificate check, and there is no setting that makes one.
+
+The route needs `inventory:onboard`, which operators and admins hold and which
+`inventory:write` does not imply: onboarding reaches a device with a secret and is the only
+way a device gains a capability its type does not declare. Each call is logged with its
+caller and outcome, and the discovery and every state change it makes are revisions in the
+device's history.
+
+What each probe sends the device is fixed. The SSH probe runs one constant script, which
+reads `uname`, `/etc/os-release` (read line by line, never executed) and whether a set of
+commands exists. The HTTP probe sends one GET of the base URL, and of `openapi_path` when set,
+and follows no redirect, so the credential reaches the base URL's origin and nowhere else;
+`basic` or `bearer` authentication on an `http://` base URL is refused unless the device allows
+it (below). The gRPC probe calls
+the standard health and reflection services, sends a stored credential as a bearer token
+only over TLS, and refuses outright when a credential is stored and `grpc_plaintext` is true.
+What a device answers is kept only as bounded text (256 bytes a value, 256 entries a list),
+with control and formatting characters removed, and is escaped again wherever it is printed.
+
+On the Walk tier a Runner rebuilds each dispatched device as its real type, so every accessor
+answers there as it does on the Controller: `http.request`'s device mode, `net.netconf.config`'s
+NETCONF port, and the generic `pkg.*` and `svc.*` methods' manager name all work on a Runner. To
+do it, the dispatch carries the device's type and only the properties its type declares its
+accessors read (a base URL, a port, a path; never anything else an operator keeps in a property),
+plus its discovery. Each device type declares that list, and a test holds it equal to what the
+type's code reads and refuses any key that names a secret. A Runner given a dispatch without
+them, from an older Controller, reaches the device by its address alone, as before, and a method
+that needs more refuses by name.
+
+### Device TLS: pinning, mutual TLS, and old devices
+
+A `generic_http` or `generic_grpc` device's TLS is set on the device's own record, and the
+onboarding probe and `http.request`'s device mode both use it:
+
+| Property | Meaning |
+|---|---|
+| `tls_min_version` | The lowest version allowed: `1.2` (the default) or `1.3`, and `1.0` or `1.1` only as below. |
+| `tls_server_name` | The name the device's certificate is checked against, when it is not the host being dialed. |
+| `tls_ca_pem` | A certificate authority in PEM, trusted for this device instead of the system's roots. |
+| `tls_client_certificate` | `true` presents the device's stored certificate (mutual TLS): `add-credential --certificate` and `--key`, or `--pfx`. |
+
+Certificates are always verified; no setting turns that off. Nothing lowers TLS by default, and
+an old device that cannot do better is reached only through its own record, one explicit flag
+per weakening, each named for what it is and each reported as a `WARNING` on every onboarding
+and every run (the CLI prints it; on the Walk tier it is a `task.warning` line in the job log):
+
+- **`tls_allow_deprecated_versions: true`** with `tls_min_version` `1.0` or `1.1`. Both were
+  deprecated by RFC 8996 and are open to known attacks. A device that supports TLS 1.3 still
+  negotiates TLS 1.3: the flag lowers the floor, never the version reached.
+- **`tls_allow_legacy_ciphers: true`**, a separate flag, for the cipher suites Go no longer offers
+  by default: 3DES, RC4 and RSA key exchange, which are broken or give no forward secrecy.
+- **`http_allow_plaintext_credentials: true`**, for a `generic_http` device with an `http://` base
+  URL and a credential mode. Its credential crosses the network unencrypted, readable by anyone
+  on the path; each use warns to rotate the credential, and to move the device to `https://`.
+
+A flag that allows nothing (deprecated versions with a 1.2 floor, plaintext credentials on an
+`https://` device) is refused as a contradiction, and so is any TLS setting on a connection that
+has no TLS. SSL 3.0 cannot be allowed at all. `generic_grpc` refuses both TLS weakenings, since
+gRPC runs over HTTP/2, which requires TLS 1.2 and forbids those suites, and it refuses to send a
+stored credential over `grpc_plaintext` with no flag to change that.
+
+### Connection persistence
+
+A run keeps one SSH connection per device open between that device's tasks, the way
+Ansible's `ControlPersist` does, so a runbook of ten tasks against a device logs in
+once rather than ten times. On the CLI the connection lasts for the `pleiades run`; on
+the Controller and Runner it lasts for one device's dispatch. Either way it closes when
+the run ends, or after 60 seconds without a task. Measured against a real root `sshd`
+([Performance compared with Ansible](15-performance.md)), ten tasks on one host took 0.10 s with
+it and 0.63 s without, and 200 hosts took 3.2 s against 23.7 s at 5 devices at a time; the run
+logs in once per device instead of once per task.
+
+It is on by default and can be turned off at two ladders. **Off at either one is off.**
+
+- **The run's own setting.** `pleiades run --persist-connections=false` on the CLI, or
+  the `persist_connections` launch field (`on` or `off`) on a job template, a saved
+  configuration or a launch, resolved like every other launch field: the most specific
+  layer that sets it wins.
+- **The device's hierarchy.** A `persist_connections: false` property on an inventory, a
+  group or a device (`pleiades add-host web --set persist_connections=false` on the
+  CLI). The most specific level that sets it wins, so a device can turn it back on
+  beneath a group that turned it off. A value that is not a boolean reads as off, so a
+  mistyped `"no"` or a quoted `"true"` never leaves it on by accident.
+
+**When a kept connection is not reused.** Reuse is refused, and a fresh login made
+instead, whenever reuse could mean anything a fresh login would not:
+
+- the task's address, credential, host key setting or `known_hosts` file differs from
+  the one the connection was made with;
+- the `known_hosts` file has changed at all since the login, so a host key you just
+  removed is checked again at once rather than honored through an older login;
+- the connection does not answer an SSH keepalive. A dead one is replaced before any
+  command is sent. A device that gives no answer within three seconds is not kept for
+  the rest of the run, so it costs a fresh login per task rather than a timeout per
+  task;
+- the last task on it opened an interactive terminal (`net.cli.*`, `net.ios.*`), a
+  NETCONF session or a streamed transfer, or had a command cut off by a timeout or a
+  cancel. That connection is closed rather than handed to the next task, since whatever
+  state it was left in is not the next task's to inherit.
+
+`net.ssh.ping` always logs in afresh, because proving that a login works right now is
+what it is for. The legacy transport actions (`ssh_exec` and its kin, with their
+routes through a jump host) are not kept either, and neither are the connections an
+external Collection program makes, since each call to one is its own process.
+
+**Changes to the login itself.** A connection made before a change to the account it
+logs in as does not see that change: a group it was just added to, a new shell, a
+changed limit, or a new `AllowUsers` line in `sshd_config`. The `identity.user.*` and
+`identity.group.*` methods close the connection after a real run for exactly that
+reason. For a change they cannot see, such as `usermod` run through `exec.command`, add
+a `pleiades.builtin.connection.reset` task, which is Ansible's `meta: reset_connection`
+and is what `migrate-playbook` converts that to. The next task logs in again.
+
+**Why you might turn it off.** The trade is fewer logins against a login that lasts
+longer:
+
+- a credential revoked on the device part way through a run does not stop tasks that
+  run over a connection made before the revocation;
+- a device whose session log is your audit trail records one session for the run's
+  tasks rather than one per task;
+- on the Runner, one process serves every task of a dispatch, so the dispatch's
+  credential stays in that process's memory for the dispatch rather than for one task.
+  It already travels on the dispatch message itself, so this lengthens how long it is
+  held rather than where.
+
+Turn it off where a per-task login or an immediate revocation matters more than the
+time saved. With it off, each task logs in and closes exactly as it did before this
+setting existed.
+
+A Controller older than this setting sends dispatches without it, and a Runner reads
+that as off. A Runner older than it ignores it and logs in per task.
 
 ### Bastions and hop chains
 

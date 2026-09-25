@@ -1440,12 +1440,12 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all."
+      "notes": "A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo."
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Makes sure a directory exists on the target, with the mode, owner and group the task asks for.",
-      "description": "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and sets the mode, owner and group when the task names them. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
+      "description": "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and gives the directory, and every parent it creates, the mode, owner and group the task names, as Ansible does; a parent that already existed is never changed. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
       "params": [
         {
           "name": "path",
@@ -1456,17 +1456,17 @@
         {
           "name": "mode",
           "type": "string",
-          "description": "The permission bits in octal, written as a quoted string such as \"0755\". Quote it: an unquoted 0755 is read as a number by YAML and its leading zero is lost, so an unquoted value is refused rather than applied. A symbolic mode such as u+rwx is refused too, since it cannot be compared against the mode the device reports. Left unset, a new directory gets whatever the device's umask gives it and an existing one keeps the mode it has. Applies to the directory this task names, never to a parent created along the way."
+          "description": "The permission bits in octal, written as a quoted string such as \"0755\". Quote it: an unquoted 0755 is read as a number by YAML and its leading zero is lost, so an unquoted value is refused rather than applied. A symbolic mode such as u+rwx is refused too, since it cannot be compared against the mode the device reports. Left unset, a new directory gets whatever the device's umask gives it and an existing one keeps the mode it has. Applies to the directory this task names and to every parent it creates on the way there, as ansible.builtin.file does, so a private tree is private all the way down; a parent that already existed keeps its mode."
         },
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Left unset, ownership is not touched."
+          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id. Left unset, the group is not touched."
+          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -2439,7 +2439,7 @@
           "name": "url",
           "type": "string",
           "required": true,
-          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make."
+          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it."
         },
         {
           "name": "method",
@@ -2522,6 +2522,10 @@
         {
           "name": "Post JSON to an API",
           "runbookYaml": "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n"
+        },
+        {
+          "name": "Call a device's own API with its stored credential",
+          "runbookYaml": "- name: Read the device's interfaces\n  http.request:\n    url: /interfaces\n"
         }
       ],
       "seeAlso": [
@@ -2547,6 +2551,7 @@
       "notes": "A run that created an absent group emits an identity.group.remove naming it. A run that found the group already present but converged its gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the group already at the requested gid emits nothing."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Makes sure a POSIX group exists on the target.",
       "description": "Makes sure a group is present on the target, creating it if absent. This is ansible.builtin.group with state=present. Group state is read from getent before anything is sent, so a group already present at the requested gid (or present with none requested) reports no change and no command reaches the device; a group present at a different gid than requested is converged with groupmod rather than recreated.",
@@ -2623,6 +2628,7 @@
       "notes": "A run that converged the gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the gid already matching emits nothing."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Changes the gid of an existing POSIX group on the target.",
       "description": "Converges an existing group's gid, refusing outright if the group does not exist rather than creating one (use identity.group.create for that). A POSIX group has no other mutable attribute this platform manages: renaming is not something groupmod supports and ansible.builtin.group does not offer it either, and membership is identity.user.*'s own concern. Group state is read from getent before anything is sent, so a gid already matching what was requested reports no change and no command reaches the device.",
@@ -2689,6 +2695,7 @@
       "notes": "A run that removed a present group emits an identity.group.create pinned to the exact gid this run captured before removing it, which is a real, restorable inverse. A run that found the group already absent emits nothing. What the inverse cannot restore is any user's primary or supplementary membership in the group at the moment it was removed."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Removes a POSIX group from the target.",
       "description": "Makes sure a group is absent from the target, removing it if present. This is ansible.builtin.group with state=absent. Group state is read from getent before anything is sent, so a group already absent reports no change and no command reaches the device. groupdel itself refuses to remove a group that is still any user's primary group; that refusal surfaces here as a plain task failure naming what groupdel said, not something this method works around.",
@@ -2749,6 +2756,7 @@
       "notes": "A run that created an absent account emits an identity.user.remove naming it. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Makes sure a POSIX user account exists on the target.",
       "description": "Makes sure a user account is present on the target, creating it if absent. This is ansible.builtin.user with state=present. Account state is read from getent before anything is sent, so an account already present with every requested attribute already matching reports no change and no command reaches the device; an account present with a different uid, group, shell, home or comment than requested is converged with usermod rather than recreated. Supplementary group membership and the account password are not managed by this method.",
@@ -2851,6 +2859,7 @@
       "notes": "A run that converged one or more attributes emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found every requested attribute already matching emits nothing."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Changes attributes of an existing POSIX user account on the target.",
       "description": "Converges an existing account's uid, primary group, shell, home or comment to whichever of those the runbook names, refusing outright if the account does not exist rather than creating one (use identity.user.create for that). Account state is read from getent before anything is sent, so an attribute already matching what was requested is left alone, and a run that requests nothing different reports no change and no command reaches the device.",
@@ -2936,6 +2945,7 @@
       "notes": "A run that removed a present account emits an identity.user.create pinned to the exact uid, group, shell, home and comment this run captured before removing it, which is a real, restorable inverse for the account's identity attributes. A run that found the account already absent emits nothing. What the inverse cannot restore is the account's password (never captured by this platform), or the home directory's contents once remove=true has asked userdel to delete them."
     },
     "supportsCheck": true,
+    "endsLoginSession": true,
     "doc": {
       "summary": "Removes a POSIX user account from the target.",
       "description": "Makes sure a user account is absent from the target, removing it if present. This is ansible.builtin.user with state=absent. Account state is read from getent before anything is sent, so an account already absent reports no change and no command reaches the device.",
@@ -4380,6 +4390,38 @@
         "pkg.remove",
         "pkg.apt.upgrade",
         "pkg.dnf.upgrade"
+      ]
+    }
+  },
+  "pleiades.builtin.connection.reset": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "SSHTransportCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, so the device is as it would have been had the task never run and there is nothing to undo."
+    },
+    "supportsCheck": true,
+    "endsLoginSession": true,
+    "doc": {
+      "summary": "Closes the SSH connection kept open to the device, so its next task logs in again.",
+      "description": "A run keeps one SSH connection per device open between tasks unless persist_connections is turned off. A login made before a change to the account it logs in as does not see that change: a group the account was just added to, a new shell, a changed limit. The identity methods close the connection themselves after they run, so this is for the change they cannot see, such as a group membership edited by exec.command. It is Ansible's meta: reset_connection, and migrate-playbook converts that to it. It touches nothing on the device, so it never reports changed, and a check runs it as it is. Where connections do not persist it does nothing, since every task already logs in afresh.",
+      "examples": [
+        {
+          "name": "Pick up a group membership in the next task",
+          "runbookYaml": "- name: Add deploy to the docker group\n  exec.command:\n    cmd: usermod -aG docker deploy\n- name: Log in again, so the new group applies\n  pleiades.builtin.connection.reset: {}\n- name: Use docker as deploy\n  exec.command:\n    cmd: docker ps\n"
+        }
+      ],
+      "seeAlso": [
+        "identity.user.modify",
+        "identity.group.modify",
+        "exec.command"
       ]
     }
   },

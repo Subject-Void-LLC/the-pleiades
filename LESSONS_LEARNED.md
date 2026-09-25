@@ -265,6 +265,18 @@ story, per `.AGENTS/AGENTS.md`.
 230. **Make "refused before any network call" a property of a type whose only constructor performs no I/O, and hold that constructor's package to an import allowlist, rather than a check each caller must remember to make first (2026-09-23).**
 231. **A test harness standing in for a server must end a session when that server would; re-check it whenever a new kind of client arrives, because the first client to depend on a behavior is the one the harness was never tested against (2026-09-23).**
 232. **Read a fuzz run's execution count only from a run that ended cleanly: minimization freezes the counter and can end a time-bounded run as a failure with no crasher, so bound minimization or bound the run by count (2026-09-23).**
+233. **Make output that is unsafe until a person finishes it structurally unrunnable everywhere it could run (a telling file name, a guard first, placeholders in a reserved namespace, and validation where execution starts), rather than invalid to one check in one entry point (2026-09-24).**
+234. **When the claim is "does what X does", test against X itself on the outcome a user relies on (files, modes, values), and measure on real input early: every defect Phase 35's unit tests missed was found that way (2026-09-24).**
+235. **After a test passes, break the exact thing it claims to protect; if it still passes, the fixture is missing the case (2026-09-24).**
+236. **A native method's defaults are part of any mapping onto it: where a task omits an argument, write the source's default explicitly, because each side's default differs (2026-09-24).**
+237. **A reused login is keyed by everything that gave it its meaning (address, credential, host key policy, trust file content), and anything that leaves its state unknown ends it rather than returning it (2026-09-24).**
+238. **A gap accepted as "not reachable yet" needs an end-to-end test through the real path that fails while it is open, or the path that would close it breaks unseen (2026-09-24).**
+239. **A value only the device may vouch for gets one reserved name, one writer, and a test on every other write path that it is refused; count the paths by searching for writers (2026-09-24).**
+240. **A gate that injects a message at a boundary proves only the side it reaches; test each half of a two-process feature from its real entry point (2026-09-25).**
+241. **Tick a multi-clause checklist item only when each clause cites its own proof; split out or leave open any clause with none (2026-09-25).**
+242. **Assert a "does no I/O" claim on the calls a package makes, not on its imports: `time.LoadLocation` reads the disk from a non-I/O package (2026-09-25).**
+243. **Test a bound at the layer that enforces it: a deadline a wrapper records is no bound when an inner layer applies its own default (2026-09-25).**
+244. **When one of two sibling paths carries a guard, check the other, and move the guard into one helper both call (2026-09-25).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

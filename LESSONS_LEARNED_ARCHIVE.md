@@ -5019,3 +5019,170 @@ run whose budget expires mid-minimization can end as a failure with no failing i
 Bound minimization (`-fuzzminimizetime 2s`) when the count matters, or bound the run by count
 (`-fuzztime 10000000x`) when a clean pass at a stated size is the evidence. Record the count from the
 run's final line only when its rate never fell to zero before the end.
+
+## 233. An incomplete conversion must be unrunnable in every tier, not merely invalid in one
+
+Phase 35's converter writes a placeholder for each task it cannot convert, and the obvious safety net
+was "validate refuses it". That held only on the Crawl tier: the Walk tier never ran validation
+(FAILURE_PATTERNS 322), so a runbook the CLI refused would have run on a Runner, every converted task
+before the placeholder changing the device. The fix stacks three independent refusals, each enough on
+its own: the file is named `<name>.incomplete.yaml`, its first task is a guard in the reserved
+`ansible` namespace that nothing can register, and every placeholder is in that namespace too; the
+Runner now validates what it is dispatched (Phase 35, commit a2). Proven on the device, not in the
+report: `TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal` finds no marker file, and
+`TestMigratePlaybookReleaseGate` has both `validate` and `run` refuse, naming the guard and each
+placeholder.
+
+The general rule: when output is unsafe until a person finishes it, make it structurally unable to run
+wherever it could be run, rather than relying on one check in one entry point.
+
+## 234. Test a converter against the program it imitates, on the outcome a user relies on
+
+Four of Phase 35's real defects were invisible to every unit test and every hand-written fixture, and
+each was found only by comparing with the real thing: `file.directory` left created parents at the
+umask's mode (a behavior gate running real Ansible and `pleiades run` on the same playbook and
+comparing the trees, FAILURE_PATTERNS 335); two YAML merge keys resolved the opposite way from
+Ansible's loader (a differential against `AnsibleLoader`, 332); the module tables accepted other
+modules' aliases and values (a differential against `ansible-doc -j`, 334); and nested imports resolved
+against the wrong directory (a measurement over real public roles, 337). Every one of them had a
+confident comment or documentation line saying the behavior matched Ansible.
+
+When the claim is "does what X does", the test runs X. Compare outcomes (files, modes, values), not
+descriptions, and measure on real input early.
+
+## 235. A passing test proves only the paths its fixture reaches: mutate the assertion's own reason for existing
+
+Two Phase 35 gates passed their first run and survived a mutation that should have failed them. The
+release gate asserted each construct is reported exactly once, but its only duplicated construct
+(`become` on a looped task) is raised before the loop unrolls, so switching de-duplication off changed
+nothing; a per-copy construct (`update_cache` on the same task) was needed. The report-schema test
+required every property to hold a value somewhere, so the schema's null alternatives went unexercised
+and a fixture without a blocked task still passed; it now requires each nullable property to be seen
+null too, which also exposed a field that could never be null.
+
+After a test passes, break the exact thing it claims to protect and watch it fail. If it does not,
+the fixture is missing the case, not the code.
+
+## 236. A native method's defaults are part of the mapping onto it
+
+Mapping an Ansible module onto a native method is not only renaming parameters. Where the task leaves
+an argument out, each side applies its own default, and they differ: `fw.firewalld.allow` defaults to
+permanent and immediate while Ansible's firewalld defaults to runtime only (so a straight mapping would
+persist a rule the playbook never persisted); `file.copy` creates a file 0600 where Ansible uses the
+umask; `net.netconf.config` locks nothing by default where Ansible locks always, and spells
+`if_supported` where Ansible spells `if-supported`. Phase 35's tables write Ansible's default wherever
+the native one differs (`Call.Fixed`, `Entry.Adjust`), and say so in a review where they cannot.
+
+Read both sides' defaults for every argument a task may omit, and write the source's default
+explicitly into the converted call.
+
+## 237. A reused login is keyed by everything that gave it its meaning, and anything that leaves its state unknown ends it
+
+Phase 110 keeps one SSH connection per device open between tasks. A connection is a login: made with
+one credential, to one address, under one host key policy, verified against one known_hosts file's
+content. Reusing it for a task whose own login would differ in any of those is running that task with
+another task's authority, so the pool's key holds all of them (the credential as a keyed digest, never
+the secret), and the known_hosts content is re-checked before every reuse because a person editing that
+file means "check again now". Equally, a connection is only as good as the state it is in: a terminal
+left in configuration mode, a NETCONF lock, a command cut off mid-flight, or an account whose groups just
+changed all mean the next task would inherit something it did not ask for, so each of those ends the
+connection rather than returning it.
+
+When reusing an authenticated session, key it by every input that decided what the login may do, and
+close it, not return it, whenever what happened on it cannot be proven harmless to the next user.
+
+## 238. A disclosed gap needs a test that fails while it is open
+
+Eighteen implemented methods could not run on any real device, because no device type implemented the
+capabilities they required. That was disclosed honestly, in each package's doc comment and in an
+allowlist with written reasons. But the disclosure was the only thing watching it, and a disclosure
+does not fail. While the gap stayed open, the path that would close it (a classification granting
+`AptCapable` to a `linux_server`) broke unseen: `add-host` saved the type beside the classification,
+and loading dropped the classification's capabilities (FAILURE_PATTERNS 344). Closing the first gap
+exposed the second only because the proof ran through the real binary against a real device.
+
+When a gap is accepted, write the end-to-end test that will pass once it closes, and keep it failing
+(or skipped with a named reason) until then, so the closing work finds every break on the way.
+
+## 239. A claim only the device may make needs one writer, and a refusal tested on every other path
+
+Phase 111's generic device types take their capabilities from the device: onboarding probes it and
+records what its answers prove. That record is worth something only if nothing else can write it, and
+"nothing else" turned out to be seven paths, not one: `add-host --set`, a hand-written `hosts.yaml`
+(through the repository and through the read-only loader), a sync plugin adding a device, a sync plugin
+updating one, the ordinary property mutators, the API and the web UI. The API and the web UI were safe
+only by accident, since neither accepts properties at all. The design that held was one reserved
+property, one privileged method that writes it (with a revision, like any other change), a single
+predicate every other path calls, and a test per path that tries to write it and fails naming it. The
+discovery was also moved out of the hand-edited file into the generated state file, so the file a
+person edits never holds a value they may not write.
+
+A second finding came from the same work: a classification path is linear, and what a probe finds is a
+set of independent facts (apt and systemd and firewalld). Encoding a set as a path needs a rule per
+combination, so the probes map each fact to a capability directly, and each type bounds what it may be
+granted.
+
+When a value must come from one source, reserve its name, give it one writer, and enumerate every
+write path with a test that the others refuse it. Count the paths by searching for writers, not by
+remembering them.
+
+## 240. A gate that injects at a boundary proves only the side it reaches
+
+Phase 111's Walk-tier release gate published a dispatch payload onto the real stream and watched a real
+Runner handle it, and it passed. What it could not show was that the Controller would ever build that
+payload: the Controller's fan-out skipped every generic device before dispatch, for having no `host`
+property (FAILURE_PATTERNS 348). The gate was representative of the Runner and silent about the
+Controller, because it started halfway through the path. The bug surfaced only when the Controller
+side got a test of its own, from a real device in a real inventory through the real worker.
+
+When a feature spans two processes, test each half from its real entry point (the Controller from an
+inventory device, the Runner from a published dispatch), or one test that crosses both. A test that
+injects at a boundary says nothing about what arrives there in production.
+
+## 241. Tick a multi-clause checklist item only when each clause cites its own proof
+
+**Rule.** When an item asks for several things (fuzz this and benchmark that; fuzz the email and the
+password; one end-to-end run across two processes), write the evidence one clause at a time, naming a
+test for each. A clause with no test is still open, so either split it into its own open item or leave
+the whole item unticked. Never tick an item because its most visible clause is done.
+
+**Why.** On 2026-09-25, tracing the attestation checker's four problems found three items ticked with a
+clause missing (FAILURE_PATTERNS 349). Phase 96c's exactly-once release gate had never been run as one
+test. Its two halves existed separately, one of them on an in-memory store, and the item read as proven
+for a month. Evidence written per clause would have shown the gap the day it was ticked.
+
+## 242. Assert a "does no I/O" claim on calls, not on imports
+
+**Rule.** When a package promises not to reach the network, the disk or a process, back the promise with
+an architecture test that inspects its calls, and name each exception so a new one has to be argued
+for. Do not settle it by reading the import list.
+
+**Why.** Phase 55's audit found no I/O package in `pkg/filters`'s imports and concluded that nothing
+performed I/O. `time.LoadLocation` reads the zone database from disk, and `time` is not an I/O package
+(FAILURE_PATTERNS 349). `TestFiltersDoNoNetworkFileOrProcessIO` now fails on any call outside its named
+exceptions.
+
+## 243. Test a bound at the layer that enforces it, not at the layer that records it
+
+**Rule.** When a timeout, a limit or a deadline passes through several layers of a library, find the
+layer that actually stops the work, and assert the value there. A value that a wrapper stores but that
+an inner layer overrides with its own default is not a bound.
+
+**Why.** FAILURE_PATTERNS 350. Entry 310 set a two-minute deadline on testcontainers' wait group and
+tested that the group carried it. Each step inside the group applied its own sixty-second default,
+and the steps were what stopped, so the fix changed nothing: two days later (2026-09-25) internal/backup
+failed on the identical symptom. Reading the library's step code (`wait/host_port.go`, `wait/log.go`) showed
+the second layer in minutes. The test that would have caught it reads each step's `Timeout()`.
+
+## 244. When one of two sibling paths carries a guard, check the other one
+
+**Rule.** When code guards one path and a sibling path does the same thing (a direct dial and a
+tunneled one, a create and an update, a v1 and a v2 route), read the sibling for the same guard before
+assuming it has one. Better, move the guard into one helper both call, so a third sibling gets it by
+calling the helper.
+
+**Why.** FAILURE_PATTERNS 352. `pkg/remoteexec`'s direct dial closed its connection when its context
+ended, with a comment explaining why the handshake needed it. The tunneled dial, a few dozen lines
+away, did the same handshake without the guard, and a silent target behind a bastion could hold a run
+forever. The fix put the guard in `closeOnDone`, which both paths now call.
+

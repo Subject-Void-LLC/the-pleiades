@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
@@ -52,6 +53,10 @@ import (
 // journal is written, and the command ends non-zero if anything went
 // unchecked. engine.WithMode carries the mode; see internal/engine's
 // check.go for the rules it enforces.
+// maxForks is the most devices one run works on at once, the same bound
+// the runbook launch kind's forks field sets on the Controller.
+const maxForks = 1000
+
 func runRunbook(args []string) error {
 	// splitPositional rather than fs.Arg(0), for the same reason
 	// add-host and the forge subcommands use it: Go's flag package stops
@@ -59,9 +64,9 @@ func runRunbook(args []string) error {
 	// --verbose` would silently treat --verbose as a second positional
 	// and fail with a usage error naming neither the flag nor why. The
 	// runbook path is the thing a person types first.
-	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true})
+	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true, "persist-connections": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--verbose] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--forks 5] [--persist-connections=false] [--verbose] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -80,6 +85,9 @@ func runRunbook(args []string) error {
 		return nil
 	})
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
+	persist := fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
+	forks := fs.Int("forks", engine.DefaultMaxConcurrency, "how many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default)")
+	selection := tagFlags(fs)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -91,6 +99,9 @@ func runRunbook(args []string) error {
 	if err != nil {
 		return fmt.Errorf("--mode: %w", err)
 	}
+	if *forks < 1 || *forks > maxForks {
+		return fmt.Errorf("--forks must be between 1 and %d, got %d", maxForks, *forks)
+	}
 
 	// External Collections register before anything reads the registry:
 	// loadWorld and validate.Validate both look methods up, and a method
@@ -100,7 +111,7 @@ func runRunbook(args []string) error {
 		return err
 	}
 
-	items, dag, err := loadWorld(*dir, runbook)
+	items, dag, err := loadWorld(*dir, runbook, *selection)
 	if err != nil {
 		return err
 	}
@@ -177,17 +188,17 @@ func runRunbook(args []string) error {
 	// sections is skipped entirely when empty, matching Ansible's own
 	// convention that pretasks/posttasks are optional and tasks alone can
 	// carry a whole play.
-	if len(dag.PreTasks) > 0 {
-		fmt.Println("pretasks:")
-		printTaskList(dag.PreTasks, 1)
+	if described := describeSelection(dag.Selection); described != "" {
+		fmt.Printf("selection: %s\n", termsafe.EscapeLine(described))
 	}
-	if len(dag.Tasks) > 0 {
-		fmt.Println("tasks:")
-		printTaskList(dag.Tasks, 1)
-	}
-	if len(dag.PostTasks) > 0 {
-		fmt.Println("posttasks:")
-		printTaskList(dag.PostTasks, 1)
+	for _, section := range []struct {
+		label string
+		tasks []engine.Task
+	}{{"pretasks", dag.PreTasks}, {"tasks", dag.Tasks}, {"posttasks", dag.PostTasks}} {
+		if len(section.tasks) > 0 {
+			fmt.Printf("%s:\n", section.label)
+			printTaskList(dag, section.tasks, section.label, 1)
+		}
 	}
 
 	fmt.Println()
@@ -259,6 +270,17 @@ func runRunbook(args []string) error {
 	inventoryPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
 	inventoryRepo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 
+	// One SSH connection per device, kept open between that device's
+	// tasks and closed when the run ends, unless --persist-connections=false
+	// (off for the whole run) or the device's own ladder turns it off
+	// (engine.PersistFor). Off at either wins. A nil pool is every task
+	// logging in afresh, which is what a run did before this existed.
+	var pool *remoteexec.Pool
+	if *persist {
+		pool = remoteexec.NewPool(remoteexec.DefaultPoolIdle)
+		defer func() { _ = pool.Close() }() // closing only ends connections; nothing is left to report on
+	}
+
 	// The executor chain, innermost fallback last: a registered Collection
 	// method wins, then a transport-backed legacy fqcn, then the two engine
 	// keywords. Ordering matters only in that the Collection registry is
@@ -273,6 +295,7 @@ func runRunbook(args []string) error {
 			engine.NewBuiltinActionExecutor(),
 		),
 		engine.NewCredentialRunbookContext(credentials),
+		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 	)
 
 	executor := engine.NewExecutor(
@@ -281,7 +304,7 @@ func runRunbook(args []string) error {
 		locks,
 		event.NewInProcessBus(),
 		engine.NewInProcessWorkflowContext(),
-		0,
+		*forks,
 		engine.WithJournal(sink),
 		engine.WithMode(mode),
 		// This command's user may run every loaded program for real, so a
@@ -338,6 +361,9 @@ func runRunbook(args []string) error {
 		default:
 			fmt.Printf("  %s: ok\n", label)
 		}
+		// Always, verbose or not: a warning is something the person running
+		// the work has to act on (sdk.StatWarnings).
+		printWarnings(node.Stats, result.Secrets)
 		if *verbose && node.Provider != nil {
 			fmt.Printf("    provided by: %s (%s)\n", termsafe.EscapeLine(node.Provider.Program), node.Provider.Digest)
 		}
@@ -496,32 +522,41 @@ func printNodeStats(stats map[string]interface{}, secrets []string) {
 // parallel task recurses the same way under a "parallel:" label; its
 // children have no rescue/always of their own (Task.Parallel stays
 // Block-only for that, see dag.go).
-func printTaskList(tasks []engine.Task, depth int) {
+func printTaskList(dag *engine.DAG, tasks []engine.Task, prefix string, depth int) {
 	indent := strings.Repeat("  ", depth)
-	for _, task := range tasks {
+	for i := range tasks {
+		task := &tasks[i]
+		id := fmt.Sprintf("%s[%d]", prefix, i)
 		label := task.Name
 		if label == "" {
 			label = task.FQCN
 		}
-		fmt.Printf("%s%s\n", indent, label)
+		// A task name is runbook text, and a runbook may be converted from
+		// someone else's playbook, so it is escaped before a terminal sees
+		// it (internal/termsafe).
+		note := ""
+		if dag.Nodes[id] == nil {
+			note = "  (not selected)"
+		}
+		fmt.Printf("%s%s%s\n", indent, termsafe.EscapeLine(label), note)
 
 		childIndent := strings.Repeat("  ", depth+1)
 		switch task.Kind() {
 		case engine.TaskKindBlock:
 			fmt.Printf("%sblock:\n", childIndent)
-			printTaskList(task.Block, depth+2)
+			printTaskList(dag, task.Block, id+".block", depth+2)
 
 			if len(task.Rescue) > 0 {
 				fmt.Printf("%srescue:\n", childIndent)
-				printTaskList(task.Rescue, depth+2)
+				printTaskList(dag, task.Rescue, id+".rescue", depth+2)
 			}
 			if len(task.Always) > 0 {
 				fmt.Printf("%salways:\n", childIndent)
-				printTaskList(task.Always, depth+2)
+				printTaskList(dag, task.Always, id+".always", depth+2)
 			}
 		case engine.TaskKindParallel:
 			fmt.Printf("%sparallel:\n", childIndent)
-			printTaskList(task.Parallel, depth+2)
+			printTaskList(dag, task.Parallel, id+".parallel", depth+2)
 		}
 	}
 }
@@ -542,3 +577,17 @@ func (e *incompleteError) Error() string { return e.msg }
 
 // ExitCode implements exitCoder.
 func (e *incompleteError) ExitCode() int { return exitIncomplete }
+
+// printWarnings prints a node's sdk.StatWarnings, one line each, escaped
+// and masked like every other value a method reports.
+func printWarnings(stats map[string]interface{}, secrets []string) {
+	warnings, _ := stats[sdk.StatWarnings].([]string)
+	if list, ok := stats[sdk.StatWarnings].([]any); ok {
+		for _, w := range list {
+			warnings = append(warnings, fmt.Sprint(w))
+		}
+	}
+	for _, w := range warnings {
+		fmt.Printf("    WARNING: %s\n", termsafe.EscapeLine(redact.Text(secrets, w)))
+	}
+}

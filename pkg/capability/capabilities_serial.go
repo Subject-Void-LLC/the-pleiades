@@ -55,13 +55,13 @@ type RawPassthroughCapable interface {
 // baud rate be changed") "yes" for a target that can only move bytes.
 //
 // RawPassthroughCapable and RFC2217Capable are deliberately NOT nested
-// under one shared parent the way NetconfCapable/JunosCapable/
-// AristaEOSCapable sit under NetworkCLICapable (capabilities_network.go):
-// that grouping exists because all three genuinely share one method,
-// CLIPrompt(). These two share no comparable accessor — one has nothing
-// to configure at all, the other carries a full serialline.Config — so
-// inventing an empty marker parent just to mirror that precedent's shape
-// would assert a shared truth that does not exist, the same
+// under one shared parent the way JunosCapable and AristaEOSCapable sit
+// under NetworkCLICapable (capabilities_network.go): that grouping exists
+// because both genuinely share one method, CLIPrompt(). These two share
+// no comparable accessor (one has nothing to configure at all, the other
+// carries a full serialline.Config), so inventing an empty marker parent
+// just to mirror that precedent's shape would assert a shared truth that
+// does not exist, the same
 // unchecked-vocabulary failure CatalystAPICapable's own doc comment
 // warns against, just from the opposite direction.
 type RFC2217Capable interface {

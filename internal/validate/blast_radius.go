@@ -2,8 +2,6 @@ package validate
 
 import (
 	"sort"
-
-	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // BlastRadius summarizes how large an impact running a runbook right now
@@ -58,12 +56,8 @@ func CalculateBlastRadius(world WorldView) BlastRadius {
 	tiers := make(map[string]struct{})
 
 	for _, task := range world.DAG.Nodes {
-		target := engine.TaskTarget(world.DAG, task)
-		if target == "" {
-			continue
-		}
-
-		for _, item := range world.Resolve(target) {
+		_, reached := world.taskDevices(task)
+		for _, item := range reached {
 			id := string(item.ID())
 			if _, seen := devices[id]; seen {
 				continue

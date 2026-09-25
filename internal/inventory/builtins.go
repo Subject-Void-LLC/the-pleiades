@@ -19,6 +19,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/console"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 )

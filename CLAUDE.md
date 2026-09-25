@@ -57,13 +57,13 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 81 registered FQCNs; 78 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 82 registered FQCNs; 79 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file — read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `net` 12,
   `file` 10, `pkg` 9, `identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
-  `wait` 2, `win` 2, `facts` 1, `http` 1, `pleiades` 1. The `svc` group is the 6 `svc.systemd.*`
+  `wait` 2, `win` 2, `pleiades` 2, `facts` 1, `http` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
   is `net.ssh.ping`, the 4 `net.catalyst.*` methods, and, as of Phase 86.5, `net.cli.command` and
@@ -130,7 +130,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 69 of the 78 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 70 of the 79 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -168,6 +168,37 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `predicted: true` (`sdk.StatPredicted`, and `sdk.DiffPredicted` in the diff) on every
   check result and refuses it on a real one; an incomplete check exits 3 and
   `--allow-unchecked <method>` accepts named gaps.
+- **SSH connections persist between a device's tasks by default.** `pkg/remoteexec.Pool`
+  lends connections through `sdk.Connect` whenever the method's `RunbookContext` implements
+  `sdk.ConnectionPooler`, so no Collection changes to take part. Crawl: `pleiades run
+  --persist-connections` (default on). Walk: the runbook launch field `persist_connections`
+  (`on`/`off`) and `wire.DispatchPayload.PersistConnections` (absent means off), honored by one
+  session child per dispatch (`--internal-collection-session`,
+  `internal/adapters/native/ipc_session.go`; `pkg/external.ServeChild` is unchanged). The device
+  ladder is the `persist_connections` property through `engine.PersistFor`, and off at either
+  ladder wins. Reuse is refused on a key mismatch (address, credential identity, host key mode,
+  known_hosts path), any change to the known_hosts content, a failed keepalive, or a tainted
+  connection (a shell, subsystem, streamed process or cut-off command). A method whose manifest
+  sets `EndsLoginSession` (the six identity methods, `pleiades.builtin.connection.reset`) closes
+  it after a real run. `net.ssh.ping` and the transport actions never pool.
+- **Generic device types are real (Phase 111).** `generic_ssh`, `generic_netconf`, `generic_http` and
+  `generic_grpc` (`internal/inventory/devices/generic`) take their capabilities beyond a small baseline
+  from the device: `internal/inventory/onboard` probes it over its protocol (one prober per type on a
+  `pkg/registry`) and records the result in the reserved `discovered` property
+  (`pkg/inventory.DiscoveredProperty`), which only `record.Base.RecordDiscovery` writes and every other
+  write path refuses (`add-host --set`, `hosts.yaml`, sync create and update, `AddInfo`/`RemoveInfo`).
+  A generic device starts `discovered` (`record.InitialState`), which runs nothing. CLI `pleiades onboard`;
+  Controller `POST /inventory/devices/{name}/onboard`, scope `inventory:onboard`, which `inventory:write`
+  does not imply. `http.request` with a path `url` calls a device's own API with the device's credential
+  (`pkg/httpapi`). A device's TLS is its own (`pkg/devicetls`): a pinned `tls_ca_pem`, `tls_server_name`,
+  mutual TLS from the stored certificate, and for an old device TLS 1.0/1.1, legacy cipher suites or a
+  credential over plain HTTP, each behind its own explicit per-device flag and warned about on every
+  onboard and run (`sdk.StatWarnings`); `internal/archtest` keeps every weak version or suite name inside
+  `pkg/devicetls`. **Walk tier:** a Runner rebuilds each dispatched device as its real type
+  (`record.LookupType`) from `wire.DispatchPayload.DeviceType` and `DeviceProperties`, which carry only
+  the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
+  code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
+  Controller's payload falls back to `pkg/external.Device`.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.

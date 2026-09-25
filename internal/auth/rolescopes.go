@@ -98,6 +98,7 @@ func viewerScopes() []Scope {
 func operatorScopes() []Scope {
 	return append(viewerScopes(),
 		ScopeInventoryWrite,
+		ScopeInventoryOnboard,
 		ScopeRunbookExecute,
 		// Implied by ScopeRunbookExecute already; listed so a persisted
 		// session records it, since that row is read as what the session
@@ -150,6 +151,7 @@ func AllScopes() []Scope {
 	return []Scope{
 		ScopeInventoryRead,
 		ScopeInventoryWrite,
+		ScopeInventoryOnboard,
 		ScopeAnnouncementRead,
 		ScopeAnnouncementWrite,
 		ScopeRunbookRead,

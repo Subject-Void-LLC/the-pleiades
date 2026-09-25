@@ -204,6 +204,9 @@ func (b *Base) Capabilities() []capability.Name {
 }
 
 func (b *Base) AddInfo(key string, value inventory.PropertyValue, overwrite bool) error {
+	if inventory.IsReservedProperty(key) {
+		return fmt.Errorf("property %s is written only by onboarding", key)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -225,6 +228,9 @@ func (b *Base) AddInfo(key string, value inventory.PropertyValue, overwrite bool
 }
 
 func (b *Base) RemoveInfo(key string) error {
+	if inventory.IsReservedProperty(key) {
+		return fmt.Errorf("property %s is written only by onboarding", key)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -243,6 +249,27 @@ func (b *Base) RemoveInfo(key string) error {
 		NewValue:  nil,
 	})
 	return nil
+}
+
+// RecordDiscovery writes what onboarding proved into
+// inventory.DiscoveredProperty, with a revision like any other change. It
+// is the only way that property is written: AddInfo and RemoveInfo refuse
+// it, and so does every inventory write path a person or a sync plugin
+// reaches.
+func (b *Base) RecordDiscovery(d inventory.Discovery) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	old := b.props[inventory.DiscoveredProperty]
+	value := d.Property()
+	b.props[inventory.DiscoveredProperty] = value
+	b.version++
+	b.history = append(b.history, inventory.Revision{
+		Version:   b.version,
+		ChangedAt: time.Now().UTC(),
+		Field:     inventory.DiscoveredProperty,
+		OldValue:  old,
+		NewValue:  value,
+	})
 }
 
 func (b *Base) ShowInfo() inventory.Properties {

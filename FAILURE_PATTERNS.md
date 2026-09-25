@@ -323,6 +323,39 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 318. A time-bounded fuzz run froze its execution counter while minimizing, and read like a finished one
 319. A known_hosts fixture naming one host key type refused every connection as a mismatch
 320. The Runner's heartbeat self-aborts on the first failed KeepAlive, though its comment says one missed tick is tolerated
+321. import_tasks read a file outside the runbook's directory through a symlink
+322. The Walk tier ran a dispatched runbook without plan-time validation
+323. net.netconf.config's target parameter is also the engine's device selector
+324. Methods silently ignored parameters they do not declare, and two shipped examples passed five
+325. A JSON runbook accepted keys in the wrong case and repeated keys
+326. Three user-visible strings cited PLAN.md, and docs-lint could not see any of them
+327. A condition holding `{#` inside a string literal was refused as Jinja
+328. The free-form argument splitter turned invalid UTF-8 into U+FFFD
+329. The migration report printed raw playbook file names, and runbook names came from them
+330. The migration report printed values from the playbook in its refusal messages
+331. A negated condition over a registered result ran a task on every device when one matched
+332. Two merge keys in one YAML map resolved first-wins, where Ansible's loader takes the last
+333. Ansible's list type was not applied: `name=curl,git` became one package named `curl,git`
+334. The module tables accepted aliases and values that belong to other modules
+335. file.directory left the parents it created at the umask's mode
+336. A module named `guard` would have become a placeholder with the guard's name
+337. A nested import_tasks was looked for only in the playbook's directory
+338. An empty list literal in a condition evaluated to None
+339. The test SSH server's Close waited forever on a connection its client kept open
+340. An outside timeout on the end-to-end suite left a kind cluster running
+341. The first Ansible comparison's target ran sshd unprivileged, understating every login about threefold
+342. The benchmark stopped at its first failed run and kept only what it had printed
+343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
+344. A host classified at add time lost its classification's capabilities on load
+345. Declaring NETCONF claimed a command line
+346. A port wait passed before a shell-less container's server was listening
+347. A gRPC stream's Send returned EOF, and the probe read it as the answer
+348. A generic device would never have been dispatched: the worker required a host property
+349. Gate items were ticked with half their work undone, and one ticked claim was false
+350. Entry 310's fix set the group's deadline, and every step inside it still gave up at sixty seconds
+351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
+352. The SSH handshake with a device reached through a bastion had no bound at all
+353. A test broker was declared ready while its published port still refused every connection
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

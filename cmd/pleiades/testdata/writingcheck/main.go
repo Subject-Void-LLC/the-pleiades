@@ -34,6 +34,12 @@ func main() {
 			Status:               collection.StatusImplemented,
 			Reversibility:        collection.Reversibility{Notes: "a test fixture; it writes a marker file it never removes"},
 			SupportsCheck:        true,
+			// Declared, because validation refuses a parameter a method
+			// does not declare, external methods included.
+			Doc: collection.Doc{
+				Summary: "Writes a marker file, in check mode too.",
+				Params:  []collection.Param{{Name: "path", Type: "string", Required: true, Description: "The marker file to write."}},
+			},
 		},
 		Invoke: write,
 		Check:  write,

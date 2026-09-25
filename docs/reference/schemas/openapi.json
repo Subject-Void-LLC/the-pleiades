@@ -5783,6 +5783,234 @@
         "x-link-relation": "update"
       }
     },
+    "/inventory/devices/{name}/onboard": {
+      "post": {
+        "description": "Probes a generic device (generic_ssh, generic_netconf, generic_http, generic_grpc) over its protocol from the Controller, authenticating with the device's stored credential, and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",
+        "operationId": "onboard_device",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "added": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "capabilities": {
+                      "description": "The capabilities the device's answers proved.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "changed": {
+                      "description": "Whether anything was written.",
+                      "type": "boolean"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "description": "Why the probe proved nothing, when it did not.",
+                      "type": "string"
+                    },
+                    "facts": {
+                      "description": "Bounded text the device reported, such as a NETCONF server's capability URNs or a gRPC server's services.",
+                      "type": "object"
+                    },
+                    "previous_state": {
+                      "type": "string"
+                    },
+                    "protocol": {
+                      "description": "The protocol the probe spoke: ssh, netconf, http or grpc.",
+                      "type": "string"
+                    },
+                    "removed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "description": "active after a successful probe; onboarding after a failed first one.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "The device's generic type.",
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The probe succeeded; the result says what was recorded."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is empty, too long, or contains a control character."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's type is not a generic one, so its capabilities come from its Go type."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "added": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "capabilities": {
+                      "description": "The capabilities the device's answers proved.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "changed": {
+                      "description": "Whether anything was written.",
+                      "type": "boolean"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "description": "Why the probe proved nothing, when it did not.",
+                      "type": "string"
+                    },
+                    "facts": {
+                      "description": "Bounded text the device reported, such as a NETCONF server's capability URNs or a gRPC server's services.",
+                      "type": "object"
+                    },
+                    "previous_state": {
+                      "type": "string"
+                    },
+                    "protocol": {
+                      "description": "The protocol the probe spoke: ssh, netconf, http or grpc.",
+                      "type": "string"
+                    },
+                    "removed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "description": "active after a successful probe; onboarding after a failed first one.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "The device's generic type.",
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The probe proved nothing: the device could not be reached, refused the credential, or did not speak its protocol. The result carries the reason."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:onboard"
+            ]
+          }
+        ],
+        "summary": "Onboard a generic device",
+        "x-link-relation": "onboard"
+      }
+    },
     "/jobs": {
       "get": {
         "description": "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for those. Tallies read 0 while a job's fan-out is still going.",

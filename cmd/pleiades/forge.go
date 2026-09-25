@@ -22,6 +22,8 @@ var forgeCommands = map[string]commandFunc{
 	"new-view":       runForgeNewView,
 	"new-filter":     runForgeNewFilter,
 	"new-external":   runForgeNewExternal,
+
+	"migrate-playbook": runForgeMigratePlaybook,
 }
 
 // runForge is cmd/pleiades's forge subcommand dispatcher. It mirrors

@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory" // registers every built-in device type
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // handWrittenDevices names the two device types that predate the Forge
@@ -51,7 +54,10 @@ var handWrittenDevices = []struct {
 			"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
 			"NetworkAddressableCapable",
 		},
-		Conditional: []conditionalCapability{{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"}},
+		Conditional: []conditionalCapability{
+			{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"},
+			{Name: "FirewalldCapable", Property: "firewalld", Value: true},
+		},
 	},
 }
 
@@ -89,6 +95,11 @@ func generateDevices(outDir string) error {
 		conditional = conditional || marked
 		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "hand-written, predates the Forge"})
 	}
+	generic, err := genericDeviceRows()
+	if err != nil {
+		return err
+	}
+	rows = append(rows, generic...)
 	for _, d := range catalogdata.Devices {
 		names := make([]string, len(d.Capabilities))
 		for i, c := range d.Capabilities {
@@ -104,6 +115,7 @@ func generateDevices(outDir string) error {
 	if conditional {
 		b.WriteString("\n" + conditionalNote + "\n")
 	}
+	b.WriteString("\n" + genericNote + "\n")
 
 	return os.WriteFile(filepath.Join(outDir, "devices.md"), []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
 }
@@ -117,8 +129,11 @@ const conditionalNote = "A capability list marked with an asterisk is what that 
 	"port and a bare Telnet session are alternative ways to reach one device rather than three " +
 	"facts about it, so a device configured for one must not claim the others. `cisco_router` " +
 	"declares `NetconfCapable` only when `netconf_enabled` is true, and `linux_server` declares " +
-	"`FileTransferCapable` only when `file_transfer_root` names a directory. See each type's " +
-	"package documentation for which property enables which capability."
+	"`FileTransferCapable` only when `file_transfer_root` names a directory and `FirewalldCapable` " +
+	"only when `firewalld` is true. A `linux_server` gains `AptCapable` (or `DnfCapable`) and " +
+	"`PosixAccountCapable` from its classification: add it with `--classify " +
+	"linux_server,debian_family` (or `rhel_family`) and the package and account methods can reach " +
+	"it. See each type's package documentation for which property enables which capability."
 
 // markConditional renders a type's capability list, appending an asterisk
 // when hydrating that type with a bare Record does not in fact declare
@@ -153,3 +168,47 @@ func markConditional(typeKey string, capabilities []string) (string, bool) {
 	}
 	return rendered, false
 }
+
+// genericExampleProperties is the least each generic type's constructor
+// needs to build: an address. TestGenericDeviceRows fails if one is
+// missing, since a row would then not render.
+var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
+	generic.TypeHTTP: {generic.BaseURLProperty: "https://api.example.com"},
+	generic.TypeGRPC: {generic.GRPCTargetProperty: "grpc.example.com:443"},
+}
+
+// genericDeviceRows renders the generic types from their code: the
+// baseline their constructor declares for a device nobody has onboarded,
+// then what onboarding may add (generic.Discoverable).
+func genericDeviceRows() ([][]string, error) {
+	var rows [][]string
+	for _, t := range generic.Types() {
+		constructor, ok := record.LookupType(t)
+		if !ok {
+			return nil, fmt.Errorf("generic device type %s is not registered", t)
+		}
+		item, err := constructor(record.Record{Name: t, Type: t, Properties: genericExampleProperties[t]})
+		if err != nil {
+			return nil, fmt.Errorf("generic device type %s: %w", t, err)
+		}
+		baseline := make([]string, 0, len(item.Capabilities()))
+		for _, c := range item.Capabilities() {
+			baseline = append(baseline, string(c))
+		}
+		// Capabilities comes from a set; sorted so the page is stable.
+		sort.Strings(baseline)
+		discovered := []string{}
+		for _, c := range generic.Discoverable(t) {
+			discovered = append(discovered, string(c))
+		}
+		caps := quoteList(baseline) + "; discovered: " + quoteList(discovered)
+		rows = append(rows, []string{code(t), code("generic"), caps, "generic, discovered at onboarding"})
+	}
+	return rows, nil
+}
+
+// genericNote explains the generic rows.
+const genericNote = "A `generic` type's capabilities after \"discovered:\" are granted only by `pleiades onboard`, " +
+	"which probes the device over its protocol and records what the device's own answers prove; no inventory " +
+	"value, classification or sync plugin can grant one. Such a device starts `discovered`, which runs nothing, " +
+	"and becomes `active` when onboarding succeeds."

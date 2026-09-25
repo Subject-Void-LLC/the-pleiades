@@ -29,12 +29,14 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // viewSweepOnce registers the view table exactly once for this package.
@@ -208,11 +210,10 @@ func TestImplementedCollectionCapabilitiesAreSatisfiable(t *testing.T) {
 // (because a device type was later wired to it for real) must be
 // removed, not left to accumulate.
 var acceptedUnsatisfiableCapabilities = map[capability.Name]string{
-	capability.NamePackageManager: `pkg/pkg.go's pkg.install/remove/upgrade dispatch onto pkg.apt.*/pkg.dnf.*, which carry this same exemption below; there is no separate disclosure needed for the generic dispatcher.`,
-	capability.NameApt:            `internal/catalog/pkg/apt/apt.go's own package doc: "no device type in this repository structurally implements it today ... That is settled, intentional architecture (package-manager family is genuinely per-distro data, unlike a service manager which has a safe universal default), not an oversight."`,
-	capability.NameDnf:            `internal/catalog/pkg/dnf/dnf.go's own package doc: "structurally implemented by no device type in this repository yet," citing apt.go's identical reasoning.`,
-	capability.NamePosixAccount:   `internal/catalog/identity/user/user.go and identity/group/group.go's own package docs: "no device type in this repository structurally implements it today, the same gap pkg/apt/apt.go documents ... That is settled, intentional architecture."`,
-	capability.NameFirewalld:      `internal/catalog/fw/firewalld/firewalld.go's own package doc, added by this same sweep after finding this one undocumented (unlike the four entries above, it was NOT previously disclosed anywhere -- see FAILURE_PATTERNS.md): firewalld is genuinely per-distro optional software, the same reasoning AptCapable/DnfCapable already establish, so it is documented rather than force-fit into linux.Server's unconditional baseline.`,
+	// Empty since 2026-09-24, when linux_server gained the accessors for
+	// AptCapable, DnfCapable, PackageManagerCapable, FirewalldCapable and
+	// PosixAccountCapable; every capability an implemented method requires
+	// is now satisfiable by some device type.
 }
 
 // TestAcceptedUnsatisfiableCapabilitiesAreNotStale proves every entry in
@@ -277,6 +278,7 @@ func satisfiableCapabilities(t *testing.T) map[capability.Name]bool {
 			Name:         "archtest-probe",
 			Type:         typeKey,
 			Capabilities: allNames,
+			Properties:   genericProbeProperties(typeKey),
 		})
 		if err != nil {
 			t.Fatalf("constructing a fully classified %q device failed: %v", typeKey, err)
@@ -660,5 +662,25 @@ func describeDocDiff(want, got collection.Doc) string {
 		return fmt.Sprintf("SeeAlso: catalogdata has %v, the manifest has %v", want.SeeAlso, got.SeeAlso)
 	default:
 		return ""
+	}
+}
+
+// genericProbeProperties returns what a generic device type needs to be
+// fully equipped, and nil for any other type. A generic type ignores
+// classification (its capabilities come from the device), so the sweep's
+// "declare everything" is, for it, a discovery granting everything
+// onboarding may grant, plus the address properties its constructor
+// requires. The question stays the one the sweep asks: could onboarding
+// ever make this capability true.
+func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
+	grants := generic.Discoverable(typeKey)
+	if grants == nil {
+		return nil
+	}
+	return map[string]inventory.PropertyValue{
+		"host":                       "archtest.invalid",
+		generic.BaseURLProperty:      "https://archtest.invalid",
+		generic.GRPCTargetProperty:   "archtest.invalid:443",
+		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "archtest", Capabilities: grants}.Property(),
 	}
 }

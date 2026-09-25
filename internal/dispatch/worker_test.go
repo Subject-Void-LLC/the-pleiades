@@ -59,6 +59,10 @@ type fakeRepository struct {
 	// GetGroupErr, when non-nil, is returned by GetGroup instead of a
 	// working iterator, for the inventory-query-failure path.
 	GetGroupErr error
+	// Ancestry and AncestryErr are what GroupAncestry answers for every
+	// device.
+	Ancestry    []inventory.HierarchyLayer
+	AncestryErr error
 }
 
 func (r *fakeRepository) GetGroup(_ context.Context, _ pkginventory.Selector) (inventory.Iterator, error) {
@@ -85,7 +89,7 @@ func (r *fakeRepository) Retire(_ context.Context, _ string) error {
 }
 
 func (r *fakeRepository) GroupAncestry(_ context.Context, _ string) ([]inventory.HierarchyLayer, error) {
-	return nil, nil
+	return r.Ancestry, r.AncestryErr
 }
 
 // fakeIterator streams Devices in order, the same Next/Item/Error/Close

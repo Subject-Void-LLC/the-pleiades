@@ -187,6 +187,24 @@ data, if the format it writes into discards unrecognized keys one layer downstre
 lossless conversion, verify the guarantee end to end, through the consumer, not just at the boundary where
 the promise is made.
 
+**Fixed (2026-09-24, Phase 35).** By then most of this had been closed another way: top-level keys by
+#252's `RunbookKeys`, and task-level keys by the module-as-key rewrite (`task_syntax.go`), which refused
+any second unknown key, though with a message about sugar syntax rather than about the key. What was still
+dropped: every key under `metadata:` and `secret_mask:`, and a lone undotted key holding a map, which
+became a task calling a method of that name (`vars: {...}` became `fqcn: vars`). Seven of the fourteen
+shipped example runbooks carried four `metadata.mcp*` keys nothing read. `KnownFields(true)` could not be
+applied as this entry proposed, because the engine decodes a rewritten `yaml.Node` and
+`(*yaml.Node).Decode` has no strict mode. The fix is a walker over the parsed tree that reads the same
+struct tags the decoder reads (`internal/engine/schema_keys.go`, `schema_keys_yaml.go`) and a token-level
+JSON reader (`json_strict.go`). Ansible keywords get their own message (`ansible_keywords.go`). Proven by
+`TestStrictKeys_RefusesUnknownKeyAtEveryLevel` and by `TestStrictKeys_AgreesWithKnownFields`, which checks
+the walker against yaml.v3's own strict decoder on every map of a full runbook. Removing the walker call
+fails both.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10)
+**Portable.** yes: any decoder that drops unknown keys in a document that states what will run
+**Detector.** a differential test against the format's own strict decoder, over every map in a valid document; see ~/vuln-corpus/README.md
+
 ## 11. A non-string `target` silently disables two validation rules
 
 **Symptom:** a task written as `params: {target: [web1, web2]}` passes validation with zero findings, and
@@ -205,6 +223,22 @@ which is why this class of failure is possible at all.
 a silent pass. In a validator this is the worst possible direction to fail, because the tool's entire
 purpose is to report problems, and here the malformed case produces more confidence than a well-formed
 one. Distinguish absent from unparseable, and report the second.
+
+**Measured worse, then fixed (2026-09-24, Phase 35).** The three rules (a third, `lifecycle_rule.go`, had
+joined them) later moved onto one shared helper, `engine.TaskTarget` (`internal/engine/action.go`), which
+the executor's `resolveDevices` also uses. It kept the `, ok` assertion but fell back to the runbook's
+`hosts:` for a malformed target. So a task written `target: [web1, web2]` was no longer skipped: it was
+validated and then run against the `hosts:` device or group, which it never named. `TestTaskTarget` pinned
+that behavior. The builder now refuses a present `params.target` that is not a non-empty string, naming
+the value's kind and never the value (`validateTarget`, `internal/engine/task_target.go`), so no built DAG
+can carry one. Proven by `TestBuild_RefusesMalformedTarget` (list, map, number, boolean, null, empty
+string, JSON float), and by a property both builder fuzz targets now assert on every input that builds
+(`assertTargetsAreNonEmptyStrings`): 3,000,000 executions of `FuzzBuildFromYAML` and 1,000,025 of
+`FuzzDAGBuilder`, each ending cleanly at its count bound with `-fuzzminimizetime 2s` (#318).
+
+**Class.** C9 (fail-open: a malformed value rendered as the permissive default; CWE-636)
+**Portable.** yes: any "use the caller's value, else the default" helper whose type check sends a malformed value down the default branch
+**Detector.** fuzz the builder and assert that every accepted document carries only well-typed values in that field; see ~/vuln-corpus/README.md
 
 ## 12. An instruction that cannot be followed will be violated
 
@@ -9164,3 +9198,777 @@ neither inherits nor fixes the defect.
 **Lesson.** A comment that states a tolerance ("a single missed tick is never mistaken for...") is a
 claim, and it needs a test that exercises exactly that tolerance: one failure, then recovery. A test
 that only fails every time proves the alarm is wired, not that it is calibrated.
+
+## 321. import_tasks read a file outside the runbook's directory through a symlink
+
+**Symptom.** Found by reading while planning Phase 35's translator, then measured. `resolveImportPath`
+(`internal/engine/import_tasks.go`) checked the imported path's text with `filepath.Rel`, and
+`resolveOneImport` then read it with `os.ReadFile`, which follows symlinks. A `sub.yaml` inside the
+runbook's directory that was a symlink to a file elsewhere was imported and built. Reached through
+`pleiades run` and `pleiades validate` (`BuildFromYAMLFile`); the Walk tier builds with `BuildFromYAML`
+and refuses `import_tasks` outright, so it was not reachable there.
+
+**Security.** An author who can write into a runbook directory could have any file the CLI user can read
+parsed as a task list, with parse errors quoting pieces of it back. That needs write access to the
+project directory. Our own code, so no upstream fix applies. Measured: with the old read restored,
+`TestImportTasks_StrictKeysAndContainment` fails because the escaped import builds.
+
+**Root cause.** A containment check on a path's text cannot see what the filesystem will resolve it to.
+
+**Fix.** `readInsideDir` opens the runbook's directory with `os.OpenRoot` and reads through it, which
+refuses any path, symlinks included, that resolves outside. The lexical check stays for its clearer
+messages. Applied 2026-09-24 in Phase 35.
+
+**Lesson.** The same one #313 recorded for SFTP: containment is a property of how a file is opened, not
+of how its name reads.
+
+**Class.** C4 (path traversal / confinement escape; CWE-59, symlink following)
+**Portable.** yes: any containment check made on a path's text and then followed by an open that follows symlinks
+**Detector.** fuzz corpus C4 (symlink seeds) + semgrep join-then-open-tainted (P4); see ~/vuln-corpus/README.md
+
+## 322. The Walk tier ran a dispatched runbook without plan-time validation
+
+**Symptom.** Found by reading while designing Phase 35's placeholder for an unconverted task. The native
+adapter (`internal/adapters/native/adapter.go`) went from `GetDAG` straight to the executor.
+`validate.Validate` ran only in `cmd/pleiades` (`validate.go`, `run.go`). So on the Walk tier a task
+calling an unregistered or declared-only method, passing an undeclared parameter, or asking for
+`check_mode` on a method that cannot check failed only when that task was reached, after every earlier
+task had already run against the device.
+
+**Security.** No special access is needed to cause it; the harm is a half-applied change on a managed
+device. Our own code. Measured on 2026-09-24: with the new check removed,
+`TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal` (`cmd/runner`), over a real NATS broker and a
+real sshd container, finds the first task's marker file on the device after a dispatch whose second task
+calls the declared-only `file.template`.
+
+**Root cause.** The validation core was built as a CLI feature (Phase W3) and documented as the one core
+the IDE and the backend would adopt later. The backend never did.
+
+**Fix.** Phase 35 (commit a2): the adapter runs every registered rule before building the executor
+(`validateDispatch`, `internal/adapters/native/validate.go`), against the one device the dispatch names,
+with `WorldView.Resolver` set to the same `singleDeviceResolver` the executor gets, so a task with no
+target is checked against that device exactly as it will run. A refusal publishes a failed job event
+naming each finding. Proven by `TestExecute_RefusesARunbookThatFailsValidation` (four kinds of finding,
+each killed by removing the check) and by the release gate above, which passes with the check in place
+and fails, finding the marker, without it.
+
+**Lesson.** A check that runs in one tier and not another is a check the other tier does not have.
+Put plan-time validation where execution starts, in every tier that starts it.
+
+**Class.** C10 (dead or unwired control; CWE-693)
+**Portable.** yes: a validation core called by one entry point (the CLI) and skipped by another (a worker) that runs the same input
+**Detector.** a test that the control fires on every execution path, not only that it exists; see ~/vuln-corpus/README.md
+
+## 323. net.netconf.config's target parameter is also the engine's device selector
+
+**Symptom.** Found by reading while planning Phase 35's module map; not fixed, by the user's decision.
+`net.netconf.config` names its datastore parameter `target` (running, candidate or startup), after
+`ansible.netcommon.netconf_config`. The engine reads `params.target` as the host or tag a task runs
+against (`engine.TaskTarget`, `internal/engine/action.go`), resolves it in `resolveDevices`
+(`executor.go`), and the method then reads the same key as its datastore
+(`internal/catalog/net/netconf/config.go`). The unit tests call the method directly and skip the engine,
+so nothing caught it. `journal_entry.go`'s comment that no method declares `target` is also wrong.
+
+**Security.** On the CLI, `target: candidate` fails with "matches no inventory host or tag", or, if a
+device or tag is named `candidate`, configures that device instead. Exploiting it needs inventory write
+access. The Walk tier's resolver ignores targets, so it is not affected there. Reasoned from the code, not
+run.
+
+**Root cause.** A reserved key (the device selector) lives inside the free-form `params` map every method
+also owns.
+
+**Fix.** Not applied. The user chose to move the device selector out of `params` into a reserved task key,
+as its own later phase. Until then Phase 35's translator blocks every `netconf_config` task that sets
+`target`, naming this collision.
+
+**Lesson.** A key the engine reserves must not share a namespace with keys third parties choose.
+
+**Class.** none of C1 to C10 yet; a candidate: a reserved control key living inside a caller-owned map
+**Portable.** probably: any engine that reads one of its own keys out of a free-form parameter map every plugin also writes to
+**Detector.** not built; statically, list the keys an engine reads from a shared map and intersect them with every plugin's declared keys; see ~/vuln-corpus/README.md
+
+## 324. Methods silently ignored parameters they do not declare, and two shipped examples passed five
+
+**Symptom.** Found building Phase 35's parameter rule. Nothing compared a task's `params` with its
+method's declared parameters, so a method ignored any key it does not read. Both `upgrade_ios` example
+runbooks passed `prompt`, `answer`, `check_all` and `sendonly` to `net.cli.command` and `save_when` to
+`net.ios.config`, copied from the Ansible playbook. None was read, so the image copy and the reload could
+never answer the device's prompts, and the example's README still said those methods were declared but
+not implemented. The `writingcheck` external fixture (`cmd/pleiades/testdata`) read a `path` parameter it
+did not declare.
+
+**Security.** A misspelled optional guard runs with its default: `creats:` for `exec.command`'s
+`creates:` runs the command every time. No special access needed; mainly a safety defect. Measured on the
+two examples.
+
+**Root cause.** `Doc.Params` was treated as documentation only, and the journal's comment called it
+"partial by construction", so nothing enforced it.
+
+**Fix.** `ParamsRule` (`internal/validate/params_rule.go`) refuses a parameter the method declares
+neither in `Doc.Params` nor through a named fragment, except the engine's own `target`. The shared
+fragment definitions moved from `internal/forge/catalogdata` to the leaf package
+`internal/catalog/fragment`, since the former imports the whole data layer. The examples now pass only
+declared parameters and say in comments which steps cannot answer a prompt; the save is its own
+`net.ios.save` task. The fixture declares `path`. Proven by `TestParamsRule`,
+`TestParamsRule_UndocumentedExternalMethod` and `TestExamples_EveryRunbookBuildsAndValidates`, which runs
+the real binary over every shipped example.
+
+**Lesson.** A declaration nothing checks decays into a comment. Once a method declares its parameters,
+refuse the ones it does not declare.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10; CWE-1284-adjacent input that is accepted and ignored)
+**Portable.** yes: any plugin API where a caller's argument map is read by key and unknown keys are ignored
+**Detector.** compare each call's keys with the callee's declared parameters (here, ParamsRule); see ~/vuln-corpus/README.md
+
+## 325. A JSON runbook accepted keys in the wrong case and repeated keys
+
+**Symptom.** Found by reading while designing Phase 35's strict decoding. `Builder.Build` decoded with
+`json.Unmarshal`, which matches a key to a field without regard to case (`{"FQCN": ...}` filled `fqcn`)
+and keeps only the last of two repeated keys. `normalizeWorkflowJSON` also decoded into a map first, which
+collapsed repeats before anything could see them.
+
+**Security.** A reviewer reading the first of two `fqcn` keys would approve one method while another ran.
+It needs something to feed JSON runbooks in; `Build` has no production caller today, so it was not
+reachable. Reasoned.
+
+**Root cause.** encoding/json's forgiving defaults, trusted for an input that must mean exactly what it
+says.
+
+**Fix.** `parseJSONKeyTree` (`internal/engine/json_strict.go`) reads the payload token by token, refusing
+a repeated key anywhere and nesting past 512 levels, before the map-based rewrite runs; the key walker
+then checks exact-case keys; and the decode itself uses `DisallowUnknownFields` and refuses trailing
+data. Proven by `TestStrictKeys_JSONExactCaseAndDuplicates`.
+
+**Lesson.** A decoder's defaults are tuned for convenience. For a document that says what will run,
+choose the strict reading on purpose.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10), JSON parser-differential form (CWE-436)
+**Portable.** yes: any Go service decoding a security-relevant JSON document with encoding/json's case-insensitive, last-key-wins defaults
+**Detector.** fuzz with duplicated and case-varied keys and assert refusal; statically flag json.Unmarshal into a policy or plan struct; see ~/vuln-corpus/README.md
+
+## 326. Three user-visible strings cited PLAN.md, and docs-lint could not see any of them
+
+**Symptom.** The runbook engine's refusal of an Ansible playbook (`internal/engine/yaml.go`) and of
+`type: ansible` (`dag.go`) told the user to read "PLAN.md Section 23", `pleiades forge new-filter`'s
+`--category` help cited "PLAN.md Section 36", and a managed credential type's detail cited "PLAN.md
+Section 17.4". The plugin scaffold template also wrote a PLAN.md citation into every generated sync
+plugin. PLAN.md never ships.
+
+**Security.** None: this exposes nothing. It is a broken promise to the reader, recorded because the
+check meant to catch it could not.
+
+**Root cause.** `tools/docs-lint` scans documentation and a fixed list of Go files whose whole text a user
+reads. An error message or a flag's help text in any other Go file was outside that list, and a plain
+text scan of every Go file would drown in legitimate comment citations.
+
+**Fix.** A second docs-lint pass (`tools/docs-lint/golits.go`) parses every non-test Go file under `cmd/`,
+`internal/` and `pkg/` and checks its string literals alone, never its comments. All five strings were
+reworded; the two engine errors now point at `docs/03-migrating-from-ansible.md`. Proven by
+`TestScanGoLiterals` and a clean run over 1,095 files.
+
+**Lesson.** A check that enumerates its targets misses the next file nobody listed. Where the forbidden
+thing has a syntactic shape (a string literal), check the shape everywhere.
+
+## 327. A condition holding `{#` inside a string literal was refused as Jinja
+
+**Symptom.** Found by `FuzzWhenToCEL` in Phase 35. The condition translator refused any `when:` whose
+text contained `{{`, `{%` or `{#` before tokenizing, so `probe.stdout == 'a{#b'` was reported as a
+template (`when.unsupported`) although the delimiter sat inside a string literal.
+
+**Root cause.** A whole-string precheck for Jinja delimiters cannot tell text inside a literal from
+syntax outside one.
+
+**Fix.** The precheck was removed; the tokenizer refuses `{` only where it reads syntax, outside
+strings. The fuzzer's seed is kept in `internal/forge/playbook/testdata/fuzz/FuzzWhenToCEL`.
+
+**Lesson.** A refusal made before parsing has to be as precise as the parser, or it refuses valid
+input. It failed safe here, which is why the fuzzer, not a user, found it.
+
+## 328. The free-form argument splitter turned invalid UTF-8 into U+FFFD
+
+**Symptom.** Found by `FuzzKVArgs` in Phase 35. `splitArgs` walked free-form arguments
+(`command: echo x`) as runes, so an invalid byte came back as the replacement character and a command's
+text changed without any error. Not reachable through a playbook today, because go.yaml.in/yaml/v3
+refuses invalid UTF-8 first.
+
+**Root cause.** Converting to runes is lossy on invalid input, and the round trip was never checked.
+
+**Fix.** `splitArgs` refuses invalid UTF-8 (`internal/forge/playbook/kv.go`); the fuzz property that a
+command's text survives a split and join is what caught it.
+
+**Lesson.** A function that must preserve text should be tested for exactly that property, with bytes
+no well-behaved caller would send.
+
+## 329. The migration report printed raw playbook file names, and runbook names came from them
+
+**Symptom.** Found in Phase 35 when `TestEmit_CommentInjection` was tightened to assert that no raw
+escape character reaches the report or the written runbook. `Position.String` printed a playbook's file
+name as it was, so a name holding an escape sequence reached the terminal through the text report, and
+the output runbook's file name was derived from the raw playbook name.
+
+**Security.** A person converting a playbook from someone else could have their terminal driven by a
+file name. Our own code, found before release.
+
+**Root cause.** File names were treated as ours, when they come from the playbook's directory and may
+hold anything.
+
+**Fix.** `Position.String` escapes the name (`termsafe.EscapeLine`), and a runbook's file name is its
+sanitized id (`runbookFile`, `runbookID`).
+
+**Lesson.** A name read from the filesystem is input, exactly like the file's content.
+
+**Class.** C1 (delimiter injection into a terminal; CWE-150)
+**Portable.** yes: any tool printing a path or name it read from a directory it does not control
+**Detector.** fuzz or table-test names holding control characters and assert the output holds none; see ~/vuln-corpus/README.md
+
+## 330. The migration report printed values from the playbook in its refusal messages
+
+**Symptom.** Found by review in Phase 35 (commit d), while checking what a new list-conversion error
+would say. The report promises names and positions only, and `TestReport_NoValues` proved it for
+secret-shaped and vault values, but four other paths printed values: the YAML 1.1 refusals
+(`"0123" means an octal number to Ansible, not the text "0123"`, and a decimal mode), a selector value
+with no native equivalent (`state=VALUE`), the condition refusals (`int of VALUE`, `VALUE < VALUE`,
+`compared with VALUE`, `in ... VALUE`), and the condition parser's tokens (`unexpected 'literal'`,
+`bad number`). A PIN written as `0123`, or any text value, could reach a report meant to be shared.
+
+**Security.** Information exposure through a report written for sharing. Our own code, found before
+release. Measured: `TestReport_RefusedValuesNotPrinted`, with nine sentinel values, fails on each of the
+five old messages restored one at a time.
+
+**Root cause.** The no-values rule was tested for values that look secret, not for values in general,
+so every message built for a different purpose was free to quote its input.
+
+**Fix.** Every refusal describes the value's kind and points at its position (`describe`, `kindOf`,
+`describeToken`); `TestReport_RefusedValuesNotPrinted` covers each path.
+
+**Lesson.** "Never print a value" has to be tested with values that look ordinary. A secret does not
+always look like one.
+
+**Class.** C7 (secret exposure through logging or output; CWE-532)
+**Portable.** yes: any error or report message that quotes the input it refused
+**Detector.** sentinel values through every refusal path, asserting none appears in any output; see ~/vuln-corpus/README.md
+
+## 331. A negated condition over a registered result ran a task on every device when one matched
+
+**Symptom.** Found in Phase 35 while writing `TestWhen_MoreCEL`. The condition translator wrapped each
+read of a registered result in its own all-devices quantifier, so `not probe.rc` became
+`!(stat.probe.all(d, stat.probe[d].rc != 0))`: true when ANY device had `rc == 0`. A native condition
+runs once for the task across all its devices, so the converted task ran on every device when the
+Ansible task would have run on only some. `a or b` was the stricter mirror image.
+
+**Security.** A converted task doing more than its playbook: the wrong devices changed. Our own code,
+found before release. Measured: restoring the per-read quantifier fails `TestWhen_MoreCEL`.
+
+**Root cause.** A quantifier pushed down to each read changes meaning under negation and disjunction;
+it is only safe under conjunction.
+
+**Fix.** The whole condition is quantified once (`stat.R.all(d, ...)`, in `condition`); a condition
+reading two registered results per device is refused; and a negated `is defined` on a register is
+refused, because Ansible registers a skipped task's result and this runtime does not, so the negation
+would run where Ansible skips.
+
+**Lesson.** A translation has to be checked for the direction of its error: stricter is a finding,
+looser is a bug.
+
+**Class.** C9 (fail-open: a narrower condition rendered as a wider one; CWE-697)
+**Portable.** yes: any translation of per-item predicates into one aggregate check
+**Detector.** evaluate the translated expression over mixed per-item inputs and compare with the source's per-item result; see ~/vuln-corpus/README.md
+
+## 332. Two merge keys in one YAML map resolved first-wins, where Ansible's loader takes the last
+
+**Symptom.** Found in Phase 35 while writing `TestMergeKeys`, then checked against ansible-core's own
+`AnsibleLoader` (PyYAML 6.0.3): for a map with `<<: *a` and then `<<: *b`, Ansible reads a key both
+define from `b`, and the converter read it from `a`. A converted task could carry a different value from
+the one Ansible would have used.
+
+**Security.** A silent value difference between what was reviewed and what runs. Our own code, found
+before release.
+
+**Root cause.** Merge-key precedence was written from the YAML spec's wording for a merge list, and
+PyYAML's handling of two separate merge keys was assumed rather than read.
+
+**Fix.** `mapEntries` applies later merge keys first; `TestMergeKeys_MatchAnsible` (integration)
+compares five merge shapes with `AnsibleLoader` in the pinned runner image, and fails with the old order.
+
+**Lesson.** When the converter must read a format the way another program does, test against that
+program, not against the format's specification.
+
+**Class.** the silently-dropped-fields class (the unnumbered note after C10), YAML parser-differential form (CWE-436)
+**Portable.** yes: any tool re-reading YAML another program will also read, where merge keys are allowed
+**Detector.** differential test against the other program's loader over merge shapes; see ~/vuln-corpus/README.md
+
+## 333. Ansible's list type was not applied: `name=curl,git` became one package named `curl,git`
+
+**Symptom.** Found in Phase 35 while reading `coerceGo` against ansible-core's `check_type_list`, which
+splits a text at commas. `apt: name=curl,git` converted to one install of a package named `curl,git`; a
+text given to a list parameter (`ios_config: lines: hostname r1`) became a bare string instead of a
+one-item list; and `name: [curl]` was blocked because only a list of two or more took the unroll path.
+
+**Root cause.** The value conversion followed the native parameter's type and never Ansible's
+argument type.
+
+**Fix.** A package name list given as text splits at commas (one task per name); a comma text for any
+other list parameter is refused, since Ansible's split is rarely what was meant (`description a, b`
+would be two lines); a text for a list parameter becomes a one-item list; a one-item list is set
+directly. Ansible's own boolean spellings (`t`, `f`, 0 and 1) are accepted, and a boolean selector
+(`Selector.Bool`) reads a templated or quoted boolean the same way.
+
+**Lesson.** A converter owns both sides of each argument: the target's type and the source's.
+
+## 334. The module tables accepted aliases and values that belong to other modules
+
+**Symptom.** Found in Phase 35 by `TestEntries_ArgsMatchAnsibleCore`, which checks the tables against
+`ansible-doc -j` in the pinned image: apt accepted `installed` and `removed` (dnf's words), dnf accepted
+`package` and `update-cache` (apt's aliases; dnf's are `pkg` and `expire-cache`) and
+`cache_valid_time` (not a dnf option), `service` accepted `service` and `unit` (systemd's aliases only),
+and `package` defaulted `state` although Ansible requires it.
+
+**Root cause.** Shared argument lists were written once for a family of modules whose options differ.
+
+**Fix.** Per-module argument lists and state values (`internal/forge/playbook/modules_pkg.go`); three
+deliberate departures are listed with their reasons in the test.
+
+**Lesson.** A table mirroring another program's interface should be checked against that program's own
+description of it.
+
+## 335. file.directory left the parents it created at the umask's mode
+
+**Symptom.** Found in Phase 35 by `TestMigratePlaybook_BehaviorMatchesAnsible`, which runs one playbook
+with real Ansible and its conversion with `pleiades run` against a real sshd and compares the trees.
+`file: path=/tmp/mgate/app/conf state=directory mode=0750` left `/tmp/mgate` and `/tmp/mgate/app` at
+0755 natively, 0750 under Ansible. The method's own parameter documentation said the mode applied
+"never to a parent created along the way", while its description called it `ansible.builtin.file` with
+`state=directory`.
+
+**Security.** `path: /srv/secret/app` with `mode: "0700"` left a newly created `/srv/secret`
+world-readable: weaker permissions than the task asked for. Our own code; pre-1.0, so no deployment to
+migrate.
+
+**Root cause.** `mkdir -p` was treated as the whole of "create the parents", and only the named
+directory was given the attributes.
+
+**Fix.** `file.directory` finds the missing parents first and gives each the task's mode, owner and
+group, deepest first so a parent's mode cannot stop the change below it; a parent that already existed
+is never changed (`missingParents`, `internal/catalog/file/directory.go`). Proven by
+`TestDirectory_GivesCreatedParentsTheAttributes`, and by the behavior gate, which now compares equal.
+
+**Lesson.** A native method that names an Ansible module it mirrors should be checked against that
+module's behavior, not its documentation. A behavior gate compares outcomes, which is the only thing a
+user relies on.
+
+**Class.** none of C1 to C14 (incorrect default permissions; CWE-276)
+**Portable.** yes: any "create with these attributes" operation that creates intermediate objects
+**Detector.** create a nested path with restrictive attributes and assert every created level has them; see ~/vuln-corpus/README.md
+
+## 336. A module named `guard` would have become a placeholder with the guard's name
+
+**Symptom.** Found in Phase 35 while giving validation specific messages for the migration guard and
+placeholders. A blocked task's placeholder was `ansible.unconverted.<module>` and the guard was
+`ansible.unconverted.guard`, so a playbook task using a module named `guard` produced a placeholder
+indistinguishable from the guard. Both were unrunnable, so nothing could run; the report and the
+validation messages would have misnamed it.
+
+**Root cause.** The guard shared the placeholder namespace.
+
+**Fix.** The guard is `ansible.incomplete` (`engine.IncompleteGuard`), outside the placeholder prefix
+(`engine.UnconvertedPrefix`); both are constants the translator and validation share.
+
+**Lesson.** A reserved name must sit outside every namespace user input can fill.
+
+## 337. A nested import_tasks was looked for only in the playbook's directory
+
+**Symptom.** Found in Phase 35 by the corpus measurement: every public role's `tasks/main.yml` importing
+`setup-Debian.yml` was reported missing, because the converter resolved an import's file against the
+playbook's directory only. Ansible looks beside the importing file first.
+
+**Root cause.** Import resolution was written for a playbook importing one level down and never
+considered an import from an imported file.
+
+**Fix.** `importPath` tries the importing file's directory first, then the playbook's, both inside the
+playbook's directory (`TestTranslate_ImportTasksResolvesAsAnsible`).
+
+**Lesson.** Measure a converter on real input early: six missing imports in twelve roles was invisible
+to every fixture written by hand.
+
+## 338. An empty list literal in a condition evaluated to None
+
+**Symptom.** Found in Phase 35 while writing `TestWhen_MoreCEL`: `'a' in []` was refused as comparing
+values of different kinds, because the list literal's value started as a nil slice, which the folding
+rules read as Python's None. Python answers False.
+
+**Root cause.** A nil slice and an empty one differ to a type switch.
+
+**Fix.** A list literal starts as `[]any{}` (`internal/forge/playbook/whencel.go`).
+
+**Lesson.** Where nil and empty mean different things downstream, construct the empty one explicitly.
+
+## 339. The test SSH server's Close waited forever on a connection its client kept open
+
+**Symptom.** Found while building connection persistence (Phase 110). `remoteexectest.Server.Close`
+closed the listener and then waited for every connection goroutine to finish. A goroutine finishes only
+when its client disconnects, so a test whose client kept a connection open past the test (a pool, which
+exists to do exactly that) would hang in its cleanup instead of failing.
+
+**Root cause.** The server assumed every client closes its connection before the test ends, which was
+true of every caller until a caller existed whose job is to not close it.
+
+**Fix.** The server tracks its live connections and `Close` ends them before it waits
+(`DropConnections`, which a test also calls to simulate a device dropping idle flows). `Live()` and
+`Logins()` let a test prove from the server's side that a connection really closed and how many logins
+really happened.
+
+**Lesson.** A test server's shutdown must not depend on its clients' good behavior: end what it serves,
+then wait.
+
+## 340. An outside timeout on the end-to-end suite left a kind cluster running
+
+**Symptom.** Found in Phase 110: `timeout 590 go test ./tests/e2e/` killed the suite mid-run, and a
+`pleiades-release-gate-<pid>` kind cluster (`tests/e2e/packaging_kind_test.go`) stayed up afterwards,
+holding memory on a machine already short of it. It was removed by hand with `kind delete cluster`.
+
+**Root cause.** A killed test binary runs no `t.Cleanup`. testcontainers' reaper collects the containers
+it started, but the kind cluster is created through the kind CLI, which nothing reaps.
+
+**Fix.** None in code. The suite is run with `go test -timeout` long enough for it (45 minutes here), and
+a leftover cluster is found with `docker ps --filter name=pleiades-release-gate`.
+
+**Lesson.** Anything a test creates outside testcontainers survives a killed run; give such a suite the
+time it needs rather than a shorter outside kill, and check for leftovers after any interrupted run.
+
+## 341. The first Ansible comparison's target ran sshd unprivileged, understating every login about threefold
+
+**Symptom.** Found in Phase 110 while building `tools/ansiblebench`. The earlier benchmark (Phase 35's,
+then Phase 110's first) used `lscr.io/linuxserver/openssh-server`, where one Pleiades login cost about
+22 ms. On the Alpine target the user chose for the scaling benchmark, the same login cost about 60 ms:
+ten tasks with persistence off took 0.64 s instead of 0.23 s. A memory limit, the OpenSSH version
+(9.7 and 10.0 alike) and the password hash (SHA-512 on both) were each ruled out by measurement.
+
+**Root cause.** The linuxserver image runs `sshd` as uid 1000, so it skips the per-connection privilege
+separation a root `sshd` performs. Real servers run `sshd` as root, so the earlier target measured a
+cheaper login than any real device offers, flattering whichever variant logs in most.
+
+**Fix.** The benchmark's target (`tools/ansiblebench/Dockerfile.target`) runs `sshd` as root, and the
+published numbers (docs/03) come from it; the earlier figures are superseded.
+
+**Lesson.** A benchmark target is part of the measurement: check that it does per-operation work the
+way a real system does before comparing numbers against it.
+
+## 342. The benchmark stopped at its first failed run and kept only what it had printed
+
+**Symptom.** Found in Phase 110: the first full `tools/ansiblebench` run lost every measured row when
+Ansible failed at 200 hosts, because results were written only at the end and a failed run ended the
+whole benchmark; and its single `docker rm -f` of 201 containers left 45 stopped but not removed.
+
+**Root cause.** The harness treated a failure as a bug in itself rather than as a result, and trusted
+one bulk removal.
+
+**Fix.** Results are rewritten after every row; a failed run is recorded with the out-of-memory kills
+the runner's cgroup counted and the tool's first error line, its full output saved; containers carry a
+label and are removed in chunks until none is left.
+
+**Lesson.** In a benchmark, a tool failing under load is a result: record it with its cause and keep
+measuring.
+
+## 343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
+
+**Symptom.** Found in Phase 110's scaling benchmark. After the 100-host rounds, every fork on the machine
+began failing with EAGAIN: Ansible (`[Errno 11] Resource temporarily unavailable`), Pleiades (`runtime:
+failed to create new OS thread (have 5 already; errno=11)`, exit 2) and an unrelated shell alike. A
+host-wide sampler showed root-owned processes climbing by about one per Ansible task execution (627 to
+4,430 during one 200-host run), and a 20-host run left 460 zombies, all children of the runner
+container's PID 1 (`sleep infinity`): 400 `python3.12` (one per task per host) and 60 `ssh`.
+
+**Root cause.** Ansible leaves orphans (dead worker processes, its persisted `ssh` connections) for PID 1
+to reap, as any init does. `sleep` as PID 1 never reaps, so each became a zombie holding a kernel task
+slot until the container was removed. With `--init` (docker-init as PID 1) the same run left none. The
+production shape has the same defect: `internal/adapters/legacy/docker_orchestrator.go` starts
+`ansible-playbook` itself as PID 1 with no init, and Python does not reap children it did not start; a
+20-host run through that shape accumulated 191 zombies under it before it exited. The container is
+removed after each run, so they do not outlive it, but a large enough playbook (hosts times tasks in the
+tens of thousands) can exhaust the Runner host's task table within one run, failing every process on
+that host.
+
+**Fix.** The benchmark's runner starts with `--init`, and `DockerOrchestrator.Run` sets
+`HostConfig.Init` (fixed 2026-09-24 at the user's go-ahead). `TestDockerOrchestrator_ReapsOrphans` (a
+Python PID leaves fifty orphans in the adapter's image; none stays a zombie) and
+`TestAnsibleReleaseGate_LeavesNoZombies` (twenty `raw` tasks through the real adapter against a real
+sshd, then a check that fails the job on any zombie) both fail with the init removed: the command ran
+as PID 1 with 50 zombies, and the check exited non-zero.
+
+**Lesson.** Anything that runs a process tree in a container needs an init as PID 1 unless its PID 1 is
+known to reap orphans; a tool behaving correctly on a normal host is not evidence either way.
+
+**Class.** none of C1 to C14 (uncontrolled resource consumption; CWE-400, CWE-772)
+**Portable.** yes: any container whose PID 1 is an application or `sleep` rather than an init
+**Detector.** run a process-spawning workload in the container and count zombies whose parent is PID 1; see ~/vuln-corpus/README.md
+
+## 344. A host classified at add time lost its classification's capabilities on load
+
+**Symptom.** Found 2026-09-24 while auditing which capabilities a real device can satisfy (Phase 111's
+preparation). `pleiades add-host web1 --classify linux_server,debian_family` produced a host that never
+declared `AptCapable`: a real `pleiades run` of `pkg.install` against a real Debian sshd was refused
+with "requires capability PackageManagerCapable". The unit tests passed, because they handed the
+classification's capabilities to the constructor directly and never went through the file inventory.
+
+**Root cause.** `add-host` writes both the resolved `type` and the `classify` path, and
+`inventory.ResolveHostCapabilities` returned nothing whenever `type` was present, treating the path as
+provenance only. So every classified host lost what its classification granted. It stayed invisible
+because the capabilities classification grants (`AptCapable`) were ones no device type implemented
+anyway: that gap was disclosed and allowlisted (`acceptedUnsatisfiableCapabilities`), and with it open
+nothing could exercise the path that would have closed it.
+
+**Fix.** The path contributes capabilities when it resolves to the same type that was saved; a path
+that resolves elsewhere, or not at all, contributes nothing and is not an error
+(`TestResolveHostCapabilities_ClassifyBesideType`). With the disclosed gap closed at the same time
+(`linux_server` implements the package manager, firewall and account accessors, and declares them
+from classification or its `firewalld` property), `TestCLI_PackageAndAccountMethodsReachARealDevice`
+runs `identity.group.create` and `pkg.install` through the real binary against a real Debian device.
+The database inventory stores no classification at all, so a device there still gets only its type's
+baseline; Phase 111's storage item carries that.
+
+**Lesson.** A gap disclosed as "not reachable yet" needs a test that fails while it is open and passes
+once it closes, run through the real path. Otherwise the path that would close it can break unseen,
+because nothing can use it.
+
+## 345. Declaring NETCONF claimed a command line
+
+**Symptom.** Found 2026-09-24 while planning Phase 111's generic device types. `NetconfCapable`
+embedded `NetworkCLICapable` and was registered as its child, so a device that declared NETCONF
+satisfied every method requiring `NetworkCLICapable` (`net.cli.command`, `net.cli.config`) by both
+halves of the check: `capability.Resolves` walked up to the CLI capability, and a Go type implementing
+`NetconfPort` had to implement `CLIPrompt` too. A NETCONF-only device, which is exactly what a generic
+NETCONF type is, would have been handed a terminal method it cannot serve.
+
+**Root cause.** The tree grouped capabilities by "network device" rather than by what each one lets a
+method do. NETCONF is structured configuration over an SSH subsystem, with no prompt at all. Only the
+two Cisco types declared NETCONF, and both are CLI devices as well, so the wrong edge never changed an
+answer.
+
+**Fix.** `NetconfCapable` has no parent and embeds nothing (`pkg/capability/capabilities_network.go`).
+A device with both, as a Cisco router with NETCONF enabled has, declares both.
+`TestNetconf_ClaimsNoCommandLine` asserts neither half of the check grants the CLI; the generated
+capability reference no longer lists the edge.
+
+**Lesson.** A capability's parent must be something every device holding the child can actually do. An
+edge that no current device contradicts is still wrong if the next device type would; check each edge
+against the device that has only the child.
+
+## 346. A port wait passed before a shell-less container's server was listening
+
+**Symptom.** Found 2026-09-24 writing Phase 111's gRPC release gate. `TestGenericReleaseGate_GRPC`
+waited for `grpc/java-example-hostname` with `wait.ForListeningPort("50051/tcp")`, which reported the
+container ready, and the probe's first call then failed: `connection error: error reading server
+preface: connection reset by peer`. Rerun a few seconds later by hand, the same probe succeeded.
+
+**Root cause.** The strategy has two halves, a check inside the container and a dial from the host,
+and neither held here. The image has no shell, so testcontainers logs "Shell not found in container"
+and skips the inside check. The host dial reaches Docker Desktop's port proxy, which accepts a
+connection on the published port at once, whether or not anything in the container listens yet, so it
+succeeds while the JVM is still starting. Readiness was measured against the proxy, not the server.
+
+**Fix.** Wait on the server's own line, `wait.ForLog("Listening on port 50051")`, which only the
+server can print (`cmd/pleiades/generic_release_gate_test.go`, with a comment saying why).
+
+**Lesson.** A readiness check proves what it can observe. On a shell-less image under Docker Desktop, a
+port wait observes the host proxy and nothing else; wait for something only the server itself can
+produce, such as its log line or an answer in its own protocol.
+
+## 347. A gRPC stream's Send returned EOF, and the probe read it as the answer
+
+**Symptom.** Found 2026-09-25 by the push gate's repeat pass, in Phase 111's own new test:
+`TestGRPCProbe_OlderReflectionOnly` failed with `server reflection: EOF` about twice in 500 runs under
+`-race`, and never in 300 runs without it. The test's server serves only reflection v1alpha, so the
+probe asks v1 first, expects Unimplemented, and falls back.
+
+**Root cause.** grpc-go's `ClientStream.SendMsg` returns `io.EOF` when the server has already ended the
+stream, and the stream's real status is then read from `RecvMsg`. A server that does not serve a
+method ends the stream at once with Unimplemented, so whether the client's `Send` raced ahead of that
+refusal decided the outcome: ahead, `Send` succeeded and `Recv` returned Unimplemented, which the probe
+handled; behind, `Send` returned `io.EOF`, which the probe returned as a failure without ever reading
+the status. Against a real server predating reflection v1 (grpc-java before 1.57), onboarding would
+have failed at random.
+
+**Fix.** Both reflection calls treat an `io.EOF` from `Send` as "read the status" and go on to `Recv`
+(`internal/inventory/onboard/probe_grpc.go`). 2,000 runs under `-race` pass, against 2 failures in 500
+before.
+
+**Lesson.** On a gRPC client stream, `Send` returning `io.EOF` is never the result: it says the stream
+is over and the result is on `Recv`. Any code that returns straight from a failed `Send` reports a
+race instead of the server's answer.
+
+## 348. A generic device would never have been dispatched: the worker required a host property
+
+**Symptom.** Found 2026-09-25 writing the Controller-side test for Phase 111's Walk-tier work. A
+`generic_http` device in a job's inventory was recorded as skipped ("has no host property") and never
+reached a Runner. The Runner-side release gate passed regardless, because it publishes a dispatch
+payload straight to the stream and never goes through the Controller's fan-out.
+
+**Root cause.** `internal/dispatch`'s worker took a device's address from its `host` property and
+skipped any device without one. Every vendor type keeps its address there, and the rule was written
+for them. `generic_http` and `generic_grpc` keep theirs inside a URL or a target (`base_url`,
+`target`), so they have no `host`, and the worker would have skipped every one of them.
+
+**Fix.** With no `host`, the worker uses the address the device declares through
+`NetworkAddressableCapable` (`declaredAddress` in `worker_devices.go`), which both generic types
+implement from their URL or target. `TestWorker_DispatchesAGenericDevice` fails without it and passes
+with it, and also checks that the payload carries the device's type and allowlisted properties and not
+a property no accessor reads.
+
+**Lesson.** A test that injects a message at a boundary proves the far side only. The Runner gate
+published its own payload, so nothing tested whether the Controller would ever send one. A two-tier
+feature needs each half tested at its real entry point, or one test that crosses both.
+
+## 349. Gate items were ticked with half their work undone, and one ticked claim was false
+
+**Symptom.** Found 2026-09-25 while tracing the four security problems the roadmap's attestation checker
+reported: finished Fuzz/Stress, Schema/Injection and Release Gate items that cited no test, path or make
+target it could find. Most had their evidence; it had simply never been written down. Four did not.
+Phase 96c's Release Gate asks for one run over real NATS behind real Toxiproxy in which a dispatch
+published while severed arrives exactly once after a heal longer than the old two-minute window, and no
+such test exists: the Runner's admission check is tested with an in-memory store and a mock consumer,
+and 96a's recovery test has no dedup in it. 96c's Fuzz/Stress item also asked for a benchmark of the
+dedup table's cost and nothing measures it. Phase 79's asked for the sign-in email to be fuzzed and only
+the password is. And Phase 55's "no function in this phase performs I/O of any kind" is false:
+`ShiftTimezone` calls `time.LoadLocation`, which reads the zone database from disk.
+
+**Root cause.** Each partial item had more than one clause, and it was ticked once its most visible
+clause was done (the fuzz target, the derivation, the password path). Nothing asked for a proof per
+clause. The I/O claim came from an audit of the import list, and `time` is not an I/O package, so an
+audit of imports cannot see a read that one of its functions makes.
+
+**Fix.** Every flagged item now carries a dated evidence line naming its tests. 96c's Release Gate is
+re-opened with the two unjoined halves named. 96c's benchmark and 79's email fuzz are split out as open
+items instead of staying inside ticked ones. Phase 55's claim is corrected, and
+`TestFiltersDoNoNetworkFileOrProcessIO` now checks it: it inspects the calls, not just the imports, and
+names `time.LoadLocation` and `crypto/rand` as the only reads `pkg/filters` makes.
+`TestFiltersIOSitesDetects` is its negative control.
+
+**Lesson.** An item with several clauses is done when each clause cites its own proof. "No I/O"
+describes what the code calls, so check the calls.
+
+## 350. Entry 310's fix set the group's deadline, and every step inside it still gave up at sixty seconds
+
+**Symptom.** `make ci` on 2026-09-25 (`6530e2e`) failed in its coverage pass, and so did a second run
+of that step: `internal/backup`'s `TestRestore_RefusesABackupFromANewerVersion`, then
+`TestScratch_ClearSettingsRemovesWhatTheFileLeft` and `TestTakeAndRestore_RefuseATriggerAndItsFunction`,
+each with `wait until ready: external check ... get state ... context deadline exceeded` after 567 or
+568 polls and 61 seconds. That is entry 310's symptom exactly, on code that had its fix. The package
+passed alone in 35 seconds, and it passed the race and integration passes of the same run, which start
+container packages one at a time. Only the coverage pass, which starts them all together, was slow
+enough to reach the limit. push-gate had absorbed the same class in its own coverage pass by
+re-running failures alone (`cmd/controller`, `cmd/runner`, `internal/election`).
+
+**Root cause.** testcontainers has two layers of timeout and 310 set only one. `WithWaitStrategyAndDeadline`
+bounds the `ForAll` group, but each strategy inside it (`ForLog`, `ForListeningPort`, `ForHTTP`) also
+calls `context.WithTimeout` with its OWN startup timeout, `defaultStartupTimeout()`, sixty seconds, when
+none is set. A child context cannot outlive the shorter of the two, so the group's two minutes never
+reached any step. `ForAll`'s `WithStartupTimeoutDefault` does not help either: it only sets a context
+around the step, which the step narrows back to sixty. And `TestReadinessCarriesTheAgreedBound` read the
+group's deadline only, so it passed. The same shape was in two more places. The five LocalStack starts
+took the module's own strategy, whose step says 120 seconds but whose group, from `WithWaitStrategy`,
+says sixty. And `cmd/pleiades`'s SSH release gate put a three-minute group around two steps that set
+nothing.
+
+**Fix.** Every step in `PostgresReady` and `ToxiproxyReady` now sets `WithStartupTimeout(ContainerStartupTimeout)`.
+A new `LocalStackReady` replaces the module's strategy, and all five LocalStack starts pass it. The SSH
+gate's two steps name `SSHDStartupTimeout`. `TestReadinessCarriesTheAgreedBound` now reads back each
+step's own timeout through `wait.StrategyTimeout`; `TestUnboundedStepsDetects` is its negative control,
+built as 310's version was; and `TestNoContainerWaitsUnderTheLibraryDeadline` counts LocalStack starts
+against `LocalStackReady()` calls. Two mutations were checked: dropping one step's timeout, and dropping
+one call site's helper, each fails the named test.
+
+**Lesson.** When a bound passes through layers, test the value at the layer that enforces it. 310's
+test read a value the library kept, and not the one the library obeyed. See `LESSONS_LEARNED.md` #243.
+
+## 351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
+
+**Symptom.** `make ci` on 2026-09-25 (`e3d84b9`) failed its race pass on `cmd/runner`:
+`panic: test timed out after 30m0s` with `TestSSHMeshReleaseGate_RealSecretThroughTheFullChain`
+running for 26m56s. The stack showed `captureRealHostKey` in `ssh.NewClientConn`, inside
+`readVersion`. The same package had passed alone under `-race` hours earlier.
+
+**Root cause.** The helper dialed the sshd container's published port and ran the handshake on that
+connection with nothing bounding it. `ssh.ClientConfig.Timeout`, which it set, bounds only `ssh.Dial`'s
+TCP connect, not a handshake over a connection the caller dialed. The container was declared ready on
+the image's init log line, which says nothing about sshd listening, and a published port accepts a
+connection before the server behind it does (entry 346). So the read of the version banner waited for
+bytes that were never coming. `cmd/pleiades` carried an identical copy.
+
+**Fix.** `testsupport.CaptureHostKey` sets a deadline on every attempt's connection and retries until
+the server completes a handshake or `SSHDStartupTimeout` has passed. Both copies call it.
+`TestCaptureHostKey_ASilentServerIsBounded` runs it against a listener that accepts and never writes,
+and gives up at its bound; without the deadline that test hangs exactly as CI did.
+`TestCaptureHostKey_RetriesPastASilentConnection` shows a silent first connection is retried past.
+
+**Class.** C15 (unbounded wait on a peer; CWE-1088)
+**Portable.** yes: any test harness that handshakes with a container on a port a proxy accepted
+**Detector.** a listener that accepts and never writes, and an assertion that the caller returns within its bound; see ~/vuln-corpus/README.md
+
+**Lesson.** See `LESSONS_LEARNED.md` #243: the timeout that was set bounded a layer that never blocked.
+
+## 352. The SSH handshake with a device reached through a bastion had no bound at all
+
+**Symptom.** Found 2026-09-25 while fixing entry 351, by reading the other callers of
+`ssh.NewClientConn`, then measured. `pkg/remoteexec`'s `dialThroughHop` opened a channel through the
+bastion and ran the target's handshake over it with nothing bounding it. Against a target that
+accepts the forwarded connection and never sends an SSH version, `Runner.Run` with a two second
+context stayed blocked at `hop.go:73` until the test's own thirty second timeout
+(`TestConnect_HopChain_ASilentTargetIsBounded`, before the fix).
+
+**Root cause.** `ssh.NewClientConn` takes no context, a connection tunneled through an SSH channel
+does not support deadlines, and `ssh.ClientConfig.Timeout` bounds only `ssh.Dial`. The direct path,
+`realDial`, already closed its connection when its context ended, which is the one way to unblock that
+handshake, with a comment saying why. The tunneled path had been written without the guard, and its
+context was passed only to opening the channel.
+
+**Fix.** The guard is now one helper, `closeOnDone`, beside `handshakeContext` (the caller's context
+bounded by `config.Timeout` when set), and both paths use them. `closeOnDone`'s stop now also waits for
+its goroutine to exit, so a deferred cancel right after a successful handshake cannot race it into
+closing the new connection. `TestConnect_HopChain_ASilentTargetIsBounded` returns at the context's two
+seconds.
+
+**What it would get an attacker.** Anyone who controls the endpoint at a device's address behind a
+bastion (the device itself, or anything that can answer on that address and port) could hold a Crawl
+run, or a Runner's task and the device lease it holds, for as long as they liked, by accepting the
+connection and saying nothing. No credential is needed. Measured in-process; no upstream fix applies,
+since the library documents that `Timeout` covers only `Dial`.
+
+**Class.** C15 (unbounded wait on a peer; CWE-1088, CWE-400)
+**Portable.** yes: any SSH jump-host, proxy or tunnel code that calls `ssh.NewClientConn` itself
+**Detector.** a listener that accepts and never writes behind the hop, and an assertion that the call returns within its context; see ~/vuln-corpus/README.md
+
+**Lesson.** See `LESSONS_LEARNED.md` #244.
+
+## 353. A test broker was declared ready while its published port still refused every connection
+
+**Symptom.** Three times on 2026-09-25, once in `internal/event` and twice in `cmd/runner`, two of
+them under `make ci`'s one-container-package-at-a-time pass: `failed to connect to nats at
+nats://localhost:N: timed out waiting for the first nats connection`. The broker had logged "Server is
+ready", and the client's log shows every attempt against that port refused (`dial tcp
+127.0.0.1:40964: connect: connection refused`) for the whole ten seconds the first connection is
+allowed. Each test passed alone.
+
+**Root cause, as far as it is known.** `testsupport.StartNATS` waits for the server's own log line,
+which is said inside the container. The port the host dials is published separately, by Docker
+Desktop's port forwarding on this WSL2 machine, and nothing checked it. How long it stays unreachable
+is not settled: after the fix below, two brokers started one after the other in `internal/event`
+(`nats_dedup_test.go`) each refused every connection for the full two minutes, while the same package
+passed alone earlier the same day, and six brokers started by hand on a quiet machine each answered
+within 0.04 seconds. So the published port can stay dead for minutes at a time under this workload,
+and why is not diagnosed. No test in `internal/event` runs in parallel, and the test before them only
+drives Toxiproxy.
+
+**What changed.** `StartNATS` now also waits, under `ContainerStartupTimeout`, until the published
+client port answers with the `INFO` line every NATS server opens a connection with
+(`waitForNATSGreeting`), each attempt under its own deadline. That absorbs a short gap, if there is
+one, but its measured value is the diagnosis. A broker whose port never answers now fails in the
+harness, naming the port and the refusal, not in the code under test as a first-connection timeout
+that reads like a defect in `internal/topology`. `TestWaitForNATSGreeting` covers a broker, a port that
+closes its first connections and then answers, and four ports that never do. `ConnectWaitTimeout`, the
+production bound, is unchanged.
+
+**Open.** Why Docker Desktop's forwarding goes dead for minutes during these runs. Until that is known,
+a `make ci` on this machine can fail here with nothing wrong in the code.
+
+**Lesson.** A container's readiness has two sides. Wait for the side the test dials, not only the side
+the container reports, and when that wait fails, say which side.

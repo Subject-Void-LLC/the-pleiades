@@ -21,11 +21,13 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `FactGathererCapable` | - | - |
 | `FileTransferCapable` | - | - |
 | `FirewalldCapable` | `SystemdCapable` | - |
+| `GRPCCapable` | - | - |
+| `HTTPAPICapable` | - | - |
 | `JunosCapable` | `NetworkCLICapable` | - |
 | `LinuxCapable` | - | - |
-| `NetconfCapable` | `NetworkCLICapable` | - |
+| `NetconfCapable` | - | - |
 | `NetworkAddressableCapable` | - | - |
-| `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable`, `NetconfCapable` |
+| `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable` |
 | `POSIXFileSystemCapable` | - | - |
 | `PackageManagerCapable` | - | `AptCapable`, `DnfCapable` |
 | `PosixAccountCapable` | - | - |
@@ -42,4 +44,4 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsFeatureCapable` | - | - |
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 
-31 capabilities registered.
+33 capabilities registered.

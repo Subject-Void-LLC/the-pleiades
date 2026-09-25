@@ -15,13 +15,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// defaultMaxConcurrency bounds how many device executions Executor.Run
+// DefaultMaxConcurrency bounds how many device executions Executor.Run
 // allows in flight at once when NewExecutor is given zero or a negative
 // value. It matches ansible-playbook's own default forks value, so
 // executor_bench_test.go's comparison against a real ansible-playbook run
 // measures a genuinely comparable degree of parallelism, not an
-// apples-to-oranges one.
-const defaultMaxConcurrency = 5
+// apples-to-oranges one. Exported for `pleiades run --forks`, whose
+// default it is.
+const DefaultMaxConcurrency = 5
 
 // defaultLockTTL bounds how long Executor holds a device's lock before
 // lock.Manager treats it as abandoned. It is a safety net, not the
@@ -418,7 +419,7 @@ func WithTaskTimeout(d time.Duration) ExecutorOption {
 // in flight at once across the whole Run call, regardless of whether that
 // concurrency comes from one node fanning out across many devices or
 // several nodes in the same graph level running at once; a value of zero
-// or less falls back to defaultMaxConcurrency. opts configures optional
+// or less falls back to DefaultMaxConcurrency. opts configures optional
 // behavior (WithVariables, WithTaskTimeout, WithJournal); every existing
 // call site that passes none keeps its prior OUTCOME and its prior event
 // stream unchanged.
@@ -437,7 +438,7 @@ func WithTaskTimeout(d time.Duration) ExecutorOption {
 // (see WithJournal).
 func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Manager, bus event.Bus, workflow WorkflowContext, maxConcurrency int, opts ...ExecutorOption) *Executor {
 	if maxConcurrency <= 0 {
-		maxConcurrency = defaultMaxConcurrency
+		maxConcurrency = DefaultMaxConcurrency
 	}
 	x := &Executor{
 		resolver:       resolver,

@@ -29,6 +29,7 @@ var Collections = concatCollections(
 	networkCollections,
 	extendedCollections,
 	gatingCollections,
+	sessionCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit
