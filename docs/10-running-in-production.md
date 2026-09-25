@@ -1009,7 +1009,16 @@ an operator.
   under "devices needing review", with its reason, including on a `--read-only` preview.
   Fix the source or wait for a plugin that can place the record; there is nothing in the
   inventory to promote.
-- **Added through the API or the web UI.** A device created there is `active`.
+- **Added through the API or the web UI.** A device created there is `active`, unless its
+  type is a generic one (below).
+- **A generic device is onboarded.** A `generic_ssh`, `generic_netconf`, `generic_http` or
+  `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
+  Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
+  moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
+  probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
+  answer. Onboarding refuses a device an administrator put in `quarantined`,
+  `simulate-locked`, `decommissioning` or `archived`. Onboarding an `active` device again
+  re-probes it and records only what changed.
 - **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
   such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`,
   which operators and admins hold. Each change is recorded as a revision in the device's
@@ -1559,6 +1568,42 @@ fleet-wide. Use it for a throwaway lab and treat it as a finding anywhere else. 
 that until recently this was the only thing that worked inside the shipped runner
 image, so a runbook inherited from that period may be carrying it for a reason that
 no longer exists.
+
+### Onboarding a generic device from the Controller
+
+The onboarding route runs the probe in the Controller process, as a sync does: the
+Controller connects to the device, not a Runner. So the Controller needs what a probe
+needs: the device's credential in the same per-device store a dispatch reads
+(`CONTROLLER_CREDENTIALS_DIR`), the device's host key in its known_hosts
+(`PLEIADES_KNOWN_HOSTS`, or its own `~/.ssh/known_hosts`) for `generic_ssh` and
+`generic_netconf`, and a trust store holding the certificate authority of a
+`generic_http` or `generic_grpc` device (the system's, or `SSL_CERT_FILE`). No probe skips a
+host key or a certificate check, and there is no setting that makes one.
+
+The route needs `inventory:onboard`, which operators and admins hold and which
+`inventory:write` does not imply: onboarding reaches a device with a secret and is the only
+way a device gains a capability its type does not declare. Each call is logged with its
+caller and outcome, and the discovery and every state change it makes are revisions in the
+device's history.
+
+What each probe sends the device is fixed. The SSH probe runs one constant script, which
+reads `uname`, `/etc/os-release` (read line by line, never executed) and whether a set of
+commands exists. The HTTP probe sends one GET of the base URL, and of `openapi_path` when set,
+and follows no redirect, so the credential reaches the base URL's origin and nowhere else;
+`basic` or `bearer` authentication is refused on an `http://` base URL. The gRPC probe calls
+the standard health and reflection services, sends a stored credential as a bearer token
+only over TLS, and refuses outright when a credential is stored and `grpc_plaintext` is true.
+What a device answers is kept only as bounded text (256 bytes a value, 256 entries a list),
+with control and formatting characters removed, and is escaped again wherever it is printed.
+
+One limit applies on the Walk tier. A Runner rebuilds a dispatched device from its SSH address
+and its capability names, not from its type, so a method that reads any other device accessor
+cannot read it there: `http.request`'s device mode (the base URL), `net.netconf.config` (the
+NETCONF port), and the generic `pkg.*` and `svc.*` methods (the manager's name, which picks
+`apt` or `dnf`, `systemd` or Windows). Each refuses by name rather than guessing. The
+manager-specific methods, such as `pkg.apt.install` and `svc.systemd.restart`, read no accessor
+and run on a Runner as they do anywhere. On the Crawl tier, `pleiades run` has the whole device
+and all of them work.
 
 ### Connection persistence
 

@@ -106,6 +106,17 @@ the payload, which still carries the resolved credential itself. Presenting a
 client certificate to a managed device, which is a different thing again, is
 also real.
 
+**A device with no type of its own can be managed.** Four generic device types,
+`generic_ssh`, `generic_netconf`, `generic_http` and `generic_grpc`, take their
+capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
+probes it over its protocol and records what its answers prove, and nothing else can
+grant one. Each is proven against a real server: a Debian host, a Netopeer2 NETCONF
+server, an HTTPS API and the gRPC project's own example server. One limit: on the Walk
+tier a Runner sees a dispatched device's SSH address and capability names only, so a
+method that reads a generic device's other settings (its API base URL, its NETCONF
+port) refuses there by name; on the Crawl tier everything works. See
+[Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types).
+
 **Credential types and injectors are real.** An administrator can define a credential
 type as data, over the API, with an input schema and an injector document, exactly as
 they would in AWX; a real AWX export decodes into it with no translation layer.

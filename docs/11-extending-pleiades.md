@@ -32,6 +32,41 @@ by contributing to this repository. That means:
   in a directory yourself, and the directory's own permissions are the trust
   boundary. See [the trust model](#the-trust-model-and-its-limits).
 
+## Before writing a device type: the generic types
+
+A device type is Go code compiled into a release, which is cheap here and a wait for anyone
+else. Four generic types cover a device nobody has written a type for, by the protocol it
+speaks rather than by what it is:
+
+| Type | Reached by | Baseline | Onboarding may add |
+|---|---|---|---|
+| `generic_ssh` | `host`, `port` | SSH transport, running a command | a POSIX shell, Linux, POSIX files, facts, systemd, firewalld, apt, dnf, POSIX accounts |
+| `generic_netconf` | `host`, `netconf_port` (830) | SSH transport | `NetconfCapable` |
+| `generic_http` | `base_url`, `http_auth` (`none`, `basic`, `bearer`) | an address | `HTTPAPICapable` |
+| `generic_grpc` | `target` (`host:port`), `grpc_plaintext` | an address | `GRPCCapable` |
+
+A vendor type's capabilities are backed by its Go code. A generic type cannot do that, so
+beyond its baseline its capabilities come from the device itself: `pleiades onboard <host>`
+(or `POST /api/v1/inventory/devices/{name}/onboard`, scope `inventory:onboard`) probes it over
+its protocol with its stored credential and records what the device's own answers prove, as
+a revision in its history. The SSH probe runs one fixed script (no inventory value reaches
+it) and grants a package manager only when both its tools answer; the NETCONF probe reads the
+server's `<hello>`; the HTTP probe makes one verified, authenticated request to the base URL,
+and reads the OpenAPI document when `openapi_path` names one; the gRPC probe asks the standard
+health and reflection services. Nothing else grants a discovered capability: `add-host --set`,
+a hand-written `hosts.yaml` and a sync plugin are each refused if they name the `discovered`
+property, and a classification rule cannot add to a generic type. A generic device starts
+`discovered`, which runs nothing, and is `active` once onboarding succeeds.
+
+A generic type is enough when the methods you need run on what the protocol proves:
+`exec.command` and `exec.shell` on an SSH login, the package, service and account methods on a
+Linux host the probe recognizes, `net.netconf.config` on a NETCONF server, and `http.request`
+against a device's own API (a `url` that is a path, such as `/interfaces`, is joined to the
+device's base URL and carries the device's credential and nothing else's). Write a vendor type
+when a method needs something no protocol can report: a CLI prompt and paging convention
+(`net.ios.*`), a version-specific accessor, or a capability whose truth depends on the model.
+`pleiades forge new-device` below is still how that is done.
+
 ## Forge commands
 
 `pleiades forge` scaffolds the kinds of extension: a new Collection method

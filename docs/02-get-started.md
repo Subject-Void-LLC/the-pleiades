@@ -53,6 +53,18 @@ hosts:
         port: 2222
 ```
 
+A device with no type of its own gets a generic one, and its capabilities come from the
+device rather than from the inventory. It starts `discovered`, which runs nothing, until it
+is onboarded once its credential is stored (step 4):
+
+```bash
+$ pleiades add-host edge1 --type generic_ssh --set host=10.0.0.5
+$ pleiades onboard edge1        # after add-credential; --json prints the same result as JSON
+```
+
+See [Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types)
+for the four generic types and what each probe proves.
+
 ### 4. Store a credential
 
 ```console

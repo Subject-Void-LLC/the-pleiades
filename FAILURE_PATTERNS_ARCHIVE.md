@@ -9752,3 +9752,23 @@ capability reference no longer lists the edge.
 **Lesson.** A capability's parent must be something every device holding the child can actually do. An
 edge that no current device contradicts is still wrong if the next device type would; check each edge
 against the device that has only the child.
+
+## 346. A port wait passed before a shell-less container's server was listening
+
+**Symptom.** Found 2026-09-24 writing Phase 111's gRPC release gate. `TestGenericReleaseGate_GRPC`
+waited for `grpc/java-example-hostname` with `wait.ForListeningPort("50051/tcp")`, which reported the
+container ready, and the probe's first call then failed: `connection error: error reading server
+preface: connection reset by peer`. Rerun a few seconds later by hand, the same probe succeeded.
+
+**Root cause.** The strategy has two halves, a check inside the container and a dial from the host,
+and neither held here. The image has no shell, so testcontainers logs "Shell not found in container"
+and skips the inside check. The host dial reaches Docker Desktop's port proxy, which accepts a
+connection on the published port at once, whether or not anything in the container listens yet, so it
+succeeds while the JVM is still starting. Readiness was measured against the proxy, not the server.
+
+**Fix.** Wait on the server's own line, `wait.ForLog("Listening on port 50051")`, which only the
+server can print (`cmd/pleiades/generic_release_gate_test.go`, with a comment saying why).
+
+**Lesson.** A readiness check proves what it can observe. On a shell-less image under Docker Desktop, a
+port wait observes the host proxy and nothing else; wait for something only the server itself can
+produce, such as its log line or an answer in its own protocol.

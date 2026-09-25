@@ -5103,3 +5103,25 @@ exposed the second only because the proof ran through the real binary against a 
 
 When a gap is accepted, write the end-to-end test that will pass once it closes, and keep it failing
 (or skipped with a named reason) until then, so the closing work finds every break on the way.
+
+## 239. A claim only the device may make needs one writer, and a refusal tested on every other path
+
+Phase 111's generic device types take their capabilities from the device: onboarding probes it and
+records what its answers prove. That record is worth something only if nothing else can write it, and
+"nothing else" turned out to be seven paths, not one: `add-host --set`, a hand-written `hosts.yaml`
+(through the repository and through the read-only loader), a sync plugin adding a device, a sync plugin
+updating one, the ordinary property mutators, the API and the web UI. The API and the web UI were safe
+only by accident, since neither accepts properties at all. The design that held was one reserved
+property, one privileged method that writes it (with a revision, like any other change), a single
+predicate every other path calls, and a test per path that tries to write it and fails naming it. The
+discovery was also moved out of the hand-edited file into the generated state file, so the file a
+person edits never holds a value they may not write.
+
+A second finding came from the same work: a classification path is linear, and what a probe finds is a
+set of independent facts (apt and systemd and firewalld). Encoding a set as a path needs a rule per
+combination, so the probes map each fact to a capability directly, and each type bounds what it may be
+granted.
+
+When a value must come from one source, reserve its name, give it one writer, and enumerate every
+write path with a test that the others refuse it. Count the paths by searching for writers, not by
+remembering them.

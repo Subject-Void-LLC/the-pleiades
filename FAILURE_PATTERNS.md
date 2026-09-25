@@ -348,6 +348,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
 344. A host classified at add time lost its classification's capabilities on load
 345. Declaring NETCONF claimed a command line
+346. A port wait passed before a shell-less container's server was listening
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
