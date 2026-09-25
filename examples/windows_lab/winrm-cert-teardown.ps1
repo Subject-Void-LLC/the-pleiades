@@ -33,7 +33,8 @@
     What the setup granted the lab account is revoked by that account's
     SID, from the lab-state.json the setup wrote (or, without it, by
     finding the SID where the setup puts it): its WinRM access entry, its
-    logon-right denials, and every ACL entry it added, including the deny
+    logon-right denials, its COM launch entries on VirtualBox's servers,
+    and every ACL entry it added, including the deny
     at the root of each other fixed drive, which is removed across every
     file it was written into.
 
@@ -323,6 +324,15 @@ if (-not $grantedSid) {
             Set-DenyRights -Sid $grantedSid -Rights $rights -Remove
             Write-Host "   removed from $($rights.Count) logon right(s)"
         } catch { Write-Leftover "its logon-right denials: $($_.Exception.Message)" }
+    }
+    # VirtualBox's COM servers. The revoke touches an AppID only where it
+    # names this SID, so the recorded list and the installed one are both
+    # safe to try.
+    $comIds = @(@(Get-VirtualBoxAppId) + @(if ($state) { $state.comAppIds }) | Where-Object { $_ } | Sort-Object -Unique)
+    foreach ($id in $comIds) {
+        try {
+            if (Set-ComLaunchGrant -AppId $id -Sid $grantedSid -Remove) { Write-Host "   removed its COM launch entry on $id" }
+        } catch { Write-Leftover "its COM launch entry on ${id}: $($_.Exception.Message)" }
     }
     # File system. A drive-root deny is removed across every file it was
     # written into, which takes as long as setting it did.

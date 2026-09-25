@@ -74,14 +74,20 @@ password that is used once, to map the certificate, and never shown; it reaches 
 through its own RootSDDL entry, not a group; it cannot log on at the console, over
 Remote Desktop, or as a batch job or service; and on every fixed drive except the
 system drive it is denied everything but the folders named with `-ReadPath` and
-`-WritePath`. The certificate authority's private key is deleted once the server and
+`-WritePath`. With `-AllowVirtualBox` it may also start VirtualBox's two COM servers,
+VBoxSVC and VBoxSDS, which `VBoxManage` needs: Windows' default launch permission admits
+only administrators, SYSTEM and interactive logons, and a WinRM logon is a network one, so
+without the grant `VBoxManage list vms` fails with `E_ACCESSDENIED`. The grant is local
+launch and local activation, on those two AppIDs only, for this account's SID only; an
+AppID with no launch permission of its own keeps the machine default's entries beside it.
+The certificate authority's private key is deleted once the server and
 client certificates exist, and the client's once it is exported, so nothing on the host
 can issue a certificate the host trusts. What it granted is recorded in
 `lab-state.json`, which `winrm-cert-teardown.ps1` reads to revoke exactly that.
 
 ```powershell
 # elevated; the deny on the other drives writes into every file there, once
-powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab
+powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab -AllowVirtualBox
 powershell -ExecutionPolicy Bypass -File .\winrm-cert-teardown.ps1
 ```
 
@@ -96,6 +102,10 @@ pleiades add-host win-lab --type windows_server --set host=<address> --set port=
   --set "tls_ca_pem=$(cat ca.pem)"
 pleiades add-credential win-lab --pfx client.pfx --passphrase-stdin < client.pfx.passphrase
 ```
+
+Each run issues a new authority and client certificate, so after a re-run, pin the new
+authority with `pleiades set-host win-lab --set "tls_ca_pem=$(cat ca.pem)"` and import the
+new bundle with the same `add-credential` line, which replaces the stored one.
 
 A setup run from before `ca.pem` existed wrote only `ca.cer`; `certutil -encode ca.cer ca.pem`
 converts it.

@@ -27,6 +27,8 @@
       - On the system drive, what any standard user has, except creating
         entries at the drive root or the ProgramData root, and writing
         under the Public profile.
+      - With -AllowVirtualBox, local launch and activation of VirtualBox's
+        two COM servers, so VBoxManage works from its WinRM logon.
 
     What it does not get, and why:
       - A password anyone knows. The password is random, is used once to
@@ -78,13 +80,21 @@
     (execute and read) is the least expected to open a shell; widen it only
     if a run is refused, and say why.
 
+.PARAMETER AllowVirtualBox
+    Grant the account local launch and local activation of VirtualBox's
+    COM servers (VBoxSVC and VBoxSDS), on those two AppIDs only and for its
+    SID alone. Without it, VBoxManage run over WinRM fails with
+    E_ACCESSDENIED: Windows' default launch permission admits interactive
+    logons, and a WinRM logon is a network one. A run without it removes a
+    grant an earlier run made.
+
 .PARAMETER OutputDirectory
     Where client.pfx, its passphrase file, ca.pem and lab-state.json are
     written, readable only by the user running this script.
 
 .EXAMPLE
     .\winrm-cert-setup.ps1
-    .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab
+    .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab -AllowVirtualBox
     .\winrm-cert-setup.ps1 -AllowedSubnet 10.0.0.0/24 -ReplaceExistingListener
 #>
 [CmdletBinding()]
@@ -99,6 +109,7 @@ param(
     [string]   $LocalUser       = 'pleiades-gate',
     [string]   $Upn             = 'pleiades-gate@pleiades.local',
     [switch]   $AddToRemoteManagementUsers,
+    [switch]   $AllowVirtualBox,
 
     # Leave the account a standard user's access to the other fixed drives
     # instead of denying it there. Off by default: see step 4.
@@ -303,7 +314,23 @@ $granted = $cleaned -replace '(D:P)', ('$1' + "(A;;$ShellRights;;;$sid)")
 Set-Item WSMan:\localhost\Service\RootSDDL $granted -Force
 Write-Host "   $ShellRights for $sid"
 
-Write-Step 8 'certificate-to-account mapping'
+Write-Step 8 "VirtualBox's COM servers for '$LocalUser' alone"
+$vboxAppIds = @(Get-VirtualBoxAppId)
+if ($AllowVirtualBox) {
+    if ($vboxAppIds.Count -ne 2) {
+        throw 'VirtualBox is not installed here: VBoxSVC.exe and VBoxSDS.exe have no registered AppID. Install it, or drop -AllowVirtualBox.'
+    }
+    foreach ($id in $vboxAppIds) {
+        [void](Set-ComLaunchGrant -AppId $id -Sid $sid)
+        Write-Host "   local launch and activation on $id"
+    }
+} else {
+    foreach ($id in $vboxAppIds) {
+        if (Set-ComLaunchGrant -AppId $id -Sid $sid -Remove) { Write-Host "   removed launch on $id, which an earlier run granted" }
+    }
+}
+
+Write-Step 9 'certificate-to-account mapping'
 Get-ChildItem WSMan:\localhost\ClientCertificate -ErrorAction SilentlyContinue | ForEach-Object {
     if ((Get-ChildItem $_.PSPath | Where-Object Name -eq 'Subject').Value -eq $Upn) {
         Remove-Item $_.PSPath -Recurse -Force
@@ -316,12 +343,12 @@ New-Item WSMan:\localhost\ClientCertificate -Subject $Upn -URI * -Issuer $ca.Thu
 $password = $null
 Write-Host "   $Upn -> $LocalUser"
 
-Write-Step 9 "firewall, $AllowedSubnet only"
+Write-Step 10 "firewall, $AllowedSubnet only"
 Get-NetFirewallRule -DisplayName "$Tag *" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName "$Tag WinRM HTTPS" -Direction Inbound -Action Allow `
     -Protocol TCP -LocalPort 5986 -RemoteAddress $AllowedSubnet -Profile Any | Out-Null
 
-Write-Step 10 'export the client identity, then delete keys this host does not need'
+Write-Step 11 'export the client identity, then delete keys this host does not need'
 # The output directory is readable by the user running this script and by
 # SYSTEM, and by nobody else; files written into it inherit that.
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -337,7 +364,7 @@ $passphrase = $null
 # host is verified without adding this lab's CA to the client's roots.
 $caPemPath = Join-Path $OutputDirectory 'ca.pem'
 $caPem = "-----BEGIN CERTIFICATE-----`n" +
-    [Convert]::ToBase64String($ca.RawData, [Base64FormattingOptions]::InsertLineBreaks) +
+    ([Convert]::ToBase64String($ca.RawData, [Base64FormattingOptions]::InsertLineBreaks) -replace "`r`n", "`n") +
     "`n-----END CERTIFICATE-----`n"
 [IO.File]::WriteAllText($caPemPath, $caPem)
 # The client's key now lives only in the PFX, and the CA's nowhere: neither
@@ -357,6 +384,7 @@ Write-Host '   client and CA private keys removed from this machine'
     programData  = $programData
     publicPath   = $publicProfile
     denyRights   = @($DenyRights)
+    comAppIds    = @(if ($AllowVirtualBox) { $vboxAppIds })
     shellRights  = $ShellRights
 } | ConvertTo-Json | Set-Content -Path (Join-Path $OutputDirectory 'lab-state.json') -Encoding UTF8
 
@@ -367,6 +395,8 @@ Write-Host "passphrase  $passphrasePath (readable by you and SYSTEM only)"
 Write-Host "authority   $caPemPath"
 Write-Host "`nAdd this host to Pleiades, pinning its authority, from the directory above:"
 Write-Host '   pleiades add-host <device> --type windows_server --set host=<address> --set port=5986 --set "tls_ca_pem=$(cat ca.pem)"'
+Write-Host 'or, for a host Pleiades already has, pin this run''s new authority:'
+Write-Host '   pleiades set-host <device> --set "tls_ca_pem=$(cat ca.pem)"'
 Write-Host "Import the bundle, then delete it and its passphrase file:"
 Write-Host "   pleiades add-credential <device> --pfx client.pfx --passphrase-stdin < client.pfx.passphrase"
 Write-Host "If a first connection is refused a shell, re-run with -ShellRights widened or"

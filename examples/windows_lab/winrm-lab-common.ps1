@@ -133,3 +133,72 @@ function Test-AclNames([string] $Path, [string] $Sid) {
     }
     $false
 }
+
+# COM local launch and local activation: COM_RIGHTS_EXECUTE, EXECUTE_LOCAL
+# and ACTIVATE_LOCAL, CCDCSW in SDDL. The least a caller needs to start a
+# COM server on this machine or to reach one already running, and what the
+# machine-wide launch limit already allows Everyone.
+$ComLocalLaunch = 0xB
+
+# The AppIDs of the two COM servers VBoxManage starts, found by executable
+# name as VirtualBox's installer registers them: VBoxSVC, the per-user API
+# server, and VBoxSDS, the system service each VBoxSVC registers with.
+# Returns nothing for one that is not registered.
+function Get-VirtualBoxAppId {
+    foreach ($exe in 'VBoxSVC.exe', 'VBoxSDS.exe') {
+        $id = (Get-ItemProperty -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\AppID\$exe" `
+            -Name AppID -ErrorAction SilentlyContinue).AppID
+        if ($id) { $id }
+    }
+}
+
+# Grants, or with -Remove revokes, COM local launch and activation on one
+# AppID for one SID, and returns whether the AppID changed.
+#
+# An AppID with no LaunchPermission of its own uses the machine's
+# DefaultLaunchPermission, which lets in Administrators, SYSTEM and
+# interactive users but not a network logon such as WinRM's. So a grant
+# starts from a copy of that default: starting from an empty list would
+# lock out everyone the default lets in, including the person at the
+# console. For the same reason a revoke that leaves exactly the default
+# removes the value, which restores the AppID's behavior whatever runs came
+# before. A revoke that finds no entry for the SID writes nothing.
+#
+# -Root is where AppIDs live; only a test points it elsewhere, so the logic
+# can be exercised without writing to the machine's registry.
+function Set-ComLaunchGrant([string] $AppId, [string] $Sid, [switch] $Remove,
+                            [string] $Root = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\AppID') {
+    $key = Join-Path $Root $AppId
+    $own = (Get-ItemProperty -LiteralPath $key -Name LaunchPermission -ErrorAction SilentlyContinue).LaunchPermission
+    $default = (Get-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Ole' `
+        -Name DefaultLaunchPermission -ErrorAction SilentlyContinue).DefaultLaunchPermission
+    if ($Remove -and -not $own) { return $false }
+    $base = if ($own) { $own } else { $default }
+    if (-not $base) { throw "$AppId has no launch permission of its own and this machine has no default to start from" }
+
+    $descriptor = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $base, 0
+    $target = New-Object Security.Principal.SecurityIdentifier -ArgumentList $Sid
+    $acl = $descriptor.DiscretionaryAcl
+    $removed = 0
+    for ($i = $acl.Count - 1; $i -ge 0; $i--) {
+        if ($acl[$i] -is [Security.AccessControl.CommonAce] -and $acl[$i].SecurityIdentifier -eq $target) {
+            $acl.RemoveAce($i)
+            $removed++
+        }
+    }
+    if ($Remove -and $removed -eq 0) { return $false }
+    if (-not $Remove) {
+        $ace = New-Object Security.AccessControl.CommonAce -ArgumentList 'None', 'AccessAllowed', $ComLocalLaunch, $target, $false, $null
+        $acl.InsertAce($acl.Count, $ace)
+    }
+
+    $defaultSddl = if ($default) { (New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $default, 0).GetSddlForm('Access') }
+    if ($Remove -and $descriptor.GetSddlForm('Access') -eq $defaultSddl) {
+        Remove-ItemProperty -LiteralPath $key -Name LaunchPermission
+    } else {
+        $bytes = New-Object byte[] $descriptor.BinaryLength
+        $descriptor.GetBinaryForm($bytes, 0)
+        New-ItemProperty -LiteralPath $key -Name LaunchPermission -Value $bytes -PropertyType Binary -Force | Out-Null
+    }
+    $true
+}
