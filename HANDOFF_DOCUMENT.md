@@ -59,7 +59,11 @@ that reads each step's own timeout.
 **The rerun on `e3d84b9` failed differently.** `cmd/runner` hit go test's 30-minute timeout, because a
 test helper read an SSH banner with no deadline from a port Docker's proxy had accepted
 (FAILURE_PATTERNS 351). It is fixed by `testsupport.CaptureHostKey`, which bounds each attempt and
-retries.
+retries. The same run's `internal/event` failure, and one more in the next run, were a broker whose
+published port refused connections after it said it was ready (FAILURE_PATTERNS 353). In one run it
+stayed refused for two minutes, so this is Docker Desktop's port forwarding going dead, cause not
+diagnosed, not a short lag. `StartNATS` now waits for the port to answer with a NATS greeting, and a
+port that never does fails in the harness, naming it. That is a clearer failure, not a cure.
 
 **Security finding, measured and fixed (FAILURE_PATTERNS 352).** Found by checking the other callers
 of the same SSH call. Through a bastion, the handshake with the device had no bound:

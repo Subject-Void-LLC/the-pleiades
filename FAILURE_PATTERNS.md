@@ -355,6 +355,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 350. Entry 310's fix set the group's deadline, and every step inside it still gave up at sixty seconds
 351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
 352. The SSH handshake with a device reached through a bastion had no bound at all
+353. A test broker was declared ready while its published port still refused every connection
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

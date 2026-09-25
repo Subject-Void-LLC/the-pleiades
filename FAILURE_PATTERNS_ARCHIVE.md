@@ -9939,3 +9939,36 @@ since the library documents that `Timeout` covers only `Dial`.
 
 **Lesson.** See `LESSONS_LEARNED.md` #244.
 
+## 353. A test broker was declared ready while its published port still refused every connection
+
+**Symptom.** Three times on 2026-09-25, once in `internal/event` and twice in `cmd/runner`, two of
+them under `make ci`'s one-container-package-at-a-time pass: `failed to connect to nats at
+nats://localhost:N: timed out waiting for the first nats connection`. The broker had logged "Server is
+ready", and the client's log shows every attempt against that port refused (`dial tcp
+127.0.0.1:40964: connect: connection refused`) for the whole ten seconds the first connection is
+allowed. Each test passed alone.
+
+**Root cause, as far as it is known.** `testsupport.StartNATS` waits for the server's own log line,
+which is said inside the container. The port the host dials is published separately, by Docker
+Desktop's port forwarding on this WSL2 machine, and nothing checked it. How long it stays unreachable
+is not settled: after the fix below, two brokers started one after the other in `internal/event`
+(`nats_dedup_test.go`) each refused every connection for the full two minutes, while the same package
+passed alone earlier the same day, and six brokers started by hand on a quiet machine each answered
+within 0.04 seconds. So the published port can stay dead for minutes at a time under this workload,
+and why is not diagnosed. No test in `internal/event` runs in parallel, and the test before them only
+drives Toxiproxy.
+
+**What changed.** `StartNATS` now also waits, under `ContainerStartupTimeout`, until the published
+client port answers with the `INFO` line every NATS server opens a connection with
+(`waitForNATSGreeting`), each attempt under its own deadline. That absorbs a short gap, if there is
+one, but its measured value is the diagnosis. A broker whose port never answers now fails in the
+harness, naming the port and the refusal, not in the code under test as a first-connection timeout
+that reads like a defect in `internal/topology`. `TestWaitForNATSGreeting` covers a broker, a port that
+closes its first connections and then answers, and four ports that never do. `ConnectWaitTimeout`, the
+production bound, is unchanged.
+
+**Open.** Why Docker Desktop's forwarding goes dead for minutes during these runs. Until that is known,
+a `make ci` on this machine can fail here with nothing wrong in the code.
+
+**Lesson.** A container's readiness has two sides. Wait for the side the test dials, not only the side
+the container reports, and when that wait fails, say which side.
