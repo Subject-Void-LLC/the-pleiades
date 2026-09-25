@@ -149,7 +149,7 @@ func listServices(ctx context.Context, conn *grpc.ClientConn) ([]string, error) 
 		return nil, err
 	}
 	if e := resp.GetErrorResponse(); e != nil {
-		return nil, status.Error(codes.Code(e.GetErrorCode()), e.GetErrorMessage())
+		return nil, reflectionError(e.GetErrorCode(), e.GetErrorMessage())
 	}
 	var names []string
 	for _, s := range resp.GetListServicesResponse().GetService() {
@@ -180,7 +180,7 @@ func listServicesAlpha(ctx context.Context, conn *grpc.ClientConn) ([]string, er
 		return nil, err
 	}
 	if e := resp.GetErrorResponse(); e != nil {
-		return nil, status.Error(codes.Code(e.GetErrorCode()), e.GetErrorMessage())
+		return nil, reflectionError(e.GetErrorCode(), e.GetErrorMessage())
 	}
 	var names []string
 	for _, s := range resp.GetListServicesResponse().GetService() {
@@ -188,4 +188,15 @@ func listServicesAlpha(ctx context.Context, conn *grpc.ClientConn) ([]string, er
 	}
 	slices.Sort(names)
 	return names, nil
+}
+
+// reflectionError turns a reflection ErrorResponse into a status error.
+// Its code is an int32 on the wire, from the server; only Unimplemented
+// changes what the probe does, so that one is matched and every other
+// code reads as Unknown, rather than converting a value the server chose.
+func reflectionError(code int32, message string) error {
+	if code == int32(codes.Unimplemented) {
+		return status.Error(codes.Unimplemented, message)
+	}
+	return status.Error(codes.Unknown, message)
 }

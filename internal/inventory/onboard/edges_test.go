@@ -13,8 +13,10 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
 	reflectionalpha "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
+	"google.golang.org/grpc/status"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -177,4 +179,19 @@ func TestRegister_DuplicatePanics(t *testing.T) {
 		}
 	}()
 	Register(generic.TypeSSH, sshProber{})
+}
+
+// TestReflectionError: a reflection error response's code is matched, not
+// converted: Unimplemented stays Unimplemented and anything else, a
+// negative number included, is Unknown.
+func TestReflectionError(t *testing.T) {
+	for code, want := range map[int32]codes.Code{
+		int32(codes.Unimplemented): codes.Unimplemented,
+		int32(codes.NotFound):      codes.Unknown,
+		-1:                         codes.Unknown,
+	} {
+		if got := status.Code(reflectionError(code, "x")); got != want {
+			t.Errorf("code %d read as %s, want %s", code, got, want)
+		}
+	}
 }
