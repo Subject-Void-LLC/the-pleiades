@@ -3,7 +3,7 @@
 Every file in this directory is committed rather than fetched, because the
 controller binary must serve its own UI with no network reachable at all.
 An air-gapped install has no CDN, and a CDN reference in an air-gapped
-deployment is not a slow page — it is a page that never renders.
+deployment is not a slow page - it is a page that never renders.
 
 Committing them also makes the supply chain reviewable. These bytes went
 through the same pull request as the code that serves them, which is not
@@ -22,7 +22,7 @@ particular obliges a redistributor to carry the NOTICE file forward.
 | | Apache ECharts | htmx |
 | --- | --- | --- |
 | Licence | Apache-2.0 (`LICENSE-echarts.txt`, `NOTICE-echarts.txt`) | 0BSD (`LICENSE-htmx.txt`) |
-| Attribution required | Yes — NOTICE must accompany distribution | No, but retained anyway |
+| Attribution required | Yes - NOTICE must accompany distribution | No, but retained anyway |
 
 ## echarts.min.js
 

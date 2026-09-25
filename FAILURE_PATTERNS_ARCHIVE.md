@@ -2636,7 +2636,7 @@ stylesheet but none of the vendored assets.
 
 **Root cause.** `.gitignore` carried a bare `vendor/` line, intended for Go's module vendor
 directory. Git's pattern rules match a directory of that name at *any* depth, so it also excluded
-`internal/ui/static/vendor/` — the ECharts and HTMX bundles the controller embeds and
+`internal/ui/static/vendor/` - the ECharts and HTMX bundles the controller embeds and
 redistributes, together with their licence and NOTICE files. `git add` prints nothing when it skips
 an ignored path and exits zero, so nothing about the commit looked wrong.
 
@@ -2646,7 +2646,7 @@ stayed green throughout because the files were sitting on disk the whole time, i
 
 **Fix.** Anchored the pattern to the module root (`/vendor/`), which is the only place a Go vendor
 directory ever exists, so the leading slash costs nothing and is what the line always meant. Then a
-gate, because the failure shape — silent, invisible locally, fatal on a fresh clone — is one no
+gate, because the failure shape - silent, invisible locally, fatal on a fresh clone - is one no
 amount of local testing catches: `TestEmbeddedAssetsAreTrackedByGit` walks the embedded filesystem
 and runs `git ls-files --error-unmatch` over every asset, so a file the binary embeds but the
 repository does not contain fails the build. It caught a second file (`stream.js`) within the hour.
@@ -2655,7 +2655,7 @@ Proven rather than reasoned about: `git archive HEAD` into a clean directory, th
 `go build ./internal/ui/static/`, which reproduced the failure exactly.
 
 **Lesson.** A gitignore pattern is matched at every depth unless anchored, and `git add` reports
-nothing when it skips what it ignores — so "I added the files and committed" is not evidence the
+nothing when it skips what it ignores - so "I added the files and committed" is not evidence the
 files are in the tree. More generally: **a file the binary embeds is a file the repository must
 actually contain**, and the only honest check is against the committed tree, not the working one.
 Anything else is a build that works on the machine it was written on.
@@ -2678,7 +2678,7 @@ credential kind, so the endpoint became authenticated by something a browser att
 A wildcard origin on a cookie-authenticated stream is a standing permission for any site a
 signed-in operator visits to read what their automation is doing to production.
 
-It was not exploitable as written — browsers refuse to combine `*` with credentialed requests — but
+It was not exploitable as written - browsers refuse to combine `*` with credentialed requests - but
 it was one `Access-Control-Allow-Credentials` line away from being so, on the endpoint that streams
 live output from privileged automation.
 
@@ -2688,7 +2688,7 @@ gone.
 
 **Lesson.** A security header is only correct relative to the authentication model underneath it,
 and that model can change without the header being touched. This one went from correct to wrong
-without anybody editing the line — the edit happened two packages away, in the middleware that
+without anybody editing the line - the edit happened two packages away, in the middleware that
 started accepting cookies. **When a new credential kind is added, every header that assumes the old
 one has to be re-read**, and "ambient credential" is the property that flips a permissive CORS
 policy from harmless to dangerous.
@@ -2703,7 +2703,7 @@ controller binary, with a valid session cookie present.
 **Root cause.** `api.IdentityMiddleware` and `session.CookieSource` had both been built specifically
 so a browser could authenticate to the JSON API, which is the one defect that made a browser-based
 log viewer impossible at all. Both were correct and both had tests. `cmd/controller` still called
-`api.AuthMiddleware(evaluator)` — the Bearer-only wrapper — so the cookie source was never passed to
+`api.AuthMiddleware(evaluator)` - the Bearer-only wrapper - so the cookie source was never passed to
 the router, and the entire point of the work was absent from the running binary.
 
 The UI subtree worked, which made it worse: signing in, browsing and every write behaved correctly,
@@ -2717,28 +2717,28 @@ between the UI and the API so the two cannot disagree about the cookie's name.
 unreachable from the composition root. The unit tests could not catch it, because there was nothing
 wrong with the units. What caught it was an end-to-end test that drove the **real binary** and
 asserted the capability the phase existed to deliver, rather than asserting that the pieces of it
-work — which is what RULE 0 is asking for when it says a test only counts if it runs the path the
+work - which is what RULE 0 is asking for when it says a test only counts if it runs the path the
 platform actually runs.
 
 ---
 
 ## 97. An inventory is a grant surface, so unvalidated membership is a cross-tenant privilege escalation with every individual step passing its own check
 
-**Symptom.** None yet — found by adversarial review before the mechanism it exploits was wired up. Reported by all three attack lenses independently.
+**Symptom.** None yet - found by adversarial review before the mechanism it exploits was wired up. Reported by all three attack lenses independently.
 
 **Root cause.** Inventories were introduced as shareable containers, with sharing implemented as a RoleBinding at the new `ScopeInventory` level. That makes an inventory a *grant surface*: the resolver treats every device reachable through a shared inventory as in scope for the team it was shared with.
 
 `SetStore.Create` and `Update` accepted arbitrary group and device ids and wrote them straight through. Nothing checked that a member belonged to the same organization as the inventory holding it.
 
-The escalation needs no step that is individually suspicious. A caller holding `inventory:write` in their own tenant creates an inventory in their own organization (permitted), lists another tenant's device ids as its members (unchecked), shares it with their own team (permitted — it is their inventory), and is then legitimately authorized against hosts nobody granted them. Every permission check along the way passes, because each one is asking a question the attacker can honestly answer yes to.
+The escalation needs no step that is individually suspicious. A caller holding `inventory:write` in their own tenant creates an inventory in their own organization (permitted), lists another tenant's device ids as its members (unchecked), shares it with their own team (permitted - it is their inventory), and is then legitimately authorized against hosts nobody granted them. Every permission check along the way passes, because each one is asking a question the attacker can honestly answer yes to.
 
 Groups made it worse: a group has no organization edge of its own, so a group containing one foreign device smuggles that device in even when the direct device list is clean.
 
-**Fix.** Validate membership at the write, which is the only place it can be stopped — by the time the resolver sees the containment it is a fact, and resolving it is exactly the correct behaviour. `assertMembersInOrganization` refuses any device belonging to another organization, and any group containing one. The API maps the refusal to 403 rather than 400: the submission is well formed and the caller is authenticated, they are simply not entitled. The error reports a count, never the ids — naming which devices belong to somebody else would answer, on that very request, the question the attacker was asking.
+**Fix.** Validate membership at the write, which is the only place it can be stopped - by the time the resolver sees the containment it is a fact, and resolving it is exactly the correct behaviour. `assertMembersInOrganization` refuses any device belonging to another organization, and any group containing one. The API maps the refusal to 403 rather than 400: the submission is well formed and the caller is authenticated, they are simply not entitled. The error reports a count, never the ids - naming which devices belong to somebody else would answer, on that very request, the question the attacker was asking.
 
 Devices with no organization at all are admitted deliberately: a single-tenant deployment has never populated that edge, they belong to no tenant, and refusing them would make the feature unusable for exactly the deployments most likely to adopt it first.
 
-**Lesson.** **Ask what a new container grants, not just what it holds.** A collection that is merely descriptive can accept any membership; one that is an input to an authorization decision cannot, because its membership *is* a permission grant written in a different vocabulary. The tell is that sharing was implemented through the RBAC system — the moment a container feeds the resolver, every write to it is a privilege operation and belongs behind the same scrutiny as a role assignment.
+**Lesson.** **Ask what a new container grants, not just what it holds.** A collection that is merely descriptive can accept any membership; one that is an input to an authorization decision cannot, because its membership *is* a permission grant written in a different vocabulary. The tell is that sharing was implemented through the RBAC system - the moment a container feeds the resolver, every write to it is a privilege operation and belongs behind the same scrutiny as a role assignment.
 
 Also: this was found by adversarially reviewing a *design* before implementing it, by agents told to break it rather than approve it. The same three lenses rejected the surrounding proposal outright. A review that had been asked "is this good?" would have said yes.
 
@@ -2748,15 +2748,15 @@ Also: this was found by adversarially reviewing a *design* before implementing i
 
 **Symptom.** None observable: `auth.NewScopeRule` has never been in a running admission chain, so no deployment has executed this path.
 
-**Root cause.** `ScopeResolver.Resolve` returns `(Role, Effect, error)` and performs the full Section 18.4 walk — system, organization, inventory, group, device — with explicit Deny beating a broader Allow. `scopeRule.Check` calls it as `_, effect, err := r.resolver.Resolve(...)` and returns only the effect.
+**Root cause.** `ScopeResolver.Resolve` returns `(Role, Effect, error)` and performs the full Section 18.4 walk - system, organization, inventory, group, device - with explicit Deny beating a broader Allow. `scopeRule.Check` calls it as `_, effect, err := r.resolver.Resolve(...)` and returns only the effect.
 
 So the resolved role is thrown away. A binding granting `viewer` at a target and a binding granting `admin` at the same target produce an identical answer, and the `role` column on every RoleBinding row is decorative. Composed with `tokenScopeRule`, a caller holding `inventory:write` in their token plus any viewer-level Allow binding is authorized to delete.
 
 **Fix.** Not yet applied, and deliberately so. The correct fix needs a decision this codebase has not made: `AdmissionRequest` carries a `RequiredScope` but no required *role*, so satisfying the role axis needs either a scope-to-minimum-role table or a required role on the request. Choosing one while the rule is unwired, in the same change that introduced an unrelated container, would be inventing policy in the wrong place. Recorded here so the phase that wires `NewScopeRule` addresses it deliberately rather than discovering it.
 
-**Partial fix (2026-08-11).** The silence is fixed; the policy question is still open and still belongs to whoever wires the rule. `scopeRule.Check` now carries a doc comment stating in full that the resolved Role is reported and not enforced, what a correct fix would require, and why choosing it here would settle a policy question in the one place nobody would look for it. The discard itself is unchanged, and that is the point: an enforcement rule invented ahead of its first real caller is the failure recorded at #96 and #100, so the honest move was to make the gap legible rather than to close it speculatively. A first attempt did change the behaviour — returning an error on a clean Deny so the role reached the audit line — and was reverted, because `hateoas.go` documents relying on the distinction between "the chain could not reach a verdict" (error) and "it reached one" (Deny with a nil error), and collapsing that to surface a role nothing enforces would have traded a real signal for a cosmetic one.
+**Partial fix (2026-08-11).** The silence is fixed; the policy question is still open and still belongs to whoever wires the rule. `scopeRule.Check` now carries a doc comment stating in full that the resolved Role is reported and not enforced, what a correct fix would require, and why choosing it here would settle a policy question in the one place nobody would look for it. The discard itself is unchanged, and that is the point: an enforcement rule invented ahead of its first real caller is the failure recorded at #96 and #100, so the honest move was to make the gap legible rather than to close it speculatively. A first attempt did change the behaviour - returning an error on a clean Deny so the role reached the audit line - and was reverted, because `hateoas.go` documents relying on the distinction between "the chain could not reach a verdict" (error) and "it reached one" (Deny with a nil error), and collapsing that to surface a role nothing enforces would have traded a real signal for a cosmetic one.
 
-**Lesson.** A function returning three values where the caller uses one is worth a second look, especially when the discarded one is the entire subject of the table it came from. This survived review because the call site reads naturally — `_, effect, err :=` looks like idiomatic Go, and nothing about it says "the role column is now meaningless".
+**Lesson.** A function returning three values where the caller uses one is worth a second look, especially when the discarded one is the entire subject of the table it came from. This survived review because the call site reads naturally - `_, effect, err :=` looks like idiomatic Go, and nothing about it says "the role column is now meaningless".
 
 ---
 
@@ -2766,7 +2766,7 @@ So the resolved role is thrown away. A binding granting `viewer` at a target and
 
 **Root cause.** `ScopeTarget`'s own doc comment argues that zero-value fields "never match a real RoleBinding: ent primary keys are auto-increment starting at 1". That reasoning is sound for the *target* side and does not hold for the *binding* side, because nothing validates what goes into `role_bindings.scope_id`.
 
-`ScopeResolver.Resolve` unconditionally folds an organization layer at `&target.OrganizationID` and a device layer at `&target.DeviceID`. When a target does not name one — a collection request, a runbook, anything outside the hierarchy — those fields are 0. A stored binding with `scope_id = 0` therefore matches, and because the device layer folds last under `policy.ModeOverride`, it beats every other layer including an explicit Deny at a real scope.
+`ScopeResolver.Resolve` unconditionally folds an organization layer at `&target.OrganizationID` and a device layer at `&target.DeviceID`. When a target does not name one - a collection request, a runbook, anything outside the hierarchy - those fields are 0. A stored binding with `scope_id = 0` therefore matches, and because the device layer folds last under `policy.ModeOverride`, it beats every other layer including an explicit Deny at a real scope.
 
 One row with a zero in a column with no positive constraint is a system-wide grant that outranks everything.
 
@@ -2778,7 +2778,7 @@ The correction to the entry above is worth recording too, because the original o
 
 Proven by `TestScopeResolver_ZeroScopeIDNeverMatchesAnUnnamedLevel`, and the test was mutation-checked: with the guard disabled, a `scope_type=device, scope_id=0` binding grants **admin** on an organization question. The repository-boundary rejection of a non-positive `scope_id` still belongs with the management surface that can write one.
 
-**Lesson.** "The zero value cannot occur in practice" is an argument about one side of a comparison. Both sides need it, and the side that comes from a database column needs a constraint rather than a comment — a schema that permits the value will eventually contain it, whether by a migration default, a bad import, or a test fixture that escaped.
+**Lesson.** "The zero value cannot occur in practice" is an argument about one side of a comparison. Both sides need it, and the side that comes from a database column needs a constraint rather than a comment - a schema that permits the value will eventually contain it, whether by a migration default, a bad import, or a test fixture that escaped.
 
 The second lesson is about sequencing. This was filed as a defect to fix later, in a subsystem nothing used. It became a precondition the moment a *different* feature decided to resolve through the same function, and nothing would have flagged that: the new caller looks entirely reasonable, and the latent row is in data rather than in code. When a dormant component acquires its first real caller, its recorded defects need re-reading as preconditions rather than as backlog.
 
@@ -2800,7 +2800,7 @@ candidates := d.Ops.Candidates()   // internal/ui/web/handler.go
 
 For Runbooks the mismatch was total: its operations declare `collection` and `self`, its action declares `execute`, and the three never intersect. The button was not refused. It did not exist.
 
-Nothing caught it because every test asked a question the defect answered consistently. The conformance suite's affordance test compares what the UI renders against what the generator permits over *the same candidates* — both sides read `Ops.Candidates()`, so both sides omitted the action and agreed. A test that derives its expectation from the code under test cannot see a whole category go missing.
+Nothing caught it because every test asked a question the defect answered consistently. The conformance suite's affordance test compares what the UI renders against what the generator permits over *the same candidates* - both sides read `Ops.Candidates()`, so both sides omitted the action and agreed. A test that derives its expectation from the code under test cannot see a whole category go missing.
 
 **Fix.** `Descriptor.Candidates()` unions the operations' affordances with the actions', and the web handler asks the descriptor rather than its `Ops`. `validateOps` gained the actions, because operations and actions now share one relation namespace: `Affordances` is keyed by relation, so two entries sharing one would make permitting either permit both, which on an action means offering an operation nobody granted.
 
@@ -2808,7 +2808,7 @@ The regression test asserts the rendered HTML contains the action's href, which 
 
 **Lesson.** **When a feature is gated by a set, test that the set contains it, not that the gate works.** Every layer here was individually correct. The action carried a real endpoint, the filter applied the right rule, the generator evaluated what it was given. The defect lived in what was never put into the set, and absence is the one thing a consistency check between two derived values cannot detect.
 
-The sharper tell: this was a *new optional part* added to an existing descriptor. Sections, charts and streams were all added the same way and all render, because each has a route that fails visibly when unwired. An action's only failure mode was silence, because a control that does not render looks exactly like a control the caller is not permitted to see — and "not permitted" is the answer this UI is designed to give quietly.
+The sharper tell: this was a *new optional part* added to an existing descriptor. Sections, charts and streams were all added the same way and all render, because each has a route that fails visibly when unwired. An action's only failure mode was silence, because a control that does not render looks exactly like a control the caller is not permitted to see - and "not permitted" is the answer this UI is designed to give quietly.
 
 ---
 
@@ -2828,7 +2828,7 @@ So the required control is populated from `ListOrganizations`, which correctly r
 
 **Lesson.** **A required field is a dependency on a writer, and a `Kind: Select` says so out loud.** The validation was right, the schema was right and the store was right; what was missing was anything that could ever produce a valid value. This is the `init()`-that-nothing-imports failure (#52, #96) in a new medium: a complete, correct, well tested component with no path from the running system into it.
 
-The generalizable check is cheap. For every required field whose values come from another table, ask what writes that table. If the answer is "a test", the feature does not work — and it will pass every test, because tests write their own fixtures.
+The generalizable check is cheap. For every required field whose values come from another table, ask what writes that table. If the answer is "a test", the feature does not work - and it will pass every test, because tests write their own fixtures.
 
 ---
 
@@ -2858,7 +2858,7 @@ Two accessibility corrections came with it, both of which the original design wo
 
 The canary left behind by the first pass is what caught the moment this changed: a test asserting a list request returns a whole document, with a comment saying that if fragment rendering was ever added, it and this entry needed revisiting. It failed on the commit that added it, which is what a canary is for.
 
-**Lesson.** **A dependency that is loaded is not a dependency that is used, and "the plumbing is ready" is indistinguishable from "the plumbing is dead" without a caller.** This is the same shape as an `init()` nothing imports (#52), a credential source nothing wires (#96), and a record action whose relation never entered the candidate set (#100) — infrastructure ahead of any caller, correct in isolation, invisible in aggregate.
+**Lesson.** **A dependency that is loaded is not a dependency that is used, and "the plumbing is ready" is indistinguishable from "the plumbing is dead" without a caller.** This is the same shape as an `init()` nothing imports (#52), a credential source nothing wires (#96), and a record action whose relation never entered the candidate set (#100) - infrastructure ahead of any caller, correct in isolation, invisible in aggregate.
 
 The specific tell here is cheap to check and worth making a habit: for any front-end library the server ships, grep the templates for a single call site. One `grep -o 'hx-[a-z-]*'` answered a question that four gates, a checksum test and a licence audit had all stepped around, because every one of them was verifying the file rather than its use.
 
@@ -3073,27 +3073,27 @@ The three `Update` methods still read the field from storage. That is the third 
 
 ## 113. Two statements of one contract disagreed, and the reconciliation kept the wrong one
 
-**Symptom.** A production Ascender job template stores `tripplite_python/tripplite_config.yml` in its Playbook field. This platform, immediately after a change whose stated purpose was fixing the playbook reference grammar, answered: `playbook "tripplite_python/tripplite_config.yml" is named by id, not by filename: write it as "tripplite_python/tripplite_config"` — advice naming a file that does not exist, in a form AWX never produces. No playbook belonging to any real customer could be named at all.
+**Symptom.** A production Ascender job template stores `tripplite_python/tripplite_config.yml` in its Playbook field. This platform, immediately after a change whose stated purpose was fixing the playbook reference grammar, answered: `playbook "tripplite_python/tripplite_config.yml" is named by id, not by filename: write it as "tripplite_python/tripplite_config"` - advice naming a file that does not exist, in a form AWX never produces. No playbook belonging to any real customer could be named at all.
 
 **Root cause.** Two packages stated the playbook reference contract independently and disagreed: the launch kind's `validatePlaybookPath` accepted project-relative `.yml` paths, and `internal/adapters/legacy`'s resolver accepted only flat `^[A-Za-z0-9_-]{1,64}$` ids. That much was correctly diagnosed (#112). The repair then unified them **onto the resolver's flat-id grammar**, because the resolver was the side that touched the filesystem and its grammar was the easier one to defend at a trust boundary.
 
-That reasoning is the defect. Which of two disagreeing statements is *right* is decided by the system being compatible with, never by which is simpler to enforce or which side "owns" the boundary. The flat-id grammar existed because the resolver read one flat directory, and it read one flat directory because there is no Project entity to be relative to (`.SPECIFICATION/AWX_TEMPLATE_GAPS.md` §1) — so the repair propagated a *consequence of a missing feature* outward into the contract, and then wrote tests asserting it. Those tests are the worst part: `playbook_test.go` grew entries named `"filename"` and `"path"` listing `site.yml` and `playbooks/patch` as things that must be refused, which reads as deliberate design to the next person.
+That reasoning is the defect. Which of two disagreeing statements is *right* is decided by the system being compatible with, never by which is simpler to enforce or which side "owns" the boundary. The flat-id grammar existed because the resolver read one flat directory, and it read one flat directory because there is no Project entity to be relative to (`.SPECIFICATION/AWX_TEMPLATE_GAPS.md` §1) - so the repair propagated a *consequence of a missing feature* outward into the contract, and then wrote tests asserting it. Those tests are the worst part: `playbook_test.go` grew entries named `"filename"` and `"path"` listing `site.yml` and `playbooks/patch` as things that must be refused, which reads as deliberate design to the next person.
 
 **Fix.** The grammar is project-relative paths, stated once in `internal/playbook.ValidateReference` and delegated to by the kind: non-empty, bounded, no NUL, not absolute, no backslashes, `path.Clean`-idempotent, no `..` climb, `.yml`/`.yaml` extension. `DirSource.Get` joins under the root and re-verifies confinement against the resolved absolute path; `DirSource.List` walks the tree returning relative paths, skipping dot-directories (`.git` above all) and the conventional role-layout directories a playbook never sits in. The e2e gate's fixture moved into a subdirectory so a resolver that cannot descend fails it.
 
-**Lesson.** When two statements of one contract disagree, do not ask which is safer or which package owns it; ask which one an outside system already speaks, and make the other one that. Reconciling on the wrong side produces something strictly worse than the disagreement: the disagreement was at least visible as a bug that made nothing work, while the tidy wrong answer works perfectly for every value the codebase's own fixtures use and for none that a customer has. And when a contract looks unreasonably narrow, check whether it is encoding the absence of a feature rather than a real constraint — a flat namespace is what "we have no Project" looks like from inside the resolver.
+**Lesson.** When two statements of one contract disagree, do not ask which is safer or which package owns it; ask which one an outside system already speaks, and make the other one that. Reconciling on the wrong side produces something strictly worse than the disagreement: the disagreement was at least visible as a bug that made nothing work, while the tidy wrong answer works perfectly for every value the codebase's own fixtures use and for none that a customer has. And when a contract looks unreasonably narrow, check whether it is encoding the absence of a feature rather than a real constraint - a flat namespace is what "we have no Project" looks like from inside the resolver.
 
 ## 114. A field made absent from the edit form was still demanded by the code that reads the submission, so every edit on three views failed
 
 **Symptom.** Every inventory, team and template edit through the web UI answered 422 with an error naming a control the page had not rendered ("Choose the organization this inventory belongs to"). `make ci` was green.
 
-**Root cause.** `view.Field.Immutable` (#111) removes a field from the edit form and refuses it as undeclared if a submission carries it. The three views' `Bind` functions still parsed those fields unconditionally, because `Bind` is one function serving both create and edit and had no way to know which it was serving. Adding `Immutable` to a field therefore silently converted a working edit path into one that could never succeed, and the writer's `Update` — which reads the immutable value from storage precisely so the submission need not carry it — never got the chance to run.
+**Root cause.** `view.Field.Immutable` (#111) removes a field from the edit form and refuses it as undeclared if a submission carries it. The three views' `Bind` functions still parsed those fields unconditionally, because `Bind` is one function serving both create and edit and had no way to know which it was serving. Adding `Immutable` to a field therefore silently converted a working edit path into one that could never succeed, and the writer's `Update` - which reads the immutable value from storage precisely so the submission need not carry it - never got the chance to run.
 
 Nothing caught it because the conformance suite exercised create forms, validation refusals and CSRF, but never a *successful edit*: the one shape that traverses render → submit → narrow → validate → bind → update as a user does. Each half was individually correct and individually tested. The bug lived exactly in the seam, which is where the previous three findings in this file also lived.
 
 **Fix.** `Values.Editing()` exposes the mode the narrower already tracked, and each affected `Bind` skips parsing an immutable field on an edit, leaving the zero value for `Update` to overwrite from storage. The general guard is `TestViewConformance_AnEditFormsOwnFieldsAreAnAcceptableSubmission`: for every registered writable view it fetches the edit form, parses the controls the server actually rendered along with their prefilled values (every selected option of a multi-select, not the first), resubmits exactly that, and requires acceptance. It is mechanical rather than per-view, so it covers views that do not exist yet. The faithful round-trip is also what makes it non-destructive: it writes a record's own values back over themselves, so the shared fixtures stay as seeded. An earlier draft collapsed multi-selects to one value and silently emptied a template's promptable fields, breaking an assertion three files away, which is the same class of bug the test exists to catch and a fair warning about writing round-trip tests carelessly.
 
-**Lesson.** A change that narrows what a form renders is a change to what its handler may demand, and the two are usually in different files written months apart. Any framework flag that removes a control has to be paired, in the same change, with a check that the code reading that control tolerates its absence — and the check that actually holds is an end-to-end round trip of the surface, not a unit test of either half. "Submit exactly what was rendered and expect success" is a cheap, generic assertion that every form-driven UI should carry from its first view onward.
+**Lesson.** A change that narrows what a form renders is a change to what its handler may demand, and the two are usually in different files written months apart. Any framework flag that removes a control has to be paired, in the same change, with a check that the code reading that control tolerates its absence - and the check that actually holds is an end-to-end round trip of the surface, not a unit test of either half. "Submit exactly what was rendered and expect success" is a cheap, generic assertion that every form-driven UI should carry from its first view onward.
 
 ## 115. A checkbox's edit-form prefill used a different truthiness convention than the checkbox template itself checks for
 
@@ -3103,27 +3103,27 @@ Nothing caught it because the conformance suite exercised create forms, validati
 
 **Fix.** `Form`'s prefill for `allow_simultaneous` uses `strconv.FormatBool` (or an equivalent literal `"true"`/absent-for-false) instead of `yesNo`, matching what the render template actually checks. `Cells` is untouched, since a list column showing "yes"/"no" is the correct, separate convention for that consumer.
 
-**Lesson.** A helper written for one rendering context (a display cell) and reused for a different one (a form control's prefill value) carries an implicit assumption that the two contexts agree on what a value means — and `Cells` and `Form` do not have to, because one is read by a human and the other is compared against by a template's own conditional. When a field's Kind determines how a control is rendered (`view.FieldKind`'s whole reason for existing), the prefill value that control receives has to be produced in that Kind's own vocabulary, checked against what the render template for that Kind actually tests for, not against whatever a neighbouring consumer of the same domain field happens to expect. A fixture whose boolean fields are all `false` (or all the zero value generally) cannot exercise this class of bug at all; a seeded fixture used by a round-trip conformance test should include at least one record with every boolean field set true.
+**Lesson.** A helper written for one rendering context (a display cell) and reused for a different one (a form control's prefill value) carries an implicit assumption that the two contexts agree on what a value means - and `Cells` and `Form` do not have to, because one is read by a human and the other is compared against by a template's own conditional. When a field's Kind determines how a control is rendered (`view.FieldKind`'s whole reason for existing), the prefill value that control receives has to be produced in that Kind's own vocabulary, checked against what the render template for that Kind actually tests for, not against whatever a neighbouring consumer of the same domain field happens to expect. A fixture whose boolean fields are all `false` (or all the zero value generally) cannot exercise this class of bug at all; a seeded fixture used by a round-trip conformance test should include at least one record with every boolean field set true.
 
 ## 116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
 
-**Symptom.** Found by code reading, tracing what happens to a template's execution fields (forks, limit, verbosity, extra variables) after B1 finally gave the Templates form real controls to set them. `launch.Template.Resolve` correctly folds a template's defaults, a saved configuration, survey answers and a launch's own overrides into `Resolved.Fields` and `Resolved.ExtraVars` — verified correct by this package's own tests. `internal/api/dispatcher.go`'s `LaunchTemplate` calls `Resolve`, receives `resolved`, and builds a `dispatch.Job` from it naming only `Definition`, `Kind`, `InventoryID` and `OrganizationID`. `resolved.Fields`, `resolved.ExtraVars` and `resolved.AllowSimultaneous` are read out of the return value and never referenced again anywhere in the codebase. Every field B1's new UI lets an author set was, until this session, inert: settable, validated, resolved correctly at launch time, and discarded before it reached a job record, the wire, or either execution adapter.
+**Symptom.** Found by code reading, tracing what happens to a template's execution fields (forks, limit, verbosity, extra variables) after B1 finally gave the Templates form real controls to set them. `launch.Template.Resolve` correctly folds a template's defaults, a saved configuration, survey answers and a launch's own overrides into `Resolved.Fields` and `Resolved.ExtraVars` - verified correct by this package's own tests. `internal/api/dispatcher.go`'s `LaunchTemplate` calls `Resolve`, receives `resolved`, and builds a `dispatch.Job` from it naming only `Definition`, `Kind`, `InventoryID` and `OrganizationID`. `resolved.Fields`, `resolved.ExtraVars` and `resolved.AllowSimultaneous` are read out of the return value and never referenced again anywhere in the codebase. Every field B1's new UI lets an author set was, until this session, inert: settable, validated, resolved correctly at launch time, and discarded before it reached a job record, the wire, or either execution adapter.
 
 **Root cause.** The launch-configuration system (prompts matrix, per-field overrides, `Resolve`'s precedence folding) was built and thoroughly tested as a pure function of its own inputs and outputs, and every test asserting it asserted against its return value directly. Nothing tested, or could have caught by construction, whether a *caller* of that function used the whole return value. A resolver that computes three things and a caller that reads one of them both pass every test either half owns; the gap is only visible by reading the caller's own body field by field against the struct it received, which no automated check in this codebase does for a plain Go struct literal.
 
 **Fix, partial this session.** `dispatch.Job` gained `Fields` and `ExtraVars` columns, and `LaunchTemplate` now stamps both from `resolved` (`.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.1 has the full detail and what still has to be built: the wire and both adapters still do not read these values back off the job, so a launch's fields now reach the audit record but not yet a real execution). Tested end to end against a real ent store and a real dispatcher.
 
-**Lesson.** A struct returned by a resolver is a checklist, not a report: before treating a resolve-and-persist path as complete, list every field the resolver's own type declares and grep for a second reference to each one downstream of the call site that received it. A field read exactly once — at the moment it comes out of the function that computed it — is a field on its way to being silently dropped, and no unit test of the resolver itself will ever show that, because the resolver was never wrong.
+**Lesson.** A struct returned by a resolver is a checklist, not a report: before treating a resolve-and-persist path as complete, list every field the resolver's own type declares and grep for a second reference to each one downstream of the call site that received it. A field read exactly once - at the moment it comes out of the function that computed it - is a field on its way to being silently dropped, and no unit test of the resolver itself will ever show that, because the resolver was never wrong.
 
 ## 117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
 
 **Symptom.** Found by code reading, prompted by an adversarial review of what a job's `state` actually proves. A job whose every device failed its `ansible-playbook` run midway through still reaches `state = "completed"` with `failed_count = 0`: the Templates list's new Activity badge (B2, this session) would render it green.
 
-**Root cause.** `internal/dispatch/worker.go`'s `Complete` call runs once the Controller's fan-out loop finishes, and its `dispatched`/`skipped`/`failed` counts answer "did the Controller succeed in publishing a dispatch message for this device," not "did the device's execution succeed" — a distinction `internal/ent/schema/job.go`'s own `state` field comment states correctly but which nothing surfacing the state to a reader (a badge, a status word) carries forward. Separately, and confirmed only by grepping every reference to `topology.ResultSubject`: `internal/runner/agent_wal.go` already durably WAL-buffers and reliably publishes a real per-device execution outcome (`internal/runner/wal.go`'s `ResultEntry`: device, outcome, reason) to that subject on every execution, and has done since PLAN.md Section 16's State Desync Mitigation was built. Nothing on the Controller side — not `internal/dispatch`, not `internal/api`, not `cmd/controller` — has ever subscribed to it. `ResultWAL`'s own doc comment says as much outright: the Controller-side half "has no consumer in this codebase yet."
+**Root cause.** `internal/dispatch/worker.go`'s `Complete` call runs once the Controller's fan-out loop finishes, and its `dispatched`/`skipped`/`failed` counts answer "did the Controller succeed in publishing a dispatch message for this device," not "did the device's execution succeed" - a distinction `internal/ent/schema/job.go`'s own `state` field comment states correctly but which nothing surfacing the state to a reader (a badge, a status word) carries forward. Separately, and confirmed only by grepping every reference to `topology.ResultSubject`: `internal/runner/agent_wal.go` already durably WAL-buffers and reliably publishes a real per-device execution outcome (`internal/runner/wal.go`'s `ResultEntry`: device, outcome, reason) to that subject on every execution, and has done since PLAN.md Section 16's State Desync Mitigation was built. Nothing on the Controller side - not `internal/dispatch`, not `internal/api`, not `cmd/controller` - has ever subscribed to it. `ResultWAL`'s own doc comment says as much outright: the Controller-side half "has no consumer in this codebase yet."
 
 **Fix.** Not built this session; sized and scoped in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.2 as a design-then-build phase, because the state-machine question (what a job's state means once fan-out and per-device execution can each independently be incomplete, and what happens on a permanently lost result) needs an answer before the subscriber can be written, not after.
 
-**Lesson.** A field's own schema comment can already state the honest scope of what it measures ("fan-out finished," not "execution succeeded") while every place that *renders* the field to a person quietly widens that scope back out, because a green badge reads as success to anyone who has not read the column's doc comment. When a system has two distinguishable notions of "done" (dispatched vs. executed, published vs. delivered, requested vs. confirmed), grep for every renderer of the status field whenever a second notion is introduced, not only the schema that defines it — and before building a reporting mechanism from scratch, grep for whether the data it needs is already being produced and simply has no reader, which is cheaper to find than to rebuild and was true here.
+**Lesson.** A field's own schema comment can already state the honest scope of what it measures ("fan-out finished," not "execution succeeded") while every place that *renders* the field to a person quietly widens that scope back out, because a green badge reads as success to anyone who has not read the column's doc comment. When a system has two distinguishable notions of "done" (dispatched vs. executed, published vs. delivered, requested vs. confirmed), grep for every renderer of the status field whenever a second notion is introduced, not only the schema that defines it - and before building a reporting mechanism from scratch, grep for whether the data it needs is already being produced and simply has no reader, which is cheaper to find than to rebuild and was true here.
 
 ## 118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
 
@@ -5326,13 +5326,13 @@ reasoned out and written directly from the analogous, already-verified
 timeout contract), and the difference between the two protocols' actual
 "no more data" signals was assumed to be only the shape of a timeout
 (`net.Error.Timeout()` versus `(0, nil)`), not that TCP has a SECOND,
-equally normal termination signal — the far end closing the
-connection — that a local serial line has no equivalent of at all. A
+equally normal termination signal - the far end closing the
+connection - that a local serial line has no equivalent of at all. A
 real socat PTY pair was used to verify `pkg/serialexec`'s identical
 timeout logic before writing any code (see `pkg/serialexec`'s own doc
 comment), but `pkg/serialtcp`'s design was written from that verified
 precedent by analogy rather than independently checked against a real
-TCP connection first — the gap was found only once the real tests, which
+TCP connection first - the gap was found only once the real tests, which
 happened to write a test double that closes promptly (a realistic
 console-server behavior, not a contrived one), were actually run.
 
@@ -5341,7 +5341,7 @@ timeout: both mean "stop reading, return what was accumulated," not an
 error. A raw byte pipe has no session semantics to say whether the far
 end closing the connection was deliberate, and `transport.Result.ExitStatusUnknown`'s
 whole premise is that this package cannot know more than "here is what
-came back before it stopped" — an EOF is exactly as valid an answer to
+came back before it stopped" - an EOF is exactly as valid an answer to
 that question as a quiet period is.
 
 **Lesson.** Porting a verified design from one protocol to a sibling
@@ -5365,7 +5365,7 @@ Adapter over a `pkg/` primitive" shape `internal/transport/ssh`,
 established, a routine `go test ./internal/transport/serial/...
 ./internal/transport/serialtcp/... -cover` check (done before writing
 the new package's own test, to see what the established bar actually
-was) showed both existing packages at `0.0% of statements` — not "low,"
+was) showed both existing packages at `0.0% of statements` - not "low,"
 zero. Neither had a test file at all.
 
 **Root cause.** Workstream D (the phase immediately before this one)
@@ -5373,9 +5373,9 @@ built exhaustive, real, non-mocked RULE 0 evidence for the two `pkg/`
 primitives underneath these adapters (`pkg/serialexec` at 96.3%,
 `pkg/serialtcp` at 95.0%, both against real fixtures: a socat PTY pair
 and a real `net.Listen` server respectively) and treated that as
-sufficient, because the adapter's own job — a type assertion on
+sufficient, because the adapter's own job - a type assertion on
 `transport.Target.Endpoint` plus a field-for-field translation of the
-result — looked too thin to need its own test. It was still real,
+result - looked too thin to need its own test. It was still real,
 reachable, untested code: the type assertion's failure branch (a
 binding-configuration bug reaching the wrong `Endpoint` kind) and the
 error-wrapping branch (a real `pkg/` failure reaching the caller) had
@@ -5384,7 +5384,7 @@ about.
 
 **Why it was not caught at the time.** Workstream D's own verification
 sweep ran `go build ./...`, `go vet ./...`, `gofmt -l`, and a full `go
-test ./...` pass, and all of it stayed green — a missing test file
+test ./...` pass, and all of it stayed green - a missing test file
 produces no build error, no vet warning, and no failing test, only a
 silent gap in a coverage percentage nobody explicitly checked for those
 two specific packages in isolation. The full-repo test run's own summary
@@ -5406,23 +5406,23 @@ identical three-test shape from the start rather than repeating the gap
 a third time.
 
 **Lesson.** "The layer underneath is exhaustively tested" is not
-evidence that a thin wrapper above it is tested — a delegation function
+evidence that a thin wrapper above it is tested - a delegation function
 still has its own branches (the type assertion, the error wrap), and
 each one is reachable code that can be wrong independently of whatever
 it delegates to. Before treating a new package as done, run `go test
 -cover` on it *and* on every sibling package the same session's own
-work sits beside, not just the new one being written — this gap would
+work sits beside, not just the new one being written - this gap would
 have been caught a full workstream earlier by the same one-line check
 that found it here.
 
 ## 174. A frame's announced size was allocated before it was checked against the output cap
 
-**Symptom.** None yet observed in production — found during Phase 73
+**Symptom.** None yet observed in production - found during Phase 73
 Workstream H's own Schema/Injection Hardening audit, reading
 `pkg/dockerexec`'s `readDemux` deliberately rather than in response to a
 failure. `TestReadDemux_NeverPanicsOnAdversarialInput`'s own existing
 adversarial case, `{1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}` ("announces
-~4GiB payload, delivers none"), was passing — but only because
+~4GiB payload, delivers none"), was passing - but only because
 `make([]byte, size)` for a ~4 GiB `size` happened to succeed against
 this environment's available virtual address space rather than because
 the package actually prevented the attempt.
@@ -5441,8 +5441,8 @@ multi-gigabyte allocation attempt regardless of `maxOutput`, before the
 cap this package exists to enforce ever ran.
 
 **Why it was not caught building the feature.** The cap was written and
-tested from the accumulation side — "does the running total exceed
-`maxOutput` after this frame" — which is the natural way to reason about
+tested from the accumulation side - "does the running total exceed
+`maxOutput` after this frame" - which is the natural way to reason about
 a *stream* of many small frames arriving over time (the realistic case
 this package's own real-daemon tests exercise). A single frame whose
 *announced* size alone already exceeds the whole cap is a different
@@ -5471,7 +5471,7 @@ bound check before the allocation, not after.
 
 ## 175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
 
-**Symptom.** None yet observed in production — found during the same
+**Symptom.** None yet observed in production - found during the same
 Phase 73 Workstream H audit that found #174, by asking the identical
 question ("is there a remote-controlled loop here that grows without
 bound") of `pkg/rfc2217`'s COM-PORT-OPTION subnegotiation parser
@@ -5479,13 +5479,13 @@ bound") of `pkg/rfc2217`'s COM-PORT-OPTION subnegotiation parser
 worth checking for elsewhere in the same phase's new packages.
 
 **Root cause.** RFC 2217 subnegotiation frames are `IAC SB <option>
-<payload...> IAC SE` — delimited by a terminator, not a length prefix,
+<payload...> IAC SE` - delimited by a terminator, not a length prefix,
 so at first read this looked like it could not have #174's exact defect
 (there is no length field to allocate against). But `iacFilter.feed`
 accumulated every non-IAC byte between `SB` and `SE` into `sbPayload`
 with no upper bound at all: a subnegotiation that simply never sent its
-own `IAC SE` — a compromised or malfunctioning access server, or a
-machine-in-the-middle — would grow `sbPayload` for as long as the
+own `IAC SE` - a compromised or malfunctioning access server, or a
+machine-in-the-middle - would grow `sbPayload` for as long as the
 caller's own `Options.ReadTimeout` window allowed a byte stream to keep
 arriving, which on a fast local network is enough time to accumulate a
 meaningful amount of memory before the deadline ends the call.
@@ -5494,15 +5494,15 @@ meaningful amount of memory before the deadline ends the call.
 doc comment already (incorrectly) described this framing as
 "length-prefixed," apparently written by analogy to the plan's own
 language for this boundary rather than checked against what the parser
-actually does — RFC 2217 has no length field anywhere in this framing.
+actually does - RFC 2217 has no length field anywhere in this framing.
 That mischaracterization meant the fix this doc comment implied
 (validate a length field before trusting it) did not exist and could
-not, since there is no such field; the REAL risk — an attacker
-withholding the terminator instead of lying about a length — was a
+not, since there is no such field; the REAL risk - an attacker
+withholding the terminator instead of lying about a length - was a
 different question nobody had asked yet, because the doc comment's own
 wrong premise made it look already covered.
 
-**Fix.** Added `maxSBPayload` (256 bytes — every real COM-PORT-OPTION
+**Fix.** Added `maxSBPayload` (256 bytes - every real COM-PORT-OPTION
 payload this protocol defines is at most 4 bytes, so this is headroom,
 not a tight fit) and a bound check at both places `sbPayload` grows (the
 plain-byte path and the escaped-`0xFF` path), returning a genuine error
@@ -5530,7 +5530,7 @@ conversion) findings in `pkg/rfc2217/rfc2217.go`: `uint32(baud)` at two
 call sites in `setBaudRate`, and `byte(dataBits)` in `setDataSize`. Found
 running the phase's own release-gate tooling, not by manual review.
 
-**Root cause.** `serialline.BaudRate` is `type BaudRate int` — a named
+**Root cause.** `serialline.BaudRate` is `type BaudRate int` - a named
 type whose own doc comment states its purpose is "a device property
 misread as a port number cannot silently become a line rate," but
 nothing about the named type itself bounds its value, and RFC 2217
@@ -5541,14 +5541,14 @@ instead of failing. `Config.DataBits` is a plain `int` sent as one wire
 byte; `byte(dataBits)` for any value outside 0-255 truncates silently
 the same way. Both values are hydrated from `pkg/inventory.Properties`
 (a device's own configured line settings), which rejects a value that
-fails to *parse* as an integer but enforces no range — so a
+fails to *parse* as an integer but enforces no range - so a
 misconfigured or malicious property value reaches these conversions
 unbounded.
 
 **Why it was not caught building the feature.** `Parity` and `StopBits`
 (the same package, same file) both ship a `Valid()` method precisely
 because their own wire encodings have a small, fixed set of legal
-values — the pattern was already established for the two fields where
+values - the pattern was already established for the two fields where
 it was obvious. `BaudRate` and `DataBits` have no comparable fixed
 vocabulary (the package's own doc comment says so explicitly for
 `DataBits`: "no fixed vocabulary of named values fits it"), which made
@@ -5574,7 +5574,7 @@ reaches a specific wire encoding. Every named integer type that gets
 converted to a narrower wire representation (a byte, a uint32) needs
 that conversion's own bound checked at the conversion site, regardless
 of whether the type's own documentation already claims to prevent a
-different, adjacent class of mistake — `make gosec`'s G115 rule is what
+different, adjacent class of mistake - `make gosec`'s G115 rule is what
 actually catches the gap between "has a named type" and "is validated
 for this specific narrowing," and running it before considering hardening
 work finished is what closed it here.
@@ -5606,7 +5606,7 @@ returned a live (if useless) connection with no error.
 **Why it was not caught writing the test.** #123's own fix and lesson
 were already committed to this exact file when this new test was
 written, but the lesson was not consulted at the point a new "build an
-address nothing is listening on" need arose — the earlier entry's own
+address nothing is listening on" need arose - the earlier entry's own
 final sentence names exactly this failure mode ("a race even on hosts
 where it works, since another process can claim a released port between
 the close and the dial") and was not applied by analogy to a new,
@@ -6002,7 +6002,7 @@ malformed address.
 
 The construction was live at five sites in four packages
 (`pkg/dockerexec`, `internal/catalog/container/docker`,
-`internal/catalog/file` twice, `internal/tlscert`) — entry #181's lesson,
+`internal/catalog/file` twice, `internal/tlscert`) - entry #181's lesson,
 demonstrated again in the very next phase. One of the five,
 `internal/tlscert`, wrapped the failure in `t.Skipf("this platform cannot
 create a unix socket")`, so on macOS it would have gone on silently
@@ -6013,9 +6013,9 @@ skip-shaped hole, arrived at from a different direction.
 with a `t.Cleanup` removal), which keeps the whole path near 70 bytes on
 either platform because the name no longer carries the test's. The
 failure was reproduced on Linux BEFORE fixing it, by pointing `TMPDIR` at
-a 52-character path — Linux's 108-byte limit less macOS's 104 is exactly
+a 52-character path - Linux's 108-byte limit less macOS's 104 is exactly
 the 4 bytes that make a 49-character macOS prefix equivalent to a
-53-character Linux one — which produced the identical nine failures and
+53-character Linux one - which produced the identical nine failures and
 the identical error string, and then proving them green under the same
 `TMPDIR` afterwards.
 
@@ -6043,9 +6043,9 @@ that names the right concern is not the same as handling it, and here the
 wrong handling was actively reassuring.
 
 **Fix.** `posixOwnerIDs(fs.FileInfo) (uid, gid int, ok bool)` in a
-build-tagged pair per package — `ownership_posix_test.go` under
+build-tagged pair per package - `ownership_posix_test.go` under
 `//go:build !windows` doing the assertion, `ownership_windows_test.go`
-returning `ok == false` — with every caller keeping its existing skip,
+returning `ok == false` - with every caller keeping its existing skip,
 which now means what it says. Verified with `GOOS=windows go vet` and
 `GOOS=darwin go vet` over the affected packages, not just the native
 build.
@@ -6073,8 +6073,8 @@ Desktop/WSL2 host every single time.
 (a) The assertion was environment-dependent rather than a property of the
 topology. Under Docker Desktop the daemon runs inside a VM whose bridge
 subnets the host cannot route to, so the dial failed and looked like
-evidence. Under a native-Linux daemon — GitHub's `ubuntu-latest`, the
-only leg that runs this package at all — the host routes to every bridge
+evidence. Under a native-Linux daemon - GitHub's `ubuntu-latest`, the
+only leg that runs this package at all - the host routes to every bridge
 network directly and the dial succeeds. Host-to-bridge routability is a
 property of how the daemon is installed, so no assertion about it can
 prove anything about the topology.
@@ -6090,7 +6090,7 @@ ports"). Asking for no ports is what produced a binding. Compounding it,
 `wait.ForListeningPort(...).SkipExternalCheck()` does not avoid a mapping
 either: `SkipExternalCheck` only suppresses the dial FROM the host, while
 `HostPortStrategy.WaitUntilReady` still blocks on `target.MappedPort`
-first — so that readiness gate can only ever be satisfied by a published
+first - so that readiness gate can only ever be satisfied by a published
 container, and it silently required the exact thing the test existed to
 disprove.
 
@@ -6105,12 +6105,12 @@ exists to demonstrate.
 **Fix.** `EXPOSE 7000` removed from `testdata/consoleserver/Dockerfile`,
 with a comment recording why it must not come back. Readiness swapped to
 `wait.ForExec` reading the listening socket out of `/proc/net/tcp` inside
-the container, which needs no host mapping — the same check
+the container, which needs no host mapping - the same check
 `wait.ForListeningPort` performs internally, minus the mapped-port
 precondition. The host-routing-dependent control was replaced by two that
 hold wherever the daemon runs: the console server has no host port
 binding at all, and it is unreachable from a host attached only to the
-outer network BY ADDRESS. That last distinction matters — the
+outer network BY ADDRESS. That last distinction matters - the
 pre-existing one-hop control dialed the DNS alias `consoleserver`, which
 only the management network's embedded DNS answers, so on its own it
 proved the name does not resolve and not that there is no route.
@@ -6119,7 +6119,7 @@ proved the name does not resolve and not that there is no route.
 claims: "the dial failed" and "there is no route" are different
 propositions, and the gap between them only becomes visible on a
 differently-installed daemon. A negative claim in a doc comment ("no port
-published") is not an assertion — this one was false for the entire life
+published") is not an assertion - this one was false for the entire life
 of the file, and the test that supposedly proved it never looked at a
 port mapping. And a readiness strategy is part of the topology, not
 scaffolding around it: this one quietly demanded a host mapping, which

@@ -60,7 +60,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
 - **Module catalog: 82 registered FQCNs; 79 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
-  and which is authoritative over any hand-written tally in this file — read it rather than trusting
+  and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `net` 12,
   `file` 10, `pkg` 9, `identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
   `wait` 2, `win` 2, `pleiades` 2, `facts` 1, `http` 1. The `svc` group is the 6 `svc.systemd.*`
@@ -81,7 +81,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   error carrying the device's own error-tag and the XPath it objected to, rather than as a line of
   vendor text. Its parameter names are `ansible.netcommon.netconf_config`'s.
   **The short and decision-relevant list is what is NOT implemented, all three of them:**
-  `file.template` — deliberate and not a gap to close casually, since the render engine lives in
+  `file.template` - deliberate and not a gap to close casually, since the render engine lives in
   `internal/render` and a Collection may not import `internal/`; and
   `net.junos.config` and `net.eos.config`, which need a `JunosCapable`/`AristaEOSCapable` device
   type that does not exist yet (Phase 74d).
@@ -207,25 +207,25 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   different thing from `internal/ui`, the server-rendered view registry the Controller actually
   serves, where most views are real; do not conflate the two when describing UI status.
 
-When touching any of the above, do not describe it as more finished than it is — see
+When touching any of the above, do not describe it as more finished than it is - see
 `docs/01-start-here.md#implementation-status` for the generated, current matrix.
 
 ## Common commands
 
 ```bash
 make ci              # the whole gate, run LOCALLY: build vet fmt test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
-make ci-remote       # what GitHub Actions runs: `ci` minus test-race, test-repeat, test-integration and coverage — no tests at all
+make ci-remote       # what GitHub Actions runs: `ci` minus test-race, test-repeat, test-integration and coverage - no tests at all
 make build            # go build ./...
 make test             # go test ./...
 make test-race        # go test -race ./...   (required before calling anything "verified" per RULE 0)
 make fmt               # gofmt -l check, hard failure on any unformatted file (excludes .claude/)
 make fmt-fix           # gofmt -w, actually fixes it
 make vet
-make gosec             # go run ./tools/gosec-check — wraps gosec with gosec-waivers.json's per-finding waivers
+make gosec             # go run ./tools/gosec-check - wraps gosec with gosec-waivers.json's per-finding waivers
 make govulncheck
-make coverage           # go run ./tools/coverage-check — ratchet against coverage-floor.json, not a flat 90% gate
-make arch               # go test ./internal/archtest/...  — Section 25 layering rules as a real test
-make docs-lint          # go run ./tools/docs-lint — fails if a gitignored internal doc is cited anywhere a user could see it
+make coverage           # go run ./tools/coverage-check - ratchet against coverage-floor.json, not a flat 90% gate
+make arch               # go test ./internal/archtest/...  - Section 25 layering rules as a real test
+make docs-lint          # go run ./tools/docs-lint - fails if a gitignored internal doc is cited anywhere a user could see it
 make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
 make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
 make hooks              # once per clone: point core.hooksPath at .githooks, enabling all three hooks below
@@ -236,7 +236,7 @@ make push-gate           # everything `ci` runs, with test-race/test-integration
 
 **The test suite runs locally and only locally. GitHub Actions runs no tests.**
 `.github/workflows/ci.yml` checks out, sets up Go from `go.mod`, installs the pinned
-tools and Helm, and runs `make ci-remote` — `ci` minus `test-race`, `test-repeat`,
+tools and Helm, and runs `make ci-remote` - `ci` minus `test-race`, `test-repeat`,
 `test-integration` and `coverage`, i.e. compilation on three operating systems, `vet`
 under both tag sets, `gofmt`, `go mod tidy -diff`, `gosec`, `govulncheck`, the
 docs/`templ` regeneration checks and the Helm chart lint. Nothing there proves a single
@@ -262,7 +262,7 @@ as warnings and do not block. It deliberately does not build, vet, test or scan,
 whether a doc comment is true or a test is representative under RULE 0, so a green run is not
 evidence of having followed that file. `git commit --no-verify` skips it.
 
-There is still no CI-only step and no CI-only tool version — `gosec` and `govulncheck`
+There is still no CI-only step and no CI-only tool version - `gosec` and `govulncheck`
 are pinned once in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed
 by `make tools` on both sides, so a local run and the CI job run byte-identical scanners.
 Never `go install` either tool by hand at `@latest`: a newer scanner than the pin reports
@@ -341,8 +341,8 @@ tolerated failure. Both tools share `tools/internal/flakegate` so they cannot di
 This exists because packages that provision real ephemeral Docker containers or real
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
-flake under this kind of sandboxed environment's full parallel `-race` load —
-`FAILURE_PATTERNS.md` #61 — and pass individually every time. `make ci` itself is
+flake under this kind of sandboxed environment's full parallel `-race` load -
+`FAILURE_PATTERNS.md` #61 - and pass individually every time. `make ci` itself is
 completely unaffected by any of this and stays exactly as strict. A build failure still
 fails `push-gate` exactly like `ci`, and so does any test that fails a second time on its
 own.
@@ -351,7 +351,7 @@ Read that tolerance more carefully now than you would have before: there is no s
 run waiting downstream of a push any more. `push-gate` used to be a preview of a gate
 GitHub would apply again in full; it is now the last automatic check anything gets. A
 package listed in `flaky-packages.json` without a real, written, observed reason is a
-package nothing checks anywhere, so run `make ci` itself — not just `push-gate` — before
+package nothing checks anywhere, so run `make ci` itself - not just `push-gate` - before
 calling work verified.
 
 Single test / single package:
@@ -403,7 +403,7 @@ and markdown.
 go generate ./internal/ent
 ```
 
-A schema edit without regenerating is a silent no-op that still compiles — the worst
+A schema edit without regenerating is a silent no-op that still compiles - the worst
 failure shape available.
 
 Regenerating is only half of it. The runtime applies **versioned migration files**, not
@@ -459,7 +459,7 @@ hand before `internal/archtest`'s `TestCatalogDataDocsMatchTheRegistry` will pas
 **These two labels were swapped on 2026-08-22.** Until then Walk named the offline CLI and
 Crawl named the Controller/Runner tier, inverting "crawl, walk, run"; the ladder itself never
 changed. Docs and archives were rewritten to the corrected names, but **git commit messages
-were not** — a commit dated before 2026-08-22 saying "Walk tier" means what this table now
+were not** - a commit dated before 2026-08-22 saying "Walk tier" means what this table now
 calls Crawl. The `W` in phase identifiers `W1`-`W6` is a leftover of the old name, not a
 mnemonic. See `LESSONS_LEARNED.md` #153.
 
@@ -477,7 +477,7 @@ into `internal/`.
 - Only a small allowlisted set of adapter packages may import a concrete driver directly
   (NATS, the ent SQL driver): `internal/api`, `internal/ent`, `internal/event`,
   `internal/lock`, `internal/runner`, `internal/topology`. Adding to this allowlist is a
-  real design decision — `go test ./internal/archtest/...` fails immediately if it drifts.
+  real design decision - `go test ./internal/archtest/...` fails immediately if it drifts.
 - `cmd/` composition roots are exempt (wiring concrete implementations is their job).
 
 ### Core domain vocabulary
@@ -492,8 +492,8 @@ into `internal/`.
   itself via package `init()`, made reachable only by a blank import from
   `internal/catalog/builtins.go`.
 - **Capability**: what a device *can do* (e.g. `AptCapable`), matched structurally against
-  a Go interface the device type implements — not what the device *is*.
-- **Inventory item**: a managed device — name, type, properties, lifecycle state, version,
+  a Go interface the device type implements - not what the device *is*.
+- **Inventory item**: a managed device - name, type, properties, lifecycle state, version,
   history. Concrete device types live under `internal/inventory/devices/<vendor>/`.
 - **Transport**: how a task's command reaches a device, auto-selected from device
   capabilities (`internal/transport`, with the real implementation in
@@ -502,14 +502,14 @@ into `internal/`.
   (`Connect` → `Discover` → `Classify` → `Sync`), verified by a shared conformance suite
   (`internal/inventory/plugins/conformance_test.go`) that every real plugin is driven
   through identically. Lives under `internal/inventory/plugins/<name>/`.
-- **`when` / `when_or` / `when_cel`**: three ways to gate a task — Ansible-compatible ANDed
+- **`when` / `when_or` / `when_cel`**: three ways to gate a task - Ansible-compatible ANDed
   list, ORed list, or a raw CEL escape hatch, compiled before execution.
 
 ### Extending the catalog (`pleiades forge`)
 
 `forge new-collection` / `new-device` / `new-plugin` scaffold a new Collection method,
 device type, or sync plugin (two gofmt-clean files each: implementation + test). None of
-the three self-registers into the running binary — that requires a deliberate, one-line
+the three self-registers into the running binary - that requires a deliberate, one-line
 blank import into the relevant `builtins.go` (`internal/catalog/builtins.go`,
 `internal/inventory/builtins.go`, `internal/inventory/plugins/builtins.go`). This is
 intentional: a generated-but-unwired file compiles and its tests pass, but stays invisible
@@ -556,7 +556,7 @@ sync plugins remain `internal/`-only (see `docs/11-extending-pleiades.md`).
 Front Controller pattern: every route passes through tracing, metrics, structured
 logging, rate limiting, authentication, then scope authorization, before its handler
 runs. The route table (`internal/apispec`) is the single source both the real router and
-the generated OpenAPI doc build from — but nothing enforces that `cmd/controller`'s
+the generated OpenAPI doc build from - but nothing enforces that `cmd/controller`'s
 hand-written route registrations cover every `apispec.Endpoints` entry; a route added to
 the spec but never mounted fails silently (404) rather than at build time.
 
@@ -584,7 +584,7 @@ generated reference pages.
 `.[A-Z]*` in `.gitignore`) and never ship. `.SPECIFICATION/PLAN.md` is the main spec.
 `tools/docs-lint` (wired into `make ci`) fails the build if a citation into one of these
 leaks into `docs/`, CLI `--help` text, a scaffolded project file, root-level Markdown, or
-generated reference pages — there is no waiver mechanism for this check, unlike
+generated reference pages - there is no waiver mechanism for this check, unlike
 `gosec-waivers.json`.
 
 ## Testing policy highlights (full detail in `.AGENTS/AGENTS.md`)
@@ -593,8 +593,8 @@ generated reference pages — there is no waiver mechanism for this check, unlik
   the same config path the platform actually runs. A test that mocks the transport layer
   while testing transport behavior proves nothing.
 - `internal/lock`, `internal/event`, and `internal/transport/ssh` run real conformance
-  tests against ephemeral Docker containers (NATS, sshd) — Docker must be available.
+  tests against ephemeral Docker containers (NATS, sshd) - Docker must be available.
 - Coverage is a ratchet (`coverage-floor.json`), not a flat threshold: no package may drop
   below its recorded floor; a package with no floor yet is reported, not failed.
 - Every `gosec` finding accepted into `gosec-waivers.json` needs an individually written
-  reason — no blanket rule-ID or directory suppression.
+  reason - no blanket rule-ID or directory suppression.

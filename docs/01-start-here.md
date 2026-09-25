@@ -169,7 +169,7 @@ Three limits are worth knowing.
 
 The recurrence grammar is a bounded subset, refused at the write rather than at the
 run: `SECONDLY`, `BYWEEKNO`, `BYYEARDAY`, `BYSECOND` and `RDATE` are not supported, and
-neither is a rule naming a date that never occurs. The refusal is deliberate — an
+neither is a rule naming a date that never occurs. The refusal is deliberate - an
 unbounded or impossible rule reaching the scan loop would affect every schedule in the
 deployment, not just its own.
 

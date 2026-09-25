@@ -397,7 +397,7 @@ The recurrence grammar is a deliberately bounded subset, validated when the sche
 saved rather than when it runs. `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `WKST`, `BYDAY`
 (including ordinals such as `-1FR`), `BYMONTHDAY`, `BYMONTH`, `BYHOUR`, `BYMINUTE` and
 `BYSETPOS` are accepted. `SECONDLY`, `BYWEEKNO`, `BYYEARDAY`, `BYSECOND` and `RDATE` are
-refused, as is any rule that names a date which never occurs — 30 February parses
+refused, as is any rule that names a date which never occurs - 30 February parses
 cleanly and would otherwise become a schedule that silently never fires.
 
 A rule outside the set is refused at the write with a message naming the part, so an
@@ -418,8 +418,8 @@ curl -X POST https://controller.example.com/api/v1/schedules/preview \
 Both readings are returned because either alone hides the case worth checking. Across a
 daylight saving transition a daily rule keeps its local hour and moves its UTC hour, so
 two consecutive runs are 23 or 25 hours apart rather than 24. That is the same behaviour
-AWX has — the recurrence engine is tested against vectors generated from `dateutil`, the
-library AWX itself schedules on — and the preview is how you confirm it before a
+AWX has - the recurrence engine is tested against vectors generated from `dateutil`, the
+library AWX itself schedules on - and the preview is how you confirm it before a
 schedule goes live.
 
 `GET /zoneinfo` lists every zone a schedule may name.
