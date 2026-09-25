@@ -309,7 +309,8 @@ an oversight.
 
 **Not yet in the catalog at all:** `ansible.builtin.assert`, `ansible.builtin.fail`,
 `ansible.builtin.pause`, `ansible.builtin.git`, `ansible.builtin.get_url`,
-`ansible.builtin.stat`, and anything from a Galaxy collection not listed above. The
+`ansible.builtin.stat`, `ansible.builtin.cron`, and anything from a Galaxy collection not listed
+above (`ansible.posix.sysctl` among them). The
 converter drops `ansible.builtin.debug`, which only prints, with an info finding. A missing row here is either a gap to fill
 in a future phase, or a case for `forge new-collection` to add it yourself; see
 [Extending Pleiades](reference/index.md).

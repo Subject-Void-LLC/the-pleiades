@@ -1576,9 +1576,9 @@ Controller connects to the device, not a Runner. So the Controller needs what a 
 needs: the device's credential in the same per-device store a dispatch reads
 (`CONTROLLER_CREDENTIALS_DIR`), the device's host key in its known_hosts
 (`PLEIADES_KNOWN_HOSTS`, or its own `~/.ssh/known_hosts`) for `generic_ssh` and
-`generic_netconf`, and a trust store holding the certificate authority of a
-`generic_http` or `generic_grpc` device (the system's, or `SSL_CERT_FILE`). No probe skips a
-host key or a certificate check, and there is no setting that makes one.
+`generic_netconf`, and, for a `generic_http` or `generic_grpc` device, a way to trust its
+certificate: the system's roots, `SSL_CERT_FILE`, or the device's own `tls_ca_pem` (below). No
+probe skips a host key or a certificate check, and there is no setting that makes one.
 
 The route needs `inventory:onboard`, which operators and admins hold and which
 `inventory:write` does not imply: onboarding reaches a device with a secret and is the only
@@ -1590,20 +1590,54 @@ What each probe sends the device is fixed. The SSH probe runs one constant scrip
 reads `uname`, `/etc/os-release` (read line by line, never executed) and whether a set of
 commands exists. The HTTP probe sends one GET of the base URL, and of `openapi_path` when set,
 and follows no redirect, so the credential reaches the base URL's origin and nowhere else;
-`basic` or `bearer` authentication is refused on an `http://` base URL. The gRPC probe calls
+`basic` or `bearer` authentication on an `http://` base URL is refused unless the device allows
+it (below). The gRPC probe calls
 the standard health and reflection services, sends a stored credential as a bearer token
 only over TLS, and refuses outright when a credential is stored and `grpc_plaintext` is true.
 What a device answers is kept only as bounded text (256 bytes a value, 256 entries a list),
 with control and formatting characters removed, and is escaped again wherever it is printed.
 
-One limit applies on the Walk tier. A Runner rebuilds a dispatched device from its SSH address
-and its capability names, not from its type, so a method that reads any other device accessor
-cannot read it there: `http.request`'s device mode (the base URL), `net.netconf.config` (the
-NETCONF port), and the generic `pkg.*` and `svc.*` methods (the manager's name, which picks
-`apt` or `dnf`, `systemd` or Windows). Each refuses by name rather than guessing. The
-manager-specific methods, such as `pkg.apt.install` and `svc.systemd.restart`, read no accessor
-and run on a Runner as they do anywhere. On the Crawl tier, `pleiades run` has the whole device
-and all of them work.
+On the Walk tier a Runner rebuilds each dispatched device as its real type, so every accessor
+answers there as it does on the Controller: `http.request`'s device mode, `net.netconf.config`'s
+NETCONF port, and the generic `pkg.*` and `svc.*` methods' manager name all work on a Runner. To
+do it, the dispatch carries the device's type and only the properties its type declares its
+accessors read (a base URL, a port, a path; never anything else an operator keeps in a property),
+plus its discovery. Each device type declares that list, and a test holds it equal to what the
+type's code reads and refuses any key that names a secret. A Runner given a dispatch without
+them, from an older Controller, reaches the device by its address alone, as before, and a method
+that needs more refuses by name.
+
+### Device TLS: pinning, mutual TLS, and old devices
+
+A `generic_http` or `generic_grpc` device's TLS is set on the device's own record, and the
+onboarding probe and `http.request`'s device mode both use it:
+
+| Property | Meaning |
+|---|---|
+| `tls_min_version` | The lowest version allowed: `1.2` (the default) or `1.3`, and `1.0` or `1.1` only as below. |
+| `tls_server_name` | The name the device's certificate is checked against, when it is not the host being dialed. |
+| `tls_ca_pem` | A certificate authority in PEM, trusted for this device instead of the system's roots. |
+| `tls_client_certificate` | `true` presents the device's stored certificate (mutual TLS): `add-credential --certificate` and `--key`, or `--pfx`. |
+
+Certificates are always verified; no setting turns that off. Nothing lowers TLS by default, and
+an old device that cannot do better is reached only through its own record, one explicit flag
+per weakening, each named for what it is and each reported as a `WARNING` on every onboarding
+and every run (the CLI prints it; on the Walk tier it is a `task.warning` line in the job log):
+
+- **`tls_allow_deprecated_versions: true`** with `tls_min_version` `1.0` or `1.1`. Both were
+  deprecated by RFC 8996 and are open to known attacks. A device that supports TLS 1.3 still
+  negotiates TLS 1.3: the flag lowers the floor, never the version reached.
+- **`tls_allow_legacy_ciphers: true`**, a separate flag, for the cipher suites Go no longer offers
+  by default: 3DES, RC4 and RSA key exchange, which are broken or give no forward secrecy.
+- **`http_allow_plaintext_credentials: true`**, for a `generic_http` device with an `http://` base
+  URL and a credential mode. Its credential crosses the network unencrypted, readable by anyone
+  on the path; each use warns to rotate the credential, and to move the device to `https://`.
+
+A flag that allows nothing (deprecated versions with a 1.2 floor, plaintext credentials on an
+`https://` device) is refused as a contradiction, and so is any TLS setting on a connection that
+has no TLS. SSL 3.0 cannot be allowed at all. `generic_grpc` refuses both TLS weakenings, since
+gRPC runs over HTTP/2, which requires TLS 1.2 and forbids those suites, and it refuses to send a
+stored credential over `grpc_plaintext` with no flag to change that.
 
 ### Connection persistence
 

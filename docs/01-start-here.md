@@ -111,10 +111,11 @@ also real.
 capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
 probes it over its protocol and records what its answers prove, and nothing else can
 grant one. Each is proven against a real server: a Debian host, a Netopeer2 NETCONF
-server, an HTTPS API and the gRPC project's own example server. One limit: on the Walk
-tier a Runner sees a dispatched device's SSH address and capability names only, so a
-method that reads a generic device's other settings (its API base URL, its NETCONF
-port) refuses there by name; on the Crawl tier everything works. See
+server, an HTTPS API and the gRPC project's own example server. A Runner rebuilds each
+dispatched device as its real type, from its type and only the properties its accessors
+read, so the same methods work on the Walk tier. A device's TLS is its own: a pinned
+authority, mutual TLS, and, for an old device, deprecated TLS versions, legacy ciphers or a
+credential over plain HTTP, each behind its own explicit flag and warned about on every use. See
 [Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types).
 
 **Credential types and injectors are real.** An administrator can define a credential

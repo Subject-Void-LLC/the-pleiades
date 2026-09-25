@@ -350,6 +350,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 345. Declaring NETCONF claimed a command line
 346. A port wait passed before a shell-less container's server was listening
 347. A gRPC stream's Send returned EOF, and the probe read it as the answer
+348. A generic device would never have been dispatched: the worker required a host property
+349. Gate items were ticked with half their work undone, and one ticked claim was false
+350. Entry 310's fix set the group's deadline, and every step inside it still gave up at sixty seconds
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

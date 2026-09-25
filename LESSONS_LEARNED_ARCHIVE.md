@@ -5125,3 +5125,52 @@ granted.
 When a value must come from one source, reserve its name, give it one writer, and enumerate every
 write path with a test that the others refuse it. Count the paths by searching for writers, not by
 remembering them.
+
+## 240. A gate that injects at a boundary proves only the side it reaches
+
+Phase 111's Walk-tier release gate published a dispatch payload onto the real stream and watched a real
+Runner handle it, and it passed. What it could not show was that the Controller would ever build that
+payload: the Controller's fan-out skipped every generic device before dispatch, for having no `host`
+property (FAILURE_PATTERNS 348). The gate was representative of the Runner and silent about the
+Controller, because it started halfway through the path. The bug surfaced only when the Controller
+side got a test of its own, from a real device in a real inventory through the real worker.
+
+When a feature spans two processes, test each half from its real entry point (the Controller from an
+inventory device, the Runner from a published dispatch), or one test that crosses both. A test that
+injects at a boundary says nothing about what arrives there in production.
+
+## 241. Tick a multi-clause checklist item only when each clause cites its own proof
+
+**Rule.** When an item asks for several things (fuzz this and benchmark that; fuzz the email and the
+password; one end-to-end run across two processes), write the evidence one clause at a time, naming a
+test for each. A clause with no test is still open, so either split it into its own open item or leave
+the whole item unticked. Never tick an item because its most visible clause is done.
+
+**Why.** On 2026-09-25, tracing the attestation checker's four problems found three items ticked with a
+clause missing (FAILURE_PATTERNS 349). Phase 96c's exactly-once release gate had never been run as one
+test. Its two halves existed separately, one of them on an in-memory store, and the item read as proven
+for a month. Evidence written per clause would have shown the gap the day it was ticked.
+
+## 242. Assert a "does no I/O" claim on calls, not on imports
+
+**Rule.** When a package promises not to reach the network, the disk or a process, back the promise with
+an architecture test that inspects its calls, and name each exception so a new one has to be argued
+for. Do not settle it by reading the import list.
+
+**Why.** Phase 55's audit found no I/O package in `pkg/filters`'s imports and concluded that nothing
+performed I/O. `time.LoadLocation` reads the zone database from disk, and `time` is not an I/O package
+(FAILURE_PATTERNS 349). `TestFiltersDoNoNetworkFileOrProcessIO` now fails on any call outside its named
+exceptions.
+
+## 243. Test a bound at the layer that enforces it, not at the layer that records it
+
+**Rule.** When a timeout, a limit or a deadline passes through several layers of a library, find the
+layer that actually stops the work, and assert the value there. A value that a wrapper stores but that
+an inner layer overrides with its own default is not a bound.
+
+**Why.** FAILURE_PATTERNS 350. Entry 310 set a two-minute deadline on testcontainers' wait group and
+tested that the group carried it. Each step inside the group applied its own sixty-second default,
+and the steps were what stopped, so the fix changed nothing: two days later (2026-09-25) internal/backup
+failed on the identical symptom. Reading the library's step code (`wait/host_port.go`, `wait/log.go`) showed
+the second layer in minutes. The test that would have caught it reads each step's `Timeout()`.
+

@@ -42,8 +42,11 @@ speaks rather than by what it is:
 |---|---|---|---|
 | `generic_ssh` | `host`, `port` | SSH transport, running a command | a POSIX shell, Linux, POSIX files, facts, systemd, firewalld, apt, dnf, POSIX accounts |
 | `generic_netconf` | `host`, `netconf_port` (830) | SSH transport | `NetconfCapable` |
-| `generic_http` | `base_url`, `http_auth` (`none`, `basic`, `bearer`) | an address | `HTTPAPICapable` |
-| `generic_grpc` | `target` (`host:port`), `grpc_plaintext` | an address | `GRPCCapable` |
+| `generic_http` | `base_url`, `http_auth` (`none`, `basic`, `bearer`), the TLS settings | an address | `HTTPAPICapable` |
+| `generic_grpc` | `target` (`host:port`), `grpc_plaintext`, the TLS settings | an address | `GRPCCapable` |
+
+The TLS settings (a pinned authority, a server name, mutual TLS, and the explicit flags an old
+device needs) are described in [Running in production](10-running-in-production.md#device-tls-pinning-mutual-tls-and-old-devices).
 
 A vendor type's capabilities are backed by its Go code. A generic type cannot do that, so
 beyond its baseline its capabilities come from the device itself: `pleiades onboard <host>`
@@ -62,10 +65,14 @@ A generic type is enough when the methods you need run on what the protocol prov
 `exec.command` and `exec.shell` on an SSH login, the package, service and account methods on a
 Linux host the probe recognizes, `net.netconf.config` on a NETCONF server, and `http.request`
 against a device's own API (a `url` that is a path, such as `/interfaces`, is joined to the
-device's base URL and carries the device's credential and nothing else's). Write a vendor type
+device's base URL and carries the device's credential and nothing else's), on either tier. Write a vendor type
 when a method needs something no protocol can report: a CLI prompt and paging convention
 (`net.ios.*`), a version-specific accessor, or a capability whose truth depends on the model.
-`pleiades forge new-device` below is still how that is done.
+`pleiades forge new-device` below is still how that is done. A new type declares, with
+`record.RegisterDispatchProperties`, the property keys its accessors read: they are what travels
+to a Runner so it can rebuild the device as its real type, and `internal/archtest` holds the list
+equal to what the type's code reads and refuses a key that names a secret. The scaffold writes an
+empty declaration to add to as accessors are written.
 
 ## Forge commands
 

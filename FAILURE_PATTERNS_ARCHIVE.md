@@ -9795,3 +9795,88 @@ before.
 **Lesson.** On a gRPC client stream, `Send` returning `io.EOF` is never the result: it says the stream
 is over and the result is on `Recv`. Any code that returns straight from a failed `Send` reports a
 race instead of the server's answer.
+
+## 348. A generic device would never have been dispatched: the worker required a host property
+
+**Symptom.** Found 2026-09-25 writing the Controller-side test for Phase 111's Walk-tier work. A
+`generic_http` device in a job's inventory was recorded as skipped ("has no host property") and never
+reached a Runner. The Runner-side release gate passed regardless, because it publishes a dispatch
+payload straight to the stream and never goes through the Controller's fan-out.
+
+**Root cause.** `internal/dispatch`'s worker took a device's address from its `host` property and
+skipped any device without one. Every vendor type keeps its address there, and the rule was written
+for them. `generic_http` and `generic_grpc` keep theirs inside a URL or a target (`base_url`,
+`target`), so they have no `host`, and the worker would have skipped every one of them.
+
+**Fix.** With no `host`, the worker uses the address the device declares through
+`NetworkAddressableCapable` (`declaredAddress` in `worker_devices.go`), which both generic types
+implement from their URL or target. `TestWorker_DispatchesAGenericDevice` fails without it and passes
+with it, and also checks that the payload carries the device's type and allowlisted properties and not
+a property no accessor reads.
+
+**Lesson.** A test that injects a message at a boundary proves the far side only. The Runner gate
+published its own payload, so nothing tested whether the Controller would ever send one. A two-tier
+feature needs each half tested at its real entry point, or one test that crosses both.
+
+## 349. Gate items were ticked with half their work undone, and one ticked claim was false
+
+**Symptom.** Found 2026-09-25 while tracing the four security problems the roadmap's attestation checker
+reported: finished Fuzz/Stress, Schema/Injection and Release Gate items that cited no test, path or make
+target it could find. Most had their evidence; it had simply never been written down. Four did not.
+Phase 96c's Release Gate asks for one run over real NATS behind real Toxiproxy in which a dispatch
+published while severed arrives exactly once after a heal longer than the old two-minute window, and no
+such test exists: the Runner's admission check is tested with an in-memory store and a mock consumer,
+and 96a's recovery test has no dedup in it. 96c's Fuzz/Stress item also asked for a benchmark of the
+dedup table's cost and nothing measures it. Phase 79's asked for the sign-in email to be fuzzed and only
+the password is. And Phase 55's "no function in this phase performs I/O of any kind" is false:
+`ShiftTimezone` calls `time.LoadLocation`, which reads the zone database from disk.
+
+**Root cause.** Each partial item had more than one clause, and it was ticked once its most visible
+clause was done (the fuzz target, the derivation, the password path). Nothing asked for a proof per
+clause. The I/O claim came from an audit of the import list, and `time` is not an I/O package, so an
+audit of imports cannot see a read that one of its functions makes.
+
+**Fix.** Every flagged item now carries a dated evidence line naming its tests. 96c's Release Gate is
+re-opened with the two unjoined halves named. 96c's benchmark and 79's email fuzz are split out as open
+items instead of staying inside ticked ones. Phase 55's claim is corrected, and
+`TestFiltersDoNoNetworkFileOrProcessIO` now checks it: it inspects the calls, not just the imports, and
+names `time.LoadLocation` and `crypto/rand` as the only reads `pkg/filters` makes.
+`TestFiltersIOSitesDetects` is its negative control.
+
+**Lesson.** An item with several clauses is done when each clause cites its own proof. "No I/O"
+describes what the code calls, so check the calls.
+
+## 350. Entry 310's fix set the group's deadline, and every step inside it still gave up at sixty seconds
+
+**Symptom.** `make ci` on 2026-09-25 (`6530e2e`) failed in its coverage pass, and so did a second run
+of that step: `internal/backup`'s `TestRestore_RefusesABackupFromANewerVersion`, then
+`TestScratch_ClearSettingsRemovesWhatTheFileLeft` and `TestTakeAndRestore_RefuseATriggerAndItsFunction`,
+each with `wait until ready: external check ... get state ... context deadline exceeded` after 567 or
+568 polls and 61 seconds. That is entry 310's symptom exactly, on code that had its fix. The package
+passed alone in 35 seconds, and it passed the race and integration passes of the same run, which start
+container packages one at a time. Only the coverage pass, which starts them all together, was slow
+enough to reach the limit. push-gate had absorbed the same class in its own coverage pass by
+re-running failures alone (`cmd/controller`, `cmd/runner`, `internal/election`).
+
+**Root cause.** testcontainers has two layers of timeout and 310 set only one. `WithWaitStrategyAndDeadline`
+bounds the `ForAll` group, but each strategy inside it (`ForLog`, `ForListeningPort`, `ForHTTP`) also
+calls `context.WithTimeout` with its OWN startup timeout, `defaultStartupTimeout()`, sixty seconds, when
+none is set. A child context cannot outlive the shorter of the two, so the group's two minutes never
+reached any step. `ForAll`'s `WithStartupTimeoutDefault` does not help either: it only sets a context
+around the step, which the step narrows back to sixty. And `TestReadinessCarriesTheAgreedBound` read the
+group's deadline only, so it passed. The same shape was in two more places. The five LocalStack starts
+took the module's own strategy, whose step says 120 seconds but whose group, from `WithWaitStrategy`,
+says sixty. And `cmd/pleiades`'s SSH release gate put a three-minute group around two steps that set
+nothing.
+
+**Fix.** Every step in `PostgresReady` and `ToxiproxyReady` now sets `WithStartupTimeout(ContainerStartupTimeout)`.
+A new `LocalStackReady` replaces the module's strategy, and all five LocalStack starts pass it. The SSH
+gate's two steps name `SSHDStartupTimeout`. `TestReadinessCarriesTheAgreedBound` now reads back each
+step's own timeout through `wait.StrategyTimeout`; `TestUnboundedStepsDetects` is its negative control,
+built as 310's version was; and `TestNoContainerWaitsUnderTheLibraryDeadline` counts LocalStack starts
+against `LocalStackReady()` calls. Two mutations were checked: dropping one step's timeout, and dropping
+one call site's helper, each fails the named test.
+
+**Lesson.** When a bound passes through layers, test the value at the layer that enforces it. 310's
+test read a value the library kept, and not the one the library obeyed. See `LESSONS_LEARNED.md` #243.
+

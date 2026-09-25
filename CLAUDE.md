@@ -190,8 +190,15 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   A generic device starts `discovered` (`record.InitialState`), which runs nothing. CLI `pleiades onboard`;
   Controller `POST /inventory/devices/{name}/onboard`, scope `inventory:onboard`, which `inventory:write`
   does not imply. `http.request` with a path `url` calls a device's own API with the device's credential
-  (`pkg/httpapi`). **Walk-tier limit:** a Runner rebuilds a dispatched device from its SSH address and
-  capability names (`pkg/external.Device`), so a method reading another accessor refuses there.
+  (`pkg/httpapi`). A device's TLS is its own (`pkg/devicetls`): a pinned `tls_ca_pem`, `tls_server_name`,
+  mutual TLS from the stored certificate, and for an old device TLS 1.0/1.1, legacy cipher suites or a
+  credential over plain HTTP, each behind its own explicit per-device flag and warned about on every
+  onboard and run (`sdk.StatWarnings`); `internal/archtest` keeps every weak version or suite name inside
+  `pkg/devicetls`. **Walk tier:** a Runner rebuilds each dispatched device as its real type
+  (`record.LookupType`) from `wire.DispatchPayload.DeviceType` and `DeviceProperties`, which carry only
+  the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
+  code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
+  Controller's payload falls back to `pkg/external.Device`.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.

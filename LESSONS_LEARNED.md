@@ -272,6 +272,10 @@ story, per `.AGENTS/AGENTS.md`.
 237. **A reused login is keyed by everything that gave it its meaning (address, credential, host key policy, trust file content), and anything that leaves its state unknown ends it rather than returning it (2026-09-24).**
 238. **A gap accepted as "not reachable yet" needs an end-to-end test through the real path that fails while it is open, or the path that would close it breaks unseen (2026-09-24).**
 239. **A value only the device may vouch for gets one reserved name, one writer, and a test on every other write path that it is refused; count the paths by searching for writers (2026-09-24).**
+240. **A gate that injects a message at a boundary proves only the side it reaches; test each half of a two-process feature from its real entry point (2026-09-25).**
+241. **Tick a multi-clause checklist item only when each clause cites its own proof; split out or leave open any clause with none (2026-09-25).**
+242. **Assert a "does no I/O" claim on the calls a package makes, not on its imports: `time.LoadLocation` reads the disk from a non-I/O package (2026-09-25).**
+243. **Test a bound at the layer that enforces it: a deadline a wrapper records is no bound when an inner layer applies its own default (2026-09-25).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
