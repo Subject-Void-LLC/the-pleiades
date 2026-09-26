@@ -126,3 +126,56 @@ func TestReleaseGate_VBoxManageOnARealHost(t *testing.T) {
 		t.Errorf("snapshots left: %+v", final.Snapshots)
 	}
 }
+
+// TestReleaseGate_StartsThroughTheAutostartService starts the gate's VM
+// from a WinRM logon through the account's autostart service, which is the
+// only way a VM starts from one, and powers it off again. It also records
+// whether VirtualBox lets a running machine's autostart mark be cleared.
+func TestReleaseGate_StartsThroughTheAutostartService(t *testing.T) {
+	h, vm := gateHost(t)
+	ctx := context.Background()
+	if m, err := h.Machine(ctx, vm); err != nil || m.State != vboxmanage.StatePoweroff {
+		t.Skipf("%s: %v; this gate needs it powered off", vm, err)
+	}
+	t.Cleanup(func() {
+		_ = h.PowerOff(context.Background(), vm)
+		time.Sleep(3 * time.Second)
+		_ = h.SetAutostart(context.Background(), vm, false)
+	})
+
+	a := vboxmanage.WindowsAutostart{Host: h}
+	viaService, err := a.Start(ctx, vm)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !viaService {
+		t.Error("with no VM running, the start did not go through the service")
+	}
+	m, err := h.Machine(ctx, vm)
+	if err != nil || m.State != vboxmanage.StateRunning || !m.AutostartEnabled {
+		t.Fatalf("after Start: %+v, %v", m, err)
+	}
+	// A running machine's answer, kept for the parser's own tests.
+	if path := os.Getenv("PLEIADES_VBOX_CAPTURE"); path != "" {
+		out, err := h.Runner.Run(ctx, h.Path, []string{"showvminfo", vm, "--machinereadable"})
+		if err == nil {
+			err = os.WriteFile(path, []byte(out.Stdout), 0o600)
+		}
+		if err != nil {
+			t.Errorf("capturing a running machine: %v", err)
+		}
+	}
+	// Measured, not assumed: can the mark be cleared while it runs?
+	err = h.SetAutostart(ctx, vm, false)
+	t.Logf("clearing the autostart mark while running: %v", err)
+	// While it runs, a second Start is a plain one through the service's
+	// server, which is refused only because the VM already runs.
+	if viaService, err := a.Start(ctx, vm); viaService || err == nil {
+		t.Errorf("a second Start: via service %v, err %v; want a plain start refused as already running", viaService, err)
+	} else {
+		t.Logf("a second, plain Start of the running VM: %v", err)
+	}
+	if err := h.PowerOff(ctx, vm); err != nil {
+		t.Fatalf("PowerOff: %v", err)
+	}
+}

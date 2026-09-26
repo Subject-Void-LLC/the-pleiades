@@ -101,7 +101,12 @@ func TestParseMachineReadable(t *testing.T) {
 	if v, _ := values.Get("k"); v != "" {
 		t.Errorf("Get returned %q, want the first value", v)
 	}
-	for _, bad := range []string{`name="unterminated`, `"key=1`, `name="a"b`} {
+	// Text after a closing quote is kept, as a running VM's VideoMode
+	// needs; an unterminated quote is still refused.
+	if v, err := ParseMachineReadable(`VideoMode="1024,768,32"@0,0 1`); err != nil || v[0].Value != "1024,768,32@0,0 1" {
+		t.Errorf("a value with text after its quote = %q, %v", v, err)
+	}
+	for _, bad := range []string{`name="unterminated`, `"key=1`} {
 		if _, err := ParseMachineReadable(bad); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}
@@ -133,4 +138,21 @@ func FuzzParseMachineReadable(f *testing.F) {
 			t.Fatalf("round trip of %q=%q gave %q", key, value, values)
 		}
 	})
+}
+
+func TestMachineFrom_CapturedRunningMachine(t *testing.T) {
+	values, err := ParseMachineReadable(fixture(t, "showvminfo-running.stdout"))
+	if err != nil {
+		t.Fatalf("a running machine's answer did not parse: %v", err)
+	}
+	m, err := machineFrom(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.State != StateRunning || !m.AutostartEnabled {
+		t.Errorf("state %q, autostart %v; want running and marked, as the autostart start leaves it", m.State, m.AutostartEnabled)
+	}
+	if mode, ok := values.Get("VideoMode"); !ok || !strings.Contains(mode, "@") {
+		t.Errorf("VideoMode = %q, want the text after its quote kept", mode)
+	}
 }

@@ -34,9 +34,11 @@ func (v Values) Get(key string) (string, bool) {
 // a quoted string in which a backslash and a quote are each written with a
 // backslash before them, as in "G:\\PleiadesLab". A line with no '=' is a
 // section marker (" rec_screen0") and is skipped, as are blank lines; lines
-// end in CRLF on Windows. An unterminated quote is refused rather than
-// read to the end of the line, since what follows it is then not known to
-// be the value.
+// end in CRLF on Windows. Text after a quoted value's closing quote is part
+// of the value, appended as written: a running machine's VideoMode is
+// written "1024,768,32"@0,0 1. An unterminated quote is refused rather
+// than read to the end of the line, since what follows it is then not
+// known to be the value.
 func ParseMachineReadable(text string) (Values, error) {
 	var values Values
 	for number, line := range strings.Split(text, "\n") {
@@ -55,10 +57,7 @@ func ParseMachineReadable(text string) (Values, error) {
 		if err != nil {
 			return nil, fmt.Errorf("vboxmanage: line %d: %w", number+1, err)
 		}
-		if tail != "" {
-			return nil, fmt.Errorf("vboxmanage: line %d: text after the value: %q", number+1, tail)
-		}
-		values = append(values, Pair{Key: key, Value: value})
+		values = append(values, Pair{Key: key, Value: value + tail})
 	}
 	return values, nil
 }
