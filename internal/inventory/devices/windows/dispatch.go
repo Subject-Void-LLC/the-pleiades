@@ -14,5 +14,6 @@ func init() {
 	// Controller would not load.
 	record.RegisterDispatchProperties("windows_server", append([]string{
 		"cmd_path", "dism_log_path", "host", "port", "powershell_path", "service_manager", "windows_edition",
-		"windows_service_start_mode", "working_directory"}, devicetls.Properties()...)...)
+		"windows_service_start_mode", "working_directory", propVirtualBox, propVBoxManagePath, propVMFolder},
+		devicetls.Properties()...)...)
 }

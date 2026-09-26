@@ -2199,6 +2199,42 @@ BER, and bundles written by older Windows tooling are not reliably DER. A bundle
 other software opens can still be refused here. Re-exporting it with a current
 `Export-PfxCertificate` produces DER.
 
+### A Windows host that runs VirtualBox
+
+A `windows_server` whose record says so is also VirtualBox-capable, so the host you already
+reach over WinRM is the target for the `virt.vbox.*` methods too, with the same credential and
+the same pinned authority:
+
+```bash
+pleiades set-host win1 --set virtualbox=true --set 'vm_folder=G:\PleiadesLab'
+```
+
+`vboxmanage_path` overrides where VBoxManage is (the installer's location by default), and
+`vm_folder` names where new VMs are created (VirtualBox's own default when unset). Either one
+without `virtualbox: true` is refused, and so is a path that is not absolute from a drive root
+or that holds a quote, `%`, `!` or a control character, since the path is a command line's
+program.
+
+The account Pleiades logs in as needs more from the host than WinRM, and none of it is a
+Pleiades setting, because WinRM gives every command a network logon, which Windows treats
+differently from a person at the console. Each of these was found by a failure on a real host,
+and `examples/windows_lab/winrm-cert-setup.ps1 -AllowVirtualBox -VirtualBoxAutostart` grants
+exactly them to one account:
+
+- **COM launch and activation on VirtualBox's two servers** (VBoxSVC and VBoxSDS). Windows'
+  default admits only administrators, SYSTEM and interactive logons, so without it every
+  VBoxManage command fails with `E_ACCESSDENIED`.
+- **The policy "do not forcefully unload the user registry at user logoff".** A running VM
+  keeps the account's VirtualBox server alive after the account's last WinRM session ends,
+  and without the policy that server fails every later call with `REGDB_E_READREGDB`. It is
+  machine-wide.
+- **VirtualBox's own autostart service, installed for the account.** Windows' catalog
+  signature check fails for a non-administrator logon that is not interactive, and
+  VirtualBox's hardening then refuses to start any VM (`VERR_LDRVI_NOT_SIGNED`; VirtualBox
+  ticket 20341). A VM started by the autostart service runs under a service logon, which
+  passes, and while any of the account's VMs runs, a VM started over WinRM goes through the
+  same VirtualBox server and starts too.
+
 ## Data handling disclosure
 
 Two different things get called "secret" in this codebase, and they are protected

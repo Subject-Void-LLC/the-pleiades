@@ -60,6 +60,8 @@ type Server struct {
 	*record.Base
 	// tls is what its WinRM listener is verified with; see tls.go.
 	tls devicetls.Settings
+	// vbox is what its record says about VirtualBox; see vbox.go.
+	vbox virtualBoxSettings
 }
 
 var _ inventory.InventoryItem = (*Server)(nil)
@@ -89,8 +91,12 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("windows_server %s: %w", rec.Name, err)
 	}
-	base := record.NewBase(rec, caps)
-	return &Server{Base: base, tls: settings}, nil
+	vbox, err := parseVirtualBox(inventory.NewProperties(rec.Properties))
+	if err != nil {
+		return nil, fmt.Errorf("windows_server %s: %w", rec.Name, err)
+	}
+	base := record.NewBase(rec, policy.UnionSlices(caps, vbox.capabilities()))
+	return &Server{Base: base, tls: settings, vbox: vbox}, nil
 }
 
 // HasCapability checks the declared classification AND the structural
