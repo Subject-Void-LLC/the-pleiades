@@ -141,6 +141,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp": 94.5,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec": 93.5,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/tftpxfer": 93.5,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage": 89.4,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec": 87.0,
     "github.com/Subject-Void-LLC/the-pleiades/tests/parity": 91.1,
     "github.com/Subject-Void-LLC/the-pleiades/tools/commitgate": 91.7,
