@@ -1,4 +1,4 @@
-# Pleiades
+# The Pleiades
 
 An object-oriented, strongly typed automation mesh that also runs Ansible. Ansible
 support is the migration on-ramp, not the destination: a workload lands unchanged,
@@ -60,7 +60,7 @@ tested today; nothing here is aspirational. Read this section before the rest.
   AWX import fails with a reason instead of "no such source"; and a prompted input is
   never stored, so a job that used one cannot be relaunched.
 - **Collections can be written out of tree.** A separate program built with the
-  public `pkg/external` SDK runs beside Pleiades, never copied onto a device, and its
+  public `pkg/external` SDK runs beside The Pleiades, never copied onto a device, and its
   methods register like built-in ones. Linux only: each run is confined with Landlock
   to its own directory and a private temporary directory, loading is refused
   altogether on platforms that lack it, and a program must be on an approval list of
@@ -113,7 +113,7 @@ mkdir my-project && cd my-project
 
 ## Documentation
 
-- [`docs/01-start-here.md`](docs/01-start-here.md): what Pleiades is, the Crawl/Walk/Run
+- [`docs/01-start-here.md`](docs/01-start-here.md): what The Pleiades is, the Crawl/Walk/Run
   tiers, and the implementation status summary.
 - [`docs/02-get-started.md`](docs/02-get-started.md): the Crawl-tier and Walk-tier
   quickstarts, with real captured command output.
@@ -134,7 +134,7 @@ mkdir my-project && cd my-project
   [`docs/14-project.md`](docs/14-project.md): changelog, versioning, contributing,
   license, and where each of those actually lives today.
 - [`docs/15-performance.md`](docs/15-performance.md): the same work through Ansible and
-  Pleiades on 1 to 200 hosts, with time, CPU, memory, threads, logins, network and disk
+  The Pleiades on 1 to 200 hosts, with time, CPU, memory, threads, logins, network and disk
   measured, and how to rerun it.
 - [`docs/reference/`](docs/reference/index.md): the generated reference: module catalog,
   capability vocabulary, device types, sync plugins, runbook and task keys, the CLI
@@ -142,7 +142,7 @@ mkdir my-project && cd my-project
   (also served live at `/api/v1/openapi.json`), and the full declared-vs-implemented
   matrix.
 - [`examples/upgrade_ios/`](examples/upgrade_ios/): a real side-by-side Ansible vs.
-  Pleiades comparison, migrating a Cisco IOS-XE upgrade playbook.
+  The Pleiades comparison, migrating a Cisco IOS-XE upgrade playbook.
 - [`examples/webserver_lab/`](examples/webserver_lab/): three real Ubuntu targets used
   to capture genuine `pleiades` output for documentation.
 
