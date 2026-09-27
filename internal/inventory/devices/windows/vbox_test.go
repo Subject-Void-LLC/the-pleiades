@@ -17,6 +17,11 @@ func TestServer_DeclaresVirtualBoxOnlyWhenTheRecordSaysSo(t *testing.T) {
 	if plain.HasCapability(capability.NameVirtualBox) {
 		t.Error("a server whose record says nothing about VirtualBox declared it")
 	}
+	// The method still answers on a server that did not declare the
+	// capability, with where the installer puts VBoxManage.
+	if got := plain.(capability.VirtualBoxCapable).VBoxManagePath(); got != `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe` {
+		t.Errorf("an undeclared server's VBoxManagePath = %q", got)
+	}
 	off, err := newServer(map[string]inventory.PropertyValue{"virtualbox": false})
 	if err != nil {
 		t.Fatal(err)
