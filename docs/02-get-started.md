@@ -96,9 +96,16 @@ $ pleiades validate
 validate: no issues found
 ```
 
-`validate` checks the runbook against the inventory without touching any device:
+`validate` checks runbooks against the inventory without touching any device:
 every task's FQCN resolves to a registered, implemented method, and every conditional
 expression compiles.
+
+With no runbook named it checks every file in `runbooks/`, so right after `init` that
+is `sample.yaml`. You can also name one or more runbooks, or a glob such as
+`pleiades validate runbooks/*.yaml`. When it checks more than one, it prints a line for
+each runbook and fails if any of them does. It skips a directory, a file that is not
+`.yaml` or `.yml`, and a list of tasks (a file that `import_tasks` pulls in, which is
+checked as part of the runbook that imports it), and prints a note for each.
 
 It does not check capabilities for catalog FQCNs. Only the two legacy action names
 `ssh_exec` and `ios_backup` get a device capability check, so a task calling

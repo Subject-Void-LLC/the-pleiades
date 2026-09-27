@@ -112,9 +112,9 @@ probe a generic device over its protocol and record what it proved
 
 ## pleiades validate
 
-check a runbook against the inventory
+check runbooks against the inventory; with none named, every one in runbooks/
 
-`pleiades validate [runbook.yaml] [flags]`
+`pleiades validate [runbook.yaml ...] [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -122,9 +122,11 @@ check a runbook against the inventory
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 
+`pleiades validate`
+
 `pleiades validate runbooks/site.yaml`
 
-`pleiades validate runbooks/site.yaml --tags web`
+`pleiades validate runbooks/*.yaml --tags web`
 
 ## pleiades run
 

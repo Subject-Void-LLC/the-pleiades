@@ -85,6 +85,13 @@ Run these from your project directory. The runbooks here assume the host is call
 `vengeance`, the VM folder is `G:\PleiadesLab`, and the VM gets `192.168.56.10`; change them to
 suit.
 
+To check all seven runbooks against your inventory before running any of them, without
+touching the host:
+
+```bash
+pleiades validate
+```
+
 ### 1. Fetch the image
 
 ```bash

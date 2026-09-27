@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -374,6 +375,44 @@ func TestBuildFromYAML_NonAnsibleListNotOverclaimed(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "Ansible playbook") {
 			t.Errorf("expected %q to NOT be diagnosed as an Ansible playbook, got: %v", c, err)
+		}
+	}
+}
+
+// TestBuildFromYAMLFile_TaskListIsErrTaskList proves a file holding a list
+// of tasks, the shape an import_tasks file takes, is refused as
+// ErrTaskList rather than misdiagnosed as an Ansible playbook, while the
+// runbook importing that very file still builds. An Ansible task file is
+// a list of tasks too. A list with a play anywhere in it is a playbook.
+func TestBuildFromYAMLFile_TaskListIsErrTaskList(t *testing.T) {
+	dir := t.TempDir()
+	fragment := writeRunbookFile(t, dir, "common.yaml", "- name: step one\n  fqcn: noop\n- name: step two\n  fqcn: noop\n")
+	runbook := writeRunbookFile(t, dir, "site.yaml", "id: site\ntasks:\n  - name: shared\n    fqcn: import_tasks\n    params:\n      file: common.yaml\n")
+	builder := newTestBuilder(t)
+
+	_, err := builder.BuildFromYAMLFile(fragment)
+	if !errors.Is(err, engine.ErrTaskList) {
+		t.Fatalf("building an import_tasks file = %v, want ErrTaskList", err)
+	}
+	if strings.Contains(err.Error(), "Ansible playbook") {
+		t.Errorf("an import_tasks file was called an Ansible playbook: %v", err)
+	}
+	if _, err := builder.BuildFromYAMLFile(runbook); err != nil {
+		t.Errorf("the runbook importing that file does not build: %v", err)
+	}
+	if _, err := builder.BuildFromYAML([]byte("- name: install curl\n  ansible.builtin.apt:\n    name: curl\n")); !errors.Is(err, engine.ErrTaskList) {
+		t.Errorf("an Ansible task file = %v, want ErrTaskList", err)
+	}
+
+	for _, playbook := range []string{
+		"- name: a task first\n  fqcn: noop\n- hosts: all\n  tasks: []\n",
+		"- import_playbook: other.yml\n",
+		"- ansible.builtin.import_playbook: other.yml\n",
+		"- name: a play missing its hosts\n  roles: [common]\n",
+	} {
+		_, err := builder.BuildFromYAML([]byte(playbook))
+		if err == nil || errors.Is(err, engine.ErrTaskList) || !strings.Contains(err.Error(), "Ansible playbook") {
+			t.Errorf("%q = %v, want the Ansible playbook diagnosis", playbook, err)
 		}
 	}
 }

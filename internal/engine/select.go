@@ -38,12 +38,55 @@ var filterSpecialTags = []string{TagAll, TagAlways, TagNever, TagTagged, TagUnta
 // dag must come from the builder, which records the full task set Select
 // projects from.
 func Select(dag *DAG, f TagFilter) (*DAG, error) {
-	if dag.full == nil {
-		return nil, fmt.Errorf("select: DAG %q was not produced by the builder, so it has no full task set to select from", dag.ID)
-	}
-	if err := checkFilterNames(f, dag.full); err != nil {
+	sel, err := NewTagSelection(f, dag)
+	if err != nil {
 		return nil, err
 	}
+	return sel.Select(dag)
+}
+
+// TagSelection is a TagFilter checked against several runbooks together,
+// for a caller that selects from all of them at once (pleiades validate
+// runbooks/*). A name must be carried by some task in one of them, so a
+// misspelling is still refused. A runbook that does not carry a name
+// another one does is not refused: --tags web keeps only its always tasks
+// there, as it would in an Ansible playbook with no web task. Build one
+// with NewTagSelection; the zero value selects from nothing.
+type TagSelection struct {
+	// filter is the checked filter every Select applies.
+	filter TagFilter
+
+	// checked holds the runbooks filter's names were checked against,
+	// the only ones Select will project.
+	checked []*DAG
+}
+
+// NewTagSelection checks f against every task in dags together and
+// returns the selection for them. It refuses a malformed name, or one that
+// is neither special nor carried by any task in any of dags. Every dag
+// must come from the builder.
+func NewTagSelection(f TagFilter, dags ...*DAG) (TagSelection, error) {
+	for _, dag := range dags {
+		if dag.full == nil {
+			return TagSelection{}, fmt.Errorf("select: DAG %q was not produced by the builder, so it has no full task set to select from", dag.ID)
+		}
+	}
+	if err := checkFilterNames(f, dags); err != nil {
+		return TagSelection{}, err
+	}
+	return TagSelection{filter: f, checked: slices.Clone(dags)}, nil
+}
+
+// Select returns dag projected onto the tasks the checked filter keeps,
+// exactly as the package-level Select does. It refuses a dag this
+// selection was not checked against: the names were checked against
+// those runbooks alone, and an unchecked one is where a misspelled
+// --skip-tags would skip nothing unnoticed.
+func (s TagSelection) Select(dag *DAG) (*DAG, error) {
+	if !slices.Contains(s.checked, dag) {
+		return nil, fmt.Errorf("select: DAG %q is not one of the runbooks this tag filter was checked against", dag.ID)
+	}
+	f := s.filter
 	out := &DAG{
 		ID:         dag.ID,
 		Metadata:   dag.Metadata,
@@ -103,9 +146,20 @@ func (d *DAG) TagNames() []string {
 }
 
 // checkFilterNames refuses a name in f that is malformed, or that is
-// neither special nor carried by any task in full.
-func checkFilterNames(f TagFilter, full *fullGraph) error {
-	carried := (&DAG{full: full}).TagNames()
+// neither special nor carried by any task in any of dags.
+func checkFilterNames(f TagFilter, dags []*DAG) error {
+	var carried []string
+	for _, dag := range dags {
+		carried = append(carried, dag.TagNames()...)
+	}
+	slices.Sort(carried)
+	carried = slices.Compact(carried)
+	// The refusal lists what the user could have meant, in the terms of
+	// what they asked about: one runbook, or the several named at once.
+	carries := "the tags this runbook carries are "
+	if len(dags) > 1 {
+		carries = "the tags these runbooks carry are "
+	}
 	for _, set := range []struct {
 		flag  string
 		names []string
@@ -117,7 +171,7 @@ func checkFilterNames(f TagFilter, full *fullGraph) error {
 			if !slices.Contains(filterSpecialTags, name) && !slices.Contains(carried, name) {
 				known := "no task carries a tag"
 				if len(carried) > 0 {
-					known = "the tags this runbook carries are " + strings.Join(carried, ", ")
+					known = carries + strings.Join(carried, ", ")
 				}
 				return fmt.Errorf("%s names %q, which no task carries; %s", set.flag, name, known)
 			}

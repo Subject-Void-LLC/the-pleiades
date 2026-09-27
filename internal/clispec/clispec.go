@@ -170,14 +170,14 @@ var Root = Command{
 		},
 		{
 			Name:       "validate",
-			Positional: "[runbook.yaml]",
-			Synopsis:   "check a runbook against the inventory",
+			Positional: "[runbook.yaml ...]",
+			Synopsis:   "check runbooks against the inventory; with none named, every one in runbooks/",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
 				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 			},
-			Examples: []string{"pleiades validate runbooks/site.yaml", "pleiades validate runbooks/site.yaml --tags web"},
+			Examples: []string{"pleiades validate", "pleiades validate runbooks/site.yaml", "pleiades validate runbooks/*.yaml --tags web"},
 		},
 		{
 			Name:       "run",
