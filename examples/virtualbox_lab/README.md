@@ -309,8 +309,8 @@ pleiades run runbooks/windows-01-install.yaml
 `virt.vbox.vm.install` makes a VM with a new 64 GB disk, BIOS firmware and no network, and puts
 the ISO and an answer file in its DVD drives. The answer file is built by The Pleiades: it
 partitions the disk, installs the edition `image` names (`Windows Server 2025 Standard
-Evaluation` is Server Core) and takes the new Windows through audit mode. There it deletes the copy
-of itself Windows cached, points the registry (`HKLM\SYSTEM\Setup`, `UnattendFile`) at
+Evaluation` is Server Core) and takes the new Windows through audit mode. There it deletes the two
+copies of itself Windows cached, points the registry (`HKLM\SYSTEM\Setup`, `UnattendFile`) at
 `D:\Autounattend.xml`, and runs sysprep, which generalizes it and shuts it down. The task waits for
 that: between 5 and 9 minutes on the lab host at two CPUs.
 
@@ -320,7 +320,9 @@ and in its own folders, never on a DVD, although Microsoft's documentation lists
 and a cached copy of the install's own answer file, left in place, is found first and ends the
 search. Then it takes both DVDs out, deletes the answer file and marks the
 VM installed. The answer file's only password is one made at random for audit mode's sign-in and
-kept nowhere.
+kept nowhere by The Pleiades. Windows keeps it, not blanked, in the second cached copy
+(`C:\Windows\Panther\unattend-original.xml`), which is why audit mode deletes both; a clone's seed
+then sets a password of its own.
 
 A run that stops waiting (its timeout, or a read VirtualBox refused for a moment) leaves the
 install running; run the task again and it waits for the same install and finishes it. An install

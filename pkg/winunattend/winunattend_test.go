@@ -193,7 +193,7 @@ func TestInstallInstallsGeneralizesAndShutsDown(t *testing.T) {
 		{"auditSystem/Microsoft-Windows-Shell-Setup/AutoLogon/Username", "Administrator"},
 		{"auditSystem/Microsoft-Windows-Shell-Setup/AutoLogon/Password/Value", "Temp0rary9"},
 		{"auditSystem/Microsoft-Windows-Shell-Setup/UserAccounts/AdministratorPassword/Value", "Temp0rary9"},
-		{"auditUser/Microsoft-Windows-Deployment/RunSynchronous/RunSynchronousCommand/Path", `cmd.exe /c del /f /q "%WINDIR%\Panther\unattend.xml"`},
+		{"auditUser/Microsoft-Windows-Deployment/RunSynchronous/RunSynchronousCommand/Path", `cmd.exe /c del /f /q "%WINDIR%\Panther\unattend*.xml"`},
 		{"auditUser/Microsoft-Windows-Deployment/RunSynchronous/RunSynchronousCommand/Path", `reg.exe add HKLM\SYSTEM\Setup /v UnattendFile /t REG_SZ /d D:\Autounattend.xml /f`},
 		{"auditUser/Microsoft-Windows-Deployment/RunSynchronous/RunSynchronousCommand/Path", `%WINDIR%\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown /quiet`},
 	} {

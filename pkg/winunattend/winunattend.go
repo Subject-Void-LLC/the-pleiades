@@ -310,8 +310,9 @@ func (i Install) Validate() error {
 // image and accepts its license, with no update downloaded during setup.
 // oobeSystem sends the machine to audit mode rather than the screens a
 // person answers; auditSystem signs the built-in Administrator in there,
-// with AuditPassword; and auditUser deletes the copy of this file Setup
-// cached, points the registry at SeedPath, then runs sysprep to generalize
+// with AuditPassword; and auditUser deletes the copies of this file Setup
+// cached, one of them holding AuditPassword as written, points the
+// registry at SeedPath, then runs sysprep to generalize
 // the installation and shut the machine down. A generalized image's first
 // boot looks for its answer file only in fixed places (the registry
 // value first, then Panther), never on a DVD, so without the pointer a
@@ -360,16 +361,19 @@ func (i Install) XML() ([]byte, error) {
 		pass("auditUser",
 			component("Microsoft-Windows-Deployment",
 				el("RunSynchronous",
-					// Setup caches this file in Panther, and a clone's first
-					// boot finds it there, sees nothing for its own passes, and
-					// looks no further, never at the seed on its DVD. The
-					// Generalize setting ran sysprep before any command could
-					// delete it (measured 2026-09-27), so the two steps are
+					// Setup caches this file in Panther twice: unattend.xml,
+					// with its passwords blanked, which a clone's first boot
+					// finds, sees nothing for its own passes in, and stops
+					// at, never reading the seed on its DVD; and
+					// unattend-original.xml, as written, audit password and
+					// all, which every clone would carry (both measured
+					// 2026-09-27). The Generalize setting ran sysprep before
+					// any command could delete them, so the steps are
 					// commands, run in this order.
 					el("RunSynchronousCommand",
 						leaf("Order", "1"),
-						leaf("Path", `cmd.exe /c del /f /q "%WINDIR%\Panther\unattend.xml"`),
-						leaf("Description", "Forget this install's answer file, so a clone's first boot reads its own")).added(),
+						leaf("Path", `cmd.exe /c del /f /q "%WINDIR%\Panther\unattend*.xml"`),
+						leaf("Description", "Forget this install's answer file and its password, so a clone's first boot reads its own")).added(),
 					// After a generalized image boots, Setup looks for its
 					// answer file only in fixed places, never on removable
 					// media (measured 2026-09-27), and the first place it
