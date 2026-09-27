@@ -4,4 +4,4 @@ id: vbox-lab-list
 hosts: vengeance
 tasks:
   - name: every VM on the lab host
-    fqcn: virt.vbox.vm.list
+    virt.vbox.vm.list:

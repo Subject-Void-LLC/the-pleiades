@@ -6,8 +6,7 @@ id: vbox-lab-media
 hosts: vengeance
 tasks:
   - name: fetch the Ubuntu 24.04 cloud image onto the VirtualBox host
-    fqcn: win.file.download
-    params:
+    win.file.download:
       url: https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.ova
       path: G:\PleiadesLab\ubuntu-24.04-server-cloudimg-amd64.ova
       sha256: 513a22ebe3982b9387b038f8a2a6dad1af980d4623dca03511312e55ba620b1a

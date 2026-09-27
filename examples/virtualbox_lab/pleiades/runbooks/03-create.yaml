@@ -13,8 +13,7 @@ id: vbox-lab-create
 hosts: vengeance
 tasks:
   - name: make the lab VM from the base's never-booted snapshot
-    fqcn: virt.vbox.vm.clone
-    params:
+    virt.vbox.vm.clone:
       name: ubuntu-lab
       from: ubuntu-2404-base
       snapshot: base
@@ -22,11 +21,9 @@ tasks:
       address: 192.168.56.10/24
       size: small
   - name: start it
-    fqcn: virt.vbox.vm.start
-    params:
+    virt.vbox.vm.start:
       name: ubuntu-lab
   - name: wait for its first boot to print its SSH host keys
-    fqcn: virt.vbox.vm.host_keys
-    params:
+    virt.vbox.vm.host_keys:
       name: ubuntu-lab
       timeout: 600

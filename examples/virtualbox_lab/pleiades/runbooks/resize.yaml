@@ -10,15 +10,12 @@ id: vbox-lab-resize
 hosts: vengeance
 tasks:
   - name: shut the lab VM down
-    fqcn: virt.vbox.vm.stop
-    params:
+    virt.vbox.vm.stop:
       name: ubuntu-lab
   - name: give it the new size
-    fqcn: virt.vbox.vm.resize
-    params:
+    virt.vbox.vm.resize:
       name: ubuntu-lab
       size: xsmall
   - name: start it again
-    fqcn: virt.vbox.vm.start
-    params:
+    virt.vbox.vm.start:
       name: ubuntu-lab

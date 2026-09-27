@@ -5,13 +5,11 @@ id: vbox-lab-base
 hosts: vengeance
 tasks:
   - name: import the Ubuntu 24.04 cloud image as a base VM
-    fqcn: virt.vbox.vm.import_ova
-    params:
+    virt.vbox.vm.import_ova:
       name: ubuntu-2404-base
       path: G:\PleiadesLab\ubuntu-24.04-server-cloudimg-amd64.ova
   - name: keep the never-booted base as a snapshot to clone from
-    fqcn: virt.vbox.snapshot.take
-    params:
+    virt.vbox.snapshot.take:
       vm: ubuntu-2404-base
       name: base
       description: Ubuntu 24.04 cloud image 20260926, never booted

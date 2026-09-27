@@ -4,10 +4,9 @@ id: vbox-lab-bootstrap
 hosts: ubuntu-lab
 tasks:
   - name: reach the new VM over the host-only network
-    fqcn: net.ssh.ping
+    net.ssh.ping:
   - name: who we are and what it runs
-    fqcn: exec.command
-    params:
+    exec.command:
       argv: [sh, -c, 'id; hostname; . /etc/os-release; echo "$PRETTY_NAME"; ip -4 -brief addr show; cloud-init status']
   - name: its facts
-    fqcn: facts.gather
+    facts.gather:

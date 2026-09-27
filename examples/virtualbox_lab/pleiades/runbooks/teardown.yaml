@@ -4,11 +4,9 @@ id: vbox-lab-teardown
 hosts: vengeance
 tasks:
   - name: cut the lab VM's power
-    fqcn: virt.vbox.vm.stop
-    params:
+    virt.vbox.vm.stop:
       name: ubuntu-lab
       mode: poweroff
   - name: delete it
-    fqcn: virt.vbox.vm.delete
-    params:
+    virt.vbox.vm.delete:
       name: ubuntu-lab
