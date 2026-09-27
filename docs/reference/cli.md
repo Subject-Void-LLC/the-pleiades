@@ -141,6 +141,7 @@ build, validate, and run a runbook
 | --mode | `string` | `execute` | execute applies changes; check reports what each task would change and changes nothing |
 | --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
+| --json | `bool` | `false` | print the run as one JSON document on standard output, with every task's output whether or not --verbose is given; the exit status is the text view's |
 | --allow-unchecked | `string` | - | a method whose tasks may go unchecked without making the check incomplete (repeatable); the tasks are still listed |
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
@@ -158,6 +159,35 @@ build, validate, and run a runbook
 `pleiades run runbooks/site.yaml --tags web --skip-tags slow`
 
 `pleiades run runbooks/site.yaml --persist-connections=false`
+
+`pleiades run runbooks/site.yaml --json`
+
+## pleiades adhoc
+
+run one method against a device or a tag, with no runbook written
+
+`pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --mode | `string` | `execute` | execute applies changes; check reports what the method would change and changes nothing |
+| --verbose | `bool` | `false` | print the method's own output (stdout, exit status, diffs), not just whether it changed |
+| --v | `bool` | `false` | shorthand for --verbose |
+| --json | `bool` | `false` | print the run as one JSON document on standard output, with the method's output; the exit status is the text view's |
+| --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
+| --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
+| --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
+
+`pleiades adhoc web01 facts.gather`
+
+`pleiades adhoc web exec.command cmd=uptime --verbose`
+
+`pleiades adhoc win01 exec.winrm.shell shell=powershell command='Get-Service WinRM' --json`
+
+`pleiades adhoc web pkg.apt.install name=nginx --mode check`
+
+`pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'`
 
 ## pleiades inventory
 

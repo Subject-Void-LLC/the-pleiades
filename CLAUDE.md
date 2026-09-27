@@ -26,7 +26,11 @@ Read `docs/01-start-here.md` before assuming any feature works end to end. This 
 pre-1.0 project and the honest state is not what the docs' introductions might imply:
 
 - **Crawl tier (the `pleiades` CLI) is real.** Single static binary, no server/DB/broker,
-  connects over real SSH, genuinely executes `ssh_exec` against real devices.
+  connects over real SSH, genuinely executes `ssh_exec` against real devices. `pleiades adhoc
+  <hosts> <method> key=value ...` runs one method with no runbook, through the same pipeline
+  as `run` (`cmd/pleiades/run_pipeline.go`), and `run --json`/`adhoc --json` print that
+  pipeline's report model as one JSON document (Phase 113). For an agent, `adhoc ... --json` is
+  the way to call a method once; do not write a throwaway runbook for it.
 - **Walk tier's control plane is real and tested**: data layer, event bus, distributed
   locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
   conditional engine, the workflow DAG builder, the HATEOAS API gateway, job dispatcher.

@@ -286,6 +286,97 @@ would have registered, and a `when` list with a member that is false is skipped,
 a real run would skip it. A condition that is simply wrong, such as one reading a
 register no earlier task registers, fails the check the way it would fail a real run.
 
+### 9. Run one method, with no runbook
+
+`pleiades adhoc` is Ansible's `ansible <hosts> -m <module> -a <args>`: one method
+against a device or a tag, named exactly as a runbook's `hosts:` names one, with its
+parameters after it. It writes the one-task runbook you would have written and runs it
+the way `run` does, so it is validated, checked, journaled and reported the same way,
+and takes the same `--mode`, `--forks`, `--verbose` and `--json`. Captured against the
+lab's Ubuntu VM:
+
+```console
+$ pleiades adhoc ubuntu-lab exec.command cmd=uptime --verbose
+plan for adhoc exec.command on ubuntu-lab (1 nodes, 6 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  exec.command
+
+executing:
+  tasks[0] [0a8aadb1-2395-45e5-83ef-c07c3329aa53]: changed
+    cmd: 'uptime'
+    rc: 0
+    skipped: false
+    stdout:  22:04:31 up  6:26,  1 user,  load average: 0.24, 0.05, 0.02
+
+run complete
+```
+
+`key=value` reads a value as `add-host --set` does: `true` and `false` are booleans, a
+whole number is an integer, and anything else is a string. `key:=value` reads it as
+YAML, for a list, a map, or a string that looks like a number:
+
+```console
+$ pleiades adhoc web exec.command argv:='[cat, /etc/os-release]'
+$ pleiades adhoc web file.directory path=/tmp/app mode:="'0750'" --mode check
+```
+
+A parameter on a command line is visible to every other process on the machine while
+the command runs, so never pass a secret as one. A method that needs a credential gets
+the device's own from the vault, as it does in a runbook.
+
+**`--json`**, on `run` and on `adhoc`, prints the run as one JSON document on standard
+output instead of text: the plan, each task's status, device and output (every stat,
+whether or not `--verbose` is given), and how the run ended. The exit status is the
+same as the text view's, and the document says it too, so a program reading it never
+has to tell a failure from an empty answer: a runbook that does not load, a refused
+parameter and a validation failure are all reports, with `outcome.status` set to
+`error`, `invalid` or `failed`.
+
+```console
+$ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json
+{
+  "runbook": "adhoc exec.command on ubuntu-lab",
+  "mode": "execute",
+  ...
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "exec.command",
+      "method": "exec.command",
+      "device": "0a8aadb1-2395-45e5-83ef-c07c3329aa53",
+      "host": "ubuntu-lab",
+      "status": "changed",
+      "stats": {
+        "cmd": "'cat' '/etc/hostname'",
+        "rc": 0,
+        "skipped": false,
+        "stderr": "",
+        "stdout": "ubuntu-lab"
+      },
+      "started_at": "2026-09-27T22:04:32.428551884Z",
+      "finished_at": "2026-09-27T22:04:32.655176286Z"
+    }
+  ],
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}
+```
+
+A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`,
+`skipped` and `unchecked`. Everything in the document is masked as the text view is,
+and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
+the like) reads `$encrypted$` in both. Characters a terminal would act on are written
+as `\u` escapes, so the document is safe to print.
+
+`adhoc` is a Crawl-tier command only. The Controller has no ad-hoc path: everything it
+runs goes through a saved template.
+
 ## Quickstart: Walk tier
 
 **Status: real infrastructure, real execution.** Everything below is captured from a

@@ -56,6 +56,25 @@ func loadWorld(dir, runbookPath string, selection engine.TagFilter) ([]pkginvent
 	return items, dag, nil
 }
 
+// loadWorldYAML is loadWorld for a runbook built in memory rather than
+// read from a file (adhoc's), compiled by the same builder, so it is held
+// to exactly the rules a runbook file is. label names it in an error.
+func loadWorldYAML(dir, label string, payload []byte) ([]pkginventory.InventoryItem, *engine.DAG, error) {
+	items, err := loadInventory(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	builder, err := newRunbookBuilder()
+	if err != nil {
+		return nil, nil, err
+	}
+	dag, err := builder.BuildFromYAML(payload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build DAG from %s: %w", label, err)
+	}
+	return items, dag, nil
+}
+
 // loadInventory loads every item in dir's static inventory through the
 // inventory.Repository port, the inventory half of loadWorld. validate
 // calls it directly when it checks several runbooks, so the inventory is

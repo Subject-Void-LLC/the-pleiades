@@ -31,6 +31,7 @@ var commands = map[string]commandFunc{
 	"trust-host":     runTrustHost,
 	"validate":       runValidate,
 	"run":            runRunbook,
+	"adhoc":          runAdhoc,
 	"forge":          runForge,
 	"import":         runImport,
 	"inventory":      runInventory,
