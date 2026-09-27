@@ -368,6 +368,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 363. `add-credential --generate` made a password Windows' default policy refuses, about one time in 38
 364. A generalized Windows image's first boot never looks on a DVD for its answer file
 365. A running VM keeps a DVD image locked after its drive is emptied, so a seed cannot be deleted until it stops
+366. Windows keeps an unblanked copy of the install's answer file, so every clone carried the audit password
+367. The WinRM service and feature gates asserted on text the output no longer printed, and put the lab password on argv
+368. `onboard --json` and `doc --json` wrote terminal control characters raw
+369. An idle Windows Server guest spends the first power-button press waking its display
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

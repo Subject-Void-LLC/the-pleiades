@@ -281,6 +281,7 @@ story, per `.AGENTS/AGENTS.md`.
 246. **A capability's parent is a promise to every method requiring the parent: check what they need before choosing one (2026-09-25).**
 247. **A captured request proves what was asked, not what happened: assert the effect on the far side (2026-09-25).**
 248. **When a guest ignores what it was given, read its own logs before a second guess (2026-09-27).**
+249. **Call a method once with `adhoc --json`, and assert on structure rather than on printed text (2026-09-27).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

@@ -4,51 +4,50 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/virtualbox-support`, 2026-09-27: Windows Server guests (the user: "Build both
-methods", the VHDX and the ISO).** Rules unchanged: the lab is provisioned by The Pleiades only, gaps
-are built through `pleiades forge`, "is this how a Pleiades end user would do it?", runbook tasks use
-the method-as-key form (never `fqcn:`/`params:`), and temporary tooling becomes real methods.
+**Branch `feature/virtualbox-support`, 2026-09-27: the WinRM gates run against the lab, then Phase 113
+(the user: "ad-hoc plus run --json").** Rules unchanged: the lab is provisioned by The Pleiades only,
+runbook tasks use the method-as-key form, temporary tooling becomes real methods. New: to call a method
+once, use `pleiades adhoc <hosts> <method> key=value --json` (LESSONS 249), not a throwaway runbook.
 
 ### Where it stands
 
-- **Committed, not pushed:** `3d2982b` (lab runbooks in the method-as-key form), `955e62f` (Windows
-  guests), `e9a3cc5` (install's wait split out), and the findings commit after them.
+- **Committed, not pushed:** `ed0e1f0` (both cached answer files deleted), `d7bce43`
+  (`add-credential --password-stdin`), `c96572c` (the WinRM gates), `27ff29f` (terminal-safe
+  `--json`), `d962e78` (Phase 113), and the notes commit after them. `make push-gate` has not run.
 
-- **Built and tested (model host):** `pkg/winunattend` (answer files rendered in Go on a Joliet ISO);
-  `virt.vbox.vm.import_disk`, `install`, `eject_seed`, `screenshot`, `log`, `send_keys`, `addresses`;
-  `wait.connection`; clone seeding a Windows base (answer file on a SATA DVD, default size small); the
-  engine giving a login's password only to a method declaring `SeedsLoginPassword` and only for a
-  device reached over WinRM; `add-credential --generate` passwords always meeting Windows' policy;
-  `mediumio` ditto lines; `ErrLocked` for VirtualBox's pending-lock answer; resuming an install that
-  stopped waiting. Catalog 104 registered / 101 implemented.
-- **Measured on the lab host:** VHDX import works (2 min 46 s, EFI read off the disk); EFI + 2 vCPUs
-  hangs at `DXE_AP` (1 vCPU boots; measured while the user's watcher pinned VBoxSVC to the P-cores);
-  Microsoft's VHDX never reads a seed DVD at first boot (FAILURE_PATTERNS 361); the ISO install runs
-  unattended at 2 vCPUs on BIOS in about 8 minutes; the four windowless methods work on the host.
-- **The ISO path works end to end on the lab host:** install (5 to 9 min), clone (small), first boot
-  reads the seed through the `UnattendFile` registry pointer the install sets (a generalized Windows
-  never searches a DVD; FAILURE_PATTERNS 364), WinRM as the vaulted Administrator at 192.168.56.30 in
-  82 s, eject (the file is deleted only once the VM is stopped; 365), restart and WinRM in 17 s.
-  `win-lab` is running now.
-- **Open:** the VHDX's clones cannot be seeded (nothing in that image points Windows at the DVD).
-- **Diagnostic leftovers in `~/pleiades-lab`:** the `win-diag` device (a throwaway password), and
-  scratch runbooks under `runbooks/win/`.
+- **Phase 113 is built** (tracker 10/10, commit message to give): `pleiades adhoc`, `run --json` and
+  `adhoc --json`, one run pipeline (`cmd/pleiades/run_pipeline.go`) and one report model both views
+  render, `redact.Value` (stats masked as data, key rules included), `writeJSON` (terminal-safe; `onboard`
+  and `doc` use it too, FAILURE_PATTERNS 368). `TestCLI_AdhocReleaseGate` passes against a real sshd;
+  every `cmd/pleiades` test and gate passes under `-race`; gosec and govulncheck clean.
+- **Windows fixes:** the install's audit pass deletes both cached answer files (366; rebuilt base and
+  `win-lab` measured clean); `add-credential --password-stdin` (367).
+- **Every WinRM gate has run for real:** the five password gates against `win-lab` (the static-IP one
+  converted the NAT adapter, so it did not cut its own channel), the certificate and modes gates against
+  the host's 5986 listener, `pkg/winrmexec`'s modes gates against both. The service and feature gates'
+  stale assertions were fixed (367). To feed a gate the vault's password without printing it, a small
+  helper decrypted it into the gate's environment; its source is not in the repository.
+- **Found, not fixed (369):** `virt.vbox.vm.stop` presses the power button once, and a Windows guest
+  idle ten minutes spends that press waking its display. Measured: the second press shut it down in 13 s.
+  This also stopped the snapshot-reset check (stop, snapshot `clean`, mark, restore, check) at its first
+  step; that check has not been run.
+- **Lab state:** `win-lab` (rebuilt from the new base, same address and vault password) and
+  `ubuntu-lab` running; `ws2025-core-base` rebuilt from the example runbooks; scratch runbooks under
+  `~/pleiades-lab/runbooks/win/`.
 
 ### Next
 
-1. Run the env-gated WinRM release gates against `win-lab` (the plan's payoff), and re-measure the
-   EFI two-vCPU hang with the user's pinning watcher stopped.
-2. The VHDX: put the answer file into the image before first boot, or document it as unseedable.
-3. Follow-ons recorded in Phase 112: `--vault`/`--inventory` flags; the docs corpus for collections
-   (asked, not yet answered).
+1. `make push-gate` (or `make ci`), then push when the user asks.
+2. Fix 369 (press again while waiting, or no display timeout in the base), then run the reset check.
+3. Follow-ons: `--vault`/`--inventory` flags; the docs corpus for collections (asked, not answered); a
+   Crawl-tier `pleiades mcp` whose tool call is an ad-hoc run, if the user wants it.
 
 ### Files changed this session
 
-`pkg/winunattend` (new), `pkg/vboxmanage` (create, keyboard, leases, EjectDVD, OSType/Firmware,
-ErrLocked, the model host), `pkg/collection` (SeedsLoginPassword), `pkg/wire` (SecretSeedPassword),
-`internal/engine/login_seed.go`, `internal/credential/generate.go`, `internal/catalog/virt/vbox/vm`
-(seven new methods, clone's Windows seed, delete's leftovers), `internal/catalog/wait/connection.go`,
-`internal/forge/catalogdata`, `cmd/pleiades/run.go`, `examples/virtualbox_lab` (method-as-key form,
-Windows runbooks and README section), docs/reference, `internal/api/wellknown`, CLAUDE.md counts,
-`coverage-floor.json`, changelog, FAILURE_PATTERNS 360-365, LESSONS 248. Local only:
-`IMPLEMENTATION.md` (Phase 112 items, the `--vault`/`--inventory` follow-on).
+`pkg/winunattend` (audit pass), `internal/catalog/virt/vbox/vm/install.go` and
+`internal/forge/catalogdata` (install doc), `examples/virtualbox_lab` (README, install runbook comment),
+`cmd/pleiades` (`addcredential.go`, `adhoc.go`, `jsonout.go`, `run.go`, `run_pipeline.go`,
+`run_report.go`, `run_text.go`, `load.go`, `doc.go`, `onboard.go`, `main.go`, the WinRM gates, new
+tests), `internal/redact/value.go`, `internal/clispec`, docs/reference, `internal/api/wellknown`,
+`docs/02-get-started.md`, CLAUDE.md, changelog (five fragments), FAILURE_PATTERNS 366-369, LESSONS 249.
+Local only: `IMPLEMENTATION.md` (Phase 113, Phase 86's ad-hoc item).

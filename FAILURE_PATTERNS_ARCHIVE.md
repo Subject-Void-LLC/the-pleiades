@@ -10268,3 +10268,83 @@ it. Measured end to end: stop, eject (`deleted: true`), start, WinRM back in 17 
 
 **Lesson.** An eject that cannot finish has two halves to report separately: what the guest can no
 longer reach, and what is still on the host.
+
+## 366. Windows keeps an unblanked copy of the install's answer file, so every clone carried the audit password
+
+**Symptom.** A scan of `win-lab`'s cached answer files (read through `exec.winrm.shell`, printing only
+markers) found `C:\Windows\Panther\unattend-original.xml`, 5,246 bytes, holding the install's
+`auditSystem` pass with `<PlainText>true</PlainText>` and the audit password as written. The
+`unattend.xml` beside it had its passwords replaced by `*SENSITIVE*DATA*DELETED*`, which is the copy
+the audit pass deleted.
+
+**Root cause.** Setup caches the answer file twice, and only one copy is blanked. The audit pass deleted
+`unattend.xml` alone, so the other went into the generalized base and from there into every linked clone.
+The password was random per install and no longer logged on (checked on the guest with
+`PrincipalContext.ValidateCredentials`, printing only True or False: False), because the clone's seed
+sets its own; it was still a secret left in plain text on every clone's disk.
+
+**Fix.** The audit pass's first command deletes `%WINDIR%\Panther\unattend*.xml`
+(`pkg/winunattend`). Measured on a rebuilt base and clone: no cached answer file holds a password value,
+and `unattend-original.xml` is gone. The install method's documentation had said the password was "kept
+nowhere"; it now says Windows keeps it in that copy and why the audit pass deletes both.
+
+**Lesson.** When a product writes a secret into its own cache, list every file it writes there, not the
+one its documentation names.
+
+## 367. The WinRM service and feature gates asserted on text the output no longer printed, and put the lab password on argv
+
+**Symptom.** Run against a real Windows Server 2025 for the first time in weeks, the three
+`svc.windows.*`/`win.feature.*` gates failed while the guest did exactly the right thing: the stop's
+diff showed `running: true` before and `running: false` after. The gates searched the output for
+`running:true` and `state:Enabled`.
+
+**Root cause.** `run --verbose` began printing stats as indented YAML (`running: true`) after the gates
+were written, and the gates are environment-gated, so nothing ran them in the meantime. Their checks
+were weak even when they matched: finding both values anywhere in the output never said which was
+before and which after. Separately, the gates' project setup ran `add-credential --password <real
+password>`, because `add-credential` had no stdin form for a password, only for a passphrase.
+
+**Fix.** The gates read each side of the diff (`diffSide`, with `TestDiffSide` running everywhere on a
+captured output), and name their methods as task keys. `add-credential --password-stdin` was added and
+the WinRM gate pipes the password. All five password gates then passed against `win-lab`, and the
+certificate and modes gates against the host.
+
+**Lesson.** A gate that is never run is not a gate: when an output format changes, run everything that
+reads it, and have gates assert on structure (`--json`, Phase 113) rather than on text layout.
+
+## 368. `onboard --json` and `doc --json` wrote terminal control characters raw
+
+**Symptom.** Found while writing `run --json`: `printOnboardJSON` said "JSON's own escaping is what
+keeps it inert", and `doc --json` printed an external program's descriptions through the same plain
+encoder.
+
+**Root cause.** `encoding/json` escapes the C0 controls but writes DEL, the C1 controls (U+0080 to
+U+009F, among them CSI) and the Unicode direction overrides as they are, all of which
+`internal/termsafe` treats as unsafe on a terminal. A device's answer or an external Collection's text
+could carry them onto the operator's terminal. Reasoned, not demonstrated against a terminal.
+
+**Fix.** `writeJSON` (`cmd/pleiades/jsonout.go`) writes every `termsafe.Unsafe` rune as a `\u` escape,
+which decodes to the same text; `onboard`, `doc`, `run` and `adhoc` all use it. `FuzzWriteJSON` holds
+it to both promises (inert, and decodes to the input).
+
+**Lesson.** "JSON escaping makes it safe" is a claim about C0 only; text bound for a terminal needs the
+terminal's own rules.
+
+## 369. An idle Windows Server guest spends the first power-button press waking its display
+
+**Symptom.** `virt.vbox.vm.stop` on `win-lab`, about half an hour after its last boot, waited five
+minutes and failed: still running. The same stop had shut it down in seconds an hour earlier, shortly
+after a boot. The guest's System log held no shutdown request (no 1074, no 109) for the press, only the
+hard power-off that followed.
+
+**Root cause.** The Balanced plan turns the display off after 600 seconds (`VIDEOIDLE` 0x258), logged as
+Kernel-Power 566 session transitions ten minutes after boot. With the display off, the first ACPI
+power-button press wakes it and nothing more. Measured: one press with a 90-second wait left the idle
+guest running; a second press shut it down in 13 seconds.
+
+**Fix.** Not yet made. `virt.vbox.vm.stop` presses once. Candidates: press again while waiting, or set
+the display timeout to never in the install's audit pass.
+
+**Lesson.** A power button is an input event, and an idle guest may spend it on waking up; a stop that
+waits should not press only once.
+

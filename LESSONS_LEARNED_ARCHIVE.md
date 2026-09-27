@@ -5238,3 +5238,16 @@ nothing. Finishing OOBE by keyboard on the throwaway clone and reading `Panther\
 image had set it up. The tooling that got inside became real methods
 (`virt.vbox.vm.screenshot`, `send_keys`, `log`, `addresses`), so the next person does not need raw
 commands to look.
+
+## 249. Call a method once with `adhoc --json`, and assert on structure rather than on printed text
+
+**Rule.** To run one method once, use `pleiades adhoc <hosts> <method> key=value --json` rather than
+writing a runbook for it, and read the result as JSON. A test or gate that checks what a run did
+decodes the report and reads fields, never searches the text view for a formatted value.
+
+**Why.** FAILURE_PATTERNS 367. The Phase 112 session wrote about ten single-task runbooks only to call a
+method once, and the WinRM service gate's text assertions went stale the day stats became YAML; the
+fix needed a hand-written parser for a diff that the JSON report now carries as data. Phase 113 made
+both unnecessary: `adhoc` runs through the same pipeline as `run`, and `--json` prints the same report
+the text view renders.
+
