@@ -80,6 +80,7 @@ store an encrypted credential for a device
 | --dir | `string` | `.` | project directory |
 | --username | `string` | - | account name to authenticate as |
 | --password | `string` | - | password to authenticate with (prompted interactively if --key is also absent and this is empty) |
+| --password-stdin | `bool` | `false` | read the password to authenticate with as one line on standard input |
 | --key | `string` | - | path to a PEM private key file to authenticate with |
 | --certificate | `string` | - | path to a PEM client certificate to present, which requires --key |
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |

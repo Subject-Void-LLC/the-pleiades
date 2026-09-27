@@ -140,6 +140,7 @@ var Root = Command{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "username", Type: "string", Default: "", Doc: "account name to authenticate as"},
 				{Name: "password", Type: "string", Default: "", Doc: "password to authenticate with (prompted interactively if --key is also absent and this is empty)"},
+				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password to authenticate with as one line on standard input"},
 				{Name: "key", Type: "string", Default: "", Doc: "path to a PEM private key file to authenticate with"},
 				{Name: "certificate", Type: "string", Default: "", Doc: "path to a PEM client certificate to present, which requires --key"},
 				{Name: "pfx", Type: "string", Default: "", Doc: "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key"},

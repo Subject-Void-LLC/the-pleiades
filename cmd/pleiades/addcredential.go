@@ -21,7 +21,9 @@ import (
 // Exactly one authentication method is accepted per invocation:
 //
 //   - --password, a literal value or an interactive no-echo prompt if
-//     omitted.
+//     omitted, or --password-stdin, one line on standard input, for a
+//     script, which has no terminal to prompt and should not put the
+//     password on its command line.
 //   - --key, a path to a PEM private key file, optionally protected by a
 //     passphrase, itself prompted for with no echo.
 //   - --certificate together with --key, a PEM client certificate and the
@@ -50,16 +52,17 @@ import (
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true})
+	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --generate [--replace]]: %w", err)
+			"[--password <password> | --password-stdin | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --generate [--replace]]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	username := fs.String("username", "", "account name to authenticate as")
 	password := fs.String("password", "", "password to authenticate with (prompted interactively if --key is also absent and this is empty)")
+	stdinPassword := fs.Bool("password-stdin", false, "read the password to authenticate with as one line on standard input")
 	keyPath := fs.String("key", "", "path to a PEM private key file to authenticate with")
 	certPath := fs.String("certificate", "", "path to a PEM client certificate to present, which requires --key")
 	pfxPath := fs.String("pfx", "", "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key")
@@ -77,7 +80,7 @@ func runAddCredential(args []string) error {
 		return fmt.Errorf("--replace only applies to --generate")
 	}
 	if *generate {
-		if *password != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
+		if *password != "" || *stdinPassword || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
 			return fmt.Errorf("--generate makes its own key and password, so it cannot be combined with --password, --key, --certificate, --pfx or a passphrase")
 		}
 		if *username == "" {
@@ -94,8 +97,11 @@ func runAddCredential(args []string) error {
 	if *username != "" && usesCertificate {
 		return fmt.Errorf("--username does not apply to a certificate: the target maps the certificate to an account, so naming one here would be a second answer")
 	}
-	if *password != "" && (*keyPath != "" || usesCertificate) {
+	if (*password != "" || *stdinPassword) && (*keyPath != "" || usesCertificate) {
 		return fmt.Errorf("--password is mutually exclusive with --key, --certificate and --pfx: a device authenticates one way at a time")
+	}
+	if *password != "" && *stdinPassword {
+		return fmt.Errorf("--password and --password-stdin are mutually exclusive: a password is read one way")
 	}
 	if *pfxPath != "" && (*certPath != "" || *keyPath != "") {
 		return fmt.Errorf("--pfx already holds a certificate and its key, so it cannot be combined with --certificate or --key")
@@ -177,6 +183,12 @@ func runAddCredential(args []string) error {
 		cred.Passphrase = passphrase
 	case *password != "":
 		cred.Password = *password
+	case *stdinPassword:
+		read, err := prompt.SecretFromStdin()
+		if err != nil {
+			return err
+		}
+		cred.Password = read
 	default:
 		prompted, err := promptSecret("password: ")
 		if err != nil {

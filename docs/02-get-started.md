@@ -84,7 +84,9 @@ stored credential for device "web1"
 ```
 
 With neither `--password` nor `--key` given, `add-credential` prompts interactively
-with no echo, so a password never lands in shell history. The credential is written
+with no echo, so a password never lands in shell history. A script, which has no
+terminal to answer a prompt, pipes the password in with `--password-stdin` instead of
+putting it on its own command line, where anything else on the machine could read it. The credential is written
 to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held master key
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
