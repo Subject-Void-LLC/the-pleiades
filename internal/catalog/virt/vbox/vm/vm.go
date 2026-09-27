@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
@@ -19,6 +21,7 @@ const (
 	paramName    = "name"
 	paramMode    = "mode"
 	paramTimeout = "timeout"
+	paramPath    = "path"
 
 	statExists              = "exists"
 	statUUID                = "uuid"
@@ -84,7 +87,45 @@ func mustRead(ctx context.Context, h vboxmanage.Host, name string, device invent
 	return m, nil
 }
 
+// mustReadFor is mustRead for a method's first read of the VM. In a
+// check, a VM that is not there yet makes the call unchecked rather than
+// failed, since an earlier task in the same run may be what creates it.
+func mustReadFor(ctx context.Context, h vboxmanage.Host, name string, device inventory.InventoryItem, fqcn string, mode collection.Mode) (vboxmanage.Machine, error) {
+	m, exists, err := read(ctx, h, name)
+	if err != nil {
+		return vboxmanage.Machine{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if !exists {
+		if mode == collection.ModeCheck {
+			return vboxmanage.Machine{}, collection.CannotCheck(fmt.Sprintf("host %q has no VM named %q yet; a real run fails on it unless an earlier task in the run creates it", device.Name(), name))
+		}
+		return vboxmanage.Machine{}, fmt.Errorf("%s: host %q has no VM named %q", fqcn, device.Name(), name)
+	}
+	return m, nil
+}
+
 // stateView is the part of a machine a start or stop diff records.
 func stateView(m vboxmanage.Machine) map[string]any {
 	return map[string]any{statState: m.State, statAutostartEnabled: m.AutostartEnabled}
+}
+
+// vmFolder is the folder the host's record says new VMs go in, or "" for
+// VirtualBox's own default.
+func vmFolder(device inventory.InventoryItem) string {
+	if vbox, ok := device.(capability.VirtualBoxCapable); ok {
+		return vbox.VMFolder()
+	}
+	return ""
+}
+
+// diffExists is the key a create or delete diff records.
+const diffExists = "exists"
+
+// recordExists sets a create's or a delete's diff: whether a VM of the
+// name existed before the task and after it.
+func recordExists(rc sdk.RunbookContext, fqcn string, before, after bool) error {
+	if err := sdk.RecordDiff(rc, sdk.Diff{Before: map[string]any{diffExists: before}, After: map[string]any{diffExists: after}}); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return nil
 }

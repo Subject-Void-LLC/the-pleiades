@@ -29,3 +29,12 @@ func (r WinRMRunner) Run(ctx context.Context, program string, args []string) (Ou
 	}
 	return Output{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode}, nil
 }
+
+// PowerShell implements Runner.
+func (r WinRMRunner) PowerShell(ctx context.Context, script, stdin string) (Output, error) {
+	res, err := winrmexec.RunWithStdin(ctx, r.Target, r.Auth, winrmexec.ShellPowerShell, script, stdin, r.Options)
+	if err != nil {
+		return Output{}, err
+	}
+	return Output{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode}, nil
+}

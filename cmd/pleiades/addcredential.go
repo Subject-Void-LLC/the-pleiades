@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -30,6 +32,11 @@ import (
 //   - --pfx, a PKCS#12 bundle holding both of those sealed together,
 //     unlocked with --passphrase at the moment it is used rather than
 //     here.
+//   - --generate, for a machine Pleiades is about to create: a new random
+//     ed25519 key and a new random password, neither chosen, typed nor
+//     shown by anyone. Only the key's public half is printed. It refuses
+//     to replace a stored credential without --replace, since the machine
+//     that credential reaches would then be out of reach.
 //
 // Prompting by default, rather than requiring the secret as a bare flag
 // value, is deliberate: a flag value is visible in shell history and in
@@ -43,10 +50,10 @@ import (
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"passphrase": true})
+	name, rest, err := splitPositional(args, map[string]bool{"passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase]: %w", err)
+			"[--password <password> | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --generate [--replace]]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
@@ -59,9 +66,24 @@ func runAddCredential(args []string) error {
 	promptPassphrase := fs.Bool("passphrase", false, "prompt for the private key's or the bundle's passphrase")
 	stdinPassphrase := fs.Bool("passphrase-stdin", false,
 		"read the private key's or the bundle's passphrase as one line on standard input")
+	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
+	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
+	}
+
+	if *replace && !*generate {
+		return fmt.Errorf("--replace only applies to --generate")
+	}
+	if *generate {
+		if *password != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
+			return fmt.Errorf("--generate makes its own key and password, so it cannot be combined with --password, --key, --certificate, --pfx or a passphrase")
+		}
+		if *username == "" {
+			return fmt.Errorf("--username is required")
+		}
+		return generateCredential(*dir, name, *username, *replace)
 	}
 
 	usesCertificate := *certPath != "" || *pfxPath != ""
@@ -173,6 +195,43 @@ func runAddCredential(args []string) error {
 	}
 
 	fmt.Printf("stored credential for device %q\n", name)
+	return nil
+}
+
+// generateCredential stores a new random key and password for device in
+// dir's vault and prints the key's public half, labelled user@device,
+// which is what a machine is given so the key may log in to it.
+func generateCredential(dir, device, username string, replace bool) error {
+	key, err := credential.ResolveMasterKey(dir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve master key: %w", err)
+	}
+	store, err := credential.NewFileStore(dir, key)
+	if err != nil {
+		return fmt.Errorf("failed to open the credential store: %w", err)
+	}
+	_, err = store.Lookup(context.Background(), device)
+	switch {
+	case err == nil && !replace:
+		return fmt.Errorf("device %q already has a credential; --replace discards it, and whatever it logs in to is then out of reach", device)
+	case err != nil && !errors.Is(err, credential.ErrNotFound):
+		return fmt.Errorf("failed to read the credential store: %w", err)
+	}
+	comment := username + "@" + device
+	cred, err := credential.Generate(username, comment)
+	if err != nil {
+		return err
+	}
+	public, err := credential.PublicKey(cred, comment)
+	if err != nil {
+		return err
+	}
+	if err := credential.SaveFileStore(dir, key, device, cred); err != nil {
+		return fmt.Errorf("failed to save credential: %w", err)
+	}
+	fmt.Printf("stored a generated credential for device %q: an ed25519 key and a %d-character password, for %s\n",
+		device, credential.GeneratedPasswordLength, username)
+	fmt.Printf("public key: %s\n", public)
 	return nil
 }
 

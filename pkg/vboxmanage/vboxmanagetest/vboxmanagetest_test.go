@@ -47,9 +47,14 @@ func (f fixed) Run(context.Context, string, []string) (vboxmanage.Output, error)
 	return vboxmanage.Output{Stdout: f.stdout}, nil
 }
 
+func (f fixed) PowerShell(context.Context, string, string) (vboxmanage.Output, error) {
+	return vboxmanage.Output{}, nil
+}
+
 // probe is the captured machine, as the model holds it.
 func probe() *VM {
-	return &VM{Name: "pleiades-probe", UUID: "9883f6c3-b17d-4077-aa52-d9c49a6912a5", State: vboxmanage.StatePoweroff, MemoryMB: 64, CPUs: 1}
+	return &VM{Name: "pleiades-probe", UUID: "9883f6c3-b17d-4077-aa52-d9c49a6912a5", State: vboxmanage.StatePoweroff, MemoryMB: 64, CPUs: 1,
+		NICs: map[int]vboxmanage.NIC{1: {Kind: "nat", MAC: "080027101678"}}}
 }
 
 // modeled is the part of a Machine the model answers for.

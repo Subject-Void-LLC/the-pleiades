@@ -2,9 +2,11 @@
 package snapshot
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage/vboxmanagetest"
@@ -106,5 +108,23 @@ func TestRestore_Refusals(t *testing.T) {
 	rc.failOn = "uuid"
 	if _, err := call(t, "virt.vbox.snapshot.restore", false, rc, map[string]any{"vm": "ubuntu-lab", "name": "clean"}); err == nil {
 		t.Error("recording the uuid failed and the restore did not")
+	}
+}
+
+// TestRestore_CheckBeforeTheSnapshotOrVMExists covers a check of a
+// restore whose snapshot, or whose VM, an earlier task in the same run
+// would make: it cannot be checked, rather than failing.
+func TestRestore_CheckBeforeTheSnapshotOrVMExists(t *testing.T) {
+	model := vboxmanagetest.New(lab())
+	onModel(t, model)
+	for _, params := range []map[string]any{
+		{"vm": "ubuntu-lab", "name": "later"},
+		{"vm": "not-yet", "name": "clean"},
+	} {
+		_, err := call(t, "virt.vbox.snapshot.restore", true, newRecorder(), params)
+		var cannot *collection.CannotCheckError
+		if !errors.As(err, &cannot) {
+			t.Errorf("%v: %v", params, err)
+		}
 	}
 }

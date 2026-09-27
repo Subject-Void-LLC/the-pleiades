@@ -163,5 +163,118 @@ var virtCollections = []collectionscaffold.Config{
 			},
 			SeeAlso: []string{"virt.vbox.snapshot.take"},
 		},
+	}, {
+		Name:          "virt.vbox.vm.import_ova",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter.",
+			Description: "Makes sure a VM of this name exists, importing it from an OVA file already on the host (win.file.download fetches one) into the host's vm_folder. A VM already under the name reports no change, and is not compared with the file. The imported VM is left with no network adapter, whatever the appliance asked for: Ubuntu's cloud image asks for a bridged one, which would put the VM on the host's own network. A VM made from it (virt.vbox.vm.clone) is given the networks it is meant to have. The VM is not started, and is meant as a base to snapshot and clone rather than to boot." +
+				vboxHostParamNote + " A check reads the host's VMs and sends nothing.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "path", Type: "string", Required: true, Description: "The OVA file's absolute path on the host. It may not hold a quote, a wildcard or a control character."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "uuid", Type: "string", Returned: "when not a check that would import", Description: "The VM's UUID."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Import the Ubuntu cloud image", RunbookYAML: "- name: Import the Ubuntu 24.04 cloud image as a base\n  virt.vbox.vm.import_ova:\n    name: ubuntu-2404-base\n    path: G:\\PleiadesLab\\ubuntu-24.04-server-cloudimg-amd64.ova\n"},
+			},
+			SeeAlso: []string{"win.file.download", "virt.vbox.snapshot.take", "virt.vbox.vm.clone"},
+		},
+	},
+	{
+		Name:          "virt.vbox.vm.clone",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login.",
+			Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded. The new VM gets the memory and CPUs asked for, a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive." +
+				" The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started." +
+				vboxHostParamNote + " A check reads the host's VMs and the snapshot, and sends nothing.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "from", Type: "string", Required: true, Description: "The VM to clone, named as name is."},
+				{Name: "snapshot", Type: "string", Required: true, Description: "The snapshot of from to clone. Exactly one of from's snapshots may have this name."},
+				{Name: "login", Type: "string", Required: true, Description: "The inventory device whose stored login the VM is seeded with: its user name, its key's public half and a hash of its password. Usually the device that stands for this VM."},
+				{Name: "address", Type: "string", Required: true, Description: "The host-only adapter's address with its prefix, as 192.168.56.10/24. Keep it out of the host-only DHCP server's range."},
+				{Name: "hostname", Type: "string", Description: "The VM's host name. Defaults to name, which must then be a valid host name."},
+				{Name: "memory_mb", Type: "int", Default: "1024", Description: "Its memory, in megabytes."},
+				{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count."},
+				{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also its cloud-init instance ID."},
+				{Name: "address", Type: "string", Returned: "always", Description: "The host-only address the VM was given, without its prefix."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
+		},
+	},
+	{
+		Name:          "virt.vbox.vm.delete",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Deletes a stopped VirtualBox VM and its disks.",
+			Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone." +
+				vboxHostParamNote + " A check reads the VM and sends nothing.",
+			Params: []collection.Param{vmNameParam},
+			Returns: []collection.ReturnField{
+				{Name: "uuid", Type: "string", Returned: "when a VM was deleted", Description: "The VM deleted."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Throw a lab VM away", RunbookYAML: "- name: Power the lab VM off\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: poweroff\n\n- name: Delete it\n  virt.vbox.vm.delete:\n    name: ubuntu-lab\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.clone", "virt.vbox.vm.stop"},
+		},
+	},
+	{
+		Name:          "virt.vbox.vm.host_keys",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Reads a VM's SSH host keys from what cloud-init printed on its serial console.",
+			Description: "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed." +
+				vboxHostParamNote + " A check reads the console once, without waiting.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "timeout", Type: "int", Default: "300", Description: "How many seconds to wait for the keys."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "ssh_host_keys", Type: "list", Returned: "always", Description: "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."},
+			},
+			Examples: []collection.Example{
+				{Name: "Wait for a new VM's host keys", RunbookYAML: "- name: Wait for the lab VM's first boot\n  virt.vbox.vm.host_keys:\n    name: ubuntu-lab\n  register: keys\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.clone"},
+		},
+	}, {
+		Name:          "virt.vbox.vm.list",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them.",
+			Description: "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed." +
+				vboxHostParamNote + " A check is the same read.",
+			Returns: []collection.ReturnField{
+				{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, and address and device when Pleiades made it, in the order VirtualBox lists them."},
+			},
+			Examples: []collection.Example{
+				{Name: "List the lab's VMs", RunbookYAML: "- name: What runs on the lab host\n  virt.vbox.vm.list: {}\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.info", "virt.vbox.vm.clone"},
+		},
 	},
 }

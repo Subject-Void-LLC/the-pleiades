@@ -31,6 +31,7 @@ var Collections = concatCollections(
 	gatingCollections,
 	sessionCollections,
 	virtCollections,
+	winFileCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit

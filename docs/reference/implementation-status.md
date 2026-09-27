@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**85 of 88 methods are implemented.**
+**91 of 94 methods are implemented.**
 
 ## Implemented
 
@@ -95,6 +95,12 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.snapshot.take](modules/virt/vbox/snapshot/take.md)
 - [virt.vbox.snapshot.restore](modules/virt/vbox/snapshot/restore.md)
 - [virt.vbox.snapshot.delete](modules/virt/vbox/snapshot/delete.md)
+- [virt.vbox.vm.import_ova](modules/virt/vbox/vm/import_ova.md)
+- [virt.vbox.vm.clone](modules/virt/vbox/vm/clone.md)
+- [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
+- [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)
+- [virt.vbox.vm.list](modules/virt/vbox/vm/list.md)
+- [win.file.download](modules/win/file/download.md)
 
 ## Declared, not yet implemented
 

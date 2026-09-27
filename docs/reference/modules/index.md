@@ -22,10 +22,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `svc` | 16 | 16 |
-| `virt` | 6 | 6 |
+| `virt` | 11 | 11 |
 | `wait` | 2 | 2 |
-| `win` | 2 | 2 |
-| **total** | **88** | **85** |
+| `win` | 3 | 3 |
+| **total** | **94** | **91** |
 
 ## All methods
 
@@ -112,10 +112,16 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
+| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login. |
+| [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
+| [virt.vbox.vm.host_keys](virt/vbox/vm/host_keys.md) | implemented | Reads a VM's SSH host keys from what cloud-init printed on its serial console. |
+| [virt.vbox.vm.import_ova](virt/vbox/vm/import_ova.md) | implemented | Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter. |
 | [virt.vbox.vm.info](virt/vbox/vm/info.md) | implemented | Reports a VirtualBox VM's state, hardware and snapshots. |
+| [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
+| [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |

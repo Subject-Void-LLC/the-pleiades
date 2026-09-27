@@ -44,6 +44,12 @@ func (s *scripted) Run(_ context.Context, program string, args []string) (Output
 	return out, nil
 }
 
+// PowerShell is not part of any scripted sequence.
+func (s *scripted) PowerShell(context.Context, string, string) (Output, error) {
+	s.t.Fatal("the sequence ran PowerShell")
+	return Output{}, nil
+}
+
 // autostartWith returns a WindowsAutostart whose host answers from answers.
 func autostartWith(t *testing.T, answers map[string][]Output) (WindowsAutostart, *scripted) {
 	s := &scripted{t: t, answers: answers}

@@ -28,6 +28,7 @@ var commands = map[string]commandFunc{
 	"set-host":       runSetHost,
 	"add-credential": runAddCredential,
 	"onboard":        runOnboard,
+	"trust-host":     runTrustHost,
 	"validate":       runValidate,
 	"run":            runRunbook,
 	"forge":          runForge,

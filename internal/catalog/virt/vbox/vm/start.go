@@ -77,7 +77,7 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err != nil {
 		return collection.Result{}, err
 	}
-	before, err := mustRead(ctx, h, name, device, fqcn)
+	before, err := mustReadFor(ctx, h, name, device, fqcn, mode)
 	if err != nil {
 		return collection.Result{}, err
 	}

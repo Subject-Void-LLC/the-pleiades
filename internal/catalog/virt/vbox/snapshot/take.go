@@ -84,7 +84,7 @@ func runTake(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, err
 	}
-	m, err := machine(ctx, h, r, device, fqcn)
+	m, err := machine(ctx, h, r, device, fqcn, mode)
 	if err != nil {
 		return collection.Result{}, err
 	}

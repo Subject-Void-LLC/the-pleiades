@@ -34,6 +34,13 @@ type Machine struct {
 	// CurrentSnapshotUUID is the snapshot the machine's state descends
 	// from, or "" when it has none.
 	CurrentSnapshotUUID string
+	// NICs are its network adapters by number, from 1.
+	NICs map[int]NIC
+	// Slots are its storage slots, by controller, port and device.
+	Slots []Slot
+	// ConsoleLog is the host file its first serial port writes to, or ""
+	// when it writes to none.
+	ConsoleLog string
 	// Values is everything showvminfo said, for what the fields above
 	// leave out.
 	Values Values
@@ -96,6 +103,7 @@ func machineFrom(values Values) (Machine, error) {
 	m.AutostartEnabled = autostart == "on"
 	m.Snapshots = snapshotsFrom(values)
 	m.CurrentSnapshotUUID, _ = values.Get("CurrentSnapshotUUID")
+	hardwareFrom(&m)
 	return m, nil
 }
 

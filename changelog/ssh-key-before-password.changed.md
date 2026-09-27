@@ -1,0 +1,1 @@
+A credential holding both a private key and a password now logs in over SSH the way OpenSSH's client does: the key first, then the password. It used to use the password alone, which a server refusing passwords for the account (Ubuntu's root, by default) turned away. A key that does not parse is an error even beside a password.

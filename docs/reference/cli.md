@@ -50,6 +50,25 @@ change an existing host's properties
 
 `pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`
 
+## pleiades trust-host
+
+trust a device's SSH host keys, read from its VM's console or taken on first connect
+
+`pleiades trust-host <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --from-console | `string` | - | the VirtualBox host running the device's VM, whose console log holds its host keys |
+| --vm | `string` | - | with --from-console, the VM's name on the host, when it is not the device's |
+| --first-connect | `bool` | `false` | trust whatever host keys answer at the device's address, unverified |
+| --replace | `bool` | `false` | drop keys already trusted for the device's address that differ, as after a VM is made again |
+| --timeout | `duration` | `5m0s` | how long to wait for the keys |
+
+`pleiades trust-host ubuntu-lab --from-console vengeance`
+
+`pleiades trust-host lab-switch --first-connect`
+
 ## pleiades add-credential
 
 store an encrypted credential for a device
@@ -66,10 +85,14 @@ store an encrypted credential for a device
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
 | --passphrase | `bool` | `false` | prompt for the private key's or the bundle's passphrase |
 | --passphrase-stdin | `bool` | `false` | read the private key's or the bundle's passphrase as one line on standard input |
+| --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
+| --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 
 `pleiades add-credential web01 --username admin`
 
 `pleiades add-credential win01 --certificate client.pem --key client.key`
+
+`pleiades add-credential ubuntu-lab --username root --generate`
 
 ## pleiades onboard
 

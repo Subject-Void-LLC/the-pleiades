@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"go.yaml.in/yaml/v3"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -299,6 +301,10 @@ func runRunbook(args []string) error {
 		),
 		engine.NewCredentialRunbookContext(credentials),
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
+		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
+		// device's login from the same vault: the public key and a hash of
+		// the password, never the secrets themselves.
+		engine.WithLoginSeeder(engine.NewCredentialLoginSeeder(credentials)),
 	)
 
 	executor := engine.NewExecutor(
@@ -499,7 +505,7 @@ func printNodeStats(stats map[string]interface{}, secrets []string) {
 		// A value is a device's or a program's output, so anything in it a
 		// terminal would act on is shown escaped (termsafe); lines stay
 		// lines.
-		value := termsafe.Escape(redact.Text(secrets, fmt.Sprintf("%v", stats[k])))
+		value := termsafe.Escape(redact.Text(secrets, statText(stats[k])))
 		name := termsafe.EscapeLine(k)
 		if value == "" {
 			continue
@@ -513,6 +519,23 @@ func printNodeStats(stats map[string]interface{}, secrets []string) {
 			fmt.Printf("      %s\n", line)
 		}
 	}
+}
+
+// statText renders one stat for printNodeStats. A list or a map (a list
+// of VMs, a diff) is written as indented YAML, one entry to a line, since
+// Go's own rendering puts a whole list of maps on one unreadable line;
+// anything else is written as Go writes it.
+func statText(v any) string {
+	switch v.(type) {
+	case []any, []string, []map[string]any, map[string]any:
+		var b strings.Builder
+		enc := yaml.NewEncoder(&b)
+		enc.SetIndent(2)
+		if enc.Encode(v) == nil && enc.Close() == nil {
+			return b.String()
+		}
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // printTaskList prints tasks in order, indented two spaces per depth.

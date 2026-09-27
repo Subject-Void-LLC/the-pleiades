@@ -30,6 +30,9 @@ type Output struct {
 // not an error: an error means the program could not be run at all.
 type Runner interface {
 	Run(ctx context.Context, program string, args []string) (Output, error)
+	// PowerShell runs script in Windows PowerShell on the host, with
+	// stdin written to its standard input and never to a command line.
+	PowerShell(ctx context.Context, script, stdin string) (Output, error)
 }
 
 // Host is a VirtualBox host: how to reach it, and where VBoxManage is.

@@ -31,6 +31,12 @@ func (r *recorded) Run(_ context.Context, program string, args []string) (Output
 	return Output{Stdout: fixture(r.t, r.fixture+".stdout"), Stderr: fixture(r.t, r.fixture+".stderr"), ExitCode: code}, nil
 }
 
+// PowerShell records the script as a call to "powershell".
+func (r *recorded) PowerShell(_ context.Context, script, stdin string) (Output, error) {
+	r.calls = append(r.calls, []string{"powershell", script, stdin})
+	return Output{}, nil
+}
+
 const vbox = `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe`
 
 // hostWith returns a Host whose runner answers with fixture.

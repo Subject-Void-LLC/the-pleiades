@@ -64,6 +64,16 @@ func (c *runbookContext) InjectSecrets() map[string]string {
 	return snapshot
 }
 
+// addSecrets adds extra to what InjectSecrets returns. The seeded login
+// of a method that creates a machine arrives this way (LoginSeeder),
+// beside its target's own credential; seed keys never collide with a
+// credential's.
+func (c *runbookContext) addSecrets(extra map[string]string) {
+	for k, v := range extra {
+		c.secrets[k] = v
+	}
+}
+
 // ConnectionPool returns the pool this method's connections are lent
 // from, or nil when its device's connections do not persist.
 func (c *runbookContext) ConnectionPool() *remoteexec.Pool {

@@ -188,6 +188,18 @@ type Manifest struct {
 	// between tasks; without that every task logs in afresh anyway.
 	EndsLoginSession bool `json:"endsLoginSession,omitempty"`
 
+	// SeedsLogin names the parameter, if any, whose value names an
+	// inventory device this method creates a machine for, seeding the
+	// machine with that device's stored login. The engine resolves the
+	// device's credential and hands the method only what a machine needs
+	// to admit it (wire.SecretSeedUsername, SecretSeedAuthorizedKey and
+	// SecretSeedPasswordHash): the username, the key's public half and a
+	// freshly salted hash of the password, never the key or the password.
+	// A tier that cannot resolve it refuses the method rather than
+	// running it with no login to seed, and Register refuses it on an
+	// external Collection's method.
+	SeedsLogin string `json:"seedsLogin,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.

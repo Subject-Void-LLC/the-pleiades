@@ -50,6 +50,18 @@ type VM struct {
 	// find the VM running, as a guest takes a while to shut down; below
 	// zero, the guest never answers the button.
 	PowerButtonReads int
+	// Folder is the VM's folder on the host.
+	Folder string
+	// Slots are its storage slots and what is in them.
+	Slots []vboxmanage.Slot
+	// NICs are its network adapters by number, from 1; one absent is off.
+	NICs map[int]vboxmanage.NIC
+	// ConsoleLog is the file its first serial port writes to, or "".
+	ConsoleLog string
+	// LinkedFrom is the VM a linked clone's disk descends from, or "".
+	LinkedFrom string
+	// Extra is its extradata.
+	Extra map[string]string
 
 	pressed     bool
 	currentNode string
@@ -66,16 +78,26 @@ type Host struct {
 	// Fail makes a call fail instead of being answered: a key is the start
 	// of a call as Calls records it, and its value is the output given.
 	Fail map[string]vboxmanage.Output
+	// Skip lets the first Skip[key] calls matching a Fail key through
+	// before the failure applies, so a test can fail a later read of a
+	// machine and not the first.
+	Skip map[string]int
+	// Appliances are the OVA files on the host, by path, each as the VM
+	// importing it makes.
+	Appliances map[string]*VM
+	// Files are the other files on the host, by path.
+	Files map[string][]byte
 
 	mu    sync.Mutex
 	vms   []*VM
 	calls []string
 	uuids int
+	macs  int
 }
 
 // New returns a host with vms registered.
 func New(vms ...*VM) *Host {
-	return &Host{vms: vms}
+	return &Host{vms: vms, Appliances: map[string]*VM{}, Files: map[string][]byte{}}
 }
 
 // VBoxHost returns a vboxmanage.Host reaching h.
@@ -88,6 +110,14 @@ func (h *Host) VM(name string) *VM {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.find(name)
+}
+
+// SetFile puts data at path on the host, as something on it would, such
+// as a running VM writing its console log.
+func (h *Host) SetFile(path string, data []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.Files[path] = data
 }
 
 // Calls returns each call so far: the program's file name, then its
@@ -134,6 +164,10 @@ func (h *Host) failure(call string) (vboxmanage.Output, bool) {
 		return vboxmanage.Output{}, false
 	}
 	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	if h.Skip[keys[0]] > 0 {
+		h.Skip[keys[0]]--
+		return vboxmanage.Output{}, false
+	}
 	return h.Fail[keys[0]], true
 }
 
@@ -217,16 +251,22 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		return h.startvm(args[1])
 	case len(args) == 3 && args[0] == "controlvm":
 		return h.controlvm(args[1], args[2])
-	case len(args) == 6 && args[0] == "modifyvm" && args[2] == "--autostart-enabled" && args[4] == "--autostart-delay":
-		vm := h.find(args[1])
-		if vm == nil {
-			return notFound(args[1])
-		}
-		if !vm.off() {
-			return locked(vm.Name)
-		}
-		vm.Autostart = args[3] == "on"
-		return vboxmanage.Output{}
+	case len(args) >= 2 && args[0] == "modifyvm":
+		return h.modifyvm(args[1], args[2:])
+	case len(args) >= 2 && args[0] == "import":
+		return h.importOVA(args[1], args[2:])
+	case len(args) >= 2 && args[0] == "clonevm":
+		return h.clonevm(args[1], args[2:])
+	case len(args) >= 2 && args[0] == "storageattach":
+		return h.storageattach(args[1], args[2:])
+	case len(args) >= 3 && args[0] == "closemedium" && args[1] == "dvd":
+		return h.closemedium(args[2], args[3:])
+	case len(args) == 3 && args[0] == "unregistervm" && args[2] == "--delete":
+		return h.unregistervm(args[1])
+	case len(args) == 3 && args[0] == "getextradata" && args[2] == "enumerate":
+		return h.getextradata(args[1])
+	case (len(args) == 3 || len(args) == 4) && args[0] == "setextradata":
+		return h.setextradata(args[1], args[2], args[3:])
 	case len(args) >= 4 && args[0] == "snapshot":
 		return h.snapshot(args[1], args[2], args[3], args[4:])
 	}
@@ -335,6 +375,9 @@ func (vm *VM) showvminfo() string {
 	line := func(key, value string) { fmt.Fprintf(&b, "%s=%s\r\n", key, value) }
 	line("name", quote(vm.Name))
 	line("UUID", quote(vm.UUID))
+	if vm.Folder != "" {
+		line("CfgFile", quote(vm.Folder+`\`+vm.Name+".vbox"))
+	}
 	line("memory", fmt.Sprint(vm.MemoryMB))
 	line("cpus", fmt.Sprint(vm.CPUs))
 	line("VMState", quote(vm.State))
@@ -344,6 +387,7 @@ func (vm *VM) showvminfo() string {
 	}
 	line("autostart-enabled", quote(autostart))
 	line("autostart-delay", "0")
+	vm.writeHardware(line)
 	vm.writeSnapshots(&b, "", "")
 	return b.String()
 }

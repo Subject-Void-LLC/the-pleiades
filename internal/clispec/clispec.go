@@ -116,6 +116,23 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "trust-host",
+			Positional: "<device>",
+			Synopsis:   "trust a device's SSH host keys, read from its VM's console or taken on first connect",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "from-console", Type: "string", Default: "", Doc: "the VirtualBox host running the device's VM, whose console log holds its host keys"},
+				{Name: "vm", Type: "string", Default: "", Doc: "with --from-console, the VM's name on the host, when it is not the device's"},
+				{Name: "first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at the device's address, unverified"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "drop keys already trusted for the device's address that differ, as after a VM is made again"},
+				{Name: "timeout", Type: "duration", Default: "5m0s", Doc: "how long to wait for the keys"},
+			},
+			Examples: []string{
+				"pleiades trust-host ubuntu-lab --from-console vengeance",
+				"pleiades trust-host lab-switch --first-connect",
+			},
+		},
+		{
 			Name:       "add-credential",
 			Positional: "<device>",
 			Synopsis:   "store an encrypted credential for a device",
@@ -128,10 +145,13 @@ var Root = Command{
 				{Name: "pfx", Type: "string", Default: "", Doc: "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key"},
 				{Name: "passphrase", Type: "bool", Default: "false", Doc: "prompt for the private key's or the bundle's passphrase"},
 				{Name: "passphrase-stdin", Type: "bool", Default: "false", Doc: "read the private key's or the bundle's passphrase as one line on standard input"},
+				{Name: "generate", Type: "bool", Default: "false", Doc: "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "with --generate, replace a credential already stored for the device"},
 			},
 			Examples: []string{
 				"pleiades add-credential web01 --username admin",
 				"pleiades add-credential win01 --certificate client.pem --key client.key",
+				"pleiades add-credential ubuntu-lab --username root --generate",
 			},
 		},
 		{

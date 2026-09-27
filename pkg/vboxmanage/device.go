@@ -36,10 +36,14 @@ func ForDevice(device inventory.InventoryItem, secrets map[string]string, timeou
 	if err != nil {
 		return Host{}, fmt.Errorf("vboxmanage: %w", err)
 	}
+	opts := winrmexec.Options{Timeout: timeout}
+	if shell, ok := device.(capability.WindowsShellCapable); ok {
+		opts.PowerShellPath = shell.PowerShellPath()
+	}
 	runner := WinRMRunner{
 		Target:  winrmexec.Target{Host: winrm.WinRMHost(), Port: winrm.WinRMPort()},
 		Auth:    auth,
-		Options: winrmexec.WithDeviceTLS(winrmexec.Options{Timeout: timeout}, devicetls.For(device)),
+		Options: winrmexec.WithDeviceTLS(opts, devicetls.For(device)),
 	}
 	return Host{Runner: runner, Path: vbox.VBoxManagePath()}, nil
 }

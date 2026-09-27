@@ -44,6 +44,7 @@
 package remoteexectest
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -86,6 +87,15 @@ type Options struct {
 	// Both default when empty.
 	Username string
 	Password string
+
+	// AuthorizedKey, when set, is a public key the server also accepts
+	// for Username, so a test can log in by key.
+	AuthorizedKey cryptossh.PublicKey
+
+	// RefusePasswords makes the server refuse every password, as sshd
+	// does for root with PermitRootLogin prohibit-password, Ubuntu's
+	// default, so only a key logs in.
+	RefusePasswords bool
 
 	// Netconf, when set, makes this server answer a "netconf" subsystem
 	// request by speaking RFC 6241, for the methods that configure a
@@ -133,6 +143,9 @@ type Server struct {
 	device   *Device
 	netconf  *NetconfDevice
 
+	// keyLogins counts the successful authentications made by key.
+	keyLogins atomic.Int64
+
 	// logins counts successful authentications, so a test can prove how
 	// many real logins a run made rather than trusting the client's own
 	// account of whether it reused a connection.
@@ -146,6 +159,9 @@ type Server struct {
 
 // Logins returns how many times a client has authenticated successfully.
 func (s *Server) Logins() int64 { return s.logins.Load() }
+
+// KeyLogins returns how many of Logins were made by key.
+func (s *Server) KeyLogins() int64 { return s.keyLogins.Load() }
 
 // DropConnections closes every connection the server is serving, as a
 // device that reboots or a firewall that forgets idle flows would. A
@@ -248,12 +264,23 @@ func Start(opts Options) (*Server, error) {
 	var srv *Server
 	config := &cryptossh.ServerConfig{
 		PasswordCallback: func(c cryptossh.ConnMetadata, pass []byte) (*cryptossh.Permissions, error) {
-			if c.User() != username || string(pass) != password {
+			if opts.RefusePasswords || c.User() != username || string(pass) != password {
 				return nil, fmt.Errorf("denied")
 			}
 			srv.logins.Add(1)
 			return &cryptossh.Permissions{}, nil
 		},
+	}
+	if opts.AuthorizedKey != nil {
+		authorized := opts.AuthorizedKey.Marshal()
+		config.PublicKeyCallback = func(c cryptossh.ConnMetadata, key cryptossh.PublicKey) (*cryptossh.Permissions, error) {
+			if c.User() != username || !bytes.Equal(key.Marshal(), authorized) {
+				return nil, fmt.Errorf("denied")
+			}
+			srv.logins.Add(1)
+			srv.keyLogins.Add(1)
+			return &cryptossh.Permissions{}, nil
+		}
 	}
 	config.AddHostKey(signer)
 

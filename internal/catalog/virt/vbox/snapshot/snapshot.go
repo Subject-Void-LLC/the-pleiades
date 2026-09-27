@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
@@ -76,10 +77,14 @@ func target(rc sdk.RunbookContext, device inventory.InventoryItem, params map[st
 }
 
 // machine reads the VM, refusing one that is not registered, naming the
-// host.
-func machine(ctx context.Context, h vboxmanage.Host, r ref, device inventory.InventoryItem, fqcn string) (vboxmanage.Machine, error) {
+// host. In a check, a VM not there yet makes the call unchecked rather
+// than failed, since an earlier task in the same run may create it.
+func machine(ctx context.Context, h vboxmanage.Host, r ref, device inventory.InventoryItem, fqcn string, mode collection.Mode) (vboxmanage.Machine, error) {
 	m, err := h.Machine(ctx, r.vm)
 	if errors.Is(err, vboxmanage.ErrNotFound) {
+		if mode == collection.ModeCheck {
+			return vboxmanage.Machine{}, collection.CannotCheck(fmt.Sprintf("host %q has no VM named %q yet; a real run fails on it unless an earlier task in the run creates it", device.Name(), r.vm))
+		}
 		return vboxmanage.Machine{}, fmt.Errorf("%s: host %q has no VM named %q", fqcn, device.Name(), r.vm)
 	}
 	if err != nil {

@@ -29,8 +29,10 @@ func TestManifest_RoundTrip(t *testing.T) {
 				DeploymentContext: "carrier-only",
 			},
 		},
-		EngineVersion: ">=1.0.0",
-		Status:        collection.StatusDeclared,
+		EngineVersion:    ">=1.0.0",
+		Status:           collection.StatusDeclared,
+		EndsLoginSession: true,
+		SeedsLogin:       "login",
 	}
 
 	encoded, err := json.Marshal(original)

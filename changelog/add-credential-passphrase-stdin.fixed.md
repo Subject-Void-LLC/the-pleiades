@@ -1,0 +1,1 @@
+`pleiades add-credential --passphrase-stdin` no longer takes the argument after it as its value. It is a switch, but it was not marked as one, so `--passphrase-stdin --dir <dir>` read `--dir` as the passphrase flag's value and then refused the directory as an unexpected argument.

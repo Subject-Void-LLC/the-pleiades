@@ -57,13 +57,13 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 88 registered FQCNs; 85 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 94 registered FQCNs; 91 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `net` 12,
-  `file` 10, `pkg` 9, `identity` 6, `virt` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
-  `wait` 2, `win` 2, `pleiades` 2, `facts` 1, `http` 1. The `svc` group is the 6 `svc.systemd.*`
+  `virt` 11, `file` 10, `pkg` 9, `identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `win` 3, `archive` 2, `fs` 2,
+  `wait` 2, `pleiades` 2, `facts` 1, `http` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
   is `net.ssh.ping`, the 4 `net.catalyst.*` methods, and, as of Phase 86.5, `net.cli.command` and
@@ -130,7 +130,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 76 of the 85 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 82 of the 91 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an

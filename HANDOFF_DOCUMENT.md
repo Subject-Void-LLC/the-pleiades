@@ -5,47 +5,44 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 ## Current Status (this session)
 
 **Branch `feature/virtualbox-support`.** Rules set by the user: the VirtualBox lab is provisioned by
-Pleiades only, gaps are built through `pleiades forge`, and every step is checked with "is this how a
+The Pleiades only, gaps are built through `pleiades forge`, and every step is checked with "is this how a
 Pleiades end user would do it? if not, it's wrong" (memory `end-user-path-or-wrong`).
 
 ### Where it stands
 
-- **Pleiades starts and manages VirtualBox VMs on the lab host as a least-privilege account**, through
-  `pleiades run` and `exec.winrm.shell`, the host pinned with `set-host --set tls_ca_pem` and the
-  certificate stored with `add-credential --pfx`. What the account needs, each found by a failure on
-  the host, is in `examples/windows_lab/winrm-cert-setup.ps1 -AllowVirtualBox -VirtualBoxAutostart` and
-  docs/10 ("A Windows host that runs VirtualBox"): COM launch on VBoxSVC/VBoxSDS; `DisableForceUnload`
-  (machine-wide); VirtualBox's autostart service, because a VM cannot start from a non-admin network
-  logon (VirtualBox ticket 20341). A CryptSvc grant was tried, did not help, and was removed.
-- **Start path, measured:** a running VM means the chosen VBoxSVC is a service-logon one, so `startvm`
-  works over WinRM; otherwise arm `--autostart-enabled`, wait for no VBoxSVC, `sc start
-  VBoxAutostartSvcvengeancepleiades-gate`, wait for `running`, disarm. Probe VM `pleiades-probe`
-  (diskless, 64 MB, `G:\PleiadesLab`) is powered off, autostart off.
-- **`VirtualBoxCapable` is a capability of `windows_server`**, not a `vbox_host` type (the user's
-  decision): `virtualbox: true`, optional `vboxmanage_path`, `vm_folder`. PLAN.md 1b revised.
-- **Fixed on the way (all committed):** device CA for WinRM, including `winrm_exec` (`864b34f`);
-  `pleiades set-host` and write-time validation in `add-host` (`4fa3b02`); CLIXML decoding
-  (`303b268`); a certificate-auth command silent for a minute failed at 60 s (`554ddd5`); a timed-out
-  command kept running on the host (`fa9acf0`).
+- **The Pleiades makes, seeds, boots, trusts and manages Ubuntu VMs on the lab host**, all through the
+  CLI: `examples/virtualbox_lab` is the walkthrough, run on VENGEANCE. `win.file.download` fetched the
+  cloud image, `virt.vbox.vm.import_ova` + `snapshot.take` made a never-booted base, `vm.clone`
+  (seeded login, NoCloud seed rendered in Go and sent on WinRM stdin), `vm.start`, `vm.host_keys`,
+  `pleiades trust-host --from-console`, then `pleiades run` against `ubuntu-lab` (192.168.56.10) as root
+  by key. `vm.delete` and `vm.list` also run on the real host. `ubuntu-lab` is running now.
+- **Credentials (the user's choices):** `add-credential --generate` (random ed25519 key + password in
+  the vault); `Manifest.SeedsLogin` and `engine.WithLoginSeeder` hand a creating method only the user
+  name, public key and a fresh SHA-512 crypt hash (`pkg/shacrypt`). CLI only: the Walk tier refuses.
+  A key-plus-password credential now logs in key first (`remoteexec.AuthFrom`).
+- **Host keys (the user's choices):** from the serial console over WinRM (`--from-console`), and a warned
+  `--first-connect`; `internal/hosttrust`. Changed keys need `--replace`.
+- **Found:** a two-CPU guest hung at the initramfs raid6 benchmark in two of three first boots on this
+  Hyper-V host; the lab uses one CPU (tracker). The user sees no VMs in their own VirtualBox Manager
+  because the VMs belong to `pleiades-gate`; they chose to see them through The Pleiades (`vm.list`,
+  and `run -v` now prints lists as YAML).
+- **Not built yet:** the Walk tier's seeded login, `become`, deleting the seed ISO after first boot, the
+  VirtualBox sync plugin, Windows and FreeBSD guests, the env-gated Release Gate for `virt.vbox.*`.
 
 ### Next
 
-1. `pkg/vboxmanage` (ShellNone argv through `winrmexec.CommandLine`, a fuzzed `--machinereadable`
-   parser, strict VM and snapshot names) and the `virt.vbox.*` methods through `forge new-collection`,
-   `vm.start` following the measured start path.
-2. Media through The Pleiades (a download method requiring SHA-256; Ubuntu publishes an OVA), then
-   Windows Server and FreeBSD guests, the sync plugin, the gates.
-3. Lab project: `~/pleiades-lab` (binary, inventory with `vengeance`, runbooks used for every probe).
+1. The VirtualBox sync plugin (VMs into inventory), then the Release Gate, then Windows Server guests.
+2. Walk-tier seeding, and `become`.
+3. Lab project: `~/pleiades-lab` (binary, inventory, runbooks used for every probe).
 
 ### Files changed this session
 
-`pkg/winrmexec/` (quote, command, exec, wsman, winrmexec, their tests, `modes_release_gate_test.go`,
-`testdata/argvecho`), `pkg/winrmsvc`, `pkg/winrmdism`, `pkg/sdk/env.go`, `pkg/capability/capabilities_win.go`,
-`pkg/collection/manifest.go`, `internal/transport/shell.go`, `internal/transport/winrm/`,
-`internal/engine/` (action_shell, action_ssh, action_capability, transport_bindings, journal_entry),
-`internal/catalog/exec/winrm/`, `internal/inventory/devices/windows/`, `internal/forge/catalogdata/`,
-`internal/adapters/native/adapter.go`, `cmd/pleiades/run.go` and `winrm_modes_release_gate_test.go`,
-`internal/archtest/transport_reachability_test.go`, docs 10 and 11, `examples/windows_lab/README.md`,
-`changelog/`, `docs/reference/`, `internal/api/wellknown/`. Local only: `.SPECIFICATION/PLAN.md`
-(1b, 14), `IMPLEMENTATION.md` (Phase 75 outcomes, Phase 112), FAILURE_PATTERNS 354, LESSONS 245 and 246,
-`~/vuln-corpus` C13. A Pleiades lab project lives at `~/pleiades-lab` (binary, `known_hosts`).
+`pkg/cloudinit`, `pkg/iso9660`, `pkg/shacrypt`, `pkg/vboxmanage` (appliance, hardware, files,
+extradata, the model host `vboxmanagetest`), `pkg/remoteexec/auth.go` and its test server,
+`pkg/collection` (SeedsLogin), `pkg/wire` (seed keys), `internal/credential/generate.go`,
+`internal/engine/login_seed.go`, `internal/hosttrust`, `internal/catalog/virt/vbox/*`,
+`internal/catalog/win/file`, `internal/forge/catalogdata`, `cmd/pleiades` (add-credential --generate,
+trust-host, run -v YAML), `internal/clispec`, `examples/virtualbox_lab`, docs 10, the Windows lab
+README, `changelog/`, `docs/reference/`, `internal/api/wellknown/`, `coverage-floor.json`, CLAUDE.md
+counts, and the second "The Pleiades" rename pass redone across 65 Go files. Local only:
+`IMPLEMENTATION.md` (Phase 112).

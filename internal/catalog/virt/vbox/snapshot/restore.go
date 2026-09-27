@@ -76,7 +76,7 @@ func runRestore(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 	if err != nil {
 		return collection.Result{}, err
 	}
-	m, err := machine(ctx, h, r, device, fqcn)
+	m, err := machine(ctx, h, r, device, fqcn, mode)
 	if err != nil {
 		return collection.Result{}, err
 	}
@@ -88,6 +88,9 @@ func runRestore(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if !found {
+		if mode == collection.ModeCheck {
+			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("%q has no snapshot named %q yet; a real run fails on it unless an earlier task in the run takes it", r.vm, r.name))
+		}
 		return collection.Result{}, fmt.Errorf("%s: %q has no snapshot named %q", fqcn, r.vm, r.name)
 	}
 	if err := rc.SetStat(statUUID, s.UUID); err != nil {

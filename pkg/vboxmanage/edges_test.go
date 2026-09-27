@@ -20,10 +20,16 @@ func (failing) Run(context.Context, string, []string) (Output, error) {
 	return Output{}, errors.New("connection refused")
 }
 
+func (failing) PowerShell(context.Context, string, string) (Output, error) {
+	return Output{}, errors.New("connection refused")
+}
+
 // answering is a runner that answers every call with out.
 type answering struct{ out Output }
 
 func (a answering) Run(context.Context, string, []string) (Output, error) { return a.out, nil }
+
+func (a answering) PowerShell(context.Context, string, string) (Output, error) { return a.out, nil }
 
 func TestHost_EdgeAnswers(t *testing.T) {
 	ctx := context.Background()

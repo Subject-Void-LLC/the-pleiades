@@ -24,11 +24,14 @@ import (
 type recorder struct {
 	stats  map[string]any
 	failOn string
+	// secrets is what InjectSecrets returns: for a seeding method, the
+	// login the engine derived from the vault.
+	secrets map[string]string
 }
 
 func newRecorder() *recorder { return &recorder{stats: map[string]any{}} }
 
-func (r *recorder) InjectSecrets() map[string]string { return nil }
+func (r *recorder) InjectSecrets() map[string]string { return r.secrets }
 
 func (r *recorder) SetStat(key string, value any) error {
 	if key == r.failOn {
