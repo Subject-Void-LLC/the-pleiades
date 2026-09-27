@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,11 +57,10 @@ func runOnboard(args []string) error {
 }
 
 // printOnboardJSON prints res as indented JSON. Text in it came from the
-// device, and JSON's own escaping is what keeps it inert.
+// device, so it goes through writeJSON, which escapes what JSON's own
+// escaping leaves for a terminal to act on.
 func printOnboardJSON(w io.Writer, res onboard.Result) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(res)
+	return writeJSON(w, res)
 }
 
 // printOnboard prints res for a person. Every value that came from the
