@@ -362,6 +362,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 357. The WinRM Adapter mapped credential fields by hand and sent no credential for a PKCS#12 bundle
 358. Bare `pleiades validate` checked only the file `init` writes, and silently dropped its own flags
 359. An `import_tasks` file was diagnosed as an Ansible playbook and sent to the migration tool
+360. `mediumio cat --hex` folds identical rows, and a parser written from its usage text refused the real output
+361. Microsoft's Windows Server evaluation VHDX never reads an answer file from a DVD at its first boot
+362. An EFI VM with two vCPUs stops at the firmware's `DXE_AP` debug point under NEM
+363. `add-credential --generate` made a password Windows' default policy refuses, about one time in 38
+364. A generalized Windows image's first boot never looks on a DVD for its answer file
+365. A running VM keeps a DVD image locked after its drive is emptied, so a seed cannot be deleted until it stops
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -5224,3 +5224,17 @@ what the file actually contains. Until then, call the option unproven.
 **Why.** FAILURE_PATTERNS 356. Phase 75 pinned `WINRS_SKIP_CMD_SHELL=TRUE` and its gate asserted the
 option on twelve captured envelopes, all passing, while Windows ignored the option on every one of
 them. `%CMDCMDLINE%` inside the command, one line of cmd.exe, showed the wrapper at once.
+
+## 248. When a guest ignores what it was given, read its own logs before a second guess
+
+**Rule.** When a machine does not act on its seed, answer file or configuration, get inside and read
+the log of the program that should have read it before changing anything a second time. Guessing
+costs a rebuild and a boot per guess, and each guess changes one thing when the log names the cause.
+
+**Why.** FAILURE_PATTERNS 361. The first Windows clone ignored its answer file. The first fix moved the
+DVD from IDE to SATA on a theory about driver timing, cost a base rebuild and a boot, and changed
+nothing. Finishing OOBE by keyboard on the throwaway clone and reading `Panther\setupact.log` and
+`UnattendGC\setupact.log` settled it in two reads: the DVD was fine, and Setup had searched before the
+image had set it up. The tooling that got inside became real methods
+(`virt.vbox.vm.screenshot`, `send_keys`, `log`, `addresses`), so the next person does not need raw
+commands to look.

@@ -4,54 +4,51 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/virtualbox-support`.** Rules set by the user: the VirtualBox lab is provisioned by
-The Pleiades only, gaps are built through `pleiades forge`, and every step is checked with "is this how a
-Pleiades end user would do it? if not, it's wrong" (memory `end-user-path-or-wrong`).
+**Branch `feature/virtualbox-support`, 2026-09-27: Windows Server guests (the user: "Build both
+methods", the VHDX and the ISO).** Rules unchanged: the lab is provisioned by The Pleiades only, gaps
+are built through `pleiades forge`, "is this how a Pleiades end user would do it?", runbook tasks use
+the method-as-key form (never `fqcn:`/`params:`), and temporary tooling becomes real methods.
 
 ### Where it stands
 
-- **The Pleiades makes, seeds, boots, trusts and manages Ubuntu VMs on the lab host**, all through the
-  CLI: `examples/virtualbox_lab` is the walkthrough, run on VENGEANCE. `win.file.download` fetched the
-  cloud image, `virt.vbox.vm.import_ova` + `snapshot.take` made a never-booted base, `vm.clone`
-  (seeded login, NoCloud seed rendered in Go and sent on WinRM stdin), `vm.start`, `vm.host_keys`,
-  `pleiades trust-host --from-console`, then `pleiades run` against `ubuntu-lab` (192.168.56.10) as root
-  by key. `vm.delete` and `vm.list` also run on the real host. `ubuntu-lab` is running now.
-- **Credentials (the user's choices):** `add-credential --generate` (random ed25519 key + password in
-  the vault); `Manifest.SeedsLogin` and `engine.WithLoginSeeder` hand a creating method only the user
-  name, public key and a fresh SHA-512 crypt hash (`pkg/shacrypt`). CLI only: the Walk tier refuses.
-  A key-plus-password credential now logs in key first (`remoteexec.AuthFrom`).
-- **Host keys (the user's choices):** from the serial console over WinRM (`--from-console`), and a warned
-  `--first-connect`; `internal/hosttrust`. Changed keys need `--replace`.
-- **T-shirt sizes (2026-09-27):** `pkg/vmsize`, `size` on `vm.clone`, new `virt.vbox.vm.resize`,
-  `size` in `info`/`list`, host-capacity refusals (`list hostinfo`) at clone, resize and start, and a
-  warning when clone finds a VM of another size. Tested on the real host per size.
-- **Multi-CPU hang, measured (2026-09-27):** under WHPX (Hyper-V on for WSL 2/Docker) Ubuntu guests
-  with 2-4 vCPUs hang at the initramfs raid6/xor benchmark (first boots about 1 in 3, reboots 7/8);
-  P-core pinning and `paravirt_provider: none` do not fix it; a guest whose initramfs no longer loads
-  raid6_pq/xor booted 8/8. Write-up for the user's other WHPX project is a private page; the lab
-  README carries the short version. `win.cpu.topology` came out of it (the user's choice).
-- **The user sees no VMs in their own VirtualBox Manager** because the VMs belong to `pleiades-gate`;
-  they chose to see them through The Pleiades (`vm.list`, `run -v` prints lists as YAML).
-- **Not built yet:** the Walk tier's seeded login, `become`, deleting the seed ISO after first boot, the
-  VirtualBox sync plugin, Windows and FreeBSD guests, the env-gated Release Gate for `virt.vbox.*`,
-  runbook `rescue:`/`always:` execution (they parse but never run).
+- **Committed, not pushed:** `3d2982b` (lab runbooks in the method-as-key form), `955e62f` (Windows
+  guests), `e9a3cc5` (install's wait split out), and the findings commit after them.
+
+- **Built and tested (model host):** `pkg/winunattend` (answer files rendered in Go on a Joliet ISO);
+  `virt.vbox.vm.import_disk`, `install`, `eject_seed`, `screenshot`, `log`, `send_keys`, `addresses`;
+  `wait.connection`; clone seeding a Windows base (answer file on a SATA DVD, default size small); the
+  engine giving a login's password only to a method declaring `SeedsLoginPassword` and only for a
+  device reached over WinRM; `add-credential --generate` passwords always meeting Windows' policy;
+  `mediumio` ditto lines; `ErrLocked` for VirtualBox's pending-lock answer; resuming an install that
+  stopped waiting. Catalog 104 registered / 101 implemented.
+- **Measured on the lab host:** VHDX import works (2 min 46 s, EFI read off the disk); EFI + 2 vCPUs
+  hangs at `DXE_AP` (1 vCPU boots; measured while the user's watcher pinned VBoxSVC to the P-cores);
+  Microsoft's VHDX never reads a seed DVD at first boot (FAILURE_PATTERNS 361); the ISO install runs
+  unattended at 2 vCPUs on BIOS in about 8 minutes; the four windowless methods work on the host.
+- **The ISO path works end to end on the lab host:** install (5 to 9 min), clone (small), first boot
+  reads the seed through the `UnattendFile` registry pointer the install sets (a generalized Windows
+  never searches a DVD; FAILURE_PATTERNS 364), WinRM as the vaulted Administrator at 192.168.56.30 in
+  82 s, eject (the file is deleted only once the VM is stopped; 365), restart and WinRM in 17 s.
+  `win-lab` is running now.
+- **Open:** the VHDX's clones cannot be seeded (nothing in that image points Windows at the DVD).
+- **Diagnostic leftovers in `~/pleiades-lab`:** the `win-diag` device (a throwaway password), and
+  scratch runbooks under `runbooks/win/`.
 
 ### Next
 
-1. The open hang question (lost tick or AVX2: hide AVX2 via `VBoxInternal/CPUM/IsaExts/AVX2`), if the
-   user wants it; an unpinned reboot run to settle whether pinning raised the rate.
-2. The VirtualBox sync plugin (VMs into inventory), then the Release Gate, then Windows Server guests.
-3. Walk-tier seeding, and `become`. Lab project: `~/pleiades-lab`.
+1. Run the env-gated WinRM release gates against `win-lab` (the plan's payoff), and re-measure the
+   EFI two-vCPU hang with the user's pinning watcher stopped.
+2. The VHDX: put the answer file into the image before first boot, or document it as unseedable.
+3. Follow-ons recorded in Phase 112: `--vault`/`--inventory` flags; the docs corpus for collections
+   (asked, not yet answered).
 
 ### Files changed this session
 
-`pkg/cloudinit`, `pkg/iso9660`, `pkg/shacrypt`, `pkg/vboxmanage` (appliance, hardware, files,
-extradata, the model host `vboxmanagetest`), `pkg/remoteexec/auth.go` and its test server,
-`pkg/collection` (SeedsLogin), `pkg/wire` (seed keys), `internal/credential/generate.go`,
-`internal/engine/login_seed.go`, `internal/hosttrust`, `internal/catalog/virt/vbox/*`,
-`internal/catalog/win/file`, `internal/forge/catalogdata`, `cmd/pleiades` (add-credential --generate,
-trust-host, run -v YAML), `internal/clispec`, `examples/virtualbox_lab`, docs 10, the Windows lab
-README, `changelog/`, `docs/reference/`, `internal/api/wellknown/`, `coverage-floor.json`, CLAUDE.md
-counts, and the second "The Pleiades" rename pass redone across 65 Go files. Then: `pkg/vmsize`,
-`pkg/wincpu`, `pkg/vboxmanage` (hostinfo, Resize, paravirt), `internal/catalog/virt/vbox/vm` (size,
-resize, host_keys last line), `internal/catalog/win/cpu`. Local only: `IMPLEMENTATION.md` (Phase 112).
+`pkg/winunattend` (new), `pkg/vboxmanage` (create, keyboard, leases, EjectDVD, OSType/Firmware,
+ErrLocked, the model host), `pkg/collection` (SeedsLoginPassword), `pkg/wire` (SecretSeedPassword),
+`internal/engine/login_seed.go`, `internal/credential/generate.go`, `internal/catalog/virt/vbox/vm`
+(seven new methods, clone's Windows seed, delete's leftovers), `internal/catalog/wait/connection.go`,
+`internal/forge/catalogdata`, `cmd/pleiades/run.go`, `examples/virtualbox_lab` (method-as-key form,
+Windows runbooks and README section), docs/reference, `internal/api/wellknown`, CLAUDE.md counts,
+`coverage-floor.json`, changelog, FAILURE_PATTERNS 360-365, LESSONS 248. Local only:
+`IMPLEMENTATION.md` (Phase 112 items, the `--vault`/`--inventory` follow-on).

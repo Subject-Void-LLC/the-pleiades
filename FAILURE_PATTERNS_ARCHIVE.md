@@ -10154,3 +10154,117 @@ playbook and a task file are both lists of maps; only a play carries `hosts`, `i
 
 **Lesson.** A shape check that names a diagnosis has to tell apart every shape that reaches it, not
 just the one it was written for. Otherwise its advice is confidently wrong about the others.
+
+## 360. `mediumio cat --hex` folds identical rows, and a parser written from its usage text refused the real output
+
+**Symptom.** The first real `virt.vbox.vm.import_disk` failed before making anything: `mediumio gave a
+line that is not a hex dump: "**********  <ditto x 27>"`.
+
+**Root cause.** `ParseHexDump` and the model host were written from VBoxManage's usage text and two
+short dumps, which printed every row. On the host, a long run of rows equal to the one before is
+written as one `**********  <ditto x N>` line (runs of up to 20 were written out, 24 and 27 folded),
+and the dump's last row is always written.
+
+**Fix.** The parser expands a ditto line into N copies of the row before it; the model folds runs of 24
+or more and writes the last row out. `testdata/mediumio-cat-gpt.stdout` is the host's dump of the
+VHDX's first 1024 bytes, byte for byte, and `TestTheModelFoldsARunAsTheHostDoes` holds the model to it.
+
+**Lesson.** Capture the verb's real output on data shaped like the real input (a disk that is mostly
+zeros) before writing its parser or its model. A short capture of busy bytes cannot show a
+compression rule that only appears on runs.
+
+## 361. Microsoft's Windows Server evaluation VHDX never reads an answer file from a DVD at its first boot
+
+**Symptom.** A clone of the VHDX base, seeded with `Autounattend.xml` on a DVD, stopped at OOBE's
+"Hi there" page, and its host-only adapter took a DHCP address instead of the fixed one. Moving the
+DVD from IDE to SATA changed nothing.
+
+**Root cause.** Measured inside the guest, after finishing OOBE by keyboard: the DVD was readable
+(`D:\Autounattend.xml`, "VBOX CD-ROM OK"), no answer file was cached (`Panther`) or pointed to
+(`HKLM\SYSTEM\Setup\UnattendFile`), and Setup's logs said "Didn't find unattend file for this phase"
+in specialize and "Found no unattend file for oobeSystem pass" in OOBE. The image sets up new devices
+only after OOBE (its device log starts after it), so the DVD did not exist for Windows while it
+searched. The image's own sysprep log was deleted, so the switch that caused it (likely `/mode:vm`) is
+inferred, not read.
+
+**Fix.** None yet for this image: its answer file has to be put into it (`C:\Windows\Panther\
+unattend.xml`) before first boot. `virt.vbox.vm.install` makes a base generalized the ordinary way.
+
+**Lesson.** A generalized image's first-boot behavior is part of what it is. Test the seed on the exact
+image before building on it, and when a guest ignores its seed, read its setup logs before a second
+guess: the move to SATA cost a rebuild and a boot and was never going to work.
+
+## 362. An EFI VM with two vCPUs stops at the firmware's `DXE_AP` debug point under NEM
+
+**Symptom.** A Windows clone at medium (2 vCPUs) never drew a screen ("Unsupported resolution for
+screen shot: 0x0"); its VBox.log ended at `EFI: debug point DXE_AP` 1.9 s in and said nothing for 90 s.
+
+**Root cause.** VirtualBox's EFI firmware hangs starting its application processors when the host's
+hypervisor is running (NEM/WHPX, as on VENGEANCE with WSL 2). Resized to one vCPU, the same VM passed
+the firmware at once and Windows' kernel reached the Hyper-V interface in 4 s. Measured with the
+account's VBoxSVC still pinned to the P-cores (see the multi-CPU hang work), so pinning is not ruled out.
+
+**Fix.** A Windows clone given no size is small (one vCPU). `virt.vbox.vm.install` makes BIOS bases,
+which ran Windows Setup at two vCPUs.
+
+**Lesson.** Under NEM, every multi-vCPU boot path needs its own measurement: the BIOS/Linux hang (the
+raid6 benchmark) and this EFI one are different code in different guests.
+
+## 363. `add-credential --generate` made a password Windows' default policy refuses, about one time in 38
+
+**Symptom.** Found by working out the odds while seeding Windows, not by a failure: 24 characters drawn
+from 24 upper, 25 lower and 8 digit characters have no digit with probability (49/57)^24, about 2.7%.
+
+**Root cause.** Windows Server's default policy wants three of four kinds of character; a password of
+letters only has two, and an answer file carrying it leaves the Administrator without it.
+
+**Fix.** The generator draws again until the password holds an upper case letter, a lower case letter
+and a digit (`TestRandomPasswordHoldsEveryKindOfCharacter`), and `pkg/winunattend` refuses a password
+Windows would refuse before anything is made.
+
+**Lesson.** A random secret meant for another system has to satisfy that system's policy by
+construction, not on average.
+
+## 364. A generalized Windows image's first boot never looks on a DVD for its answer file
+
+**Symptom.** Clones of a base `virt.vbox.vm.install` made ignored their `Autounattend.xml` seed, just as
+clones of Microsoft's VHDX had (361): Server Core's logon asked for the Administrator's password to be
+changed, and the host-only adapter kept a DHCP address.
+
+**Root cause.** Three measured facts, read from the clones' own setup logs:
+
+1. Setup's cached copy of the install's answer file (`C:\Windows\Panther\unattend.xml`) survived
+   generalizing, and a clone's specialize pass found it, judged it "does not meet criteria to be used
+   for this unattend pass", and searched nowhere else.
+2. The `Generalize` setting in the audit pass ran sysprep at the very second the pass began, before a
+   `RunSynchronous` command in the same pass could delete that copy.
+3. With the copy deleted (sysprep run as the pass's last command instead), specialize still said
+   "Didn't find unattend file for this phase", although the clone's CD-ROM had been configured 29 s
+   before the search. Setup's documented search table lists removable media, but after a generalized
+   image boots it searches only fixed places.
+
+**Fix.** The install's audit pass deletes the cached copy, points `HKLM\SYSTEM\Setup` `UnattendFile`
+at `D:\Autounattend.xml` (a clone's one DVD), then runs sysprep itself. Measured on the fifth round: the
+clone answered WinRM at its fixed address as its vaulted Administrator 82 s after starting, named
+`WIN-LAB`.
+
+**Lesson.** Where a platform documents a search order, measure which entries it actually consults in
+the phase that matters before building on one. Three rounds each moved one piece because the
+previous log was read for what it said about that piece only.
+
+## 365. A running VM keeps a DVD image locked after its drive is emptied, so a seed cannot be deleted until it stops
+
+**Symptom.** `virt.vbox.vm.eject_seed` on the running `win-lab` emptied the drive and then failed:
+`closemedium dvd ... --delete`: "Medium ... is locked for reading by another task", and retrying for ten
+seconds did not help. A second run then saw an empty drive and would have reported no change with the
+seed, which holds the Administrator's password, still on the host.
+
+**Root cause.** `list dvds` showed the image "locked read" with the drive "emptydrive": VirtualBox holds
+an image's lock for as long as the VM that held it runs (`ubuntu-lab`'s seed showed the same).
+
+**Fix.** On a running VM the task empties the drive, reports `deleted: false` with a warning saying to
+run it again once the VM is stopped, and a run that finds the seed file on the host in no drive deletes
+it. Measured end to end: stop, eject (`deleted: true`), start, WinRM back in 17 s.
+
+**Lesson.** An eject that cannot finish has two halves to report separately: what the guest can no
+longer reach, and what is still on the host.
