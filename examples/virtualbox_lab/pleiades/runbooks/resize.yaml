@@ -1,0 +1,24 @@
+# Give the lab VM another T-shirt size. VirtualBox changes a VM's CPUs
+# and memory only while it is powered off, so this shuts it down first,
+# resizes it, and starts it again. The resize records the size the VM had
+# as its undo.
+#
+# On a Windows host where WSL 2 or Docker Desktop runs, a guest with more
+# than one CPU can hang at boot until its initramfs stops loading the RAID
+# modules; the README's "Limits and troubleshooting" says how.
+id: vbox-lab-resize
+hosts: vengeance
+tasks:
+  - name: shut the lab VM down
+    fqcn: virt.vbox.vm.stop
+    params:
+      name: ubuntu-lab
+  - name: give it the new size
+    fqcn: virt.vbox.vm.resize
+    params:
+      name: ubuntu-lab
+      size: xsmall
+  - name: start it again
+    fqcn: virt.vbox.vm.start
+    params:
+      name: ubuntu-lab

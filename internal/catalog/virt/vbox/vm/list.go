@@ -39,7 +39,7 @@ func init() {
 				Summary:     "Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them.",
 				Description: "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",
 				Returns: []collection.ReturnField{
-					{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, and address and device when Pleiades made it, in the order VirtualBox lists them."},
+					{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them."},
 				},
 				Examples: []collection.Example{
 					{Name: "List the lab's VMs", RunbookYAML: "- name: What runs on the lab host\n  virt.vbox.vm.list: {}\n"},
@@ -99,6 +99,9 @@ func describe(ctx context.Context, h vboxmanage.Host, ref vboxmanage.Ref) (map[s
 	entry[statState] = m.State
 	entry[statMemoryMB] = m.MemoryMB
 	entry[statCPUs] = m.CPUs
+	if size := shapeOf(m).size(); size != "" {
+		entry[statSize] = size
+	}
 	entry[statAutostartEnabled] = m.AutostartEnabled
 	if address := extra[vboxmanage.ExtraAddress]; address != "" {
 		entry["address"] = address

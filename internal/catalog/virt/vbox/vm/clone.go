@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vmsize"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -43,7 +45,7 @@ func init() {
 			SeedsLogin:      paramLogin,
 			Doc: collection.Doc{
 				Summary:     "Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login.",
-				Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded. The new VM gets the memory and CPUs asked for, a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive. The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
+				Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive. The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "from", Type: "string", Required: true, Description: "The VM to clone, named as name is."},
@@ -51,19 +53,22 @@ func init() {
 					{Name: "login", Type: "string", Required: true, Description: "The inventory device whose stored login the VM is seeded with: its user name, its key's public half and a hash of its password. Usually the device that stands for this VM."},
 					{Name: "address", Type: "string", Required: true, Description: "The host-only adapter's address with its prefix, as 192.168.56.10/24. Keep it out of the host-only DHCP server's range."},
 					{Name: "hostname", Type: "string", Description: "The VM's host name. Defaults to name, which must then be a valid host name."},
-					{Name: "memory_mb", Type: "int", Default: "1024", Description: "Its memory, in megabytes."},
-					{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count."},
+					{Name: "size", Type: "string", Choices: vmsize.Names(), Description: "The VM's size, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: " + vmsize.Describe() + ". Give size, or memory_mb and cpus, not both; with none of the three, the VM is xsmall."},
+					{Name: "memory_mb", Type: "int", Default: "1024", Description: "Its memory, in megabytes, when size is not given."},
+					{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count, when size is not given."},
+					{Name: "paravirt_provider", Type: "string", Choices: vboxmanage.ParavirtProviders, Description: "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."},
 					{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also its cloud-init instance ID."},
 					{Name: "address", Type: "string", Returned: "always", Description: "The host-only address the VM was given, without its prefix."},
+					{Name: "size", Type: "string", Returned: "always", Description: "The VM's T-shirt size, read from its CPUs and memory (those asked for, in a check that would clone), or empty when they are not exactly one size's."},
 					{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
 				},
 				Examples: []collection.Example{
-					{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
+					{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n    size: small\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
 				},
-				SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
+				SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.resize", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
 			},
 		},
 		Invoke: Clone,
@@ -78,9 +83,8 @@ const (
 	paramLogin           = "login"
 	paramAddress         = "address"
 	paramHostname        = "hostname"
-	paramMemoryMB        = "memory_mb"
-	paramCPUs            = "cpus"
 	paramHostOnlyAdapter = "host_only_adapter"
+	paramParavirt        = "paravirt_provider"
 
 	statAddress = "address"
 )
@@ -102,8 +106,15 @@ var now = time.Now
 type cloneRequest struct {
 	from, snapshot, hostname, adapter, login string
 	address                                  netip.Prefix
-	memoryMB, cpus                           int
+	shape                                    shape
+	paravirt                                 string
+	// sized says the task asked for a size, memory or CPUs, rather than
+	// taking xsmall's by default.
+	sized bool
 }
+
+// defaultShape is a clone's shape when the task asks for none: xsmall.
+var defaultShape = shape{memoryMB: 1024, cpus: 1}
 
 // readClone validates a clone task's parameters other than name.
 func readClone(params map[string]any, name string) (cloneRequest, error) {
@@ -140,24 +151,14 @@ func readClone(params map[string]any, name string) (cloneRequest, error) {
 	if err := vboxmanage.CheckAdapter(c.adapter); err != nil {
 		return c, err
 	}
-	for _, p := range []struct {
-		key      string
-		value    *int
-		fallback int
-	}{{paramMemoryMB, &c.memoryMB, 1024}, {paramCPUs, &c.cpus, 1}} {
-		n, set, err := sdk.IntParam(params, p.key)
-		if err != nil {
-			return c, err
+	if raw, present := params[paramParavirt]; present && raw != nil {
+		c.paravirt, _ = raw.(string)
+		if !slices.Contains(vboxmanage.ParavirtProviders, c.paravirt) {
+			return c, fmt.Errorf("paravirt_provider %v is not one of %s", raw, strings.Join(vboxmanage.ParavirtProviders, ", "))
 		}
-		if !set {
-			n = p.fallback
-		}
-		if n <= 0 {
-			return c, fmt.Errorf("%s must be positive", p.key)
-		}
-		*p.value = n
 	}
-	return c, nil
+	c.shape, c.sized, err = readShape(params, defaultShape)
+	return c, err
 }
 
 // Clone implements "virt.vbox.vm.clone".
@@ -202,10 +203,16 @@ func runClone(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if exists {
-		if err := rc.SetStat(statUUID, existing.UUID); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		if err := recordFound(rc, fqcn, existing, c); err != nil {
+			return collection.Result{}, err
 		}
 		return collection.Result{}, recordExists(rc, fqcn, true, true)
+	}
+	if err := fitHost(ctx, h, c.shape); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := rc.SetStat(statSize, c.shape.size()); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	source, err := mustReadFor(ctx, h, c.from, device, fqcn, mode)
 	if err != nil {
@@ -241,6 +248,28 @@ func runClone(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	return collection.Result{Changed: true}, nil
 }
 
+// recordFound reports a VM already under the name: its UUID and size,
+// and a warning when the task asked for CPUs or memory it does not have,
+// since the task changes neither and a run that reads "ok" would
+// otherwise hide it.
+func recordFound(rc sdk.RunbookContext, fqcn string, m vboxmanage.Machine, c cloneRequest) error {
+	has := shapeOf(m)
+	if err := rc.SetStat(statUUID, m.UUID); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := rc.SetStat(statSize, has.size()); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if !c.sized || has == c.shape {
+		return nil
+	}
+	warning := fmt.Sprintf("%q already exists with %s, not the %s asked for; clone does not change a VM it finds, and virt.vbox.vm.resize does while it is off", m.Name, has, c.shape)
+	if err := sdk.RecordWarnings(rc, []string{warning}); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return nil
+}
+
 // makeClone clones, configures and seeds the VM. A failure after the
 // clone deletes what was made, so a later run starts over rather than
 // finding a VM of the name and taking it for a finished one.
@@ -268,7 +297,7 @@ func seedClone(ctx context.Context, h vboxmanage.Host, name string, c cloneReque
 	if err != nil {
 		return m, err
 	}
-	hw := vboxmanage.Hardware{MemoryMB: c.memoryMB, CPUs: c.cpus, HostOnlyAdapter: c.adapter, ConsoleLog: dir + `\` + consoleFile}
+	hw := vboxmanage.Hardware{MemoryMB: c.shape.memoryMB, CPUs: c.shape.cpus, HostOnlyAdapter: c.adapter, ConsoleLog: dir + `\` + consoleFile, Paravirt: c.paravirt}
 	if err := h.Configure(ctx, name, hw); err != nil {
 		return m, err
 	}

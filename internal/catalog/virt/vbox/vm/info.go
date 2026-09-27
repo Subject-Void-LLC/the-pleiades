@@ -46,6 +46,7 @@ func init() {
 					{Name: "state", Type: "string", Returned: "when exists", Description: "VirtualBox's state for it: poweroff, running, saved, paused, aborted, or another VirtualBox reports."},
 					{Name: "memory_mb", Type: "int", Returned: "when exists", Description: "Its memory, in megabytes."},
 					{Name: "cpus", Type: "int", Returned: "when exists", Description: "Its virtual CPU count."},
+					{Name: "size", Type: "string", Returned: "when exists", Description: "Its T-shirt size, read from its CPUs and memory: xsmall, small, medium, large or xlarge, or empty when they are not exactly one size's."},
 					{Name: "autostart_enabled", Type: "bool", Returned: "when exists", Description: "Whether it is marked to start with the host account's autostart service. virt.vbox.vm.start sets this on a Windows host and virt.vbox.vm.stop clears it."},
 					{Name: "snapshots", Type: "list", Returned: "when exists", Description: "Each snapshot as name, uuid and description, a parent before its children."},
 					{Name: "current_snapshot_uuid", Type: "string", Returned: "when exists", Description: "The snapshot the VM's state descends from, or empty when it has none."},
@@ -83,11 +84,12 @@ func Info(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		stats[statState] = m.State
 		stats[statMemoryMB] = m.MemoryMB
 		stats[statCPUs] = m.CPUs
+		stats[statSize] = shapeOf(m).size()
 		stats[statAutostartEnabled] = m.AutostartEnabled
 		stats[statSnapshots] = snapshots
 		stats[statCurrentSnapshotUUID] = m.CurrentSnapshotUUID
 	}
-	for _, key := range []string{statExists, statUUID, statState, statMemoryMB, statCPUs, statAutostartEnabled, statSnapshots, statCurrentSnapshotUUID} {
+	for _, key := range []string{statExists, statUUID, statState, statMemoryMB, statCPUs, statSize, statAutostartEnabled, statSnapshots, statCurrentSnapshotUUID} {
 		if value, ok := stats[key]; ok {
 			if err := rc.SetStat(key, value); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

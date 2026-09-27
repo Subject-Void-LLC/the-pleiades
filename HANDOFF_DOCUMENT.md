@@ -22,18 +22,26 @@ Pleiades end user would do it? if not, it's wrong" (memory `end-user-path-or-wro
   A key-plus-password credential now logs in key first (`remoteexec.AuthFrom`).
 - **Host keys (the user's choices):** from the serial console over WinRM (`--from-console`), and a warned
   `--first-connect`; `internal/hosttrust`. Changed keys need `--replace`.
-- **Found:** a two-CPU guest hung at the initramfs raid6 benchmark in two of three first boots on this
-  Hyper-V host; the lab uses one CPU (tracker). The user sees no VMs in their own VirtualBox Manager
-  because the VMs belong to `pleiades-gate`; they chose to see them through The Pleiades (`vm.list`,
-  and `run -v` now prints lists as YAML).
+- **T-shirt sizes (2026-09-27):** `pkg/vmsize`, `size` on `vm.clone`, new `virt.vbox.vm.resize`,
+  `size` in `info`/`list`, host-capacity refusals (`list hostinfo`) at clone, resize and start, and a
+  warning when clone finds a VM of another size. Tested on the real host per size.
+- **Multi-CPU hang, measured (2026-09-27):** under WHPX (Hyper-V on for WSL 2/Docker) Ubuntu guests
+  with 2-4 vCPUs hang at the initramfs raid6/xor benchmark (first boots about 1 in 3, reboots 7/8);
+  P-core pinning and `paravirt_provider: none` do not fix it; a guest whose initramfs no longer loads
+  raid6_pq/xor booted 8/8. Write-up for the user's other WHPX project is a private page; the lab
+  README carries the short version. `win.cpu.topology` came out of it (the user's choice).
+- **The user sees no VMs in their own VirtualBox Manager** because the VMs belong to `pleiades-gate`;
+  they chose to see them through The Pleiades (`vm.list`, `run -v` prints lists as YAML).
 - **Not built yet:** the Walk tier's seeded login, `become`, deleting the seed ISO after first boot, the
-  VirtualBox sync plugin, Windows and FreeBSD guests, the env-gated Release Gate for `virt.vbox.*`.
+  VirtualBox sync plugin, Windows and FreeBSD guests, the env-gated Release Gate for `virt.vbox.*`,
+  runbook `rescue:`/`always:` execution (they parse but never run).
 
 ### Next
 
-1. The VirtualBox sync plugin (VMs into inventory), then the Release Gate, then Windows Server guests.
-2. Walk-tier seeding, and `become`.
-3. Lab project: `~/pleiades-lab` (binary, inventory, runbooks used for every probe).
+1. The open hang question (lost tick or AVX2: hide AVX2 via `VBoxInternal/CPUM/IsaExts/AVX2`), if the
+   user wants it; an unpinned reboot run to settle whether pinning raised the rate.
+2. The VirtualBox sync plugin (VMs into inventory), then the Release Gate, then Windows Server guests.
+3. Walk-tier seeding, and `become`. Lab project: `~/pleiades-lab`.
 
 ### Files changed this session
 
@@ -44,5 +52,6 @@ extradata, the model host `vboxmanagetest`), `pkg/remoteexec/auth.go` and its te
 `internal/catalog/win/file`, `internal/forge/catalogdata`, `cmd/pleiades` (add-credential --generate,
 trust-host, run -v YAML), `internal/clispec`, `examples/virtualbox_lab`, docs 10, the Windows lab
 README, `changelog/`, `docs/reference/`, `internal/api/wellknown/`, `coverage-floor.json`, CLAUDE.md
-counts, and the second "The Pleiades" rename pass redone across 65 Go files. Local only:
-`IMPLEMENTATION.md` (Phase 112).
+counts, and the second "The Pleiades" rename pass redone across 65 Go files. Then: `pkg/vmsize`,
+`pkg/wincpu`, `pkg/vboxmanage` (hostinfo, Resize, paravirt), `internal/catalog/virt/vbox/vm` (size,
+resize, host_keys last line), `internal/catalog/win/cpu`. Local only: `IMPLEMENTATION.md` (Phase 112).

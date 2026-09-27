@@ -5,8 +5,10 @@
 # a hash of its password, never the key or the password. Run
 # `pleiades add-credential ubuntu-lab --username root --generate` first.
 #
-# Keep cpus at 1 on a Windows host where WSL 2 or Docker Desktop runs
-# (see the README): a two-CPU guest can hang early in its boot there.
+# size is a T-shirt size: small is one CPU and 2048 MB. Keep to a
+# one-CPU size (xsmall or small) on a Windows host where WSL 2 or Docker
+# Desktop runs (see the README): a guest with more CPUs can hang early in
+# its boot there.
 id: vbox-lab-create
 hosts: vengeance
 tasks:
@@ -18,8 +20,7 @@ tasks:
       snapshot: base
       login: ubuntu-lab
       address: 192.168.56.10/24
-      memory_mb: 2048
-      cpus: 1
+      size: small
   - name: start it
     fqcn: virt.vbox.vm.start
     params:

@@ -22,10 +22,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `svc` | 16 | 16 |
-| `virt` | 11 | 11 |
+| `virt` | 12 | 12 |
 | `wait` | 2 | 2 |
-| `win` | 3 | 3 |
-| **total** | **94** | **91** |
+| `win` | 4 | 4 |
+| **total** | **96** | **93** |
 
 ## All methods
 
@@ -118,10 +118,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.import_ova](virt/vbox/vm/import_ova.md) | implemented | Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter. |
 | [virt.vbox.vm.info](virt/vbox/vm/info.md) | implemented | Reports a VirtualBox VM's state, hardware and snapshots. |
 | [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
+| [virt.vbox.vm.resize](virt/vbox/vm/resize.md) | implemented | Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count. |
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
+| [win.cpu.topology](win/cpu/topology.md) | implemented | Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group. |
 | [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
 | [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |

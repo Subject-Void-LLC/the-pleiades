@@ -51,13 +51,18 @@ func TestHost_SendsExactlyTheseArguments(t *testing.T) {
 		call func(Host) error
 		want string
 	}{
-		"machine":      {func(h Host) error { _, err := h.Machine(ctx, "vm1"); return err }, "showvminfo vm1 --machinereadable"},
-		"list":         {func(h Host) error { _, err := h.List(ctx); return err }, "list vms"},
-		"running":      {func(h Host) error { _, err := h.Running(ctx); return err }, "list runningvms"},
-		"start":        {func(h Host) error { return h.Start(ctx, "vm1") }, "startvm vm1 --type headless"},
-		"poweroff":     {func(h Host) error { return h.PowerOff(ctx, "vm1") }, "controlvm vm1 poweroff"},
-		"acpi":         {func(h Host) error { return h.ACPIShutdown(ctx, "vm1") }, "controlvm vm1 acpipowerbutton"},
-		"autostart":    {func(h Host) error { return h.SetAutostart(ctx, "vm1", true) }, "modifyvm vm1 --autostart-enabled on --autostart-delay 0"},
+		"machine":   {func(h Host) error { _, err := h.Machine(ctx, "vm1"); return err }, "showvminfo vm1 --machinereadable"},
+		"list":      {func(h Host) error { _, err := h.List(ctx); return err }, "list vms"},
+		"running":   {func(h Host) error { _, err := h.Running(ctx); return err }, "list runningvms"},
+		"start":     {func(h Host) error { return h.Start(ctx, "vm1") }, "startvm vm1 --type headless"},
+		"poweroff":  {func(h Host) error { return h.PowerOff(ctx, "vm1") }, "controlvm vm1 poweroff"},
+		"acpi":      {func(h Host) error { return h.ACPIShutdown(ctx, "vm1") }, "controlvm vm1 acpipowerbutton"},
+		"autostart": {func(h Host) error { return h.SetAutostart(ctx, "vm1", true) }, "modifyvm vm1 --autostart-enabled on --autostart-delay 0"},
+		"hostinfo":  {func(h Host) error { _, err := h.HostInfo(ctx); return err }, "list hostinfo"},
+		"resize":    {func(h Host) error { return h.Resize(ctx, "vm1", 4096, 2) }, "modifyvm vm1 --memory 4096 --cpus 2"},
+		"paravirt": {func(h Host) error {
+			return h.Configure(ctx, "vm1", Hardware{MemoryMB: 1024, CPUs: 2, HostOnlyAdapter: "vboxnet0", ConsoleLog: `G:\vm1\console.log`, Paravirt: "none"})
+		}, `modifyvm vm1 --memory 1024 --cpus 2 --nic1 nat --nic2 hostonly --hostonlyadapter2 vboxnet0 --uart1 0x3F8 4 --uart-mode1 file G:\vm1\console.log --autostart-enabled off --paravirt-provider none`},
 		"no autostart": {func(h Host) error { return h.SetAutostart(ctx, "vm1", false) }, "modifyvm vm1 --autostart-enabled off --autostart-delay 0"},
 		"restore": {func(h Host) error { return h.RestoreSnapshot(ctx, "vm1", "5732a952-0b85-4e3a-820a-1a568f31166b") },
 			"snapshot vm1 restore 5732a952-0b85-4e3a-820a-1a568f31166b"},

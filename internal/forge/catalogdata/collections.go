@@ -32,6 +32,7 @@ var Collections = concatCollections(
 	sessionCollections,
 	virtCollections,
 	winFileCollections,
+	winCPUCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit

@@ -5685,7 +5685,7 @@
     "seedsLogin": "login",
     "doc": {
       "summary": "Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login.",
-      "description": "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded. The new VM gets the memory and CPUs asked for, a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive. The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
+      "description": "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive. The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
       "params": [
         {
           "name": "name",
@@ -5723,16 +5723,41 @@
           "description": "The VM's host name. Defaults to name, which must then be a valid host name."
         },
         {
+          "name": "size",
+          "type": "string",
+          "choices": [
+            "xsmall",
+            "small",
+            "medium",
+            "large",
+            "xlarge"
+          ],
+          "description": "The VM's size, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb and cpus, not both; with none of the three, the VM is xsmall."
+        },
+        {
           "name": "memory_mb",
           "type": "int",
           "default": "1024",
-          "description": "Its memory, in megabytes."
+          "description": "Its memory, in megabytes, when size is not given."
         },
         {
           "name": "cpus",
           "type": "int",
           "default": "1",
-          "description": "Its virtual CPU count."
+          "description": "Its virtual CPU count, when size is not given."
+        },
+        {
+          "name": "paravirt_provider",
+          "type": "string",
+          "choices": [
+            "default",
+            "legacy",
+            "minimal",
+            "hyperv",
+            "kvm",
+            "none"
+          ],
+          "description": "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."
         },
         {
           "name": "host_only_adapter",
@@ -5755,6 +5780,12 @@
           "description": "The host-only address the VM was given, without its prefix."
         },
         {
+          "name": "size",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's T-shirt size, read from its CPUs and memory (those asked for, in a check that would clone), or empty when they are not exactly one size's."
+        },
+        {
           "name": "diff",
           "type": "dict",
           "returned": "always",
@@ -5764,13 +5795,14 @@
       "examples": [
         {
           "name": "Clone and start a lab VM",
-          "runbookYaml": "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"
+          "runbookYaml": "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n    size: small\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"
         }
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova",
         "virt.vbox.vm.start",
         "virt.vbox.vm.host_keys",
+        "virt.vbox.vm.resize",
         "virt.vbox.vm.delete",
         "virt.vbox.vm.list"
       ]
@@ -5996,6 +6028,12 @@
           "description": "Its virtual CPU count."
         },
         {
+          "name": "size",
+          "type": "string",
+          "returned": "when exists",
+          "description": "Its T-shirt size, read from its CPUs and memory: xsmall, small, medium, large or xlarge, or empty when they are not exactly one size's."
+        },
+        {
           "name": "autostart_enabled",
           "type": "bool",
           "returned": "when exists",
@@ -6049,7 +6087,7 @@
           "name": "vms",
           "type": "list",
           "returned": "always",
-          "description": "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, and address and device when Pleiades made it, in the order VirtualBox lists them."
+          "description": "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them."
         }
       ],
       "examples": [
@@ -6061,6 +6099,97 @@
       "seeAlso": [
         "virt.vbox.vm.info",
         "virt.vbox.vm.clone"
+      ]
+    }
+  },
+  "virt.vbox.vm.resize": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count.",
+      "description": "Makes sure a VM has the CPUs and memory asked for: a size, or memory_mb and cpus, either of which alone leaves the other as it is. A VM that has them already reports no change. VirtualBox changes them only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A size larger than the host is refused: more CPUs than it has processors online, or more memory than it has. The guest sees the change at its next boot. A run that changed the VM emits virt.vbox.vm.resize back to the CPUs and memory it had. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "choices": [
+            "xsmall",
+            "small",
+            "medium",
+            "large",
+            "xlarge"
+          ],
+          "description": "The size to give the VM, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb, cpus or both, not size with either."
+        },
+        {
+          "name": "memory_mb",
+          "type": "int",
+          "description": "The memory to give it, in megabytes."
+        },
+        {
+          "name": "cpus",
+          "type": "int",
+          "description": "The virtual CPU count to give it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "memory_mb",
+          "type": "int",
+          "returned": "always",
+          "description": "Its memory after this task, in megabytes (predicted, in a check)."
+        },
+        {
+          "name": "cpus",
+          "type": "int",
+          "returned": "always",
+          "description": "Its virtual CPU count after this task (predicted, in a check)."
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "returned": "always",
+          "description": "Its T-shirt size after this task, or empty when its CPUs and memory are not exactly one size's."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its memory_mb, cpus and size before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make a lab VM bigger",
+          "runbookYaml": "- name: Shut the lab VM down\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n\n- name: Make it medium\n  virt.vbox.vm.resize:\n    name: ubuntu-lab\n    size: medium\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"
+        },
+        {
+          "name": "Give a VM more memory only",
+          "runbookYaml": "- name: Double the build VM's memory\n  virt.vbox.vm.resize:\n    name: build-vm\n    memory_mb: 8192\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.clone",
+        "virt.vbox.vm.stop",
+        "virt.vbox.vm.info"
       ]
     }
   },
@@ -6081,7 +6210,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Starts a VirtualBox VM with no window.",
-      "description": "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it. A check reads the VM and sends nothing.",
+      "description": "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it. A VM with more memory than the host has free, less 1024 MB kept for the host itself, is refused rather than started, since the host would page to find it; the host's free memory is read at the start. A check reads the VM and the host and sends nothing.",
       "params": [
         {
           "name": "name",
@@ -6420,6 +6549,88 @@
       "seeAlso": [
         "wait.path",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "win.cpu.topology": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsShellCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: this reports the host's processors and alters nothing, so there is nothing an undo could restore."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group.",
+      "description": "Reads the host's CPU sets as its scheduler sees them, through the Windows API GetSystemCpuSetInformation, and changes nothing. Each logical processor is reported with its processor group, core, NUMA node, last-level cache and efficiency class. On a hybrid processor, such as Intel's with P-cores and E-cores, a higher efficiency class is a faster, less power-efficient core: the logical processors with the highest class are reported as performance processors and the rest as efficiency processors, with the affinity mask that selects the performance ones. On a processor whose cores are all alike, every logical processor is a performance one. No WMI class reports efficiency classes, so the host compiles a small call to the API with PowerShell's Add-Type; a host whose PowerShell runs in Constrained Language Mode refuses that, and the task fails saying so. A check is the same read.",
+      "params": [
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "120",
+          "description": "How many seconds the read may take."
+        }
+      ],
+      "returns": [
+        {
+          "name": "processors",
+          "type": "list",
+          "returned": "always",
+          "description": "Each logical processor as index, group, core, numa_node, last_level_cache, efficiency_class and parked, in the order Windows lists them."
+        },
+        {
+          "name": "processor_count",
+          "type": "int",
+          "returned": "always",
+          "description": "How many logical processors the host has."
+        },
+        {
+          "name": "core_count",
+          "type": "int",
+          "returned": "always",
+          "description": "How many cores they are on."
+        },
+        {
+          "name": "hybrid",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the cores are of more than one efficiency class."
+        },
+        {
+          "name": "performance_processors",
+          "type": "list",
+          "returned": "always",
+          "description": "The indexes of the logical processors of the highest efficiency class: every one, when the host is not hybrid."
+        },
+        {
+          "name": "efficiency_processors",
+          "type": "list",
+          "returned": "always",
+          "description": "The indexes of the rest, empty when the host is not hybrid."
+        },
+        {
+          "name": "performance_affinity_mask",
+          "type": "string",
+          "returned": "when the host has one processor group",
+          "description": "The affinity mask selecting the performance processors, as hexadecimal, such as 0xC03C3: what Windows' start /affinity and a process's ProcessorAffinity take."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Find a host's performance cores",
+          "runbookYaml": "- name: Which of the lab host's cores are P-cores\n  win.cpu.topology: {}\n  register: cpus\n"
+        }
+      ],
+      "seeAlso": [
+        "facts.gather",
+        "virt.vbox.vm.start"
       ]
     }
   },

@@ -87,6 +87,9 @@ type Host struct {
 	Appliances map[string]*VM
 	// Files are the other files on the host, by path.
 	Files map[string][]byte
+	// CPUs, MemoryMB and AvailableMB are what list hostinfo reports; each
+	// left zero reports what the captured host did.
+	CPUs, MemoryMB, AvailableMB int
 
 	mu    sync.Mutex
 	vms   []*VM
@@ -275,12 +278,37 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 
 // list answers list vms and list runningvms.
 func (h *Host) list(what string) vboxmanage.Output {
+	if what == "hostinfo" {
+		return h.hostinfo()
+	}
 	var b strings.Builder
 	for _, vm := range h.vms {
 		if what == "vms" || (what == "runningvms" && vm.State == vboxmanage.StateRunning) {
 			fmt.Fprintf(&b, "%q {%s}\r\n", vm.Name, vm.UUID)
 		}
 	}
+	return vboxmanage.Output{Stdout: b.String()}
+}
+
+// hostinfo answers list hostinfo in the captured form (list-hostinfo.stdout),
+// with the model's processors and memory in it.
+func (h *Host) hostinfo() vboxmanage.Output {
+	value := func(set, captured int) int {
+		if set != 0 {
+			return set
+		}
+		return captured
+	}
+	cpus := value(h.CPUs, 20)
+	var b strings.Builder
+	b.WriteString("Host Information:\r\n\r\nHost time: 2026-09-27T16:20:57.030000000Z\r\n")
+	fmt.Fprintf(&b, "Processor online count: %d\r\nProcessor count: %d\r\nProcessor online core count: %d\r\nProcessor core count: %d\r\n", cpus, cpus, cpus, cpus)
+	b.WriteString("Processor supports HW virtualization: yes\r\nProcessor supports PAE: yes\r\nProcessor supports long mode: yes\r\nProcessor supports nested paging: yes\r\nProcessor supports unrestricted guest: no\r\nProcessor supports nested HW virtualization: no\r\nProcessor supports virt. vmsave/vmload: no\r\n")
+	for n := range cpus {
+		fmt.Fprintf(&b, "Processor#%d speed: unknown\r\nProcessor#%d description: Intel(R) Core(TM) Ultra 7 265KF\r\n", n, n)
+	}
+	fmt.Fprintf(&b, "Memory size: %d MByte\r\nMemory available: %d MByte\r\n", value(h.MemoryMB, 32388), value(h.AvailableMB, 15121))
+	b.WriteString("Operating system: Windows 11\r\nOperating system version: 10.0.26200.9457\r\n")
 	return vboxmanage.Output{Stdout: b.String()}
 }
 

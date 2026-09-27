@@ -239,3 +239,33 @@ func TestFail(t *testing.T) {
 		t.Errorf("err = %v, want the narrower failure", err)
 	}
 }
+
+// TestHostinfoMatchesTheCapture proves the model's list hostinfo is the
+// host's own answer byte for byte, and that the numbers a test sets are
+// the ones read back.
+func TestHostinfoMatchesTheCapture(t *testing.T) {
+	out, err := New().Run(context.Background(), Path, []string{"list", "hostinfo"})
+	if err != nil || out.Stdout != captured(t, "list-hostinfo.stdout") {
+		t.Fatalf("the model wrote\n%q\nthe host wrote\n%q (%v)", out.Stdout, captured(t, "list-hostinfo.stdout"), err)
+	}
+	h := New()
+	h.CPUs, h.MemoryMB, h.AvailableMB = 4, 8192, 2048
+	info, err := h.VBoxHost().HostInfo(context.Background())
+	if err != nil || info != (vboxmanage.HostInfo{CPUs: 4, MemoryMB: 8192, AvailableMB: 2048}) {
+		t.Errorf("read %+v, %v", info, err)
+	}
+}
+
+// TestResizeRefusedWhileSaved proves the model refuses a saved machine's
+// memory or CPUs, as VirtualBox does, and changes a stopped one's.
+func TestResizeRefusedWhileSaved(t *testing.T) {
+	vm := probe()
+	h := New(vm)
+	if err := h.VBoxHost().Resize(context.Background(), vm.Name, 2048, 2); err != nil || vm.MemoryMB != 2048 || vm.CPUs != 2 {
+		t.Fatalf("%v; %d MB, %d CPUs", err, vm.MemoryMB, vm.CPUs)
+	}
+	vm.State = vboxmanage.StateSaved
+	if err := h.VBoxHost().Resize(context.Background(), vm.Name, 1024, 1); err == nil || !strings.Contains(err.Error(), "Saved state") {
+		t.Errorf("a saved machine: %v", err)
+	}
+}

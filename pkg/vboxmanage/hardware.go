@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,7 +140,15 @@ type Hardware struct {
 	HostOnlyAdapter string
 	// ConsoleLog is the host file the first serial port is written to.
 	ConsoleLog string
+	// Paravirt is the paravirtualization interface the guest is offered,
+	// one of ParavirtProviders; "" leaves the machine's as it is.
+	Paravirt string
 }
+
+// ParavirtProviders are the paravirtualization interfaces VirtualBox
+// offers a guest: default picks one by the guest's OS type (kvm for
+// Linux), none offers nothing, so the guest keeps time by its own clock.
+var ParavirtProviders = []string{"default", "legacy", "minimal", "hyperv", "kvm", "none"}
 
 // adapterPattern is a host network adapter's name, such as "VirtualBox
 // Host-Only Ethernet Adapter #2".
@@ -168,11 +177,31 @@ func (h Host) Configure(ctx context.Context, vm string, hw Hardware) error {
 	if err := CheckPath("console log", hw.ConsoleLog); err != nil {
 		return err
 	}
-	_, err := h.run(ctx, "modifyvm", vm,
+	args := []string{"modifyvm", vm,
 		"--memory", strconv.Itoa(hw.MemoryMB), "--cpus", strconv.Itoa(hw.CPUs),
 		"--nic1", "nat", "--nic2", "hostonly", "--hostonlyadapter2", hw.HostOnlyAdapter,
 		"--uart1", "0x3F8", "4", "--uart-mode1", "file", hw.ConsoleLog,
-		"--autostart-enabled", "off")
+		"--autostart-enabled", "off"}
+	if hw.Paravirt != "" {
+		if !slices.Contains(ParavirtProviders, hw.Paravirt) {
+			return fmt.Errorf("vboxmanage: paravirtualization interface %q is not one of %s", hw.Paravirt, strings.Join(ParavirtProviders, ", "))
+		}
+		args = append(args, "--paravirt-provider", hw.Paravirt)
+	}
+	_, err := h.run(ctx, args...)
+	return err
+}
+
+// Resize sets vm's memory and CPUs, which VirtualBox changes only while
+// the machine is powered off.
+func (h Host) Resize(ctx context.Context, vm string, memoryMB, cpus int) error {
+	if err := CheckName("VM", vm); err != nil {
+		return err
+	}
+	if memoryMB < 4 || cpus < 1 {
+		return fmt.Errorf("vboxmanage: %d MB and %d CPUs is not a machine", memoryMB, cpus)
+	}
+	_, err := h.run(ctx, "modifyvm", vm, "--memory", strconv.Itoa(memoryMB), "--cpus", strconv.Itoa(cpus))
 	return err
 }
 

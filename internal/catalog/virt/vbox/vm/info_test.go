@@ -15,7 +15,7 @@ import (
 )
 
 func TestRegistered(t *testing.T) {
-	for fqcn, reversible := range map[string]bool{"virt.vbox.vm.info": false, "virt.vbox.vm.start": true, "virt.vbox.vm.stop": true} {
+	for fqcn, reversible := range map[string]bool{"virt.vbox.vm.info": false, "virt.vbox.vm.start": true, "virt.vbox.vm.stop": true, "virt.vbox.vm.resize": true} {
 		d, ok := collection.Lookup(fqcn)
 		if !ok {
 			t.Fatalf("%s is not registered", fqcn)
@@ -43,7 +43,7 @@ func TestInfo(t *testing.T) {
 			t.Fatalf("check %v: %+v, %v", check, result, err)
 		}
 		want := map[string]any{
-			"exists": true, "uuid": vm.UUID, "state": "poweroff", "memory_mb": 1024, "cpus": 2, "autostart_enabled": false,
+			"exists": true, "uuid": vm.UUID, "state": "poweroff", "memory_mb": 1024, "cpus": 2, "size": "", "autostart_enabled": false,
 			"snapshots":             []any{map[string]any{"name": "clean", "uuid": vm.Current, "description": "fresh install"}},
 			"current_snapshot_uuid": vm.Current,
 		}

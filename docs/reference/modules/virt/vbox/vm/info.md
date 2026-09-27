@@ -33,6 +33,7 @@ Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. 
 | `state` | `string` | when exists | VirtualBox's state for it: poweroff, running, saved, paused, aborted, or another VirtualBox reports. |
 | `memory_mb` | `int` | when exists | Its memory, in megabytes. |
 | `cpus` | `int` | when exists | Its virtual CPU count. |
+| `size` | `string` | when exists | Its T-shirt size, read from its CPUs and memory: xsmall, small, medium, large or xlarge, or empty when they are not exactly one size's. |
 | `autostart_enabled` | `bool` | when exists | Whether it is marked to start with the host account's autostart service. virt.vbox.vm.start sets this on a Windows host and virt.vbox.vm.stop clears it. |
 | `snapshots` | `list` | when exists | Each snapshot as name, uuid and description, a parent before its children. |
 | `current_snapshot_uuid` | `string` | when exists | The snapshot the VM's state descends from, or empty when it has none. |

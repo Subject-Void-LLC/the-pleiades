@@ -45,9 +45,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// methods and three snapshot methods on a host that runs VirtualBox.
 	// Making VMs there added the 89th through 94th: win.file.download,
 	// and virt.vbox.vm.import_ova, clone, delete, host_keys and list.
+	// Sizing VMs added the 95th, virt.vbox.vm.resize, and finding why
+	// multi-CPU VMs hang on a hybrid Windows host the 96th,
+	// win.cpu.topology.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 94
+	const wantCollections = 96
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

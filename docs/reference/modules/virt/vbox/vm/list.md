@@ -22,7 +22,7 @@ Reports every VM registered on the host for the account Pleiades reaches it as: 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `vms` | `list` | always | Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, and address and device when Pleiades made it, in the order VirtualBox lists them. |
+| `vms` | `list` | always | Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them. |
 
 ## Undoing this
 

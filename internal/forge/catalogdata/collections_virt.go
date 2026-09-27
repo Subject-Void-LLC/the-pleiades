@@ -6,6 +6,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vmsize"
 )
 
 // vboxHostParamNote is what every virt.vbox method says about its target.
@@ -22,6 +23,9 @@ var snapshotVMParam = collection.Param{Name: "vm", Type: "string", Required: tru
 // snapshotNameParam is a snapshot's name.
 var snapshotNameParam = collection.Param{Name: "name", Type: "string", Required: true,
 	Description: "The snapshot's name, under the same rule as a VM's. VirtualBox lets two snapshots share a name; virt.vbox.snapshot.take never makes a second, and the methods that find a snapshot by name refuse one that matches more than one unless uuid says which."}
+
+// vmSizeNote is what the methods that size a VM say its sizes are.
+var vmSizeNote = "a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: " + vmsize.Describe()
 
 // snapshotUUIDParam picks one of several snapshots sharing a name.
 var snapshotUUIDParam = collection.Param{Name: "uuid", Type: "string",
@@ -44,6 +48,7 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "state", Type: "string", Returned: "when exists", Description: "VirtualBox's state for it: poweroff, running, saved, paused, aborted, or another VirtualBox reports."},
 				{Name: "memory_mb", Type: "int", Returned: "when exists", Description: "Its memory, in megabytes."},
 				{Name: "cpus", Type: "int", Returned: "when exists", Description: "Its virtual CPU count."},
+				{Name: "size", Type: "string", Returned: "when exists", Description: "Its T-shirt size, read from its CPUs and memory: xsmall, small, medium, large or xlarge, or empty when they are not exactly one size's."},
 				{Name: "autostart_enabled", Type: "bool", Returned: "when exists", Description: "Whether it is marked to start with the host account's autostart service. virt.vbox.vm.start sets this on a Windows host and virt.vbox.vm.stop clears it."},
 				{Name: "snapshots", Type: "list", Returned: "when exists", Description: "Each snapshot as name, uuid and description, a parent before its children."},
 				{Name: "current_snapshot_uuid", Type: "string", Returned: "when exists", Description: "The snapshot the VM's state descends from, or empty when it has none."},
@@ -64,7 +69,8 @@ var virtCollections = []collectionscaffold.Config{
 			Description: "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming." +
 				vboxHostParamNote +
 				" On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it." +
-				" A check reads the VM and sends nothing.",
+				" A VM with more memory than the host has free, less 1024 MB kept for the host itself, is refused rather than started, since the host would page to find it; the host's free memory is read at the start." +
+				" A check reads the VM and the host and sends nothing.",
 			Params: []collection.Param{vmNameParam},
 			Returns: []collection.ReturnField{
 				{Name: "state", Type: "string", Returned: "always", Description: "The VM's state after this task, read back from the host."},
@@ -100,6 +106,34 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "Cut a VM's power", RunbookYAML: "- name: Power the lab VM off now\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: poweroff\n"},
 			},
 			SeeAlso: []string{"virt.vbox.vm.start"},
+		},
+	},
+	{
+		Name:          "virt.vbox.vm.resize",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count.",
+			Description: "Makes sure a VM has the CPUs and memory asked for: a size, or memory_mb and cpus, either of which alone leaves the other as it is. A VM that has them already reports no change. VirtualBox changes them only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A size larger than the host is refused: more CPUs than it has processors online, or more memory than it has. The guest sees the change at its next boot. A run that changed the VM emits virt.vbox.vm.resize back to the CPUs and memory it had." +
+				vboxHostParamNote + " A check reads the VM and the host, and sends nothing.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "size", Type: "string", Choices: vmsize.Names(), Description: "The size to give the VM, " + vmSizeNote + ". Give size, or memory_mb, cpus or both, not size with either."},
+				{Name: "memory_mb", Type: "int", Description: "The memory to give it, in megabytes."},
+				{Name: "cpus", Type: "int", Description: "The virtual CPU count to give it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "memory_mb", Type: "int", Returned: "always", Description: "Its memory after this task, in megabytes (predicted, in a check)."},
+				{Name: "cpus", Type: "int", Returned: "always", Description: "Its virtual CPU count after this task (predicted, in a check)."},
+				{Name: "size", Type: "string", Returned: "always", Description: "Its T-shirt size after this task, or empty when its CPUs and memory are not exactly one size's."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Its memory_mb, cpus and size before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Make a lab VM bigger", RunbookYAML: "- name: Shut the lab VM down\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n\n- name: Make it medium\n  virt.vbox.vm.resize:\n    name: ubuntu-lab\n    size: medium\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
+				{Name: "Give a VM more memory only", RunbookYAML: "- name: Double the build VM's memory\n  virt.vbox.vm.resize:\n    name: build-vm\n    memory_mb: 8192\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.clone", "virt.vbox.vm.stop", "virt.vbox.vm.info"},
 		},
 	},
 	{
@@ -193,7 +227,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login.",
-			Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded. The new VM gets the memory and CPUs asked for, a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive." +
+			Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive." +
 				" The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started." +
 				vboxHostParamNote + " A check reads the host's VMs and the snapshot, and sends nothing.",
 			Params: []collection.Param{
@@ -203,19 +237,22 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "login", Type: "string", Required: true, Description: "The inventory device whose stored login the VM is seeded with: its user name, its key's public half and a hash of its password. Usually the device that stands for this VM."},
 				{Name: "address", Type: "string", Required: true, Description: "The host-only adapter's address with its prefix, as 192.168.56.10/24. Keep it out of the host-only DHCP server's range."},
 				{Name: "hostname", Type: "string", Description: "The VM's host name. Defaults to name, which must then be a valid host name."},
-				{Name: "memory_mb", Type: "int", Default: "1024", Description: "Its memory, in megabytes."},
-				{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count."},
+				{Name: "size", Type: "string", Choices: vmsize.Names(), Description: "The VM's size, " + vmSizeNote + ". Give size, or memory_mb and cpus, not both; with none of the three, the VM is xsmall."},
+				{Name: "memory_mb", Type: "int", Default: "1024", Description: "Its memory, in megabytes, when size is not given."},
+				{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count, when size is not given."},
+				{Name: "paravirt_provider", Type: "string", Choices: []string{"default", "legacy", "minimal", "hyperv", "kvm", "none"}, Description: "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."},
 				{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also its cloud-init instance ID."},
 				{Name: "address", Type: "string", Returned: "always", Description: "The host-only address the VM was given, without its prefix."},
+				{Name: "size", Type: "string", Returned: "always", Description: "The VM's T-shirt size, read from its CPUs and memory (those asked for, in a check that would clone), or empty when they are not exactly one size's."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
+				{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n    size: small\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
 			},
-			SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
+			SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.resize", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
 		},
 	},
 	{
@@ -269,7 +306,7 @@ var virtCollections = []collectionscaffold.Config{
 			Description: "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed." +
 				vboxHostParamNote + " A check is the same read.",
 			Returns: []collection.ReturnField{
-				{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, and address and device when Pleiades made it, in the order VirtualBox lists them."},
+				{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them."},
 			},
 			Examples: []collection.Example{
 				{Name: "List the lab's VMs", RunbookYAML: "- name: What runs on the lab host\n  virt.vbox.vm.list: {}\n"},

@@ -132,6 +132,11 @@ func (h *Host) modifyvm(name string, args []string) vboxmanage.Output {
 	if err != nil {
 		return errorOutput(err.Error())
 	}
+	_, memory := f["--memory"]
+	_, cpus := f["--cpus"]
+	if vm.State == vboxmanage.StateSaved && (memory || cpus) {
+		return savedState(vm.Name)
+	}
 	if vm.NICs == nil {
 		vm.NICs = map[int]vboxmanage.NIC{}
 	}
@@ -143,7 +148,7 @@ func (h *Host) modifyvm(name string, args []string) vboxmanage.Output {
 			vm.CPUs, _ = strconv.Atoi(value)
 		case key == "--autostart-enabled":
 			vm.Autostart = value == "on"
-		case key == "--autostart-delay", key == "--uart1":
+		case key == "--autostart-delay", key == "--uart1", key == "--paravirt-provider":
 		case key == "--uart-mode1":
 			vm.ConsoleLog = strings.TrimPrefix(value, "file ")
 		case strings.HasPrefix(key, "--nic"):
@@ -164,6 +169,15 @@ func (h *Host) modifyvm(name string, args []string) vboxmanage.Output {
 		}
 	}
 	return vboxmanage.Output{}
+}
+
+// savedState is the answer for a hardware change VirtualBox refuses while a
+// machine's saved state holds its memory. It is the model's wording, not a
+// captured one.
+func savedState(name string) vboxmanage.Output {
+	return errorOutput(
+		fmt.Sprintf("The machine '%s' is in the Saved state; its memory and processors cannot be changed", name),
+		"Details: code VBOX_E_INVALID_VM_STATE (0x80bb0002), component MachineWrap, interface IMachine")
 }
 
 // storageattach answers putting a DVD image in a slot, emptying one, or

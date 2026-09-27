@@ -37,7 +37,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Starts a VirtualBox VM with no window.",
-				Description: "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it. A check reads the VM and sends nothing.",
+				Description: "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it. A VM with more memory than the host has free, less 1024 MB kept for the host itself, is refused rather than started, since the host would page to find it; the host's free memory is read at the start. A check reads the VM and the host and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 				},
@@ -62,8 +62,9 @@ func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	return runStart(ctx, rc, device, params, collection.ModeExecute)
 }
 
-// CheckStart is "virt.vbox.vm.start"'s check: it reads the VM, and the
-// running VMs that decide how a start would go, and sends nothing.
+// CheckStart is "virt.vbox.vm.start"'s check: it reads the VM, the host's
+// free memory and the running VMs that decide how a start would go, and
+// sends nothing.
 func CheckStart(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	return runStart(ctx, rc, device, params, collection.ModeCheck)
 }
@@ -86,6 +87,9 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 	if before.State == vboxmanage.StateRunning {
 		return collection.Result{}, record(rc, fqcn, before, before, false)
+	}
+	if err := fitsNow(ctx, h, before); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if mode == collection.ModeCheck {
 		running, err := h.Running(ctx)

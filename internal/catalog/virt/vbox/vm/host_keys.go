@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -139,7 +140,7 @@ func waitForKeys(ctx context.Context, h vboxmanage.Host, name, log string, once 
 			return nil, fmt.Errorf("%q is %s and its console shows no host keys; start it with virt.vbox.vm.start", name, m.State)
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%q's console showed no host keys within %s; its log is %s", name, timeout, log)
+			return nil, fmt.Errorf("%q's console showed no host keys within %s; %s, and its log is %s", name, timeout, lastLine(console), log)
 		}
 		select {
 		case <-ctx.Done():
@@ -147,4 +148,22 @@ func waitForKeys(ctx context.Context, h vboxmanage.Host, name, log string, once 
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// lastLineMax is how much of the console's last line an error quotes.
+const lastLineMax = 160
+
+// lastLine says what the console printed last, quoted, since it is the
+// guest's text and not this program's: where a boot that never finished
+// stopped.
+func lastLine(console []byte) string {
+	text := strings.TrimRight(string(console), " \t\r\n")
+	if text == "" {
+		return "it printed nothing"
+	}
+	line := strings.TrimSpace(text[strings.LastIndex(text, "\n")+1:])
+	if len(line) > lastLineMax {
+		line = line[:lastLineMax] + "..."
+	}
+	return fmt.Sprintf("the last line it printed was %q", line)
 }

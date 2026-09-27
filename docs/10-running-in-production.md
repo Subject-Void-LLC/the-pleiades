@@ -2241,6 +2241,14 @@ cloud-init with a login generated into the vault (`pleiades add-credential --gen
 its SSH host keys are trusted from its serial console (`pleiades trust-host --from-console`).
 It then manages the VM over SSH like any other Linux host.
 
+VMs come in T-shirt sizes (`size: small` and so on, each a CPU count and a memory size), and
+`virt.vbox.vm.resize` changes a stopped VM's size. The methods refuse a VM larger than the host,
+and a start the host's free memory cannot hold. One thing to know before choosing a size on a
+Windows host where WSL 2, Docker Desktop or Memory Integrity keeps Hyper-V running: VirtualBox
+then runs guests through the Windows Hypervisor Platform, and there a Linux guest with more than
+one CPU can hang early in its boot. The lab's "Limits and troubleshooting" section has the
+measurements and a change to the guest that avoids it.
+
 ## Data handling disclosure
 
 Two different things get called "secret" in this codebase, and they are protected

@@ -19,7 +19,8 @@ examples/virtualbox_lab/
       02-base.yaml          import it as a base VM that is never booted, and snapshot it
       03-create.yaml        clone the lab VM from that snapshot, boot it, read its host keys
       04-bootstrap.yaml     the first run against the VM itself, over SSH
-      list.yaml             every VM on the host, with the address each was given
+      list.yaml             every VM on the host, with its size and the address it was given
+      resize.yaml           shut the lab VM down, give it another size, start it again
       teardown.yaml         power the lab VM off and delete it
 ```
 
@@ -151,6 +152,7 @@ pleiades run runbooks/03-create.yaml -v
 ```
   tasks[0] [...]: changed
     address: 192.168.56.10
+    size: small
     uuid: 493a71a2-27aa-41f5-a436-4647fb3cbada
   tasks[1] [...]: changed
     state: running
@@ -166,7 +168,7 @@ Three tasks do it:
 
 - **`virt.vbox.vm.clone`** makes `ubuntu-lab` as a linked clone of `ubuntu-2404-base`'s
   snapshot `base`, and gives it:
-  - 2048 MB and one CPU;
+  - the `small` size: one CPU and 2048 MB ("Sizes", below);
   - a NAT adapter for the internet, and a host-only adapter at `192.168.56.10`;
   - a serial console written to `console.log` in its folder;
   - a cloud-init seed on its DVD drive (next section).
@@ -245,12 +247,15 @@ pleiades run runbooks/list.yaml -v
         device: ubuntu-lab
         memory_mb: 2048
         name: ubuntu-lab
+        size: small
         state: running
         uuid: 493a71a2-27aa-41f5-a436-4647fb3cbada
 ```
 
 This is where the lab VMs are visible: your own VirtualBox Manager will not list them (next
-section). `address` and `device` come from what `virt.vbox.vm.clone` recorded on the VM.
+section). `size` is read from each VM's CPUs and memory, and left out when they are not one
+size's, as for the base. `address` and `device` come from what `virt.vbox.vm.clone` recorded
+on the VM.
 VirtualBox cannot know a guest's address without its Guest Additions, which the cloud image
 does not have.
 
@@ -348,6 +353,49 @@ While any of the account's VMs runs, a plain start works, and `via_autostart_ser
 which way a start went. The autostart mark stays on while the VM runs, since VirtualBox will
 not change a running VM's settings; `virt.vbox.vm.stop` clears it.
 
+### Sizes
+
+A VM's size names its CPUs and memory together, as a cloud's instance type does:
+
+| Size | CPUs | Memory |
+|---|---|---|
+| `xsmall` | 1 | 1024 MB |
+| `small` | 1 | 2048 MB |
+| `medium` | 2 | 4096 MB |
+| `large` | 4 | 8192 MB |
+| `xlarge` | 8 | 16384 MB |
+
+- **`virt.vbox.vm.clone` takes `size`**, or `memory_mb` and `cpus`, but not both, since one
+  would silently overrule the other. With none of them, the VM is `xsmall`.
+- **`virt.vbox.vm.resize` changes a stopped VM**, by `size` or by either number alone.
+  VirtualBox changes memory and CPUs only while a VM is powered off, so a running VM is
+  refused; stop it first. The run records the size the VM had as its undo.
+- **A VM larger than the host is refused** before it is made or resized: more CPUs than the
+  host has processors online, or more memory than it has.
+- **`virt.vbox.vm.start` refuses a VM the host cannot hold right now**: more memory than the
+  host has free, less 1024 MB it keeps for itself. On this host, with 32 GB and about 15 GB
+  free, `xlarge` can be made but not started.
+- **A clone that finds a VM of another size warns.** It never changes a VM it finds, and a
+  plain "ok" would hide that the VM is not the size the runbook asks for.
+
+To make the lab VM bigger:
+
+```yaml
+- name: Shut the lab VM down
+  fqcn: virt.vbox.vm.stop
+  params: {name: ubuntu-lab}
+- name: Make it medium
+  fqcn: virt.vbox.vm.resize
+  params: {name: ubuntu-lab, size: medium}
+- name: Start it again
+  fqcn: virt.vbox.vm.start
+  params: {name: ubuntu-lab}
+```
+
+On a Windows host where WSL 2 or Docker Desktop runs, give a VM its first boot at a one-CPU
+size; "Limits and troubleshooting" says why, and what to change in the guest before resizing it
+to `medium` or larger.
+
 ### Trusting the host key
 
 A VM makes new SSH host keys on its first boot, so nothing knows them in advance. Two ways to
@@ -363,17 +411,30 @@ learn them:
 
 ## Limits and troubleshooting
 
-**Keep the VM at one CPU on this kind of host.** Where WSL 2 or Docker Desktop is installed,
-Windows' own hypervisor is running, and VirtualBox runs guests on top of it. On this host, a
-two-CPU clone completed its first boot once in three tries. The other two times the guest hung
-four seconds in, at `Begin: Loading essential drivers ...` in its initramfs, with one host core
-busy. That point is where the kernel times its RAID checksum routines against the guest's
-timer, and VirtualBox's log for the VM warned that the timer mode it wanted was not available
-on this host. A one-CPU clone booted every time. `03-create.yaml` asks for one CPU, as does
-`virt.vbox.vm.clone`'s default.
+**Keep to one CPU on this kind of host, or change the guest first.** Where WSL 2 or Docker
+Desktop is installed, Windows' own hypervisor is running, and VirtualBox runs guests on top of it
+through the Windows Hypervisor Platform (its log says `Attempting fall back to NEM`). Measured on
+this host:
 
-**`host_keys` times out.** Read `G:\PleiadesLab\<vm>\console.log` to see where the boot stopped.
-The VM's own VirtualBox log is `G:\PleiadesLab\<vm>\Logs\VBox.log`.
+- A guest with 2, 3 or 4 CPUs hung at boot about one time in three on first boots, and 7 times
+  in 8 on later reboots. Every hang stopped at `Begin: Loading essential drivers ...`, where
+  the initramfs loads the RAID modules and the kernel times its RAID6 and XOR routines against
+  the guest's timer. A one-CPU guest never hung.
+- Holding the VM to the processor's performance cores did not help, nor did turning
+  VirtualBox's paravirtualized clock off (`paravirt_provider: none`).
+- A guest that no longer loads those modules at boot did not hang: 8 reboots in 8 at two CPUs,
+  against 7 hangs in 8 before.
+
+So make the first boot at one CPU (`size: xsmall` or `small`), remove what loads the modules
+(`apt-get purge mdadm btrfs-progs` and `update-initramfs -u` on Ubuntu, fine for a VM whose root
+is ext4 on a plain disk), stop the VM, and resize it with `virt.vbox.vm.resize`. The other fix
+is to turn Windows' hypervisor off (`bcdedit /set hypervisorlaunchtype off`), which also turns
+off WSL 2 and Docker Desktop.
+
+**`host_keys` times out.** Its error quotes the last line the VM's console printed, which says
+where the boot stopped; `Begin: Loading essential drivers ...` is the multi-CPU hang above. The
+whole console is `G:\PleiadesLab\<vm>\console.log`, and the VM's own VirtualBox log is
+`G:\PleiadesLab\<vm>\Logs\VBox.log`.
 
 **`clone` fails partway.** A clone that fails after VirtualBox made the VM deletes it again, so
 a later run makes it afresh rather than finding a half-made VM and calling it done. The error

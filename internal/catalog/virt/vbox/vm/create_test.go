@@ -345,7 +345,7 @@ func TestHostKeys_Refusals(t *testing.T) {
 	}{
 		"a stopped VM with no keys": {stopped, map[string]any{}, "start it"},
 		"no console log":            {noLog, map[string]any{}, "writes its serial console to no file"},
-		"no keys in time":           {booting(log), map[string]any{"timeout": 1}, "within 1s"},
+		"no keys in time":           {booting(log), map[string]any{"timeout": 1}, "within 1s; it printed nothing"},
 		"a zero timeout":            {booting(log), map[string]any{"timeout": 0}, "positive"},
 		"a text timeout":            {booting(log), map[string]any{"timeout": "soon"}, "timeout"},
 	} {
@@ -357,6 +357,18 @@ func TestHostKeys_Refusals(t *testing.T) {
 		if _, err := call(t, "virt.vbox.vm.host_keys", false, newRecorder(), p); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: %v, want one mentioning %q", why, err, tt.want)
 		}
+	}
+	hung := vboxmanagetest.New(booting(log))
+	hung.SetFile(log, []byte("[    1.5] raid6: avx2x4   gen() 41843 MB/s\r\n[    1.6] raid6: \x1b[31mavx2x2\r\n\r\n"))
+	onModel(t, hung)
+	if _, err := call(t, "virt.vbox.vm.host_keys", false, newRecorder(), map[string]any{"name": "ubuntu-lab", "timeout": 1}); err == nil ||
+		!strings.Contains(err.Error(), `the last line it printed was "[    1.6] raid6: \x1b[31mavx2x2", and its log is`) {
+		t.Errorf("a boot that stopped: %v", err)
+	}
+	hung.SetFile(log, []byte(strings.Repeat("x", 200)))
+	if _, err := call(t, "virt.vbox.vm.host_keys", false, newRecorder(), map[string]any{"name": "ubuntu-lab", "timeout": 1}); err == nil ||
+		!strings.Contains(err.Error(), `"`+strings.Repeat("x", lastLineMax)+`..."`) {
+		t.Errorf("a long last line: %v", err)
 	}
 	model := vboxmanagetest.New(booting(log))
 	model.Fail = map[string]vboxmanage.Output{"powershell read": {ExitCode: 1, Stderr: "Access denied\r\n"}}
