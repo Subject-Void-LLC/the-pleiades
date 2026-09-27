@@ -92,7 +92,7 @@ func handledRights(abi int) uint64 {
 
 // scopes is the IPC scoping the kernel at abi offers: from ABI 6 a
 // program can neither signal a process outside its domain, such as
-// Pleiades itself, nor connect to an abstract Unix socket created outside
+// The Pleiades itself, nor connect to an abstract Unix socket created outside
 // it.
 func scopes(abi int) uint64 {
 	if abi >= 6 {
@@ -137,7 +137,7 @@ func startConfined(cmd *exec.Cmd, rules []confineRule, abi int) error {
 // confineAndStart is startConfined's goroutine. It never restricts the
 // process's main thread. That thread cannot exit, so Go parks it forever
 // instead, and it is the thread a signal to this process's ID is checked
-// against: restricting it would put Pleiades inside the program's own
+// against: restricting it would put The Pleiades inside the program's own
 // domain, where the program may signal it. Found by
 // TestConfinement_AProgramReachesOnlyWhatItWasHanded, whose program could
 // signal its parent whenever the scheduler happened to pick that thread.

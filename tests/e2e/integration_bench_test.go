@@ -108,7 +108,7 @@ func BenchmarkAnsiblePlaybookDispatchComparable(b *testing.B) {
 	}
 
 	// One task that does nothing, which is what the "noop" runbook the
-	// Pleiades benchmark dispatches also does.
+	// The Pleiades benchmark dispatches also does.
 	playbook := filepath.Join(dir, "play.yml")
 	if err := os.WriteFile(playbook, []byte(
 		"- hosts: edge\n  gather_facts: false\n  tasks:\n    - name: step\n      ansible.builtin.meta: noop\n"), 0o600); err != nil {

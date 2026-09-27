@@ -755,7 +755,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 
 	// A record page's title is the record, not the view it belongs to. The
 	// browser tab is the one place a reader distinguishes eight open jobs
-	// from each other, and "Jobs // Pleiades" eight times over does not.
+	// from each other, and "Jobs // The Pleiades" eight times over does not.
 	model.Page.Title = model.RecordName()
 
 	// Only the Output tab reads a stream, so only it pulls the stream

@@ -3,7 +3,7 @@
 // exactly as it calls a built-in method.
 //
 // An external Collection is a program built outside this repository with
-// pkg/external. Pleiades runs it as a child process, beside itself, on the
+// pkg/external. The Pleiades runs it as a child process, beside itself, on the
 // machine running `pleiades run` or on the Runner. It is never copied onto
 // a managed device. It reaches a device the way a built-in method does,
 // through pkg/sdk.Connect and the one credential it is handed on stdin.
@@ -20,8 +20,8 @@
 // # The trust model
 //
 // The directory is the trust root, and it is a small one on purpose.
-// Whoever can write to it can make Pleiades run a program of their
-// choosing, as the user Pleiades runs as. So Load refuses a directory, or
+// Whoever can write to it can make The Pleiades run a program of their
+// choosing, as the user The Pleiades runs as. So Load refuses a directory, or
 // a program in it, that is group- or world-writable, or owned by anyone
 // but this process's own user or root. A program must be a regular file
 // with its owner-execute bit set. A symlink is refused rather than
@@ -40,16 +40,16 @@
 //
 // # Confinement
 //
-// A program runs as the same OS user as Pleiades, so the process boundary
-// alone would decide only what Pleiades hands it, not what it can go and
+// A program runs as the same OS user as The Pleiades, so the process boundary
+// alone would decide only what The Pleiades hands it, not what it can go and
 // read for itself: the project's credential store and its master key,
-// the user's SSH keys, and Pleiades's own starting environment under
+// the user's SSH keys, and The Pleiades's own starting environment under
 // /proc (FAILURE_PATTERNS 251). So every run is confined, through Linux's
 // Landlock, to what the program needs: its own directory, the system's
 // libraries, certificates, resolver files and time zone database, the
 // known_hosts file, /dev/null, a private scratch directory set as its
 // TMPDIR, and any path the operator grants (Options.ReadPaths). From
-// Landlock ABI 6 it also cannot signal Pleiades or reach an abstract Unix
+// Landlock ABI 6 it also cannot signal The Pleiades or reach an abstract Unix
 // socket outside its domain. Before the first program starts, Load marks
 // this process not dumpable, so its memory and environment are closed to
 // the program even through /proc.
@@ -63,7 +63,7 @@
 //
 // In, on stdin only: the method name, the mode (execute or check), the
 // task's params, the target device's identity, address and capabilities,
-// and the credential Pleiades resolved for the task. That credential comes
+// and the credential The Pleiades resolved for the task. That credential comes
 // from the credential manager exactly as it does for a built-in method (the
 // machine credential bound to the template, resolved at fan-out, or the
 // device's own stored credential when the template binds none), through

@@ -84,7 +84,7 @@ type Metadata struct {
 	// Called labels rather than tags, deliberately, and this is the one
 	// naming decision here worth defending. Ansible already has tags:, and
 	// it means something specific and different -- which tasks --tags and
-	// --skip-tags select at run time. Pleiades aims to be a strict
+	// --skip-tags select at run time. The Pleiades aims to be a strict
 	// superset of Ansible playbooks, so that meaning is reserved, and
 	// spending the word on catalog filtering would make a future
 	// implementation of real Ansible tags either impossible or
@@ -109,7 +109,7 @@ func (m Metadata) IsInterruptible() bool {
 // decode into the identical Go value and therefore compile to the
 // identical *DAG (Part 0 Phase W2's bidirectional-compilation requirement).
 //
-// Pleiades aims to be a strict superset of Ansible playbooks with a minimum
+// The Pleiades aims to be a strict superset of Ansible playbooks with a minimum
 // barrier to entry, so a runbook is authored the way an Ansible playbook
 // is: an ordered pretasks/tasks/posttasks list, not a hand-wired graph of
 // nodes and edges. PreTasks and PostTasks give authors the same "setup,

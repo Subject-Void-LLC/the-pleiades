@@ -218,7 +218,7 @@ func TestLoad_Refusals(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: "belongs to Pleiades itself",
+			want: "belongs to The Pleiades itself",
 		},
 		{
 			name: "a name two programs claim",

@@ -222,11 +222,11 @@ func TestPageModel_Accessors(t *testing.T) {
 
 	// Most specific part first, so a truncated browser tab still shows the
 	// useful half.
-	if want := "Widgets // Pleiades"; p.DocumentTitle() != want {
+	if want := "Widgets // The Pleiades"; p.DocumentTitle() != want {
 		t.Errorf("DocumentTitle() = %q, want %q", p.DocumentTitle(), want)
 	}
 	if got := (view.PageModel{}).DocumentTitle(); got != "Pleiades" {
-		t.Errorf("DocumentTitle() with no title = %q, want Pleiades", got)
+		t.Errorf("DocumentTitle() with no title = %q, want The Pleiades", got)
 	}
 	if want := "/ui/static/app.abc123.css"; p.AssetPath("app.abc123.css") != want {
 		t.Errorf("AssetPath() = %q, want %q", p.AssetPath("app.abc123.css"), want)

@@ -37,7 +37,7 @@ var Plugins = []pluginscaffold.Config{
 		RequiresCredentials: true,
 		// The DevNet sandbox is read-only, and so is this plugin by design:
 		// a controller is the authoritative source for the devices it
-		// manages, so Pleiades imports from it and never writes back.
+		// manages, so The Pleiades imports from it and never writes back.
 		ReadOnly: true,
 	},
 	{

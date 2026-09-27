@@ -42,7 +42,7 @@ type templateData struct {
 	// example "acme-motd-read".
 	BinaryName string
 
-	// GoVersion is the go.mod's go line: the Go version Pleiades itself
+	// GoVersion is the go.mod's go line: the Go version The Pleiades itself
 	// requires (goDirective).
 	GoVersion string
 
@@ -71,13 +71,13 @@ var (
 )
 
 // goDirective is the go line a generated go.mod carries: the one in
-// Pleiades's own go.mod, which is the oldest Go that can build a program
+// The Pleiades's own go.mod, which is the oldest Go that can build a program
 // importing it. TestGoDirectiveMatchesTheModule keeps the two equal.
 const goDirective = "1.26.0"
 
 // goModTemplateSource is the program's go.mod: a module line and a go
 // line, and nothing else. There is no require, because the right version
-// of Pleiades is one only the go command can work out (go mod tidy
+// of The Pleiades is one only the go command can work out (go mod tidy
 // resolves it through the module proxy and records its checksum), and no
 // replace, because a replace to a local path is not checked against
 // anything and means something different on every machine. The README

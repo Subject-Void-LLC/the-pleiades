@@ -106,7 +106,7 @@ type NodeResult struct {
 	// Provider names the external Collection program behind this node's
 	// method, with the digest it was loaded with, and is nil for a method
 	// compiled into this binary. It travels with the result so a reader
-	// far from the run can tell third-party work from Pleiades's own. It
+	// far from the run can tell third-party work from The Pleiades's own. It
 	// comes from collection.Descriptor.Provider, which only the loader
 	// sets.
 	Provider *collection.Provider

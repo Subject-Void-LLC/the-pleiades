@@ -1,6 +1,6 @@
 // The RULE 0 test of Main's real wiring: a real external Collection
 // program, built from source with `go build` and run as a genuine child
-// process, the way Pleiades runs one.
+// process, the way The Pleiades runs one.
 //
 // Everything in serve_test.go runs Serve over buffers, which proves the
 // logic and nothing about the wiring around it. This file proves the

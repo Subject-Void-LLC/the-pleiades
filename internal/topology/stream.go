@@ -12,7 +12,7 @@ import (
 )
 
 // StreamConfig returns the one JetStream stream configuration every
-// Pleiades subject is published on, for the stated outage budget. There is exactly one stream: see
+// The Pleiades subject is published on, for the stated outage budget. There is exactly one stream: see
 // StreamName's doc comment for why splitting subjects across several
 // streams (as this package's predecessor declarations did) is the drift
 // this package exists to prevent.
@@ -109,7 +109,7 @@ func sameSubjects(live, declared []string) bool {
 	return true
 }
 
-// ProvisionStream reconciles the Pleiades stream to the shape
+// ProvisionStream reconciles The Pleiades stream to the shape
 // StreamConfig declares, creating it if it is absent and updating it in
 // place if its shape has moved.
 //
@@ -168,7 +168,7 @@ func ProvisionStream(ctx context.Context, js jetstream.JetStream, budget OutageB
 	return stream, StreamConfigDrift(stream.CachedInfo().Config, budget), nil
 }
 
-// AttachStream binds to the Pleiades stream, creating it only when it does
+// AttachStream binds to The Pleiades stream, creating it only when it does
 // not exist yet, and never reshaping one that does.
 //
 // Every process except cmd/controller uses this. The create-if-absent half

@@ -8,7 +8,7 @@ import "fmt"
 // of where it appears in the tree: exactly one of FQCN (a leaf task),
 // Block (a block task), or Parallel (a parallel task) must be set, having
 // more than one or none of them is an error, mirroring Ansible where a
-// task is either a module call or a block (Parallel is Pleiades' own
+// task is either a module call or a block (Parallel is The Pleiades' own
 // addition, PLAN.md Section 14). It also rejects Rescue or Always set
 // without a Block, since rescue/always without a block to guard is
 // meaningless: there is nothing that could fail, and a Parallel task

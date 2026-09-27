@@ -55,7 +55,7 @@ var gatingCollections = []collectionscaffold.Config{
 		// Namespaced under pleiades.builtin, not the bare "wait.port" its
 		// wait.path/wait.search siblings still use: this is the first
 		// (and, as of this entry, only) native-only method in the catalog
-		// deliberately marked as belonging to Pleiades' own reserved
+		// deliberately marked as belonging to The Pleiades' own reserved
 		// namespace rather than mapping 1:1 from an Ansible module name.
 		// See docs/hephaestus.md's "four of the thirty six are not
 		// collections at all" section for set_metadata's sibling case

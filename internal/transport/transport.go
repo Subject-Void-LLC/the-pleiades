@@ -1,5 +1,5 @@
 // Package transport defines the protocol-agnostic port through which
-// Pleiades runs one command against one device. It knows nothing about
+// The Pleiades runs one command against one device. It knows nothing about
 // inventory devices, capabilities, or any specific wire protocol; a
 // concrete Adapter (internal/transport/ssh, for example) is what speaks a
 // real protocol, and internal/engine is what translates a resolved

@@ -1,6 +1,6 @@
 // Package main_test: the Release Gate for external Collections
 // (IMPLEMENTATION.md Phases 42 and 45, the payload the user chose on
-// 2026-09-18: a separate program run beside Pleiades, never copied onto a
+// 2026-09-18: a separate program run beside The Pleiades, never copied onto a
 // device).
 //
 // A real program, examples/external_collection, is built from source the

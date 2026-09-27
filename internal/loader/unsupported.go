@@ -12,7 +12,7 @@ func unsupportedMessage(goos string) string {
 	msg := fmt.Sprintf("external collections are not supported on %s: loading them safely needs a confined child process "+
 		"(Landlock on Linux) and Unix file ownership and permission checks on their directory, and neither exists here yet", goos)
 	if goos == "windows" {
-		msg += "; run Pleiades under WSL 2, which is Linux and supports them"
+		msg += "; run The Pleiades under WSL 2, which is Linux and supports them"
 	}
 	return msg
 }

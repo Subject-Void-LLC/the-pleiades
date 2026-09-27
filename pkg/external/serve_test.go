@@ -90,7 +90,7 @@ func richDescriptors(invoked *callCounter) []collection.Descriptor {
 // one Description naming the protocol and every method in the order the
 // program passed them, each with its whole manifest intact after a JSON
 // round trip. The manifest is the one document a loader ever reads about a
-// third-party method, so a field lost here is a field Pleiades never
+// third-party method, so a field lost here is a field The Pleiades never
 // learns.
 func TestServe_DescribeWritesEveryMethodAndManifest(t *testing.T) {
 	var calls callCounter

@@ -36,7 +36,7 @@ type catalogEntry struct {
 	// Origin names the external Collection program that provides this
 	// method and the digest it was pinned to, or is empty for a built-in
 	// method. It is printed because an operator reading a method's
-	// reference needs to know whether it ships with Pleiades or came from
+	// reference needs to know whether it ships with The Pleiades or came from
 	// a program somebody installed.
 	Origin string
 }

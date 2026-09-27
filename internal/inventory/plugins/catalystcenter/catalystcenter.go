@@ -6,7 +6,7 @@
 // (internal/forge/pluginscaffold), then implemented against Cisco's public
 // DevNet always-on sandbox at sandboxdnac.cisco.com. That sandbox is
 // read-only, which is why this plugin is read-only by default rather than
-// as an afterthought: a controller owns the devices it manages, so Pleiades
+// as an afterthought: a controller owns the devices it manages, so The Pleiades
 // imports from it and never writes back.
 //
 // This is the plugin that justified building the four-method port at all.
@@ -185,7 +185,7 @@ func (p *CatalystCenter) Classify(_ context.Context, rec record.Record) (syncplu
 	// Every device imported from a read-only controller lands
 	// simulate-locked rather than active. LifecycleState.CanExecute already
 	// returns false for that state, so this is the existing Section 9
-	// mechanism doing what it was built for: a device Pleiades has only
+	// mechanism doing what it was built for: a device The Pleiades has only
 	// read about, and never authenticated to directly, should not accept
 	// real work until an admin promotes it.
 	state := inventory.StateSimulateLocked

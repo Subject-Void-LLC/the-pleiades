@@ -20,7 +20,7 @@ import (
 
 // The confinement tests: a real program built with pkg/external
 // (testdata/extprog's loadertest.goprog.reach) tries to open every secret
-// a hostile program would go for, and to signal Pleiades, and the tests
+// a hostile program would go for, and to signal The Pleiades, and the tests
 // assert on what it actually got. Each confined assertion has a control
 // run through the same code with confinement switched off, which reaches
 // what the confined run could not, so the test can fail.
@@ -117,7 +117,7 @@ func makeDumpable(t *testing.T) {
 }
 
 // TestConfinement_AProgramReachesOnlyWhatItWasHanded is the confined half:
-// every secret is denied, Pleiades cannot be signalled, and what a program
+// every secret is denied, The Pleiades cannot be signalled, and what a program
 // legitimately needs (the known_hosts file, a granted path, its own
 // temporary directory) still works.
 func TestConfinement_AProgramReachesOnlyWhatItWasHanded(t *testing.T) {

@@ -51,7 +51,7 @@ type Config struct {
 	//
 	// First, devices imported from a read-only source land in
 	// StateSimulateLocked rather than StateActive, so LifecycleState's own
-	// CanExecute gate stops a runbook from acting on a device Pleiades has
+	// CanExecute gate stops a runbook from acting on a device The Pleiades has
 	// only read about and never authenticated to directly. An admin
 	// promotes them deliberately.
 	//

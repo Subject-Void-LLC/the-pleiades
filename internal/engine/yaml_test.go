@@ -432,7 +432,7 @@ func TestBuildFromYAML_RejectsAliasBomb(t *testing.T) {
 // and show up as a catalog that has quietly gone blank.
 //
 // The labels-not-tags decision is asserted here too. Ansible's tags: means
-// task selection at run time, Pleiades is a superset of Ansible, and a
+// task selection at run time, The Pleiades is a superset of Ansible, and a
 // runbook that spelled its catalog filters "tags" would collide with that
 // the day real tag selection lands.
 func TestBuildFromYAML_CatalogMetadata(t *testing.T) {

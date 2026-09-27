@@ -205,7 +205,7 @@ func assertManagedSwitches(t *testing.T, ctx context.Context, repo inv.Repositor
 		if host, _ := item.Properties().String("host"); host == "" {
 			t.Errorf("%s has no host property", item.Name())
 		}
-		// Read-only source means simulate-locked, per Section 9: Pleiades
+		// Read-only source means simulate-locked, per Section 9: The Pleiades
 		// has only read about this device and never authenticated to it
 		// directly, so it must not accept real work until promoted.
 		if item.State() != pkginv.StateSimulateLocked {

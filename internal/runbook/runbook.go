@@ -87,7 +87,7 @@ type Runbook struct {
 
 	// Labels are the free-form filter axis. They are deliberately not
 	// called tags: Ansible's tags: already means task selection at run
-	// time (--tags/--skip-tags), Pleiades is a superset of Ansible, and
+	// time (--tags/--skip-tags), The Pleiades is a superset of Ansible, and
 	// spending that word on catalog filtering would make implementing the
 	// real thing later either impossible or gratuitously incompatible.
 	// AWX draws the same line -- Labels organize, tags select.
