@@ -39,7 +39,7 @@
 // own package doc says so). DockerEndpoint is a separate, independently
 // satisfiable capability for a future exec-shaped Docker method that
 // talks to the daemon socket directly instead (pkg/dockerexec, Phase 73's
-// Workstream F) — declaring both is not redundant, since a device could
+// Workstream F) - declaring both is not redundant, since a device could
 // in principle offer one without the other.
 package container
 
@@ -116,7 +116,7 @@ func (c *Host) IPAddress() string {
 // DockerEndpoint returns the configured Docker control socket address:
 // a Unix socket path on a POSIX container host, or a Windows named pipe.
 // Read from the "docker_endpoint" property via the typed accessor
-// (rejecting nothing here that String itself would not — an absent or
+// (rejecting nothing here that String itself would not - an absent or
 // malformed value simply reads back empty, which is a Host correctly
 // declaring the capability without yet being independently reachable
 // through it, exactly as an absent "host" leaves SSHHost empty above),

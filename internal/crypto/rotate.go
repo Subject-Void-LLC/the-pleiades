@@ -22,7 +22,7 @@ import (
 // current version.
 //
 // Every row with non-nil, decryptable Properties is unconditionally
-// re-encrypted on each call, even one already on the current version — a
+// re-encrypted on each call, even one already on the current version - a
 // deliberate simplification given this platform's expected inventory
 // scale (a device fleet, not a hyperscale table), not an oversight.
 // Determining "is this row already current" without re-encrypting it

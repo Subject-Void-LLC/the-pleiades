@@ -12,9 +12,9 @@ import (
 
 // This file is Phase 73's own adversarial proof for pkg/rfc2217's
 // central defense: a compromised or malfunctioning access server that
-// sends unsolicited COM-PORT-OPTION subnegotiations — a server-initiated
+// sends unsolicited COM-PORT-OPTION subnegotiations - a server-initiated
 // baud change, break, or modem-control-line assertion the operator never
-// asked for — must never be applied. Client holds no local cache of
+// asked for - must never be applied. Client holds no local cache of
 // "the line's current settings" an inbound frame could corrupt (see the
 // package doc comment), so the only way to prove this is behavioral: an
 // unsolicited frame must never leak into Read() as console data, must
@@ -22,8 +22,8 @@ import (
 // genuinely requested operation that follows it.
 
 // TestClient_UnsolicitedBreakInjectionIsIgnoredNotApplied proves a
-// server that sends SERVER_SET_CONTROL(break-on) — the exact "server-
-// initiated break" the plan names — with no request ever made for it is
+// server that sends SERVER_SET_CONTROL(break-on) - the exact "server-
+// initiated break" the plan names - with no request ever made for it is
 // silently dropped: the client neither errors nor treats it as
 // meaningful, and console data sent immediately afterward still reaches
 // Read() intact.
@@ -49,7 +49,7 @@ func TestClient_UnsolicitedBreakInjectionIsIgnoredNotApplied(t *testing.T) {
 		got = append(got, buf[:n]...)
 	}
 	if string(got) != want {
-		t.Errorf("Read accumulated %q, want exactly %q — the injected break frame must not leak into it or corrupt what follows", got, want)
+		t.Errorf("Read accumulated %q, want exactly %q - the injected break frame must not leak into it or corrupt what follows", got, want)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestClient_UnsolicitedBaudChangeInjectionDoesNotAffectALaterLegitimateReque
 // different unsolicited SET_CONTROL sub-commands (break, DTR, RTS, in
 // both directions) arriving back to back, with no request ever made for
 // any of them, is absorbed without a panic and without wedging the
-// client — the same "fail closed, never crash" bar this phase's own
+// client - the same "fail closed, never crash" bar this phase's own
 // fuzz targets hold every other attacker-reachable parser to.
 // TestClient_UnterminatedSubnegotiationPayloadFailsClosedRatherThanGrowingWithoutBound
 // proves a COM-PORT-OPTION subnegotiation that never sends its own

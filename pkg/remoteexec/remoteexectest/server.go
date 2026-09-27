@@ -385,7 +385,7 @@ type directTCPIPPayload struct {
 // destination surface to the client as a channel that opens and then
 // silently closes rather than as ssh.NewChannel.Reject's own, real
 // "could not connect" outcome, which is what
-// (*ssh.Client).DialContext itself turns into a returned error — the
+// (*ssh.Client).DialContext itself turns into a returned error - the
 // exact distinction internal/transport/ssh's own hop-chain tests
 // (TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError)
 // depend on.

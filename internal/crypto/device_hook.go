@@ -22,7 +22,7 @@ const EncryptedKeyMarker = "_encrypted"
 // DeviceEnvelopePropertiesHook intercepts Device mutations to encrypt
 // Properties, the JSONB bag that holds connection details (host, port,
 // and any credential-shaped value a caller adds, such as a Cisco DevNet
-// dynamic AAA login) — PLAN.md Section 17.2's target, not Fact.payload,
+// dynamic AAA login) - PLAN.md Section 17.2's target, not Fact.payload,
 // which Section 22.4 defines as telemetry.
 //
 // Registered for ent.OpCreate, ent.OpUpdate, and ent.OpUpdateOne: unlike
@@ -130,8 +130,8 @@ func decryptDeviceProperties(svc *EnvelopeService, dev *ent.Device) error {
 // the write side (encryptPropertiesMap): checking mere presence of the
 // marker key, as an earlier version of this failsafe did, let a
 // caller-supplied property literally named EncryptedKeyMarker, alongside
-// other real properties, cause the ENTIRE map — including any real
-// secret sitting right next to it — to be persisted completely
+// other real properties, cause the ENTIRE map - including any real
+// secret sitting right next to it - to be persisted completely
 // unencrypted, since the failsafe would see the marker and skip
 // encryption of the whole map. That was a real, critical plaintext-leak
 // defect an adversarial review caught before this phase shipped.

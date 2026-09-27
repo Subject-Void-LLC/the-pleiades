@@ -53,7 +53,7 @@ func TestExec_RefusesMaliciousContainerIDBeforeReachingTheSocket(t *testing.T) {
 // or empty-string cases FuzzExec_Socket already covers), and every one
 // either fails to dial (no such socket) or, if it happened to name a
 // real socket, would still only ever let this package issue the same
-// three allowlisted requests it always does — nothing about the socket
+// three allowlisted requests it always does - nothing about the socket
 // VALUE changes what gets sent once connected.
 func TestExec_HostileEndpointAccessorValueNeverEscalates(t *testing.T) {
 	hostileSockets := []string{

@@ -8,14 +8,14 @@
 // TFTP has neither at the protocol level: any host that can reach the
 // server's UDP port can read or write any file the server's own
 // filesystem mapping allows. This package cannot fix that and must not
-// appear to — the identical fact pkg/serialtcp and pkg/telnetexec's own
+// appear to - the identical fact pkg/serialtcp and pkg/telnetexec's own
 // doc comments state for their own protocols, and the reason a device
 // that reaches this package still needs its own loud, explicit opt-in
 // wherever a future Collection method wires one up.
 //
 // # Own interface, no TransportBinding
 //
-// A file transfer has no stdout and no exit status — it is not
+// A file transfer has no stdout and no exit status - it is not
 // Exec-shaped, the identical reasoning pkg/rfc2217's own doc comment
 // gives for staying out of engine.TransportBinding entirely.
 //
@@ -50,9 +50,9 @@
 // no concept of a client-side root to escape FROM: the server alone
 // decides what its own configured root is and how a requested filename
 // maps onto it, and this package has no visibility into that mapping at
-// all. The complementary half of "a filename cannot escape its root" —
+// all. The complementary half of "a filename cannot escape its root" -
 // never combining an untrusted REMOTE filename with a LOCAL filesystem
-// path via path.Join or similar without validating it first — is the
+// path via path.Join or similar without validating it first - is the
 // responsibility of whatever future caller writes a Get'd file to local
 // disk; this package only ever writes to the io.Writer a caller supplies
 // directly, and never constructs a local path itself.
@@ -61,7 +61,7 @@
 //
 // github.com/pin/tftp/v3's Client exposes no context-aware API: once
 // ReadFrom or WriteTo is called, it blocks until the transfer completes,
-// fails, or its own internal Timeout/Retries budget is exhausted — there
+// fails, or its own internal Timeout/Retries budget is exhausted - there
 // is no hook this package can use to interrupt it early. Get and Put
 // check ctx only before starting a transfer, not during one; a caller
 // wanting a hard ceiling should set Options.Timeout (paired with
@@ -144,7 +144,7 @@ const (
 // mode is always "octet" (binary): TFTP's other transfer mode,
 // "netascii", exists to reinterpret line endings for text files
 // crossing an OS boundary, a translation this package has no reason to
-// perform on a caller's behalf and every reason not to — it would
+// perform on a caller's behalf and every reason not to - it would
 // silently alter binary content (a firmware image, a compiled artifact)
 // that happened to contain a byte sequence netascii treats specially.
 const mode = "octet"

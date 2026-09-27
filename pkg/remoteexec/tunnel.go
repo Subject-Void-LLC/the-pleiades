@@ -25,7 +25,7 @@ import (
 // This is Connect's non-SSH counterpart. Connect treats every leg,
 // target included, as its own independent SSH connection, which is
 // exactly right for ssh_exec but cannot serve a caller speaking a
-// different protocol over the final leg — a console server's raw TCP
+// different protocol over the final leg - a console server's raw TCP
 // passthrough, or RFC 2217, neither of which is SSH. DialThroughHops
 // hands such a caller a raw net.Conn instead: everything past the last
 // hop's own authenticated connection is this method's caller's problem,
@@ -36,7 +36,7 @@ import (
 // The final leg (the direct-tcpip channel open, or the direct TCP dial
 // when hops is empty) gets the identical circuit-breaker and retry
 // treatment every other leg gets, keyed by target's own address, via
-// dialFinalLegWithRetry — the net.Conn-returning analogue of
+// dialFinalLegWithRetry - the net.Conn-returning analogue of
 // dialWithRetry, since a channel open can fail for the same
 // unreachable-target reasons a real dial can and deserves the same
 // resilience, not a bare best-effort attempt.
@@ -100,7 +100,7 @@ func (r *Runner) DialThroughHops(ctx context.Context, hops []Hop, target Target)
 // Its embedded net.Conn is NOT the tunneled channel itself: when hops is
 // non-empty, that channel is golang.org/x/crypto/ssh's own tcpChan type,
 // which refuses every deadline call outright ("ssh: tcpChan: deadline
-// not supported" — confirmed empirically against a real tunnel while
+// not supported" - confirmed empirically against a real tunnel while
 // writing this package's own tests, not assumed from documentation).
 // Every real consumer this method exists for (pkg/serialtcp,
 // pkg/rfc2217, pkg/telnetexec) depends on SetReadDeadline actually
@@ -109,7 +109,7 @@ func (r *Runner) DialThroughHops(ctx context.Context, hops []Hop, target Target)
 // newHopTunneledConn hands the caller one half of a real net.Pipe()
 // (which DOES support real deadlines, Go's own documented behavior) and
 // runs two background goroutines that pump bytes between the other half
-// and the real tunneled channel — the standard shape for retrofitting
+// and the real tunneled channel - the standard shape for retrofitting
 // deadline support onto a conn type that lacks it.
 //
 // This wrapper is used unconditionally, even for a zero-hop
@@ -140,10 +140,10 @@ func newHopTunneledConn(real net.Conn, chain []*ssh.Client) *hopTunneledConn {
 }
 
 // Close closes both the caller-facing pipe half and the real tunneled
-// connection — closing only one would leave the pump goroutine copying
+// connection - closing only one would leave the pump goroutine copying
 // the OTHER direction permanently blocked on whichever call it never
 // closed, since the two pumps block on independent connections and
-// closing one does not unblock a read pending on the other — waits for
+// closing one does not unblock a read pending on the other - waits for
 // both pump goroutines to actually exit (so Close is a real
 // synchronization point, not a fire-and-forget that could still be
 // running when this returns), then closes every hop's own SSH client,
@@ -166,7 +166,7 @@ func (c *hopTunneledConn) Close() error {
 }
 
 // finalDialFunc dials addr and returns a raw net.Conn, performing NO SSH
-// handshake — DialThroughHops' own analogue of dialFunc (dial.go), which
+// handshake - DialThroughHops' own analogue of dialFunc (dial.go), which
 // always includes one.
 type finalDialFunc func(ctx context.Context, addr string) (net.Conn, error)
 

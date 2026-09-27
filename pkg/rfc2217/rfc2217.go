@@ -1,6 +1,6 @@
 // Package rfc2217 speaks the Telnet Com Port Control Option (RFC 2217)
 // well enough to negotiate a console server's line settings and assert
-// its modem control lines — the real control channel RawPassthroughCapable
+// its modem control lines - the real control channel RawPassthroughCapable
 // bare TCP passthrough (pkg/serialtcp) does not have.
 //
 // # Why this is hand-rolled instead of github.com/annetutil/gnetcli/pkg/streamer/rfc2217
@@ -12,7 +12,7 @@
 // (`go doc -all`), not by reading its README:
 //
 //  1. rfc2217.NewStreamer(host, port int, credentials credentials.Credentials, ...)
-//     requires gnetcli's own credentials.Credentials type — a second,
+//     requires gnetcli's own credentials.Credentials type - a second,
 //     unrelated credentials vocabulary alongside internal/credential.Credential,
 //     with its own SimpleCredentials/WithPassword/WithPrivateKey shape.
 //     Bridging the two at every call site is exactly the kind of second
@@ -21,8 +21,8 @@
 //     StreamerOption is that same zap dependency showing up a second time,
 //     in a different package, confirming it is not a one-off.
 //  2. The exposed Streamer is gnetcli's full expect-style network-CLI
-//     abstraction — Cmd, ReadTo(ctx, expr.Expr), Download/Upload,
-//     InitAgentForward, HasFeature — not a narrow RFC 2217 control
+//     abstraction - Cmd, ReadTo(ctx, expr.Expr), Download/Upload,
+//     InitAgentForward, HasFeature - not a narrow RFC 2217 control
 //     channel. There is no exported "assert DTR" or "send a break": the
 //     actual SET_CONTROL/SET_BAUDRATE subnegotiation logic this package
 //     needs is an unexported FSM behind that broad surface, reachable
@@ -40,7 +40,7 @@
 //
 // "Assert DTR" and "send a break" are not command strings, so Client
 // cannot implement transport.Transport's Exec(ctx, target, cred, command)
-// signature meaningfully — there is no command to run, only line-control
+// signature meaningfully - there is no command to run, only line-control
 // operations to perform before or around whatever transport actually
 // carries console traffic (raw passthrough, most commonly). This is the
 // identical reasoning Phase 77 applies to SFTP: a capability that is real
@@ -55,8 +55,8 @@
 // waits for a specific server acknowledgement (setBaudRate, setControl,
 // ...) only ever completes on the ONE frame whose command byte matches
 // what it itself just asked for; any other COM-PORT-OPTION frame arriving
-// in the meantime — an unsolicited NOTIFY_LINESTATE/NOTIFY_MODEMSTATE, or
-// a SERVER_SET_* this client never requested — is silently discarded, not
+// in the meantime - an unsolicited NOTIFY_LINESTATE/NOTIFY_MODEMSTATE, or
+// a SERVER_SET_* this client never requested - is silently discarded, not
 // interpreted as an instruction. This is a deliberate design property,
 // not an incidental one: a compromised or misbehaving access server has
 // no channel here for pushing a baud change or a break the operator never
@@ -66,7 +66,7 @@
 //
 // This package's own test suite proves the IAC/COM-PORT-OPTION framing
 // and negotiation logic against a real, in-process, real-TCP fake access
-// server — the same "no mock, no Docker required" discipline
+// server - the same "no mock, no Docker required" discipline
 // pkg/remoteexec's own fake-SSH-server suite and pkg/serialtcp's own
 // fake-TCP-server suite already establish, because nothing about parsing
 // this wire protocol requires real hardware to exercise honestly. What it
@@ -74,7 +74,7 @@
 // control lines actually changed on a real console server: Phase 73's
 // own bastion-proof workstream is what runs this Client against a real
 // ser2net access server and observes the negotiated baud and an actual
-// break on the far side — the one assertion that distinguishes RFC 2217
+// break on the far side - the one assertion that distinguishes RFC 2217
 // from raw passthrough, and would pass identically for both if the
 // distinction here were fake.
 //
@@ -83,7 +83,7 @@
 // opposed to setBaudRate's and setControl's, which real tests do force
 // via an already-closed connection), are real defensive coverage but not
 // reachable from this package's own test suite without fault injection
-// this module does not fabricate — the identical, already-documented gap
+// this module does not fabricate - the identical, already-documented gap
 // pkg/serialexec, pkg/serialtcp, and pkg/telnetexec each carry for the
 // same reason. Left in place so a future net.Conn implementation's
 // failure mode here gets a clear, named error instead of an opaque one.
@@ -162,7 +162,7 @@ const (
 
 	// DefaultReadTimeout is how long Client waits for a specific
 	// negotiation reply or subnegotiation acknowledgement before giving
-	// up — a request/response bound, not a "gone quiet" bound, so it
+	// up - a request/response bound, not a "gone quiet" bound, so it
 	// defaults longer than pkg/serialexec's or pkg/serialtcp's own
 	// quiet-period timeouts.
 	DefaultReadTimeout = 5 * time.Second
@@ -230,10 +230,10 @@ func Dial(ctx context.Context, host string, port int, opts Options) (*Client, er
 
 // NewOverConn negotiates the Com Port Control Option over conn directly
 // instead of a connection this package dials itself, and is Dial's own
-// negotiation logic — Dial is now a thin wrapper: dial, then call this.
+// negotiation logic - Dial is now a thin wrapper: dial, then call this.
 //
 // This exists for a caller who already has a live connection to the
-// access server by some other means Dial cannot express — most
+// access server by some other means Dial cannot express - most
 // concretely, pkg/remoteexec.Runner.DialThroughHops, which tunnels
 // through a bastion chain and hands back a raw net.Conn with no SSH
 // handshake on the final leg, exactly the shape a console server behind
@@ -267,7 +267,7 @@ func (c *Client) Close() error {
 // SetLine negotiates baud rate, data bits, parity, and stop bits over
 // the control channel, in that order, verifying the access server's own
 // acknowledgement of each matches what was requested before moving to
-// the next — a mismatch is reported as an error naming which setting
+// the next - a mismatch is reported as an error naming which setting
 // disagreed, rather than silently proceeding with a line that is not
 // actually configured the way the caller asked.
 func (c *Client) SetLine(ctx context.Context, line serialline.Config) error {
@@ -333,15 +333,15 @@ func (c *Client) SendBreak(ctx context.Context, duration time.Duration) error {
 // Read reads plain console data: whatever the access server wrote that
 // is not itself telnet negotiation or a COM-PORT-OPTION subnegotiation.
 // A subnegotiation frame arriving while the caller is in Read is
-// dropped, not applied — see the package doc comment — and does not
+// dropped, not applied - see the package doc comment - and does not
 // itself end the call: Read keeps reading (each underlying attempt
 // bounded by Options.ReadTimeout) until at least one byte of plain data
 // is available, ctx is done, or a genuine read error occurs, so a caller
 // never has to re-implement this same retry loop just because a frame
 // happened to arrive first. A read timeout or EOF with nothing yet
-// accumulated returns (0, nil) rather than an error — the same
+// accumulated returns (0, nil) rather than an error - the same
 // "not a failure" treatment pkg/serialtcp's own doc comment gives a
-// timeout or EOF — since a caller polling a live console session should
+// timeout or EOF - since a caller polling a live console session should
 // treat that as "nothing new right now," not a stopping condition.
 func (c *Client) Read(ctx context.Context, p []byte) (int, error) {
 	if len(c.buffered) > 0 {
@@ -626,7 +626,7 @@ func (c *Client) PurgeData(ctx context.Context, dir PurgeDirection) error {
 
 // parityToWire converts serialline.Parity to RFC 2217's own SET_PARITY
 // wire values explicitly, rather than relying on the two packages'
-// enum orderings happening to coincide — the same discipline
+// enum orderings happening to coincide - the same discipline
 // pkg/serialexec.parityFrom already established for go.bug.st/serial.
 func parityToWire(p serialline.Parity) (byte, error) {
 	switch p {

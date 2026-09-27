@@ -36,7 +36,7 @@ import (
 // for the test process's own first hop, and so its real host key can be
 // captured directly). inner-bastion bridges "outer" and "management"
 // (also published, purely so its own real host key can be captured by a
-// direct bootstrap dial the same way — nothing in the actual hop-chain
+// direct bootstrap dial the same way - nothing in the actual hop-chain
 // dial under test ever uses that published port; the real dial reaches
 // inner-bastion only via outer-jump-host's own direct-tcpip channel,
 // exactly like every other hop-chain test in this package). console-
@@ -65,17 +65,17 @@ import (
 //
 // A real socat PTY pair proves the RFC 2217 negotiation, subnegotiation
 // framing, and data path against a real, independent ser2net
-// implementation (not this module's own fake server) — genuine
+// implementation (not this module's own fake server) - genuine
 // interoperability evidence pkg/rfc2217's own unit tests cannot provide
 // on their own. It does NOT prove a physical line's baud rate actually
 // changed: querying the PTY device ser2net itself manages
 // (`stty -F /tmp/ttyA`) after a successful SetLine call, empirically,
 // during this file's own development, showed no observable termios
-// change at all — ser2net's SET_BAUDRATE acknowledgment is real
+// change at all - ser2net's SET_BAUDRATE acknowledgment is real
 // protocol behavior, not proof of a physical effect a PTY cannot have.
 // SendBreak DOES get a real acknowledgment from ser2net over a PTY;
 // AssertDTR does NOT (it times out with no acknowledgment at all, a
-// real, verified PTY limitation, not a bug in this package) — this is
+// real, verified PTY limitation, not a bug in this package) - this is
 // tested deliberately below, not silently skipped.
 
 // newBastionProofNetwork creates a fresh, isolated Docker network and
@@ -242,7 +242,7 @@ func bootstrapHostKey(t *testing.T, c testcontainers.Container) ssh.PublicKey {
 // TestBastionProof is the real thing: a genuine two-hop route (client ->
 // outer-jump-host -> inner-bastion), each leg its own independent SSH
 // handshake with its own verified host key, landing on a console server
-// one further real TCP hop away that speaks no SSH at all —
+// one further real TCP hop away that speaks no SSH at all -
 // pkg/rfc2217's own protocol negotiates against a real, independent
 // ser2net implementation over the resulting tunneled net.Conn
 // (pkg/remoteexec.Runner.DialThroughHops). One topology is started once
@@ -286,7 +286,7 @@ func TestBastionProof(t *testing.T) {
 	innerBastionMappedAddr := net.JoinHostPort(innerBastionHost, innerBastionMapped.Port())
 
 	// known_hosts carries BOTH the mapped-port addresses (bootstrap only)
-	// AND "innerbastion:2222" — the alias-based address the real
+	// AND "innerbastion:2222" - the alias-based address the real
 	// hop-chain dial actually verifies against, since that dial happens
 	// entirely inside the Docker network and never touches a mapped
 	// port.

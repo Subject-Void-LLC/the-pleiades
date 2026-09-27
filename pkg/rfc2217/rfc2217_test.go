@@ -595,7 +595,7 @@ func TestClient_Write_ErrorIsWrapped(t *testing.T) {
 
 // TestDial_UnexpectedNegotiationVerbIsAClearError proves an access
 // server that replies to this client's own WILL COM-PORT-OPTION with
-// anything other than DO or DONT (here, WONT — a malformed reply no real
+// anything other than DO or DONT (here, WONT - a malformed reply no real
 // console server this platform targets sends) is treated as
 // protocol-nonconformant rather than guessed at.
 func TestDial_UnexpectedNegotiationVerbIsAClearError(t *testing.T) {

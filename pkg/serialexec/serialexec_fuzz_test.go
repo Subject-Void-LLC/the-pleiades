@@ -53,7 +53,7 @@ func FuzzExec_DeviceIdentifier(f *testing.F) {
 		// Every one of these seeds and every fuzzer-generated string
 		// names a device that does not exist on the machine running this
 		// test, so Exec is expected to fail (a real error), not succeed
-		// — the property under test is exclusively "does not panic and
+		// - the property under test is exclusively "does not panic and
 		// does not hang," not "handles every string as a valid port."
 		_, _ = serialexec.Exec(ctx, serialline.Device(device), line, serialexec.Options{}, "echo hi")
 	})

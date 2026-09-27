@@ -84,7 +84,7 @@ type pluginBackend struct {
 	// produce that would even ask Classify to quarantine. The quarantine
 	// behavior itself is still proven, directly, by aws's own
 	// TestClassify_UnrecognizedPlatform_Quarantines against a hand-built
-	// record naming a Platform EC2 does not define — RULE 0 does not
+	// record naming a Platform EC2 does not define - RULE 0 does not
 	// require a live upstream for logic that is pure Go over an
 	// already-discovered value.
 	unclassifiableUnsupported string

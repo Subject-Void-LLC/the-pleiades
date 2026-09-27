@@ -314,8 +314,8 @@ func TestClient_DescribeInstance_NotFound(t *testing.T) {
 // InvalidInstanceID.NotFound API error rather than a plain empty
 // success. That leaves this function's trailing "return nil, nil" (the
 // one after the empty Reservations loop) genuinely unreachable through
-// this call shape — AWS never answers an explicit single-id lookup with
-// a quiet empty success, only ever a match or that named error — which
+// this call shape - AWS never answers an explicit single-id lookup with
+// a quiet empty success, only ever a match or that named error - which
 // is a fact about the upstream API's contract, not a gap in this test.
 func TestClient_DescribeInstance_MalformedID(t *testing.T) {
 	skipInShortMode(t)

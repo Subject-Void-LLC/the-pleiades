@@ -40,7 +40,7 @@ func mustDeviceEnvelopeService(t *testing.T) *crypto.EnvelopeService {
 //
 // Uses a real on-disk (not :memory:) SQLite file via ent.OpenEmbedded, the
 // same entry point cmd/controller uses, so the raw-driver ciphertext proof
-// below is against genuinely persisted bytes — the closest honest stand-in
+// below is against genuinely persisted bytes - the closest honest stand-in
 // available for the Release Gate's literal (currently unachievable, see
 // IMPLEMENTATION.md) "queried via psql" wording.
 func TestDeviceEnvelopeProperties_RoundTrip(t *testing.T) {
@@ -304,7 +304,7 @@ func TestDeviceEnvelopeProperties_AlreadyEncryptedIsPassedThrough(t *testing.T) 
 // review caught before this phase shipped: a caller-supplied property
 // literally named EncryptedKeyMarker ("_encrypted"), sitting alongside a
 // real secret, used to make the hook's "already encrypted" failsafe skip
-// encryption of the ENTIRE map — including the real secret — because the
+// encryption of the ENTIRE map - including the real secret - because the
 // failsafe checked only for the marker key's presence, not that it was
 // the map's only key. FAILURE_PATTERNS.md records this as a phase-5
 // finding. This proves the fixed failsafe (isAlreadyEncryptedShape,
@@ -395,7 +395,7 @@ func TestDeviceEnvelopeProperties_MixedRolloutReadPaths(t *testing.T) {
 	// A non-string marker fails to decrypt; per
 	// DeviceEnvelopePropertiesInterceptor's own isolate-not-abort design
 	// (Get/Only funnel through the same []*ent.Device path Query().All()
-	// does, confirmed against the generated ent code — there is no
+	// does, confirmed against the generated ent code - there is no
 	// ent-level way to give Get a different failure mode), this is NOT a
 	// returned error: the call succeeds and the device's Properties is
 	// left exactly as stored, unmodified, so the caller can still see the
@@ -415,7 +415,7 @@ func TestDeviceEnvelopeProperties_MixedRolloutReadPaths(t *testing.T) {
 // regression test for a real defect an adversarial review of this phase
 // caught: an earlier draft of DeviceEnvelopePropertiesInterceptor
 // returned the first row's decrypt error directly from inside its
-// []*ent.Device loop, which aborted the ENTIRE query result — every other,
+// []*ent.Device loop, which aborted the ENTIRE query result - every other,
 // perfectly healthy device in the same batch failed to load too, and
 // RotateDeviceProperties's own opening listing query could then never
 // make progress on any row once a single row became unreadable.

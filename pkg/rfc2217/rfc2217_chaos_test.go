@@ -15,7 +15,7 @@ import (
 // WILL COM-PORT-OPTION and then drops the connection abruptly (a real
 // TCP RST, forced deterministically via SO_LINGER=0 the same way
 // pkg/telnetexec's own genuine-read-error test forces one, not a
-// timing-dependent trick) — never sending DO, DONT, or anything else.
+// timing-dependent trick) - never sending DO, DONT, or anything else.
 //
 // Two things must both be true, and this test checks both: Dial returns
 // a genuine, non-nil error (never hangs, never silently returns a
@@ -81,7 +81,7 @@ func TestDial_DroppedConnectionMidNegotiationSurfacesARealErrorAndNoClient(t *te
 // complementary case: negotiation completes normally (the access server
 // genuinely agrees), but the connection is then severed before the
 // caller does anything else with it. The returned Client must not
-// pretend the session is still usable — a subsequent operation must
+// pretend the session is still usable - a subsequent operation must
 // fail with a real error, never hang or silently no-op.
 func TestDial_ConnectionClosedAfterAgreementButBeforeUseIsNotReusable(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

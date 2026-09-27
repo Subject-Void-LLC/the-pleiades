@@ -62,8 +62,8 @@ func TestCheckAllowed_RefusesEveryOtherRequest(t *testing.T) {
 // TestDoJSON_RefusesTheRealEscalationPayloadShapeBeforeDialing is the
 // concrete adversarial proof Phase 73's own plan names: a
 // container-creation request carrying HostConfig.Binds mounting the
-// host root and Privileged: true — the exact shape an attacker would
-// send to escape to the host — is refused before ANY network I/O, even
+// host root and Privileged: true - the exact shape an attacker would
+// send to escape to the host - is refused before ANY network I/O, even
 // though this test calls doJSON directly with a real, fully-formed
 // hostile body attached. checkAllowed runs strictly before doJSON ever
 // marshals reqBody or dials c.socket, so the socket field here is

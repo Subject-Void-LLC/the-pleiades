@@ -347,7 +347,7 @@ func TestExec_GenuineReadErrorIsNotTreatedAsQuiet(t *testing.T) {
 // already-canceled context as its own wrapped error rather than
 // swallowing it. With no live connection yet, this is DialContext's own
 // cancellation handling that fires, before readUntilQuiet's banner-drain
-// phase is ever reached — TestExec_ContextCancellationDuringBannerDrainIsPropagated
+// phase is ever reached - TestExec_ContextCancellationDuringBannerDrainIsPropagated
 // below is what proves the read loop's OWN ctx.Done() check separately.
 func TestExec_ContextCancellationIsPropagated(t *testing.T) {
 	port := telnetServer(t, func(conn net.Conn) {

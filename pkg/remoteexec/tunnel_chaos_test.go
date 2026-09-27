@@ -16,7 +16,7 @@ import (
 // startStreamingListener starts a real TCP listener that, once it
 // accepts a connection, writes a small chunk every 20ms forever (until
 // the connection closes), standing in for a console server whose
-// session has no natural end — exactly the shape that makes "was the
+// session has no natural end - exactly the shape that makes "was the
 // hop severed mid-stream" a meaningful question, unlike a server that
 // answers once and goes quiet on its own.
 func startStreamingListener(t *testing.T) string {
@@ -48,7 +48,7 @@ func startStreamingListener(t *testing.T) string {
 // is this phase's own Chaos Testing proof for a non-SSH final leg, and
 // it proves the OPPOSITE of what this phase's own plan first assumed
 // this test would show. The plan expected severing the bastion leg to
-// surface as "a genuine error, never silent truncation" — a reasonable
+// surface as "a genuine error, never silent truncation" - a reasonable
 // guess, but wrong, caught here by actually running it rather than
 // trusting the plan's own prediction (this module's own RULE 0
 // discipline, applied to a planning document instead of code for once).
@@ -57,14 +57,14 @@ func startStreamingListener(t *testing.T) string {
 // its direct-tcpip channel is mid-read does NOT surface as a distinct
 // transport-level error. golang.org/x/crypto/ssh's own Channel.Read
 // returns plain io.EOF both when a channel closes cleanly AND when the
-// underlying multiplexed connection dies out from under it — there is
+// underlying multiplexed connection dies out from under it - there is
 // no separate "the connection under this channel just died" error this
 // package could catch even if it wanted to. Combined with
 // pkg/serialtcp's own deliberate, already-tested EOF-as-quiet design
 // (FAILURE_PATTERNS.md #172: a raw byte pipe has no session semantics to
 // say WHY the far end went quiet), the honest, consistent behavior is
 // that a severed bastion leg and a graceful target-side close are
-// genuinely indistinguishable here — which is exactly what this test
+// genuinely indistinguishable here - which is exactly what this test
 // and its own paired control
 // (TestDialThroughHops_GracefulTargetCloseIsStillTreatedAsQuiet, run
 // against the identical topology) both prove, deliberately, rather than
@@ -98,7 +98,7 @@ func TestDialThroughHops_SeveredBastionLegIsIndistinguishableFromAGracefulQuit(t
 	// Registered before conn.Close() below, so it runs AFTER it (defers
 	// are LIFO): closing chain[0] directly only ever unblocks ONE of
 	// hopTunneledConn's two pump goroutines (the one reading FROM the
-	// tunneled channel) — the other (reading from the caller-facing
+	// tunneled channel) - the other (reading from the caller-facing
 	// pipe half, waiting for a Write that will never come once this test
 	// stops driving one) only stops once conn.Close() itself runs, so
 	// the leak check must wait for that too.

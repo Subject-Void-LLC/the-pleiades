@@ -298,7 +298,7 @@ func (s *entStore) AttestTeam(ctx context.Context, id int, subject string) error
 // team. A team holding the deployment's last system-scope grant would have
 // its other grants deleted one by one, then trip guardLastSystemGrant on
 // that last one, and the whole call would return "refusing to delete the
-// last system-scope grant" — which an operator reads as "nothing happened"
+// last system-scope grant" - which an operator reads as "nothing happened"
 // while the grants already deleted were gone for good, with no record of
 // which ones they had been.
 //
