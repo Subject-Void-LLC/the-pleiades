@@ -22,9 +22,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `svc` | 16 | 16 |
+| `virt` | 6 | 6 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **82** | **79** |
+| **total** | **88** | **85** |
 
 ## All methods
 
@@ -108,6 +109,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.windows.restart](svc/windows/restart.md) | implemented | Restarts a Windows service, starting it if it was not running. |
 | [svc.windows.start](svc/windows/start.md) | implemented | Starts a Windows service now, without changing its start type. |
 | [svc.windows.stop](svc/windows/stop.md) | implemented | Stops a Windows service now, without changing its start type. |
+| [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
+| [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
+| [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
+| [virt.vbox.vm.info](virt/vbox/vm/info.md) | implemented | Reports a VirtualBox VM's state, hardware and snapshots. |
+| [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
+| [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |

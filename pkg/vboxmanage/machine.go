@@ -39,6 +39,17 @@ type Machine struct {
 	Values Values
 }
 
+// Off reports whether the machine is in a state no guest code runs in:
+// powered off, saved, or aborted. A paused machine is not off; its guest
+// is held, not stopped.
+func (m Machine) Off() bool {
+	switch m.State {
+	case StatePoweroff, StateSaved, StateAborted:
+		return true
+	}
+	return false
+}
+
 // Ref is a machine's name and UUID, as list vms reports them.
 type Ref struct {
 	Name string

@@ -82,7 +82,7 @@ func (h Host) TakeSnapshot(ctx context.Context, vm, name, description string) (s
 	if err := CheckName("snapshot", name); err != nil {
 		return "", err
 	}
-	if err := checkDescription(description); err != nil {
+	if err := CheckDescription(description); err != nil {
 		return "", err
 	}
 	args := []string{"snapshot", vm, "take", name}
@@ -115,23 +115,32 @@ func (h Host) DeleteSnapshot(ctx context.Context, vm, uuid string) error {
 // uuidPattern is a snapshot or machine UUID.
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// CheckUUID refuses a snapshot UUID that is not one, in VirtualBox's
+// hyphenated form.
+func CheckUUID(uuid string) error {
+	if !uuidPattern.MatchString(uuid) {
+		return fmt.Errorf("snapshot UUID %q is not a UUID", uuid)
+	}
+	return nil
+}
+
 // snapshotByUUID runs snapshot vm action uuid. A UUID rather than a name,
 // because a name can match more than one snapshot.
 func (h Host) snapshotByUUID(ctx context.Context, vm, action, uuid string) error {
 	if err := CheckName("VM", vm); err != nil {
 		return err
 	}
-	if !uuidPattern.MatchString(uuid) {
-		return fmt.Errorf("snapshot UUID %q is not a UUID", uuid)
+	if err := CheckUUID(uuid); err != nil {
+		return err
 	}
 	_, err := h.run(ctx, "snapshot", vm, action, uuid)
 	return err
 }
 
-// checkDescription refuses a snapshot description holding a line break or
+// CheckDescription refuses a snapshot description holding a line break or
 // another control character, or longer than 200 characters: it travels
 // as one command-line argument.
-func checkDescription(description string) error {
+func CheckDescription(description string) error {
 	if len(description) > 200 {
 		return fmt.Errorf("snapshot description is %d characters, more than 200", len(description))
 	}

@@ -30,6 +30,7 @@ var Collections = concatCollections(
 	extendedCollections,
 	gatingCollections,
 	sessionCollections,
+	virtCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit

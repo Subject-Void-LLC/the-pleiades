@@ -38,6 +38,8 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/systemd"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/windows"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/vbox/snapshot"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/vbox/vm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/feature"
 )
