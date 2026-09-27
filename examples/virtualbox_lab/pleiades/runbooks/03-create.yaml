@@ -1,0 +1,31 @@
+# Make the lab VM, boot it, and wait for its first boot to finish.
+#
+# login names the inventory device whose stored credential the VM gets:
+# the engine hands the clone only its user name, its key's public half and
+# a hash of its password, never the key or the password. Run
+# `pleiades add-credential ubuntu-lab --username root --generate` first.
+#
+# Keep cpus at 1 on a Windows host where WSL 2 or Docker Desktop runs
+# (see the README): a two-CPU guest can hang early in its boot there.
+id: vbox-lab-create
+hosts: vengeance
+tasks:
+  - name: make the lab VM from the base's never-booted snapshot
+    fqcn: virt.vbox.vm.clone
+    params:
+      name: ubuntu-lab
+      from: ubuntu-2404-base
+      snapshot: base
+      login: ubuntu-lab
+      address: 192.168.56.10/24
+      memory_mb: 2048
+      cpus: 1
+  - name: start it
+    fqcn: virt.vbox.vm.start
+    params:
+      name: ubuntu-lab
+  - name: wait for its first boot to print its SSH host keys
+    fqcn: virt.vbox.vm.host_keys
+    params:
+      name: ubuntu-lab
+      timeout: 600

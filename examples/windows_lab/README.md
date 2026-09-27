@@ -85,7 +85,7 @@ user logoff" (`DisableForceUnload`): the account's registry is unloaded when its
 shell closes, and the VBoxSVC a running VM keeps alive would then fail every later call
 with `REGDB_E_READREGDB`. The teardown restores the policy's earlier value.
 
-**A VM does not yet start from this account.** VirtualBox's hardening verifies Windows'
+**A VM does not start from this account's WinRM logon.** VirtualBox's hardening verifies Windows'
 own DLLs, and Windows' catalog signature check fails for a non-interactive, non-admin
 logon (`VERR_LDRVI_NOT_SIGNED` for `WinHvPlatform.dll`; VirtualBox ticket 20341). Query
 access on Cryptographic Services was tried and does not help.
@@ -99,7 +99,8 @@ and query that one service. The teardown removes all of it. Measured on the lab 
 marked `--autostart-enabled` starts when the account starts that service, and from then on,
 while any of the account's VMs runs, a plain `VBoxManage startvm` over WinRM works too: every
 WinRM client is handed the VirtualBox server the service started, and VirtualBox launches a
-VM as that server.
+VM as that server. `virt.vbox.vm.start` does all of this for you, and
+`examples/virtualbox_lab` uses it to make, boot and manage Ubuntu VMs on this host.
 The certificate authority's private key is deleted once the server and
 client certificates exist, and the client's once it is exported, so nothing on the host
 can issue a certificate the host trusts. What it granted is recorded in

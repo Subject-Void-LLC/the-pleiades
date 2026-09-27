@@ -2235,6 +2235,12 @@ exactly them to one account:
   passes, and while any of the account's VMs runs, a VM started over WinRM goes through the
   same VirtualBox server and starts too.
 
+`examples/virtualbox_lab` walks through the whole of it on such a host. It fetches Ubuntu's
+cloud image, imports it as a base, and makes a lab VM as a linked clone. The VM is seeded by
+cloud-init with a login generated into the vault (`pleiades add-credential --generate`), and
+its SSH host keys are trusted from its serial console (`pleiades trust-host --from-console`).
+It then manages the VM over SSH like any other Linux host.
+
 ## Data handling disclosure
 
 Two different things get called "secret" in this codebase, and they are protected

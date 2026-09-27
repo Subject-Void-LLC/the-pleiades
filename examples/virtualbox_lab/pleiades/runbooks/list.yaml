@@ -1,0 +1,7 @@
+# Every VM on the host, as the account The Pleiades reaches it as sees
+# them, with the address each was given. Run it with --verbose.
+id: vbox-lab-list
+hosts: vengeance
+tasks:
+  - name: every VM on the lab host
+    fqcn: virt.vbox.vm.list
