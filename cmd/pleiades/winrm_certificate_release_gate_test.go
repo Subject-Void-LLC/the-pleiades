@@ -250,8 +250,7 @@ func TestWinRMGate_ACertificateAuthenticatesAndAStrangerDoesNot(t *testing.T) {
 hosts: win-cert-gate
 tasks:
   - name: write a file on the desktop
-    fqcn: exec.winrm.shell
-    params:
+    exec.winrm.shell:
       shell: powershell
       command: |
         $desktop = [Environment]::GetFolderPath('Desktop')
@@ -274,8 +273,7 @@ tasks:
 hosts: win-cert-gate
 tasks:
   - name: read it back and clean up
-    fqcn: exec.winrm.shell
-    params:
+    exec.winrm.shell:
       shell: powershell
       command: |
         $desktop = [Environment]::GetFolderPath('Desktop')
@@ -305,8 +303,7 @@ tasks:
 hosts: win-cert-gate
 tasks:
   - name: an unmapped certificate must not get a session
-    fqcn: exec.winrm.shell
-    params:
+    exec.winrm.shell:
       shell: powershell
       command: hostname
 `)

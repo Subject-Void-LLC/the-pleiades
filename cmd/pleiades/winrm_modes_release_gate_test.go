@@ -27,21 +27,18 @@ func TestWinRMModesGate_ThreeModesThroughTheBinary(t *testing.T) {
 hosts: win-cert-gate
 tasks:
   - name: none runs a program with no shell
-    fqcn: winrm_exec
-    params:
+    winrm_exec:
       shell: none
       command: C:\Windows\System32\whoami.exe
       changed: false
   - name: cmd runs a builtin and reads a value as text
-    fqcn: winrm_exec
-    params:
+    winrm_exec:
       shell: cmd
       command: echo [!PLEIADES_X!]
       env:
         X: "a & echo INJECTED"
   - name: powershell reads a value as text
-    fqcn: winrm_exec
-    params:
+    winrm_exec:
       shell: powershell
       command: Write-Output "[$env:PLEIADES_Y]"
       env:
@@ -64,8 +61,7 @@ tasks:
 hosts: win-cert-gate
 tasks:
   - name: powershell keeps a real exit code
-    fqcn: winrm_exec
-    params:
+    winrm_exec:
       shell: powershell
       command: exit 42
 `)
