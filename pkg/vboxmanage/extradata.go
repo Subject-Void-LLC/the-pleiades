@@ -17,6 +17,10 @@ import (
 const (
 	ExtraAddress = "pleiades/address"
 	ExtraDevice  = "pleiades/device"
+	// ExtraInstalled marks a machine whose unattended install finished,
+	// with the time it did, so an install that stopped part way is not
+	// taken for a finished one.
+	ExtraInstalled = "pleiades/installed"
 )
 
 // extraKeyPattern is an extradata key this package writes or reads.

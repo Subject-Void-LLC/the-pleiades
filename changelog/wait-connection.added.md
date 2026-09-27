@@ -1,0 +1,1 @@
+`wait.connection`, Ansible's `wait_for_connection`: a task that waits until its device answers a command over the connection its other tasks use, WinRM for a device reached that way and SSH otherwise, for use after a task that starts or restarts a machine.

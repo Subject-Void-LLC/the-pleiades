@@ -38,7 +38,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a stopped VirtualBox VM and its disks.",
-				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 				},
@@ -101,7 +101,8 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 // and deleted only when it is in the VM's own folder, since one anywhere
 // else (an installer ISO) may be shared. The VM is then unregistered with
 // its disks, and the seed and console log virt.vbox.vm.clone leaves in its
-// folder are removed, with the folder when that leaves it empty.
+// folder and any picture of its screen are removed, with the folder when
+// that leaves it empty.
 func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 	m, err := h.Machine(ctx, name)
 	if err != nil {
@@ -127,8 +128,11 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 	if err := h.Unregister(ctx, name); err != nil {
 		return err
 	}
-	if err := h.Remove(ctx, dir+`\`+seedFile, false); err != nil {
-		return err
+	// The seed, and a picture virt.vbox.vm.install or screenshot left.
+	for _, file := range []string{seedFile, screenshotFile, screenFile} {
+		if err := h.Remove(ctx, dir+`\`+file, false); err != nil {
+			return err
+		}
 	}
 	return h.Remove(ctx, dir+`\`+consoleFile, true)
 }

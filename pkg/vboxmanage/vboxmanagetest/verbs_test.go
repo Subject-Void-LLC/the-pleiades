@@ -43,7 +43,7 @@ func TestVerbs(t *testing.T) {
 		"a full clone":                      {[]string{"clonevm", "base", "--snapshot", snap, "--name", "x", "--register"}, "linked clones only"},
 		"clone a stray flag":                {[]string{"clonevm", "base", "stray"}, "unexpected"},
 		"modify a stray flag":               {[]string{"modifyvm", "base", "stray"}, "unexpected"},
-		"modify an unknown setting":         {[]string{"modifyvm", "base", "--vram", "16"}, "does not answer"},
+		"modify an unknown setting":         {[]string{"modifyvm", "base", "--usb-ohci", "on"}, "does not answer"},
 		"modify a machine not there":        {[]string{"modifyvm", "nothing", "--cpus", "1"}, "Could not find"},
 		"attach to a machine not there":     {[]string{"storageattach", "nothing", "--storagectl", "IDE", "--port", "0", "--device", "0", "--medium", "none"}, "Could not find"},
 		"attach to no such slot":            {[]string{"storageattach", "base", "--storagectl", "SATA", "--port", "0", "--device", "0", "--medium", "none"}, "No storage device"},

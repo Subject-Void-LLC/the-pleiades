@@ -153,6 +153,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage/vboxmanagetest": 93.4,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/vmsize": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/wincpu": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/winunattend": 98.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec": 87.0,
     "github.com/Subject-Void-LLC/the-pleiades/tests/parity": 91.1,
     "github.com/Subject-Void-LLC/the-pleiades/tools/commitgate": 91.7,

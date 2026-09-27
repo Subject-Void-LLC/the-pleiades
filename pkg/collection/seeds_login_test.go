@@ -48,4 +48,16 @@ func TestRegister_SeedsLogin(t *testing.T) {
 			t.Errorf("%s: err = %v, want one mentioning %q", name, err, tt.want)
 		}
 	}
+
+	// A password seed names a login too; without one it seeds nothing.
+	passwordOnly := descriptor("seedtest.password_only", []collection.Param{login}, nil)
+	passwordOnly.Manifest.SeedsLogin, passwordOnly.Manifest.SeedsLoginPassword = "", true
+	if err := collection.Register(passwordOnly); err == nil || !strings.Contains(err.Error(), "without SeedsLogin") {
+		t.Errorf("SeedsLoginPassword alone: %v", err)
+	}
+	both := descriptor("seedtest.password", []collection.Param{login}, nil)
+	both.Manifest.SeedsLoginPassword = true
+	if err := collection.Register(both); err != nil {
+		t.Errorf("SeedsLoginPassword with SeedsLogin: %v", err)
+	}
 }

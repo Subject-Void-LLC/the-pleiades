@@ -5667,6 +5667,58 @@
       ]
     }
   },
+  "virt.vbox.vm.addresses": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: this reads the VM and the host's DHCP leases and alters nothing, so there is nothing an undo could restore."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.",
+      "description": "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the same as a run.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        }
+      ],
+      "returns": [
+        {
+          "name": "addresses",
+          "type": "list",
+          "returned": "always",
+          "description": "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "returned": "when there is one",
+          "description": "The address to reach the VM at: the fixed one, or else a held DHCP lease's. A first boot that applied its fixed address leaves the lease it took before then marked held for a while, so a VM whose fixed address was never applied is known by that lease being the only one it answers at."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Find a VM's address",
+          "runbookYaml": "- name: Where the lab VM answers\n  virt.vbox.vm.addresses:\n    name: win-lab\n  register: found\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.clone",
+        "virt.vbox.vm.list"
+      ]
+    }
+  },
   "virt.vbox.vm.clone": {
     "supportedTransports": [
       "winrm"
@@ -5683,9 +5735,10 @@
     },
     "supportsCheck": true,
     "seedsLogin": "login",
+    "seedsLoginPassword": true,
     "doc": {
-      "summary": "Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login.",
-      "description": "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads its SSH host keys from there), and a cloud-init NoCloud seed on its DVD drive. The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. It carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. The seed ISO stays in the VM's folder, holding that hash, until virt.vbox.vm.delete removes both. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
+      "summary": "Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file.",
+      "description": "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads a Linux VM's SSH host keys from there), and a seed on its DVD drive: a cloud-init NoCloud seed, or for a VM of a Windows OS type a Windows answer file (Autounattend.xml). The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. For a Linux VM it carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. A Windows VM is reached over WinRM by the built-in Administrator's password, and an answer file can hold nothing else, so for one the login must be a device reached over WinRM whose credential names Administrator, and the answer file carries that password itself, beside the computer name, the fixed address and the first-boot screens it skips. Windows reads that answer file at first boot only from a base virt.vbox.vm.install made, which points it at the clone's one DVD (D:); a clone of another generalized image, such as Microsoft's evaluation VHDX, stops at its first-boot screens. A Windows VM given no size is small rather than xsmall. The seed stays in the VM's folder until virt.vbox.vm.eject_seed or virt.vbox.vm.delete removes it: eject it once the first boot has read it. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
       "params": [
         {
           "name": "name",
@@ -5709,7 +5762,7 @@
           "name": "login",
           "type": "string",
           "required": true,
-          "description": "The inventory device whose stored login the VM is seeded with: its user name, its key's public half and a hash of its password. Usually the device that stands for this VM."
+          "description": "The inventory device whose stored login the VM is seeded with, usually the device that stands for this VM. For a Linux VM, one reached over SSH: its user name, its key's public half and a hash of its password. For a Windows VM, one reached over WinRM whose credential names Administrator: its password."
         },
         {
           "name": "address",
@@ -5720,7 +5773,7 @@
         {
           "name": "hostname",
           "type": "string",
-          "description": "The VM's host name. Defaults to name, which must then be a valid host name."
+          "description": "The VM's host name, or a Windows VM's computer name, which is at most 15 letters, digits and hyphens. Defaults to name, which must then be a valid one."
         },
         {
           "name": "size",
@@ -5732,7 +5785,7 @@
             "large",
             "xlarge"
           ],
-          "description": "The VM's size, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb and cpus, not both; with none of the three, the VM is xsmall."
+          "description": "The VM's size, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb and cpus, not both; with none of the three, the VM is xsmall, or small for a Windows VM."
         },
         {
           "name": "memory_mb",
@@ -5771,7 +5824,7 @@
           "name": "uuid",
           "type": "string",
           "returned": "when not a check that would clone",
-          "description": "The VM's UUID, which is also its cloud-init instance ID."
+          "description": "The VM's UUID, which is also a Linux VM's cloud-init instance ID."
         },
         {
           "name": "address",
@@ -5796,12 +5849,19 @@
         {
           "name": "Clone and start a lab VM",
           "runbookYaml": "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n    size: small\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"
+        },
+        {
+          "name": "Clone a Windows VM",
+          "runbookYaml": "- name: Make a Windows lab VM, seeded with win-lab's Administrator password\n  virt.vbox.vm.clone:\n    name: win-lab\n    from: ws2025-base\n    snapshot: base\n    login: win-lab\n    address: 192.168.56.30/24\n    size: medium\n"
         }
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova",
+        "virt.vbox.vm.import_disk",
+        "virt.vbox.vm.install",
         "virt.vbox.vm.start",
         "virt.vbox.vm.host_keys",
+        "virt.vbox.vm.eject_seed",
         "virt.vbox.vm.resize",
         "virt.vbox.vm.delete",
         "virt.vbox.vm.list"
@@ -5825,7 +5885,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Deletes a stopped VirtualBox VM and its disks.",
-      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
       "params": [
         {
           "name": "name",
@@ -5857,6 +5917,65 @@
       "seeAlso": [
         "virt.vbox.vm.clone",
         "virt.vbox.vm.stop"
+      ]
+    }
+  },
+  "virt.vbox.vm.eject_seed": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The seed file is deleted, and nothing keeps what it held (a hash of the login's password, or a Windows VM's Administrator password), so it cannot be put back; a VM that needs seeding again is made again with virt.vbox.vm.clone."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it.",
+      "description": "Makes sure a VM virt.vbox.vm.clone made no longer holds its seed: the cloud-init seed or Windows answer file clone put on its DVD drive and in its folder, which holds a hash of the login's password or, for Windows, the Administrator's password itself. The drive is emptied at once, even while the VM runs and even when the guest has locked it, so the guest can never read the seed again. The seed file is then deleted; but VirtualBox keeps an image locked for as long as the VM that held it runs (measured on the lab host), so on a running VM the file stays until the VM is stopped, the task says so in a warning and reports deleted false, and running it again once the VM is stopped deletes it. Run it once the first boot has read the seed: after virt.vbox.vm.host_keys finds a Linux VM's keys, or after wait.connection reaches a Windows VM. A VM holding no seed, in a drive or on the host, reports no change. The seed cannot be put back. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        }
+      ],
+      "returns": [
+        {
+          "name": "ejected",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a seed was taken out, or would be, in a check."
+        },
+        {
+          "name": "deleted",
+          "type": "bool",
+          "returned": "when a seed was taken out",
+          "description": "Whether the seed file was deleted from the host: false while the VM runs, which keeps it locked."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the VM held its seed before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Delete a Windows VM's answer file after its first boot",
+          "runbookYaml": "- name: Take the lab VM's answer file out, now that it has booted\n  virt.vbox.vm.eject_seed:\n    name: win-lab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.clone",
+        "virt.vbox.vm.host_keys",
+        "wait.connection"
       ]
     }
   },
@@ -5908,6 +6027,95 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.clone"
+      ]
+    }
+  },
+  "virt.vbox.vm.import_disk": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that made a VM emits virt.vbox.vm.delete naming it, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX.",
+      "description": "Makes sure a VM of this name exists, creating it from a disk image already on the host: a VHDX, VHD, VMDK or VDI file, such as the evaluation VHDX Microsoft publishes for Windows Server. The image is copied into the VM's folder as a VDI that grows as the guest writes to it, and the image itself is left as it was, so one image can make many VMs. The copy is the VM's disk, and virt.vbox.vm.delete removes it with the VM. The VM gets os_type; a SATA controller holding the disk and an IDE controller for the DVD a clone's seed goes in; network cards Windows has a driver for, with nothing attached; and the firmware the disk boots with, read from its first sectors: EFI for a GUID partition table, BIOS for a master boot record. A VM already under the name reports no change and is not compared with the image. The VM is not started, and is meant as a base to snapshot and clone. For Windows the image must be generalized (by sysprep), and virt.vbox.vm.clone then gives each clone its own name, address and password on a DVD. Microsoft's Windows Server evaluation VHDX is generalized but never reads that DVD at its first boot (measured on the lab host), so its clones stop at the first-boot screens; virt.vbox.vm.install makes a Windows base whose clones read theirs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and sends nothing; it does not read the disk, so it reports the firmware only when firmware names one.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The disk image's absolute path on the host. It may not hold a quote, a wildcard or a control character."
+        },
+        {
+          "name": "os_type",
+          "type": "string",
+          "required": true,
+          "description": "The VM's guest OS type, as VBoxManage list ostypes names it: Windows2025_64 for Windows Server 2025, Windows2022_64 for 2022, Ubuntu_64 for Ubuntu. VirtualBox tunes the VM to it, and virt.vbox.vm.clone seeds a clone of a Windows type with a Windows answer file."
+        },
+        {
+          "name": "firmware",
+          "type": "string",
+          "default": "auto",
+          "choices": [
+            "auto",
+            "bios",
+            "efi"
+          ],
+          "description": "What the VM boots with. auto reads the disk's first sectors: EFI for a GUID partition table, BIOS for a master boot record."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "3600",
+          "description": "How many seconds the copy may take. A disk of many gigabytes takes minutes."
+        }
+      ],
+      "returns": [
+        {
+          "name": "uuid",
+          "type": "string",
+          "returned": "when not a check that would import",
+          "description": "The VM's UUID."
+        },
+        {
+          "name": "firmware",
+          "type": "string",
+          "returned": "when not a check with firmware auto",
+          "description": "What the VM boots with: bios or efi."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether a VM of the name existed before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make a Windows Server base from Microsoft's VHDX",
+          "runbookYaml": "- name: Make a Windows Server 2025 base from the evaluation VHDX\n  virt.vbox.vm.import_disk:\n    name: ws2025-base\n    path: G:\\iso\\server-2025-datacenter-eval.vhdx\n    os_type: Windows2025_64\n\n- name: Snapshot it, never booted\n  virt.vbox.snapshot.take:\n    vm: ws2025-base\n    name: base\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.install",
+        "virt.vbox.snapshot.take",
+        "virt.vbox.vm.clone",
+        "virt.vbox.vm.import_ova"
       ]
     }
   },
@@ -6064,6 +6272,115 @@
       ]
     }
   },
+  "virt.vbox.vm.install": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that installed a VM emits virt.vbox.vm.delete naming it, which deletes its disk with it; the ISO is never changed. One that found an installed VM under the name emits nothing."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a Windows VM by installing Windows from its installation ISO, unattended, and generalizing it as a base to clone.",
+      "description": "Makes sure a VM of this name exists, creating it by installing Windows from an installation ISO already on the host, with no one at the keyboard. The VM gets a new disk of disk_gb, BIOS firmware, the size asked for, os_type, and no network adapter, so setup downloads nothing. Its DVD drives hold the ISO and an answer file Pleiades builds (Autounattend.xml), which partitions the disk, installs image and accepts its license, then takes the new Windows through audit mode, where it deletes the copy of itself Windows cached, points the registry (HKLM\\SYSTEM\\Setup, UnattendFile) at D:\\Autounattend.xml, and runs sysprep to generalize the installation and shut it down. A generalized Windows looks for its answer file at first boot only there and in its own folders, never on a DVD, so the pointer is how a clone reads its seed. The task waits for the shutdown: about six to eight minutes on the lab host. When the VM is off, both DVDs are taken out, the answer file is deleted, and the VM is marked installed (the extradata pleiades/installed). The answer file holds a password only for audit mode's sign-in, made at random for this install and kept nowhere, which Windows forgets when it is generalized. The VM is meant as a base to snapshot and clone: virt.vbox.vm.clone gives each clone its own name, address and password. A VM already under the name reports no change when it is marked installed, and is refused when it is not, since an install that did not finish is no base: delete it with virt.vbox.vm.delete and run again. An install still running at the timeout is left running, with a picture of its screen saved in its folder to show where it stopped. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and memory, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "iso",
+          "type": "string",
+          "required": true,
+          "description": "The installation ISO's absolute path on the host, such as Microsoft's Windows Server evaluation ISO. It is attached and then taken out again, never changed or deleted."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The edition to install: its name in the ISO's install.wim, such as Windows Server 2025 Standard Evaluation, which is Server Core, or Windows Server 2025 Datacenter Evaluation (Desktop Experience); or its index there, 1 for the first."
+        },
+        {
+          "name": "os_type",
+          "type": "string",
+          "required": true,
+          "description": "The VM's guest OS type, as VBoxManage list ostypes names it: Windows2025_64 for Windows Server 2025, Windows2022_64 for 2022, Ubuntu_64 for Ubuntu. VirtualBox tunes the VM to it, and virt.vbox.vm.clone seeds a clone of a Windows type with a Windows answer file."
+        },
+        {
+          "name": "disk_gb",
+          "type": "int",
+          "default": "64",
+          "description": "The size of the VM's new disk, in gigabytes. It grows on the host as Windows writes to it."
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "default": "medium",
+          "choices": [
+            "xsmall",
+            "small",
+            "medium",
+            "large",
+            "xlarge"
+          ],
+          "description": "The VM's size while it installs, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Windows Server needs at least small."
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "default": "en-US",
+          "description": "The installation's language and locale, as a tag such as en-US. The ISO must hold it."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "7200",
+          "description": "How many seconds to wait for the install to finish and the VM to shut itself down."
+        }
+      ],
+      "returns": [
+        {
+          "name": "uuid",
+          "type": "string",
+          "returned": "when not a check that would install",
+          "description": "The VM's UUID."
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's T-shirt size, or empty when its CPUs and memory are not exactly one size's."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether a VM of the name existed before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Install Windows Server Core as a base",
+          "runbookYaml": "- name: Install Windows Server 2025 Core from the evaluation ISO\n  virt.vbox.vm.install:\n    name: ws2025-core-base\n    iso: G:\\iso\\server-2025-eval.iso\n    image: Windows Server 2025 Standard Evaluation\n    os_type: Windows2025_64\n\n- name: Snapshot the generalized install\n  virt.vbox.snapshot.take:\n    vm: ws2025-core-base\n    name: base\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.import_disk",
+        "virt.vbox.snapshot.take",
+        "virt.vbox.vm.clone",
+        "virt.vbox.vm.delete"
+      ]
+    }
+  },
   "virt.vbox.vm.list": {
     "supportedTransports": [
       "winrm"
@@ -6099,6 +6416,69 @@
       "seeAlso": [
         "virt.vbox.vm.info",
         "virt.vbox.vm.clone"
+      ]
+    }
+  },
+  "virt.vbox.vm.log": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: this reads the VM's log and alters nothing, so there is nothing an undo could restore."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.",
+      "description": "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the log as a run does.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "lines",
+          "type": "int",
+          "default": "40",
+          "description": "How many lines to report, from the end: 1 to 2000."
+        },
+        {
+          "name": "pattern",
+          "type": "string",
+          "description": "Report only lines matching this Go RE2 regular expression, such as EFI|GIM|fatal."
+        }
+      ],
+      "returns": [
+        {
+          "name": "lines",
+          "type": "list",
+          "returned": "always",
+          "description": "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The log file's path on the host."
+        }
+      ],
+      "examples": [
+        {
+          "name": "See where a VM's firmware stopped",
+          "runbookYaml": "- name: Read the lab VM's firmware lines\n  virt.vbox.vm.log:\n    name: win-lab\n    pattern: \"EFI|debug point\"\n    lines: 20\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.screenshot",
+        "virt.vbox.vm.info"
       ]
     }
   },
@@ -6190,6 +6570,127 @@
         "virt.vbox.vm.clone",
         "virt.vbox.vm.stop",
         "virt.vbox.vm.info"
+      ]
+    }
+  },
+  "virt.vbox.vm.screenshot": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The VM is not changed; the file at dest is replaced by the picture, and what it held before is not kept."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades.",
+      "description": "Takes a picture of a running VM's screen on the host, brings it back over the host's own connection, and writes it to dest on the machine running this task, as Ansible's fetch brings a file back; the host keeps no copy. It is how to see a VM with no window, such as one stopped at a first-boot screen or an installer's error. A VM that has not set a display mode yet (still in its firmware, or stopped before it drew anything) has no picture to take, and says so. The VM is not changed; dest is replaced when it exists. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM, takes no picture and writes nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "Where to write the PNG on the machine running this task. Its folder must exist."
+        }
+      ],
+      "returns": [
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "always",
+          "description": "Where the picture was written, or would be, in a check."
+        },
+        {
+          "name": "width",
+          "type": "int",
+          "returned": "when not a check",
+          "description": "The picture's width, in pixels."
+        },
+        {
+          "name": "height",
+          "type": "int",
+          "returned": "when not a check",
+          "description": "The picture's height, in pixels."
+        },
+        {
+          "name": "bytes",
+          "type": "int",
+          "returned": "when not a check",
+          "description": "The PNG file's size."
+        }
+      ],
+      "examples": [
+        {
+          "name": "See where a Windows VM's first boot stopped",
+          "runbookYaml": "- name: Save a picture of the lab VM's screen\n  virt.vbox.vm.screenshot:\n    name: win-lab\n    dest: ./win-lab.png\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.log",
+        "virt.vbox.vm.send_keys"
+      ]
+    }
+  },
+  "virt.vbox.vm.send_keys": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "What was typed was acted on by the guest, and no key undoes that in general."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Types into a running VM's console, as its keyboard would.",
+      "description": "Types keys into a running VM's console, written as Packer's boot_command writes them: text as it is, a named key between angle brackets (<enter>, <tab>, <esc>, <bs>, <del>, <spacebar>, <up>, <down>, <left>, <right>, <home>, <end>, <pageup>, <pagedown>, <insert>, <f1> to <f12>), and <wait> or <wait5> for a pause of one or five seconds (at most 60). Text is typed with a US keyboard layout and may hold only printable ASCII. It is for a VM with no other way in yet, such as one at a first-boot screen; see what it shows with virt.vbox.vm.screenshot. Never type a secret: text travels on the host's VBoxManage command line, where any process on the host can read it. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the keys, and types nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "keys",
+          "type": "string",
+          "required": true,
+          "description": "What to type, as Packer's boot_command writes it, such as <tab><tab><enter>."
+        }
+      ],
+      "returns": [
+        {
+          "name": "strokes",
+          "type": "int",
+          "returned": "always",
+          "description": "How many steps were typed, or would be, in a check: each run of text, named key and pause is one."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Accept a first-boot screen",
+          "runbookYaml": "- name: Move to the Accept button and press it\n  virt.vbox.vm.send_keys:\n    name: win-lab\n    keys: <tab><tab><enter>\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.screenshot"
       ]
     }
   },
@@ -6319,6 +6820,95 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.start"
+      ]
+    }
+  },
+  "wait.connection": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "NetworkAddressableCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This method waits for a device to answer and changes nothing on it, so there is nothing to undo."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "doc": {
+      "summary": "Waits until the target answers a command over its own connection, SSH or WinRM.",
+      "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. It changes nothing.",
+      "params": [
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."
+        },
+        {
+          "name": "sleep",
+          "type": "int",
+          "default": "5",
+          "description": "How many seconds to wait between tries. Must be more than 0."
+        },
+        {
+          "name": "connect_timeout",
+          "type": "int",
+          "default": "20",
+          "description": "How many seconds one try may take before it counts as failed. Must be more than 0."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, on a device reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "always",
+          "description": "How many whole seconds the task waited, including the delay."
+        },
+        {
+          "name": "transport",
+          "type": "string",
+          "returned": "always",
+          "description": "The connection that answered: ssh or winrm."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The connection that answered. Both halves are identical, since a wait changes nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for a new Windows VM's first boot",
+          "runbookYaml": "- name: Wait for the Windows lab VM to let its Administrator in\n  wait.connection:\n    timeout: 1800\n    sleep: 15\n"
+        },
+        {
+          "name": "Wait out a reboot",
+          "runbookYaml": "- name: Give the machine time to go down, then wait for it\n  wait.connection:\n    delay: 30\n    timeout: 600\n"
+        }
+      ],
+      "seeAlso": [
+        "wait.path",
+        "virt.vbox.vm.start",
+        "pleiades.builtin.wait.port"
       ]
     }
   },

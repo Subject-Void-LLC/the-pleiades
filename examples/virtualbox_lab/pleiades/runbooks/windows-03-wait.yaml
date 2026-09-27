@@ -1,0 +1,9 @@
+# Wait for the Windows VM's first boot to finish: it answers WinRM as its
+# Administrator once Windows has set itself up from the answer file.
+id: vbox-lab-windows-wait
+hosts: win-lab
+tasks:
+  - name: wait for the first boot to let the Administrator in over WinRM
+    wait.connection:
+      timeout: 1800
+      sleep: 15

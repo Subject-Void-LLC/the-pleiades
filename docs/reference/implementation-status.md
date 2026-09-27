@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**93 of 96 methods are implemented.**
+**101 of 104 methods are implemented.**
 
 ## Implemented
 
@@ -87,6 +87,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [pleiades.builtin.wait.port](modules/pleiades/builtin/wait/port.md)
 - [wait.path](modules/wait/path.md)
 - [wait.search](modules/wait/search.md)
+- [wait.connection](modules/wait/connection.md)
 - [facts.gather](modules/facts/gather.md)
 - [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
 - [virt.vbox.vm.info](modules/virt/vbox/vm/info.md)
@@ -97,6 +98,13 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.snapshot.restore](modules/virt/vbox/snapshot/restore.md)
 - [virt.vbox.snapshot.delete](modules/virt/vbox/snapshot/delete.md)
 - [virt.vbox.vm.import_ova](modules/virt/vbox/vm/import_ova.md)
+- [virt.vbox.vm.import_disk](modules/virt/vbox/vm/import_disk.md)
+- [virt.vbox.vm.install](modules/virt/vbox/vm/install.md)
+- [virt.vbox.vm.eject_seed](modules/virt/vbox/vm/eject_seed.md)
+- [virt.vbox.vm.screenshot](modules/virt/vbox/vm/screenshot.md)
+- [virt.vbox.vm.log](modules/virt/vbox/vm/log.md)
+- [virt.vbox.vm.send_keys](modules/virt/vbox/vm/send_keys.md)
+- [virt.vbox.vm.addresses](modules/virt/vbox/vm/addresses.md)
 - [virt.vbox.vm.clone](modules/virt/vbox/vm/clone.md)
 - [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
 - [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)

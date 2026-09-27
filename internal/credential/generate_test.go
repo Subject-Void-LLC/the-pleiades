@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"errors"
 	"strings"
 	"testing"
 
@@ -81,5 +82,47 @@ func TestPublicKey(t *testing.T) {
 	}
 	if _, err := PublicKey(Credential{Password: "p"}, ""); err == nil {
 		t.Error("a credential with no key gave a public key")
+	}
+}
+
+// TestRandomPasswordHoldsEveryKindOfCharacter is the rule Windows' default
+// password policy applies: three kinds of character. Drawn often enough
+// that a generator skipping the redraw would fail it (about one draw in 38
+// has no digit).
+func TestRandomPasswordHoldsEveryKindOfCharacter(t *testing.T) {
+	for range 2000 {
+		p, err := randomPassword(GeneratedPasswordLength)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != GeneratedPasswordLength || !strings.ContainsAny(p, upper) || !strings.ContainsAny(p, lower) || !strings.ContainsAny(p, digits) {
+			t.Fatalf("%q lacks a kind of character", p)
+		}
+	}
+	if p, err := randomPassword(2); err != nil || len(p) != 2 {
+		t.Errorf("a password too short to hold every kind: %q, %v", p, err)
+	}
+}
+
+// failAfter reads n bytes of real randomness and then fails.
+type failAfter struct{ n int }
+
+func (f *failAfter) Read(p []byte) (int, error) {
+	if f.n <= 0 {
+		return 0, errors.New("the entropy source failed")
+	}
+	k := min(len(p), f.n)
+	f.n -= k
+	return rand.Read(p[:k])
+}
+
+func TestGenerateReportsAFailedEntropySource(t *testing.T) {
+	old := entropy
+	t.Cleanup(func() { entropy = old })
+	for _, n := range []int{0, 36} {
+		entropy = &failAfter{n: n}
+		if _, err := Generate("Administrator", ""); err == nil || !strings.Contains(err.Error(), "entropy source failed") {
+			t.Errorf("failing after %d bytes: %v", n, err)
+		}
 	}
 }

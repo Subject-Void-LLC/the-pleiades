@@ -130,6 +130,13 @@ const (
 	SecretSeedUsername      = "seed_username"
 	SecretSeedAuthorizedKey = "seed_authorized_key"
 	SecretSeedPasswordHash  = "seed_password_hash"
+
+	// SecretSeedPassword is the password itself, which a method receives
+	// in place of a key and a hash only when its manifest also sets
+	// SeedsLoginPassword and the device it seeds is reached over WinRM: a
+	// Windows machine admits a password rather than a key, and its answer
+	// file can hold nothing else.
+	SecretSeedPassword = "seed_password"
 )
 
 // DispatchPayload is the message body the Controller publishes to NATS

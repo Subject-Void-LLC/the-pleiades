@@ -7,11 +7,16 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// entropy is where generated keys and passwords draw their randomness; a
+// test replaces it with a source that fails.
+var entropy io.Reader = rand.Reader
 
 // GeneratedPasswordLength is how many characters a generated password
 // has: about 138 bits from passwordAlphabet.
@@ -20,7 +25,7 @@ const GeneratedPasswordLength = 24
 // passwordAlphabet is letters and digits without the ones read alike
 // (0 and O, 1, l and I), so a password can be typed at a VM's console
 // under any keyboard layout and read off a screen without a mistake.
-const passwordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+const passwordAlphabet = upper + lower + digits
 
 // Generate returns a credential for username holding a new ed25519
 // private key, in OpenSSH's own form and labelled comment, and a new
@@ -33,7 +38,7 @@ func Generate(username, comment string) (Credential, error) {
 	if username == "" {
 		return Credential{}, fmt.Errorf("credential: a generated credential needs a username")
 	}
-	_, private, err := ed25519.GenerateKey(rand.Reader)
+	_, private, err := ed25519.GenerateKey(entropy)
 	if err != nil {
 		return Credential{}, fmt.Errorf("credential: generating a key: %w", err)
 	}
@@ -49,19 +54,34 @@ func Generate(username, comment string) (Credential, error) {
 }
 
 // randomPassword returns length characters of passwordAlphabet, each
-// chosen uniformly by crypto/rand.
+// chosen uniformly by crypto/rand, drawn again until they hold an upper
+// case letter, a lower case letter and a digit. Windows' default policy
+// refuses a password with fewer than three kinds of character, and about
+// one draw in 38 of 24 characters from this alphabet has no digit, so a
+// VM seeded with it would be refused its password.
 func randomPassword(length int) (string, error) {
-	var b strings.Builder
-	limit := big.NewInt(int64(len(passwordAlphabet)))
-	for b.Len() < length {
-		n, err := rand.Int(rand.Reader, limit)
-		if err != nil {
-			return "", fmt.Errorf("credential: generating a password: %w", err)
+	for {
+		var b strings.Builder
+		limit := big.NewInt(int64(len(passwordAlphabet)))
+		for b.Len() < length {
+			n, err := rand.Int(entropy, limit)
+			if err != nil {
+				return "", fmt.Errorf("credential: generating a password: %w", err)
+			}
+			b.WriteByte(passwordAlphabet[n.Int64()])
 		}
-		b.WriteByte(passwordAlphabet[n.Int64()])
+		if p := b.String(); length < 3 || (strings.ContainsAny(p, upper) && strings.ContainsAny(p, lower) && strings.ContainsAny(p, digits)) {
+			return p, nil
+		}
 	}
-	return b.String(), nil
 }
+
+// The kinds of character in passwordAlphabet.
+const (
+	upper  = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+	lower  = "abcdefghijkmnopqrstuvwxyz"
+	digits = "23456789"
+)
 
 // PublicKey returns the authorized_keys line for cred's private key,
 // labelled comment. It is not a secret: it is what a machine is given so

@@ -1,0 +1,24 @@
+# Make the Windows lab VM from the base and boot it.
+#
+# login names the inventory device whose stored credential the VM gets. It
+# must be a Windows device (reached over WinRM) whose credential names
+# Administrator: run `pleiades add-credential win-lab --username
+# Administrator --generate` first. Its password goes into the VM's answer
+# file, so eject the seed once the first boot is done (04).
+#
+# With no size, a Windows clone is small (one CPU). Keep it that way on a
+# host where WSL 2 or Docker Desktop runs if the base boots with EFI: see
+# the README's limits.
+id: vbox-lab-windows-create
+hosts: vengeance
+tasks:
+  - name: make the Windows lab VM from the base's snapshot
+    virt.vbox.vm.clone:
+      name: win-lab
+      from: ws2025-core-base
+      snapshot: base
+      login: win-lab
+      address: 192.168.56.30/24
+  - name: start it
+    virt.vbox.vm.start:
+      name: win-lab

@@ -118,6 +118,18 @@ func (m Machine) FreeIDESlot() (Slot, bool) {
 	return Slot{}, false
 }
 
+// FreeSATASlot returns the first SATA slot with no drive in it, and false
+// when there is none. A Windows guest sees a DVD there from its first
+// instant, since it boots from the same controller.
+func (m Machine) FreeSATASlot() (Slot, bool) {
+	for _, s := range m.Slots {
+		if s.ControllerType == "IntelAhci" && s.Medium == "none" {
+			return s, true
+		}
+	}
+	return Slot{}, false
+}
+
 // SlotsHolding returns the slots holding a medium at a path under folder,
 // compared without regard to case or to which separator VirtualBox wrote.
 func (m Machine) SlotsHolding(folder string) []Slot {
@@ -245,6 +257,20 @@ func (h Host) AttachDVD(ctx context.Context, vm string, slot Slot, medium string
 	}
 	_, err := h.run(ctx, "storageattach", vm, "--storagectl", slot.Controller,
 		"--port", strconv.Itoa(slot.Port), "--device", strconv.Itoa(slot.Device), "--type", "dvddrive", "--medium", medium)
+	return err
+}
+
+// EjectDVD empties the DVD drive in vm's slot, running or not, even when
+// the guest has locked its tray, as a running Windows guest does.
+func (h Host) EjectDVD(ctx context.Context, vm string, slot Slot) error {
+	if err := CheckName("VM", vm); err != nil {
+		return err
+	}
+	if err := CheckAdapter(slot.Controller); err != nil {
+		return fmt.Errorf("vboxmanage: storage controller: %w", err)
+	}
+	_, err := h.run(ctx, "storageattach", vm, "--storagectl", slot.Controller,
+		"--port", strconv.Itoa(slot.Port), "--device", strconv.Itoa(slot.Device), "--type", "dvddrive", "--medium", "emptydrive", "--forceunmount")
 	return err
 }
 

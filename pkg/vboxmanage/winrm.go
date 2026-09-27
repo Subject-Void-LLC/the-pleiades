@@ -3,6 +3,7 @@ package vboxmanage
 
 import (
 	"context"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
@@ -28,6 +29,12 @@ func (r WinRMRunner) Run(ctx context.Context, program string, args []string) (Ou
 		return Output{}, err
 	}
 	return Output{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode}, nil
+}
+
+// WithTimeout implements TimeoutRunner.
+func (r WinRMRunner) WithTimeout(timeout time.Duration) Runner {
+	r.Options.Timeout = timeout
+	return r
 }
 
 // PowerShell implements Runner.

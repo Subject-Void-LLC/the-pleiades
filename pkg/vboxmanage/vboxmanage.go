@@ -50,6 +50,11 @@ var ErrNotFound = errors.New("not found")
 // when an operation needs it to be.
 var ErrNotRunning = errors.New("not running")
 
+// ErrLocked is wrapped by an error for a machine or medium another
+// VirtualBox client or task held a lock on at that moment, such as a
+// screenshot being taken or a DVD just ejected: it can be tried again.
+var ErrLocked = errors.New("locked")
+
 // Error is a VBoxManage run that exited non-zero.
 type Error struct {
 	// Args is what VBoxManage was asked, which never holds a secret: no
@@ -57,7 +62,7 @@ type Error struct {
 	Args []string
 	// Output is what it answered.
 	Output Output
-	// kind is ErrNotFound, ErrNotRunning, or nil.
+	// kind is ErrNotFound, ErrNotRunning, ErrLocked, or nil.
 	kind error
 }
 
@@ -67,7 +72,7 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("VBoxManage %s exited %d: %s", strings.Join(e.Args, " "), e.Output.ExitCode, firstErrorLine(e.Output))
 }
 
-// Unwrap lets errors.Is find ErrNotFound or ErrNotRunning.
+// Unwrap lets errors.Is find ErrNotFound, ErrNotRunning or ErrLocked.
 func (e *Error) Unwrap() error { return e.kind }
 
 // errorLine is how VBoxManage starts each line of an error report.
@@ -100,6 +105,11 @@ func classify(out Output) error {
 		return ErrNotFound
 	case strings.Contains(text, "is not currently running"):
 		return ErrNotRunning
+	case strings.Contains(text, "already has a lock request pending"),
+		strings.Contains(text, "is already locked for a session"),
+		strings.Contains(text, "is locked for reading by another task"),
+		strings.Contains(text, "is locked for writing by another task"):
+		return ErrLocked
 	}
 	return nil
 }

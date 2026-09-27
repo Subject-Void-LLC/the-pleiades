@@ -182,6 +182,39 @@ var gatingCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:          "wait.connection",
+		Capabilities:  []capability.Name{capability.NameNetworkAddressable},
+		Transports:    []string{"ssh", "winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Waits until the target answers a command over its own connection, SSH or WinRM.",
+			Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. It changes nothing.",
+			Params: []collection.Param{
+				{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
+				{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
+				{Name: "sleep", Type: "int", Default: "5", Description: "How many seconds to wait between tries. Must be more than 0."},
+				{Name: "connect_timeout", Type: "int", Default: "20", Description: "How many seconds one try may take before it counts as failed. Must be more than 0."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task, on a device reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "elapsed", Type: "int", Returned: "always", Description: "How many whole seconds the task waited, including the delay."},
+				{Name: "transport", Type: "string", Returned: "always", Description: "The connection that answered: ssh or winrm."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "The connection that answered. Both halves are identical, since a wait changes nothing."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Wait for a new Windows VM's first boot",
+					RunbookYAML: "- name: Wait for the Windows lab VM to let its Administrator in\n  wait.connection:\n    timeout: 1800\n    sleep: 15\n",
+				},
+				{
+					Name:        "Wait out a reboot",
+					RunbookYAML: "- name: Give the machine time to go down, then wait for it\n  wait.connection:\n    delay: 30\n    timeout: 600\n",
+				},
+			},
+			SeeAlso: []string{"wait.path", "virt.vbox.vm.start", "pleiades.builtin.wait.port"},
+		},
+	},
+	{
 		Name:          "facts.gather",
 		Capabilities:  []capability.Name{capability.NameFactGatherer},
 		Transports:    []string{"ssh"},

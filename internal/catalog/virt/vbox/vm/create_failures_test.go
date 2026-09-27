@@ -38,7 +38,7 @@ func TestClone_EachStepFailing(t *testing.T) {
 	noIDE.Slots = noIDE.Slots[2:]
 	model := vboxmanagetest.New(noIDE)
 	onModel(t, model)
-	if _, err := call(t, "virt.vbox.vm.clone", false, seeded(), cloneParams()); err == nil || !strings.Contains(err.Error(), "no free IDE slot") {
+	if _, err := call(t, "virt.vbox.vm.clone", false, seeded(), cloneParams()); err == nil || !strings.Contains(err.Error(), "an IDE slot with no drive") {
 		t.Errorf("a base with no IDE slot: %v", err)
 	}
 	model = vboxmanagetest.New(base())

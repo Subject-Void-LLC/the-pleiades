@@ -22,10 +22,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `svc` | 16 | 16 |
-| `virt` | 12 | 12 |
-| `wait` | 2 | 2 |
+| `virt` | 19 | 19 |
+| `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **96** | **93** |
+| **total** | **104** | **101** |
 
 ## All methods
 
@@ -112,15 +112,23 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
-| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded by cloud-init with a device's login. |
+| [virt.vbox.vm.addresses](virt/vbox/vm/addresses.md) | implemented | Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone. |
+| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file. |
 | [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
+| [virt.vbox.vm.eject_seed](virt/vbox/vm/eject_seed.md) | implemented | Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it. |
 | [virt.vbox.vm.host_keys](virt/vbox/vm/host_keys.md) | implemented | Reads a VM's SSH host keys from what cloud-init printed on its serial console. |
+| [virt.vbox.vm.import_disk](virt/vbox/vm/import_disk.md) | implemented | Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX. |
 | [virt.vbox.vm.import_ova](virt/vbox/vm/import_ova.md) | implemented | Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter. |
 | [virt.vbox.vm.info](virt/vbox/vm/info.md) | implemented | Reports a VirtualBox VM's state, hardware and snapshots. |
+| [virt.vbox.vm.install](virt/vbox/vm/install.md) | implemented | Makes a Windows VM by installing Windows from its installation ISO, unattended, and generalizing it as a base to clone. |
 | [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
+| [virt.vbox.vm.log](virt/vbox/vm/log.md) | implemented | Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern. |
 | [virt.vbox.vm.resize](virt/vbox/vm/resize.md) | implemented | Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count. |
+| [virt.vbox.vm.screenshot](virt/vbox/vm/screenshot.md) | implemented | Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades. |
+| [virt.vbox.vm.send_keys](virt/vbox/vm/send_keys.md) | implemented | Types into a running VM's console, as its keyboard would. |
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
+| [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.cpu.topology](win/cpu/topology.md) | implemented | Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group. |

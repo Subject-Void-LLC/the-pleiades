@@ -1,0 +1,8 @@
+# The answer file holds the Administrator's password: take it out and
+# delete it now that the first boot has read it.
+id: vbox-lab-windows-eject
+hosts: vengeance
+tasks:
+  - name: take the answer file out and delete it
+    virt.vbox.vm.eject_seed:
+      name: win-lab

@@ -207,6 +207,9 @@ func Register(d Descriptor) error {
 func checkSeedsLogin(d Descriptor) error {
 	name := d.Manifest.SeedsLogin
 	if name == "" {
+		if d.Manifest.SeedsLoginPassword {
+			return fmt.Errorf("collection: %q sets SeedsLoginPassword without SeedsLogin, so it names no login to seed", d.Name)
+		}
 		return nil
 	}
 	if d.Provider != nil {

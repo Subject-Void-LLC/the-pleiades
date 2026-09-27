@@ -328,8 +328,9 @@ func TestHostKeys(t *testing.T) {
 	if len(keys) != 3 || !strings.HasPrefix(keys[1], "ssh-ed25519 ") {
 		t.Errorf("keys %q", keys)
 	}
-	if len(changes(model)) == 0 || strings.Contains(strings.Join(changes(model), " "), "VBoxManage.exe modifyvm") {
-		t.Errorf("calls %v", changes(model))
+	// It read the console and changed nothing.
+	if !strings.Contains(strings.Join(model.Calls(), "\n"), "powershell read ") || len(changes(model)) != 0 {
+		t.Errorf("calls %v, changes %v", model.Calls(), changes(model))
 	}
 }
 

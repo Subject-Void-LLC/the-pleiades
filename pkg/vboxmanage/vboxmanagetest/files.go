@@ -60,6 +60,12 @@ func (h *Host) PowerShell(_ context.Context, script, stdin string) (vboxmanage.O
 			data = data[len(data)-limit:]
 		}
 		return vboxmanage.Output{Stdout: base64.StdEncoding.EncodeToString(data) + "\r\n"}, nil
+	case "# vboxmanage: leases":
+		leases, ok := h.Leases[assignment(script, "adapter")]
+		if !ok {
+			return vboxmanage.Output{ExitCode: 3}, nil
+		}
+		return vboxmanage.Output{Stdout: base64.StdEncoding.EncodeToString([]byte(leases)) + "\r\n"}, nil
 	case "# vboxmanage: remove":
 		delete(h.Files, path)
 		return vboxmanage.Output{Stdout: "removed\r\n"}, nil

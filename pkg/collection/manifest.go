@@ -200,6 +200,14 @@ type Manifest struct {
 	// external Collection's method.
 	SeedsLogin string `json:"seedsLogin,omitempty"`
 
+	// SeedsLoginPassword says the method can seed a machine that is
+	// reached over WinRM, such as a Windows VM, which admits a password
+	// rather than a key. For a device reached that way the engine hands
+	// the method the password itself (wire.SecretSeedPassword) in place
+	// of a key and a hash; a method without it is refused such a device.
+	// It needs SeedsLogin.
+	SeedsLoginPassword bool `json:"seedsLoginPassword,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.

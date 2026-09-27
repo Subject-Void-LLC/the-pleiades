@@ -1,8 +1,9 @@
-# VirtualBox lab: Ubuntu VMs The Pleiades makes, seeds and manages
+# VirtualBox lab: Ubuntu and Windows VMs The Pleiades makes, seeds and manages
 
 This directory is the worked example for the `virt.vbox.*` Collection: a Windows host running
 Oracle VirtualBox, and Ubuntu VMs on it that The Pleiades downloads, creates, gives a login,
-boots, trusts and then manages over SSH. Every step is a `pleiades` command or runbook. Nothing
+boots, trusts and then manages over SSH, and Windows Server VMs it installs, seeds and manages
+over WinRM. Every step is a `pleiades` command or runbook. Nothing
 is done by hand in the VirtualBox Manager, and nothing on the host is scripted outside The
 Pleiades. Like the other labs here, it is documentation infrastructure rather than part of the
 shipped product.
@@ -22,6 +23,12 @@ examples/virtualbox_lab/
       list.yaml             every VM on the host, with its size and the address it was given
       resize.yaml           shut the lab VM down, give it another size, start it again
       teardown.yaml         power the lab VM off and delete it
+      windows-01-install.yaml   install Windows Server from its ISO, generalized, as a base
+      windows-02-create.yaml    clone the Windows lab VM from it, seeded, and boot it
+      windows-03-wait.yaml      wait until it answers WinRM as its Administrator
+      windows-04-eject.yaml     take its answer file out and delete it
+      windows-05-first-run.yaml the first run against it, over WinRM
+      windows-look.yaml         a picture of its screen, its log, its addresses
 ```
 
 ## What you end up with
@@ -284,6 +291,94 @@ The vault credential stays, so the new VM gets the same login. To also make a ne
 `pleiades add-credential ubuntu-lab --username root --generate --replace` before
 `03-create.yaml`.
 
+## Windows Server guests
+
+The same host makes Windows Server VMs. Microsoft's evaluation ISO is installed once, with no one
+at the keyboard, into a base that is generalized and never booted again; each lab VM is a linked
+clone of it, seeded with its own computer name, address and Administrator password.
+
+### 1. Install the base
+
+Fetch the evaluation ISO onto the host with `win.file.download`, as step 1 fetches Ubuntu's
+image, then:
+
+```bash
+pleiades run runbooks/windows-01-install.yaml
+```
+
+`virt.vbox.vm.install` makes a VM with a new 64 GB disk, BIOS firmware and no network, and puts
+the ISO and an answer file in its DVD drives. The answer file is built by The Pleiades: it
+partitions the disk, installs the edition `image` names (`Windows Server 2025 Standard
+Evaluation` is Server Core) and takes the new Windows through audit mode. There it deletes the copy
+of itself Windows cached, points the registry (`HKLM\SYSTEM\Setup`, `UnattendFile`) at
+`D:\Autounattend.xml`, and runs sysprep, which generalizes it and shuts it down. The task waits for
+that: between 5 and 9 minutes on the lab host at two CPUs.
+
+The registry pointer is the one way a clone reads its seed. Measured in the clones' own setup
+logs, a generalized Windows looks for its answer file at first boot only in that registry value
+and in its own folders, never on a DVD, although Microsoft's documentation lists removable media;
+and a cached copy of the install's own answer file, left in place, is found first and ends the
+search. Then it takes both DVDs out, deletes the answer file and marks the
+VM installed. The answer file's only password is one made at random for audit mode's sign-in and
+kept nowhere.
+
+A run that stops waiting (its timeout, or a read VirtualBox refused for a moment) leaves the
+install running; run the task again and it waits for the same install and finishes it. An install
+that is still running at the timeout also leaves a picture of its screen in its folder.
+
+### 2. Give the VM an inventory entry and a login
+
+```bash
+pleiades add-host win-lab --type windows_server --set host=192.168.56.30 --tags lab
+pleiades add-credential win-lab --username Administrator --generate
+```
+
+A Windows VM is reached over WinRM by its built-in Administrator's password, and its answer file
+can hold nothing else, so this is the one case where the engine hands a creating method the
+password itself: only `virt.vbox.vm.clone`, which declares it can seed a Windows VM, and only for
+a login device reached over WinRM. A Linux login still gives only a public key and a hash. The
+generated password always has upper case, lower case and a digit, as Windows' default policy
+requires.
+
+### 3. Create, boot and wait
+
+```bash
+pleiades run runbooks/windows-02-create.yaml
+pleiades run runbooks/windows-03-wait.yaml
+```
+
+The clone's seed is `Autounattend.xml` on its one DVD (on its SATA controller, so D:): computer
+name, fixed address on the host-only adapter, time zone, locale, the first-boot screens skipped,
+and the Administrator's password. On the lab host the clone answered WinRM at 192.168.56.30 as
+its Administrator 82 seconds after it started. With no size, a Windows clone is small (one CPU and 2048 MB).
+`wait.connection` waits until the VM answers WinRM as its Administrator: Ansible's
+`wait_for_connection`, for SSH or WinRM.
+
+### 4. Eject the seed and use the VM
+
+```bash
+pleiades run runbooks/windows-04-eject.yaml
+pleiades run -v runbooks/windows-05-first-run.yaml
+```
+
+The answer file holds the Administrator's password, so `virt.vbox.vm.eject_seed` takes it out of
+the drive once the first boot has read it, and the guest can never read it again. VirtualBox keeps
+an image locked for as long as the VM that held it runs, so on a running VM the file stays on the
+host and the task says so in a warning; run it again after `virt.vbox.vm.stop` and it deletes the
+file. It works for Linux VMs too, whose seed holds a password hash.
+
+### When a VM has no way in yet
+
+`runbooks/windows-look.yaml` shows what a VM without a window is doing:
+
+- `virt.vbox.vm.screenshot` saves a picture of its screen here, as a PNG;
+- `virt.vbox.vm.log` reads the end of its VirtualBox log, filtered by a pattern if you give one;
+- `virt.vbox.vm.addresses` reports the addresses its host-only adapter has: the fixed one clone
+  gave it and the DHCP leases VirtualBox's own server handed it, which is how to reach a VM whose
+  fixed address was never applied;
+- `virt.vbox.vm.send_keys` types into its console, in Packer's `<enter>`/`<tab>` notation. Never
+  type a secret with it: the text travels on the host's VBoxManage command line.
+
 ## How it works
 
 ### Two accounts, two lists of VMs
@@ -389,14 +484,15 @@ To make the lab VM bigger:
 
 ```yaml
 - name: Shut the lab VM down
-  fqcn: virt.vbox.vm.stop
-  params: {name: ubuntu-lab}
+  virt.vbox.vm.stop:
+    name: ubuntu-lab
 - name: Make it medium
-  fqcn: virt.vbox.vm.resize
-  params: {name: ubuntu-lab, size: medium}
+  virt.vbox.vm.resize:
+    name: ubuntu-lab
+    size: medium
 - name: Start it again
-  fqcn: virt.vbox.vm.start
-  params: {name: ubuntu-lab}
+  virt.vbox.vm.start:
+    name: ubuntu-lab
 ```
 
 On a Windows host where WSL 2 or Docker Desktop runs, give a VM its first boot at a one-CPU
@@ -437,6 +533,21 @@ So make the first boot at one CPU (`size: xsmall` or `small`), remove what loads
 is ext4 on a plain disk), stop the VM, and resize it with `virt.vbox.vm.resize`. The other fix
 is to turn Windows' hypervisor off (`bcdedit /set hypervisorlaunchtype off`), which also turns
 off WSL 2 and Docker Desktop.
+
+**A Windows VM from an EFI base: one CPU.** A VM booting EFI firmware with two CPUs stopped at the
+firmware's `DXE_AP` step (starting the second CPU) under the Windows hypervisor, before drawing
+anything; at one CPU the same VM booted. This was measured while the account's VirtualBox server
+was pinned to the performance cores, so the pinning is not ruled out. `virt.vbox.vm.install`
+makes BIOS bases, which ran Windows Setup at two CPUs.
+
+**Microsoft's evaluation VHDX does not read a seed.** `virt.vbox.vm.import_disk` makes a VM from
+it (2 minutes 46 seconds for its 11 GB, EFI read off the disk), but a clone of it never reads its
+answer file at first boot, for the reason above: nothing in that image points Windows at the DVD.
+Its clones stop at the first-boot screens. Use `virt.vbox.vm.install` for a Windows base.
+
+**A seed stays on the host while its VM runs.** See step 4: VirtualBox keeps the image locked, so
+`eject_seed` on a running VM empties the drive and leaves the file, which for Windows holds the
+Administrator's password, until the VM is stopped and `eject_seed` runs again.
 
 **`host_keys` times out.** Its error quotes the last line the VM's console printed, which says
 where the boot stopped; `Begin: Loading essential drivers ...` is the multi-CPU hang above. The

@@ -24,7 +24,7 @@ func flags(args []string) (map[string]string, error) {
 		if !strings.HasPrefix(name, "--") {
 			return nil, fmt.Errorf("unexpected %q", name)
 		}
-		if name == "--register" {
+		if name == "--register" || name == "--forceunmount" {
 			out[name] = ""
 			continue
 		}
@@ -104,13 +104,13 @@ func (h *Host) clonevm(from string, args []string) vboxmanage.Output {
 		folder = `C:\Users\pleiades-gate\VirtualBox VMs`
 	}
 	vm := &VM{Name: name, UUID: h.newUUID(), State: vboxmanage.StatePoweroff, MemoryMB: source.MemoryMB, CPUs: source.CPUs,
-		Folder: folder + `\` + name, LinkedFrom: source.Name, NICs: map[int]vboxmanage.NIC{}}
+		Folder: folder + `\` + name, LinkedFrom: source.Name, NICs: map[int]vboxmanage.NIC{}, OSType: source.OSType, Firmware: source.Firmware}
 	for n, nic := range source.NICs {
 		nic.MAC = h.newMAC()
 		vm.NICs[n] = nic
 	}
 	for _, slot := range source.Slots {
-		if strings.HasSuffix(strings.ToLower(slot.Medium), ".vmdk") {
+		if lower := strings.ToLower(slot.Medium); strings.HasSuffix(lower, ".vmdk") || strings.HasSuffix(lower, ".vdi") {
 			slot.Medium = vm.Folder + `\Snapshots/{` + h.newUUID() + `}.vmdk`
 		}
 		vm.Slots = append(vm.Slots, slot)
@@ -148,7 +148,11 @@ func (h *Host) modifyvm(name string, args []string) vboxmanage.Output {
 			vm.CPUs, _ = strconv.Atoi(value)
 		case key == "--autostart-enabled":
 			vm.Autostart = value == "on"
-		case key == "--autostart-delay", key == "--uart1", key == "--paravirt-provider":
+		case key == "--autostart-delay", key == "--uart1", key == "--paravirt-provider",
+			key == "--ioapic", key == "--x86-long-mode", key == "--rtc-use-utc", key == "--graphicscontroller", key == "--vram",
+			strings.HasPrefix(key, "--nic-type"), strings.HasPrefix(key, "--boot"):
+		case key == "--firmware":
+			vm.Firmware = strings.ToUpper(value)
 		case key == "--uart-mode1":
 			vm.ConsoleLog = strings.TrimPrefix(value, "file ")
 		case strings.HasPrefix(key, "--nic"):
@@ -195,6 +199,9 @@ func (h *Host) storageattach(name string, args []string) vboxmanage.Output {
 	if medium != "none" && medium != "emptydrive" {
 		if _, ok := h.Files[medium]; !ok {
 			return errorOutput(fmt.Sprintf("Could not find file for the medium '%s' (VERR_FILE_NOT_FOUND)", medium))
+		}
+		if f["--type"] == "hdd" {
+			h.register(medium)
 		}
 	}
 	for i, slot := range vm.Slots {

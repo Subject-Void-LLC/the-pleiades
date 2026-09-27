@@ -303,8 +303,10 @@ func runRunbook(args []string) error {
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
 		// device's login from the same vault: the public key and a hash of
-		// the password, never the secrets themselves.
-		engine.WithLoginSeeder(engine.NewCredentialLoginSeeder(credentials)),
+		// the password for a machine reached over SSH, and the password
+		// itself only for one reached over WinRM, whose answer file can
+		// hold nothing else.
+		engine.WithLoginSeeder(engine.NewCredentialLoginSeeder(credentials, inventoryRepo)),
 	)
 
 	executor := engine.NewExecutor(

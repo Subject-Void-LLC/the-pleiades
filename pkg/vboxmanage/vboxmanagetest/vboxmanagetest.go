@@ -62,6 +62,13 @@ type VM struct {
 	LinkedFrom string
 	// Extra is its extradata.
 	Extra map[string]string
+	// Typed is what was typed on its keyboard, one entry a call: text as
+	// it is, scan codes space separated.
+	Typed []string
+	// OSType is its guest OS type as showvminfo describes it, and
+	// Firmware BIOS or EFI; left empty, each is what the captured
+	// machines had.
+	OSType, Firmware string
 
 	pressed     bool
 	currentNode string
@@ -82,6 +89,9 @@ type Host struct {
 	// before the failure applies, so a test can fail a later read of a
 	// machine and not the first.
 	Skip map[string]int
+	// Times, when it names a Fail key, is how many calls fail before the
+	// rest are answered, as a lock another task holds for a moment.
+	Times map[string]int
 	// Appliances are the OVA files on the host, by path, each as the VM
 	// importing it makes.
 	Appliances map[string]*VM
@@ -90,9 +100,18 @@ type Host struct {
 	// CPUs, MemoryMB and AvailableMB are what list hostinfo reports; each
 	// left zero reports what the captured host did.
 	CPUs, MemoryMB, AvailableMB int
+	// Leases are the leases files of VirtualBox's DHCP servers, as the
+	// XML each holds, by host-only adapter name.
+	Leases map[string]string
+	// GuestShutdownReads names machines whose guest powers them off by
+	// itself, as an installer that ends in a shutdown does: how many
+	// reads of the machine find it still running before it is off. A
+	// negative count makes it stop abnormally (aborted) instead.
+	GuestShutdownReads map[string]int
 
 	mu    sync.Mutex
 	vms   []*VM
+	disks []string
 	calls []string
 	uuids int
 	macs  int
@@ -170,6 +189,12 @@ func (h *Host) failure(call string) (vboxmanage.Output, bool) {
 	if h.Skip[keys[0]] > 0 {
 		h.Skip[keys[0]]--
 		return vboxmanage.Output{}, false
+	}
+	if left, counted := h.Times[keys[0]]; counted {
+		if left <= 0 {
+			return vboxmanage.Output{}, false
+		}
+		h.Times[keys[0]] = left - 1
 	}
 	return h.Fail[keys[0]], true
 }
@@ -249,6 +274,7 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		if vm == nil {
 			return notFound(args[1])
 		}
+		h.guestShutdown(vm)
 		return vboxmanage.Output{Stdout: vm.showvminfo()}
 	case len(args) == 4 && args[0] == "startvm" && args[2] == "--type" && args[3] == "headless":
 		return h.startvm(args[1])
@@ -264,6 +290,34 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		return h.storageattach(args[1], args[2:])
 	case len(args) >= 3 && args[0] == "closemedium" && args[1] == "dvd":
 		return h.closemedium(args[2], args[3:])
+	case (len(args) == 3 || len(args) == 4) && args[0] == "closemedium" && args[1] == "disk":
+		return h.closeDisk(args[2], args[3:])
+	case len(args) >= 2 && args[0] == "createvm":
+		return h.createvm(args[1:])
+	case len(args) >= 2 && args[0] == "storagectl":
+		return h.storagectl(args[1], args[2:])
+	case len(args) >= 1 && args[0] == "createmedium":
+		return h.createmedium(args[1:])
+	case len(args) >= 1 && args[0] == "clonemedium":
+		return h.clonemedium(args[1:])
+	case len(args) >= 1 && args[0] == "mediumio":
+		return h.mediumio(args[1:])
+	case len(args) >= 4 && args[0] == "controlvm" && (args[2] == "keyboardputstring" || args[2] == "keyboardputscancode"):
+		vm := h.find(args[1])
+		if vm == nil {
+			return notFound(args[1])
+		}
+		if vm.State != vboxmanage.StateRunning {
+			return errorOutput(fmt.Sprintf("Machine '%s' is not currently running.", vm.Name))
+		}
+		vm.Typed = append(vm.Typed, strings.Join(args[3:], " "))
+		return vboxmanage.Output{}
+	case len(args) == 4 && args[0] == "controlvm" && args[2] == "screenshotpng":
+		vm := h.find(args[1])
+		if vm == nil {
+			return notFound(args[1])
+		}
+		return h.screenshot(vm, args[3])
 	case len(args) == 3 && args[0] == "unregistervm" && args[2] == "--delete":
 		return h.unregistervm(args[1])
 	case len(args) == 3 && args[0] == "getextradata" && args[2] == "enumerate":
@@ -278,8 +332,11 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 
 // list answers list vms and list runningvms.
 func (h *Host) list(what string) vboxmanage.Output {
-	if what == "hostinfo" {
+	switch what {
+	case "hostinfo":
 		return h.hostinfo()
+	case "hdds":
+		return h.listHDDs()
 	}
 	var b strings.Builder
 	for _, vm := range h.vms {
@@ -402,12 +459,14 @@ func (vm *VM) showvminfo() string {
 	var b strings.Builder
 	line := func(key, value string) { fmt.Fprintf(&b, "%s=%s\r\n", key, value) }
 	line("name", quote(vm.Name))
+	line("ostype", quote(or(vm.OSType, "Other/Unknown (64-bit)")))
 	line("UUID", quote(vm.UUID))
 	if vm.Folder != "" {
 		line("CfgFile", quote(vm.Folder+`\`+vm.Name+".vbox"))
 	}
 	line("memory", fmt.Sprint(vm.MemoryMB))
 	line("cpus", fmt.Sprint(vm.CPUs))
+	line("firmware", quote(or(vm.Firmware, "BIOS")))
 	line("VMState", quote(vm.State))
 	autostart := "off"
 	if vm.Autostart {
@@ -424,4 +483,31 @@ func (vm *VM) showvminfo() string {
 // backslash before each backslash and quote.
 func quote(value string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+}
+
+// or returns value, or fallback when value is empty.
+func or(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// guestShutdown advances a running machine whose guest powers it off by
+// itself (GuestShutdownReads) by one read.
+func (h *Host) guestShutdown(vm *VM) {
+	n, ok := h.GuestShutdownReads[vm.Name]
+	if !ok || vm.State != vboxmanage.StateRunning {
+		return
+	}
+	switch {
+	case n < 0:
+		vm.State = vboxmanage.StateAborted
+	case n == 0:
+		vm.State = vboxmanage.StatePoweroff
+	default:
+		h.GuestShutdownReads[vm.Name] = n - 1
+		return
+	}
+	delete(h.GuestShutdownReads, vm.Name)
 }

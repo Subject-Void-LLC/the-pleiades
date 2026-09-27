@@ -201,7 +201,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	var seed map[string]string
 	if param := desc.Manifest.SeedsLogin; param != "" {
-		if seed, err = e.seedLogin(ctx, task.FQCN, param, task.Params); err != nil {
+		if seed, err = e.seedLogin(ctx, task.FQCN, param, desc.Manifest.SeedsLoginPassword, task.Params); err != nil {
 			return ActionResult{}, err
 		}
 	}

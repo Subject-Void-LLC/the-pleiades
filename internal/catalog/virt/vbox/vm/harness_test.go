@@ -93,11 +93,12 @@ func call(t *testing.T, fqcn string, check bool, rc sdk.RunbookContext, params m
 }
 
 // changes returns the calls a method made on the model other than the
-// reads, which a check must never make.
+// reads (showvminfo, list, and reading a file), which a check must never
+// make.
 func changes(model *vboxmanagetest.Host) []string {
 	var changed []string
 	for _, c := range model.Calls() {
-		if !strings.HasPrefix(c, "VBoxManage.exe showvminfo ") && !strings.HasPrefix(c, "VBoxManage.exe list ") {
+		if !strings.HasPrefix(c, "VBoxManage.exe showvminfo ") && !strings.HasPrefix(c, "VBoxManage.exe list ") && !strings.HasPrefix(c, "powershell read ") {
 			changed = append(changed, c)
 		}
 	}

@@ -21,10 +21,15 @@ const (
 
 // Machine is a registered VM, as showvminfo reports it.
 type Machine struct {
-	Name             string
-	UUID             string
-	State            string
-	ConfigFile       string
+	Name       string
+	UUID       string
+	State      string
+	ConfigFile string
+	// OSType is the guest OS type as showvminfo describes it, such as
+	// "Windows Server 2025 (64-bit)"; its ID is not in that answer.
+	OSType string
+	// Firmware is what the machine boots with: BIOS, or EFI.
+	Firmware         string
 	MemoryMB         int
 	CPUs             int
 	AutostartEnabled bool
@@ -57,6 +62,12 @@ func (m Machine) Off() bool {
 	return false
 }
 
+// Windows reports whether the machine's guest OS type is a Windows one.
+// VirtualBox names every Windows type starting with the word.
+func (m Machine) Windows() bool {
+	return strings.HasPrefix(m.OSType, "Windows")
+}
+
 // Ref is a machine's name and UUID, as list vms reports them.
 type Ref struct {
 	Name string
@@ -87,6 +98,8 @@ func machineFrom(values Values) (Machine, error) {
 	m.UUID, _ = values.Get("UUID")
 	m.State, _ = values.Get("VMState")
 	m.ConfigFile, _ = values.Get("CfgFile")
+	m.OSType, _ = values.Get("ostype")
+	m.Firmware, _ = values.Get("firmware")
 	if m.Name == "" || m.UUID == "" || m.State == "" {
 		return Machine{}, fmt.Errorf("vboxmanage: showvminfo gave no name, UUID or state")
 	}

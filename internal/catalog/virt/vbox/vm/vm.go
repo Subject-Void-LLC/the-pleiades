@@ -104,6 +104,22 @@ func mustReadFor(ctx context.Context, h vboxmanage.Host, name string, device inv
 	return m, nil
 }
 
+// seconds reads the int parameter key as a positive number of seconds,
+// fallback when it is not given.
+func seconds(params map[string]any, key string, fallback int) (time.Duration, error) {
+	n, set, err := sdk.IntParam(params, key)
+	if err != nil {
+		return 0, err
+	}
+	if !set {
+		n = fallback
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("%s must be a positive number of seconds", key)
+	}
+	return time.Duration(n) * time.Second, nil
+}
+
 // stateView is the part of a machine a start or stop diff records.
 func stateView(m vboxmanage.Machine) map[string]any {
 	return map[string]any{statState: m.State, statAutostartEnabled: m.AutostartEnabled}

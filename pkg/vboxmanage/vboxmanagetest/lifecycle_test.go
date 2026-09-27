@@ -18,7 +18,7 @@ const ova = `G:\PleiadesLab\ubuntu-24.04-server-cloudimg-amd64.ova`
 // for slot as the captured import (showvminfo-imported.stdout) shows,
 // with the bridged adapter the appliance asks for.
 func ubuntuAppliance() *VM {
-	vm := &VM{MemoryMB: 1024, CPUs: 2, NICs: map[int]vboxmanage.NIC{1: {Kind: "bridged"}}}
+	vm := &VM{MemoryMB: 1024, CPUs: 2, OSType: "Ubuntu (64-bit)", NICs: map[int]vboxmanage.NIC{1: {Kind: "bridged"}}}
 	for port := 0; port < 2; port++ {
 		for device := 0; device < 2; device++ {
 			vm.Slots = append(vm.Slots, vboxmanage.Slot{Controller: "IDE", ControllerType: "PIIX4", Port: port, Device: device, Medium: "none"})

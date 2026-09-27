@@ -1,0 +1,16 @@
+# When a VM has no way in yet: a picture of its screen, where its firmware
+# and VirtualBox say it is, and the addresses it was given.
+id: vbox-lab-windows-look
+hosts: vengeance
+tasks:
+  - name: save a picture of the VM's screen
+    virt.vbox.vm.screenshot:
+      name: win-lab
+      dest: win-lab.png
+  - name: read the end of its VirtualBox log
+    virt.vbox.vm.log:
+      name: win-lab
+      lines: 20
+  - name: find the addresses its host-only adapter was given
+    virt.vbox.vm.addresses:
+      name: win-lab
