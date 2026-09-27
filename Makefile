@@ -387,6 +387,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
