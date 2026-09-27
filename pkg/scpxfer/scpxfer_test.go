@@ -1,5 +1,8 @@
+//go:build unix
+
 // End-to-end SCP tests: the real device scripts, a real shell and a real scp
-// binary, behind an in-process SSH server.
+// binary, behind an in-process SSH server. Unix only: the device side is
+// /bin/sh, and the escape tests plant a FIFO, which Windows does not have.
 package scpxfer
 
 import (
