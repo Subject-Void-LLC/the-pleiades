@@ -360,6 +360,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 355. The WinRM lab setup script gave its account far more than a lab run needs, and weakened the host for everyone
 356. Windows ignores WINRS_SKIP_CMD_SHELL, so every WinRM command still ran through cmd.exe while the tests said it did not
 357. The WinRM Adapter mapped credential fields by hand and sent no credential for a PKCS#12 bundle
+358. Bare `pleiades validate` checked only the file `init` writes, and silently dropped its own flags
+359. An `import_tasks` file was diagnosed as an Ansible playbook and sent to the migration tool
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

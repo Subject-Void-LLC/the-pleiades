@@ -10108,3 +10108,49 @@ real bundle, and a wrong passphrase is refused before anything is sent.
 
 **Lesson.** Where a shared translation exists, a second hand-written one is a second place a new
 credential form has to be remembered, and the one that forgets fails only for that form.
+
+## 358. Bare `pleiades validate` checked only the file `init` writes, and silently dropped its own flags
+
+**Symptom.** In the VirtualBox lab project, `pleiades validate` with no runbook named failed with "open
+runbooks/sample.yaml: no such file or directory", although the project held seven valid runbooks. In a
+project made by `init` it passed while checking only the one-task sample. `pleiades validate --dir
+<project>` read `./inventory.yaml` instead of the project's, and `--tags`/`--skip-tags` did nothing,
+whenever no runbook was named. `TestMigratePlaybookReleaseGate` ran a bare `validate` to prove a
+converted playbook validates, and was checking `sample.yaml` alone the whole time.
+
+**Root cause.** The optional runbook defaulted to `runbooks/sample.yaml`, a file only `pleiades init`
+creates and a user is free to delete. `splitPositional` returns a nil `rest` along with
+`errMissingPositional`, and `runValidate` treated that error as "no runbook named" and parsed the nil
+`rest`, so every flag given alongside no runbook vanished. The command also took exactly one runbook, so
+`pleiades validate runbooks/*.yaml` failed on the glob's second path.
+
+**Fix.** `validate` takes any number of runbooks (`splitPositionals`), and with none named checks every
+entry in `runbooks/`, exactly what `runbooks/*` names. A directory, a non-YAML file and an
+`import_tasks` file are skipped with a note, every runbook is checked even after one fails, and nothing
+left to check is a failure. A tag filter is checked once against all of them (`engine.NewTagSelection`),
+so a tag only some carry is not a typo. `TestCLI_ValidateManyRunbooks` and
+`TestCLI_ValidateNothingToCheck` drive it through the real binary, `--dir` from another directory
+included.
+
+**Lesson.** An optional argument's default has to come from the project itself, never from a file one
+command happens to write. And a helper's other return values mean nothing once it has returned an
+error, even an expected sentinel error: the caller that branches on the sentinel still has to get its
+data some other way.
+
+## 359. An `import_tasks` file was diagnosed as an Ansible playbook and sent to the migration tool
+
+**Symptom.** Naming a file of tasks that `import_tasks` pulls in, to `validate` or `run`, printed "this
+file is shaped like an Ansible playbook ... convert it with 'pleiades forge migrate-playbook <file>'",
+which is wrong advice for a native file that works where it is used.
+
+**Root cause.** `parseWorkflowYAML` called any top-level list containing a map an Ansible playbook. A
+playbook and a task file are both lists of maps; only a play carries `hosts`, `import_playbook`,
+`tasks`, `roles` and the like.
+
+**Fix.** A list with any play key is still a playbook. Any other list of maps returns
+`engine.ErrTaskList`, which says what the file is and to name the runbook that imports it, and which
+`validate` tests with `errors.Is` to skip the file instead of failing on it.
+`TestBuildFromYAMLFile_TaskListIsErrTaskList` covers both shapes and the importing runbook.
+
+**Lesson.** A shape check that names a diagnosis has to tell apart every shape that reaches it, not
+just the one it was written for. Otherwise its advice is confidently wrong about the others.
