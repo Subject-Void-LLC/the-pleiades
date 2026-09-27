@@ -35,7 +35,7 @@ It is also the example that broke this lab machine twice, and the comments in
 change is PowerShell's to do. The other two modes exist too: `shell: cmd` runs one line
 through `cmd.exe` for its builtins, and `shell: none` runs a program with its arguments
 reaching it exactly as written. The WinRM service starts every command through `cmd.exe`
-whatever it is asked, so Pleiades escapes each line until that `cmd.exe` passes it through
+whatever it is asked, so The Pleiades escapes each line until that `cmd.exe` passes it through
 unchanged, and the parser a task names is the only one that acts on it.
 
 **Run these with `--verbose`.** `pleiades run` prints only whether each task changed
@@ -111,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso
 powershell -ExecutionPolicy Bypass -File .\winrm-cert-teardown.ps1
 ```
 
-What Pleiades needs lands in `%USERPROFILE%\pleiades-gate`, readable only by you: the
+What The Pleiades needs lands in `%USERPROFILE%\pleiades-gate`, readable only by you: the
 authority as `ca.pem`, and the client identity as `client.pfx` and
 `client.pfx.passphrase`. From that directory, add the host with its authority pinned, so it
 is verified without adding the lab's CA to anything else's trust, then import the identity

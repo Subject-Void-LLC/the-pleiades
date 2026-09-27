@@ -256,7 +256,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
 252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
 253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
-254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+254. A Landlock restriction applied from a goroutine could land on the main thread, putting The Pleiades inside the program's own domain
 255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
 256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
 257. An external program's own text reached the terminal raw, including at the approval prompt

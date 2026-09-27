@@ -503,9 +503,9 @@ Write-Host "`n=== done ===" -ForegroundColor Green
 Write-Host "bundle      $pfxPath"
 Write-Host "passphrase  $passphrasePath (readable by you and SYSTEM only)"
 Write-Host "authority   $caPemPath"
-Write-Host "`nAdd this host to Pleiades, pinning its authority, from the directory above:"
+Write-Host "`nAdd this host to The Pleiades, pinning its authority, from the directory above:"
 Write-Host '   pleiades add-host <device> --type windows_server --set host=<address> --set port=5986 --set "tls_ca_pem=$(cat ca.pem)"'
-Write-Host 'or, for a host Pleiades already has, pin this run''s new authority:'
+Write-Host 'or, for a host The Pleiades already has, pin this run''s new authority:'
 Write-Host '   pleiades set-host <device> --set "tls_ca_pem=$(cat ca.pem)"'
 Write-Host "Import the bundle, then delete it and its passphrase file:"
 Write-Host "   pleiades add-credential <device> --pfx client.pfx --passphrase-stdin < client.pfx.passphrase"

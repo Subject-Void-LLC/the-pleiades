@@ -520,7 +520,7 @@ and 45, built 2026-09-18): a separate program built with the public `pkg/externa
 loaded by `internal/loader` from the directory `PLEIADES_COLLECTIONS_DIR` names, in
 `cmd/pleiades` (run, validate, doc) and `cmd/runner` only (`internal/archtest` enforces
 both that and that `internal/engine` never reaches the loader). The program runs as a
-child process BESIDE Pleiades, never copied onto a device (the user's decision), speaking
+child process BESIDE The Pleiades, never copied onto a device (the user's decision), speaking
 the same `pkg/wire` ChildRequest/ChildResponse the Runner's own per-task child speaks,
 through the one shared `external.ServeChild`. Its methods register through the ordinary
 `collection.Register`, so validate, doc and dispatch treat them as built-in, and it gets

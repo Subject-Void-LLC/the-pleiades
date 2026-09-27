@@ -40,6 +40,20 @@ For the full, generated reference on any of these, see
 [the runbook and task key reference](reference/task-keys.md) and
 [the capability vocabulary](reference/capabilities.md).
 
+### How the pieces fit together
+
+| Layer | What it does | Examples |
+|-------|-------------|----------|
+| **The Forge** | Creates and shapes artifacts. Scaffolds, generates, converts, and lints. Never executes against a device. | `pleiades forge new-collection`, `pleiades validate`, the `pkg/` SDK |
+| **Collection** | A package of capabilities. Declares what it needs (a capability) and how it gets there (a transport). | `pkg.apt.install`, `net.ios.config`, `exec.command` |
+| **Capability** | Something a device can do. Checked at plan time, not at run time. | `AptCapable`, `SystemdCapable`, `CiscoIOSCapable` |
+| **Manifest** | The declared nature of an artifact: its status, its parameters, its required capability, and whether it can be undone. | `collection.Manifest`, the `Status` field, the `Reversibility` struct |
+| **Transport** | The means by which a capability reaches its target. Selected from the device, never from the runbook. | SSH, WinRM, NETCONF, gRPC, the network CLI |
+| **Pleiades** | The constellation coordinating all of those pieces: the DAG executor, the dispatcher, the NATS mesh, the Controller and Runner. | `pleiades run`, the Controller API, the Runner agent |
+
+The Forge creates the instruments. Pleiades gives them a constellation
+in which they can be used. Infrastructure responds.
+
 ## The Crawl, Walk, and Run tiers
 
 Pleiades is meant to be adopted incrementally. Each tier is a strict superset of the

@@ -40,7 +40,7 @@ added host "web1" (linux_server) to inventory.yaml
 `inventory.yaml` now has a real entry, written by the CLI, not by hand:
 
 ```yaml
-# Pleiades static inventory (Crawl tier: no server, no database, no broker).
+# The Pleiades static inventory (Crawl tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts:
     - id: 6e3dd54a-763e-45f2-ae77-dd9fd90d0898
@@ -72,7 +72,7 @@ $ pleiades add-host edge1 --type generic_ssh --set host=10.0.0.5
 $ pleiades onboard edge1        # after add-credential; --json prints the same result as JSON
 ```
 
-See [Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types)
+See [Extending The Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types)
 for the four generic types and what each probe proves.
 
 ### 4. Store a credential

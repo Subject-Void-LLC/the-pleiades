@@ -18,7 +18,7 @@ RUN useradd -m -s /bin/bash -G sudo svc-netauto && \
 
 # A fixed, checked-in host key (generated once for this lab, never
 # rotated) so the container's identity is stable across rebuilds: a real
-# device keeps the same host key for its lifetime, and Pleiades' SSH
+# device keeps the same host key for its lifetime, and The Pleiades' SSH
 # transport fails closed on a key that does not match known_hosts
 # (internal/transport/ssh/ssh.go), so a host key that changed on every
 # `docker compose up` would break the exact trust model these examples

@@ -1,9 +1,9 @@
 # Read-only. Run this BETWEEN round_trip.yaml's two tasks (interrupt the
 # run, or just run it manually right after round_trip.yaml completes but
 # before you trust it) to see the interface really landed on the real
-# device, not just that Pleiades reported "changed".
+# device, not just that The Pleiades reported "changed".
 #
-# Pleiades has no assert:/fail:/pause: module yet. These are Ansible
+# The Pleiades has no assert:/fail:/pause: module yet. These are Ansible
 # control-flow builtins with no Pleiades equivalent today: a real,
 # internally tracked gap, not something this example works around. So
 # this runbook cannot fail the run on its own if the interface is

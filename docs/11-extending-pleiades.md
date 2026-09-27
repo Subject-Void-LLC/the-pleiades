@@ -2,7 +2,12 @@
 status: beta
 ---
 
-# Extending Pleiades
+# Extending The Pleiades
+
+Pleiades is the execution engine. Its extension surface (the SDK, the code
+generators, and the `pleiades forge` CLI namespace) is collectively called
+Hephaestus. The full catalog convention and naming rationale are in
+[The Forge](hephaestus.md).
 
 This book covers how the catalog, device types, and sync plugins grow. There are
 two ways to add a Collection method, and only one way to add anything else:
@@ -10,8 +15,8 @@ two ways to add a Collection method, and only one way to add anything else:
 - **Contribute it** (every kind of extension): write it in this repository, or a
   fork, and build your own binary.
 - **Ship it as an external Collection** (Collection methods only): build a separate
-  program with the public `pkg/` SDK and point Pleiades at the directory it lives in.
-  No fork and no rebuild of Pleiades. See [External Collections](#external-collections).
+  program with the public `pkg/` SDK and point The Pleiades at the directory it lives in.
+  No fork and no rebuild of The Pleiades. See [External Collections](#external-collections).
 
 ## The extension surface today
 
@@ -20,7 +25,7 @@ Go's own visibility rule makes an `internal/` package reachable only from code i
 this module or a fork of it, so device types and sync plugins can still only be added
 by contributing to this repository. That means:
 
-- "Extending Pleiades" with a device type or a sync plugin means contributing to this
+- "Extending The Pleiades" with a device type or a sync plugin means contributing to this
   repository (or a fork), building, and shipping your own binary.
 - A Collection method is the exception. An external Collection imports only `pkg/`
   (`pkg/external`, `pkg/collection`, `pkg/sdk` and the other shared primitives there),
@@ -88,7 +93,7 @@ afterward.
 `main.go`, the method with a working read-only body (it runs `uname -a` on the target and
 records the output), a test that runs the program's own `describe`, a README with the
 build and install steps, and a `go.mod` holding only a `module` line and a `go` line. It
-names no version of Pleiades, because the right one is a version the `go` command works
+names no version of The Pleiades, because the right one is a version the `go` command works
 out itself: `go mod tidy` resolves it through the module proxy and records its checksum.
 The README also gives the offline route, a `replace` pointing at a local checkout, as a
 step you take on purpose, since a `replace` is not checked against anything. The
@@ -427,7 +432,7 @@ if params["creates"] == nil {
 That task is then reported as "could not check" with your reason, exactly like a method
 with no check support, while the calls your `Check` can answer are checked. Return it
 only from `Check`: from `Invoke` it is an ordinary failure. It works the same from an
-external Collection, where it crosses to Pleiades as the response's `cannot_check` flag,
+external Collection, where it crosses to The Pleiades as the response's `cannot_check` flag,
 and a Pleiades build that predates the flag reports such a task as failed rather than
 unchecked.
 
@@ -621,7 +626,7 @@ A Windows host can run a command three genuinely different ways, and a task
 names which one. The WinRM service starts every command through `cmd.exe /C`,
 whatever the client asks: the WS-Man option `WINRS_SKIP_CMD_SHELL` exists to ask
 it not to, and Windows does not honor it (measured, and refused outright when
-marked as required). So Pleiades escapes every command line until that
+marked as required). So The Pleiades escapes every command line until that
 `cmd.exe` passes it through unchanged, the same technique the Rust standard
 library adopted for this problem after CVE-2024-24576, and the only parser
 that acts on a command is the one the task chose.
@@ -656,7 +661,7 @@ standard input, which `pkg/winrmexec.RunWithStdin` provides for a method that
 needs one.
 
 **Exit codes are real.** PowerShell's `-EncodedCommand` normally reports only 0
-or 1. Pleiades adds one line after the script so a failing native program's own
+or 1. The Pleiades adds one line after the script so a failing native program's own
 exit code survives, a failed cmdlet reports 1, and a script that recovers from
 an earlier failure reports 0.
 
@@ -676,7 +681,7 @@ is why `cmd` mode builds its own line.
 ## External Collections
 
 An external Collection is a Collection method (or several) built as a separate program,
-outside this repository, and run by Pleiades as a child process once per task. It
+outside this repository, and run by The Pleiades as a child process once per task. It
 imports only `pkg/`, so it builds against a stock release, and a runbook calls its
 methods exactly as it calls a built-in one. [`examples/external_collection`](../examples/external_collection/)
 is a complete, working one.
@@ -739,7 +744,7 @@ Pleiades runs the program with one argument:
   stdout. This happens once, when the directory is loaded.
 - `invoke`: the program reads one request from stdin (the method, the mode, the
   task's params, the target device's name, address and capabilities, and the
-  credential Pleiades resolved for the task), runs the method, and writes one response
+  credential The Pleiades resolved for the task), runs the method, and writes one response
   to file descriptor 3: whether anything changed, the stats it recorded, or an error.
 
 The credential is not a new mechanism. It is exactly what a built-in method receives
@@ -752,7 +757,7 @@ The request and response are the same JSON messages the Runner already exchanges
 its own per-task child process, served by the same code (`external.ServeChild`), so a
 method's result is the same to the engine whichever kind of process produced it.
 
-The program never runs on a managed device. It runs beside Pleiades and reaches the
+The program never runs on a managed device. It runs beside The Pleiades and reaches the
 device the way a built-in method does, through `sdk.Connect` and the credential in the
 request.
 
@@ -782,7 +787,7 @@ directory, and checked every time:
   that any built-in method uses (`file`, `svc`, `net` and the rest, read from the
   running build, so a namespace the catalog adds later is reserved too), nor
   `pleiades` or `ansible`. A name in one of them can only mean code that ships with
-  Pleiades, so name your methods under your organization's name. `pleiades run
+  The Pleiades, so name your methods under your organization's name. `pleiades run
   --verbose` also prints, beside every result from an external program, the program
   and digest that produced it.
 - **Nothing is replaced.** A method name that is already registered, whether by a
@@ -801,15 +806,15 @@ directory, and checked every time:
   its results, and everything `pleiades collection approve` shows are printed with
   such characters escaped, so a program cannot draw fake output, such as a fake
   "approved" line, over the real output.
-- **Every run is confined.** A program runs as the user running Pleiades (on a Runner,
+- **Every run is confined.** A program runs as the user running The Pleiades (on a Runner,
   the Runner's user), so on its own it could read whatever that user can: the project's
-  credential store and its key under `.pleiades/`, your SSH keys, and the Pleiades
+  credential store and its key under `.pleiades/`, your SSH keys, and The Pleiades
   process's own starting environment under `/proc`. Instead, every run is confined with
   Linux's Landlock to its own directory, the system's libraries, certificates, resolver
   files and time zone database, your `known_hosts` file, `/dev/null`, and a private
   temporary directory (its `TMPDIR`, removed when it exits). On a kernel with Landlock
-  ABI 6 or later it also cannot signal Pleiades. Pleiades marks itself non-dumpable
-  before starting a program, so the program can't read Pleiades's memory or
+  ABI 6 or later it also cannot signal The Pleiades. The Pleiades marks itself non-dumpable
+  before starting a program, so the program can't read The Pleiades's memory or
   environment. Network access is not confined, since a method must reach devices on
   their own ports.
 - **Checks stay off locked devices.** A method's `Check` from an external program is

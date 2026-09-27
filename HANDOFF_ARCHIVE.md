@@ -244,7 +244,7 @@ not re-checked by `tools/coverage-check`.
 - `pleiades run --forks N` (1 to 1000, default 5, Ansible's), `TestCLI_RunForks`.
 - `tools/ansiblebench` (Python, manual, like `tools/genrrulefixtures`) and its report,
   `docs/15-performance.md`, with raw results in `tools/ansiblebench/results/2026-09-24.json`. 27
-  measurements (1 to 200 hosts, 5 and 25 wide), all passing: Pleiades 24 to 41 times faster, about 57
+  measurements (1 to 200 hosts, 5 and 25 wide), all passing: The Pleiades 24 to 41 times faster, about 57
   times less control-node CPU per task at 200 hosts, 9 to 14 times less control memory, 62 times less
   network. docs/10's persistence numbers now come from it (the first comparison's target ran `sshd`
   unprivileged and understated logins, FAILURE_PATTERNS 341).
@@ -1783,7 +1783,7 @@ tree and `cmd/pleiades` suites, `-race` on `static_yaml`, vet, docs-lint.
    usable only by the directory's owner or root; the approval-lockfile build item closes it by
    executing the bytes it hashed (not built; confinement did not need a re-exec shim after all).
 9. **Security, found while building and fixed (FAILURE_PATTERNS 254):** Landlock applied from a
-   goroutine could land on the main thread, putting Pleiades inside the program's own domain (the
+   goroutine could land on the main thread, putting The Pleiades inside the program's own domain (the
    program could signal it). Intermittent; now pinned by a deterministic main-thread probe test.
 10. **Correctness, found while building and fixed (FAILURE_PATTERNS 255):** an unmarshal hook written
     against `gopkg.in/yaml.v3` is never called by the engine's `go.yaml.in/yaml/v3` decoder, so
@@ -10350,7 +10350,7 @@ compile on more than one GOOS and adds packages whose natural filenames sit dire
 (`serial_linux.go`, `socket_windows.go`). Every phase in the Part forbids GOOS-suffixed filenames and
 says why.
 
-**Platform requirement, recorded because it shapes several decisions.** Pleiades must act on Windows and
+**Platform requirement, recorded because it shapes several decisions.** The Pleiades must act on Windows and
 macOS targets, a hard requirement. It must run on Linux and should run on macOS; running the controller
 on Windows is a stretch goal that may be missed. Windows targets are well served by Phase 72's WinRM.
 **macOS targets are a real gap that Part XV deliberately does not close:** a Mac is reached over SSH,
@@ -10377,18 +10377,18 @@ grew from 36 checklist items to 54, and from 496 lines to 978. It had treated `c
 to bypass with a single global `WINRS_SKIP_CMD_SHELL` switch, which cannot survive an operator who
 legitimately wants cmd builtins. It now names three typed execution modes (`ShellNone`, `ShellCmd`,
 `ShellPowerShell`), pins the WS-Man option to `TRUE` in all three so exactly one parser ever sees the
-bytes and it is always the one Pleiades chose, and reuses the existing `CommandExecCapable` while adding a
+bytes and it is always the one The Pleiades chose, and reuses the existing `CommandExecCapable` while adding a
 `WindowsShellCapable` sibling (`ShellExecCapable` was rejected because its whole contract is a single
 `ShellPath()`, and Windows has two shells whose metacharacter sets are disjoint).
 
 **The load-bearing fact behind the diagnostics work, verified against three primary sources because
 getting it wrong would ship a confident and completely wrong error message: PowerShell Execution Policy
-does not block anything Pleiades sends.** Microsoft's own `about_Execution_Policies` says it "isn't a
+does not block anything The Pleiades sends.** Microsoft's own `about_Execution_Policies` says it "isn't a
 security system that restricts user actions"; `PSAuthorizationManager.ShouldRun` calls `CheckPolicy` in
 exactly one branch, `case CommandTypes.ExternalScript`; and every blocking string in `Authenticode.resx`
-is parameterized on a file path. Since Pleiades sends `-EncodedCommand` and never writes a `.ps1`,
+is parameterized on a file path. Since The Pleiades sends `-EncodedCommand` and never writes a `.ps1`,
 Execution Policy is out of the loop, and an operator's first guess is therefore almost always wrong.
-Exactly three mechanisms can actually refuse what Pleiades sends (Constrained Language Mode, a NoLanguage
+Exactly three mechanisms can actually refuse what The Pleiades sends (Constrained Language Mode, a NoLanguage
 runspace, and AMSI), plus impostors that must never be reported as blocks: WinRM quotas and an audit-mode
 App Control policy.
 
@@ -10398,7 +10398,7 @@ PowerShell blocking is a property of the Windows host, not of how the script arr
 identically over WinRM, from a local subprocess on a Windows controller, or from an agent on the box.
 
 **Two gaps were recorded rather than built, both raised by the product owner:**
-1. **Controller-side execution.** If Pleiades runs on Windows, `cmd.exe` and `powershell.exe` are local
+1. **Controller-side execution.** If The Pleiades runs on Windows, `cmd.exe` and `powershell.exe` are local
    subprocesses, not a transport, and `PLAN.md:806` explicitly refuses to model local as a connection
    ("No `connection: local`. Execution context is first-class"). But `collection.ExecutionContext` is one
    boolean, and no file under `internal/`, `pkg/`, or `cmd/` imports `os/exec` outside tests, which Phase

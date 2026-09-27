@@ -2619,7 +2619,7 @@ to satisfy it, and prove that channel reaches the code doing the enforcing in th
 product ships. If the only channel is the developer's own environment, the control is off in
 production and on in the tests.
 
-**The incident.** Every SSH connection Pleiades makes verifies the device's host key against a
+**The incident.** Every SSH connection The Pleiades makes verifies the device's host key against a
 known_hosts file and fails closed. That was written carefully, tested thoroughly, and completely
 unusable in the shipped runner image, because the only way to name the file was
 `$HOME/.ssh/known_hosts` and a distroless container has no home directory. `os.UserHomeDir`
@@ -3248,7 +3248,7 @@ whether the rule still matches anything.
 ## 156. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
 
 **The incident.** `internal/topology`'s package doc calls it "the single owner of every NATS
-JetStream subject, stream, consumer, and retention/replica setting used by Pleiades," and
+JetStream subject, stream, consumer, and retention/replica setting used by The Pleiades," and
 `internal/archtest/layering_test.go`'s own comment repeats it more specifically: topology "is
 the one place jetstream.StreamConfig/ConsumerConfig/KeyValueConfig shapes are declared, so
 every other adapter can depend on topology instead of the driver directly." Both were false

@@ -1,4 +1,4 @@
-# The first thing to run against a new Windows target: prove Pleiades can
+# The first thing to run against a new Windows target: prove The Pleiades can
 # reach it at all, and read back enough to know what you are working with.
 #
 # Run with: pleiades run runbooks/win_facts.yaml

@@ -41,7 +41,7 @@ THE COMMAND REPLACES THE IMAGE'S DEFAULT, which is ["--config",
 "nats-server.conf"], and that config file was the only thing enabling the
 monitoring port. So every flag below has to be stated:
 
-  -js        JetStream, which every stream, consumer and lock in Pleiades
+  -js        JetStream, which every stream, consumer and lock in The Pleiades
              needs. Without it the controller and the runners come up and then
              fail on their first stream operation.
   -sd /data  the store directory, on the volume below. Without it the server

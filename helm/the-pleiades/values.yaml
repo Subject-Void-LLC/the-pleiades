@@ -117,7 +117,7 @@ controller:
     # -- The tag, stated explicitly and never left empty.
     #
     # An empty tag is how the stock chart worked: it fell back to
-    # .Chart.AppVersion, which is how a chart meant to run Pleiades ran
+    # .Chart.AppVersion, which is how a chart meant to run The Pleiades ran
     # nginx:1.16.0 instead. The chart refuses an empty tag and refuses
     # `latest`.
     #

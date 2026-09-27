@@ -11,14 +11,14 @@ type: application
 # It is not the application's version and never tracks it.
 version: 0.1.0
 
-# The version of Pleiades this chart deploys, and it says "dev" because that is
+# The version of The Pleiades this chart deploys, and it says "dev" because that is
 # the truth. This repository has zero git tags, so `git describe --tags` fails
 # outright and there is no release number to put here. A number invented for
 # this field would be a promise no artifact anywhere keeps.
 #
 # Nothing derives an image tag from this value, deliberately. The stock chart
 # left image.tag empty and fell back to .Chart.AppVersion, which is exactly how
-# a chart meant to deploy Pleiades ended up deploying nginx:1.16.0. Both image
+# a chart meant to deploy The Pleiades ended up deploying nginx:1.16.0. Both image
 # tags are stated explicitly in values.yaml instead. See values.yaml's own
 # comment on the image blocks.
 appVersion: "0.0.0-dev"

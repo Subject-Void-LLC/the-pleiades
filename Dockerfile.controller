@@ -1,4 +1,4 @@
-# Container image for the Pleiades controller: the API gateway, the
+# Container image for The Pleiades controller: the API gateway, the
 # scheduler lease holder, and the job dispatcher (cmd/controller).
 #
 # Two stages. The builder compiles with cgo against glibc; the runtime is

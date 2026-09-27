@@ -1,4 +1,4 @@
-# Upgrading a Cisco IOS-XE switch: Ansible vs. Pleiades
+# Upgrading a Cisco IOS-XE switch: Ansible vs. The Pleiades
 
 This directory has the same upgrade written twice, so you can compare them line for line:
 
@@ -10,7 +10,7 @@ examples/upgrade_ios/
     upgrade_ios_xe.yml       <- the Ansible playbook
   pleiades/
     inventory.yaml
-    runbooks/upgrade_ios_xe.yaml         <- the Pleiades runbook
+    runbooks/upgrade_ios_xe.yaml         <- The Pleiades runbook
     runbooks/upgrade_ios_xe_sugar.yaml   <- the same runbook, module-as-key syntax
 ```
 
@@ -24,7 +24,7 @@ This README covers only what is specific to these two files.
 
 ## Task-by-task
 
-| Step | Ansible module | Pleiades fqcn |
+| Step | Ansible module | The Pleiades fqcn |
 |------|-----------------|----------------|
 | Get running config (masked) | `no_log: true` (a task attribute, not a module) | `net.cli.command` + `register_mask:` |
 | Record current version | `cisco.ios.ios_facts` | `net.cli.command` |
@@ -118,7 +118,7 @@ task in place.
 running-config` and registers the result, then masks its own `stdout` field with `register_mask:
 running_config.stdout` (the register name as an optional, `stat.<register>`-addressing-style
 prefix; a bare `stdout` would work identically). Ansible has no per-value secrecy on a registered
-result, only a whole-task `no_log: true`; Pleiades masks the named field the instant this same
+result, only a whole-task `no_log: true`; The Pleiades masks the named field the instant this same
 task registers it, before anything downstream can see or publish it unmasked, the same guarantee
 a password field gets. `pleiades run` also
 substring-scrubs that value out of every later printed line
@@ -126,9 +126,9 @@ for the rest of the run, even one from a completely unrelated task that happens 
 
 **Credentials never live in the runbook or inventory file.** The Ansible side references
 `{{ vault_catalyst_lab_password }}` and `{{ vault_catalyst_lab_enable_secret }}`, sourced from
-a separate `ansible-vault` encrypted file not included here. Pleiades has no vars/vault
+a separate `ansible-vault` encrypted file not included here. The Pleiades has no vars/vault
 mechanism at all; instead you run `pleiades add-credential sw1 --username svc-netauto` once,
-which prompts for the password and writes it to Pleiades' own encrypted secret store. Neither
+which prompts for the password and writes it to The Pleiades' own encrypted secret store. Neither
 `pleiades/inventory.yaml` nor `pleiades/runbooks/upgrade_ios_xe.yaml` ever mentions a password.
 
 **Concepts with no Ansible equivalent.** None of these show up in the YAML because they are

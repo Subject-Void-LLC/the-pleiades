@@ -9,7 +9,7 @@ in the codebase today. Kept for its architectural framing, not its specifics. Ne
 file as user documentation; see the "Migrating from Ansible, AWX and AAP" book and the Crawl-tier
 quickstart under `docs/` for what actually runs.
 
-**The Scenario:** Customer X has just installed Pleiades. They want to upgrade the firmware on 10 Cisco Catalyst switches in their "Lab" environment. 
+**The Scenario:** Customer X has just installed The Pleiades. They want to upgrade the firmware on 10 Cisco Catalyst switches in their "Lab" environment. 
 
 Here is how the entire platform architecture (Sections 1 through 16) works together to execute this request safely and at scale.
 
@@ -64,7 +64,7 @@ Pleiades doesn't allow editing production runbooks in a Web UI.
 4. The PR is approved and merged. The Controller automatically ingests the new runbook.
 
 ### Step 4: Dispatch & RBAC (Sections 15, 16, 18)
-Customer X logs into the Web UI via Okta (SAML). Because they are in the Okta `NetworkAdmins` group, Pleiades grants them the `Executor` role scoped strictly to `group:lab`.
+Customer X logs into the Web UI via Okta (SAML). Because they are in the Okta `NetworkAdmins` group, The Pleiades grants them the `Executor` role scoped strictly to `group:lab`.
 1. Customer X clicks "Run" on the upgrade playbook.
 2. The **Trigger Engine** receives the manual event.
 3. It expands `group:lab` into 10 distinct device targets, verifies Customer X's RBAC scope allows this action on all 10 devices, and generates 10 task payloads.

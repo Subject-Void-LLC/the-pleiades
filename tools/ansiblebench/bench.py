@@ -7,7 +7,7 @@ playbook of ten ansible.builtin.command tasks, and the runbook
 `pleiades forge migrate-playbook` makes of it (ten exec.command tasks).
 Both tools run in one container built from this repository's
 Dockerfile.legacy-ansible-runner, against N targets built from
-Dockerfile.target beside this file, on one Docker network. Pleiades is
+Dockerfile.target beside this file, on one Docker network. The Pleiades is
 timed with connections persisting (its default) and with
 --persist-connections=false; Ansible with its own defaults, whose
 ControlPersist keeps a connection open between runs, so every timed
@@ -120,7 +120,7 @@ def host_main(args):
         if os.path.exists(path):
             with open(path) as f:
                 results = json.load(f)
-            # What Ansible needs on each device and Pleiades does not.
+            # What Ansible needs on each device and The Pleiades does not.
             du = subprocess.run(["docker", "exec", target(1), "du", "-sk", "/usr/lib/python3.12", "/usr/bin/python3.12"],
                                 capture_output=True, text=True).stdout
             results["meta"].setdefault("footprint", {})["device_python_mib"] = sum(int(l.split()[0]) for l in du.splitlines()) / 1024
@@ -187,7 +187,7 @@ def report(results):
     fp = meta.get("footprint", {})
     if fp:
         out.extend(["", "Install footprint:", "",
-                    f"- Pleiades on the control node: one static binary, {fp['pleiades_binary_mib']:.0f} MiB. On a device: nothing but a shell.",
+                    f"- The Pleiades on the control node: one static binary, {fp['pleiades_binary_mib']:.0f} MiB. On a device: nothing but a shell.",
                     f"- Ansible on the control node: ansible-core {fp['ansible_core_mib']:.0f} MiB, inside a Python installation of "
                     f"{fp['python_mib']:.0f} MiB in all. On a device: Python, {fp.get('device_python_mib', float('nan')):.0f} MiB here."])
     return "\n".join(out)

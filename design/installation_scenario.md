@@ -8,7 +8,7 @@ not implemented anywhere in this codebase. Kept for its architectural framing, n
 Never publish this file as user documentation; see the "Running in production" book under `docs/`
 for the real, current install path.
 
-**The Scenario:** Before Customer X could upgrade their Cisco Lab, they had to install Pleiades from scratch. They have a central AWS environment where they want the Control Plane, and an on-premise "Lab" network where the switches live.
+**The Scenario:** Before Customer X could upgrade their Cisco Lab, they had to install The Pleiades from scratch. They have a central AWS environment where they want the Control Plane, and an on-premise "Lab" network where the switches live.
 
 Here is what Day 0 (Installation & Bootstrapping) looked like.
 
@@ -57,7 +57,7 @@ The Controller is running, and the Runner is waiting. Now they need to discover 
 
 ### Phase 5: Identity & Observability (Sections 18, 19)
 Before letting the team loose, the infrastructure team locks down the platform.
-1. **SSO Integration:** They configure the SAML 2.0 provider to point to Okta. They set the mapping so that anyone in the Okta `NetworkAdmins` group is automatically mapped to the Pleiades `Team:NetworkAdmins`.
+1. **SSO Integration:** They configure the SAML 2.0 provider to point to Okta. They set the mapping so that anyone in the Okta `NetworkAdmins` group is automatically mapped to The Pleiades `Team:NetworkAdmins`.
 2. **RBAC Assignment:** They grant `Team:NetworkAdmins` the `Executor` role scoped strictly to `group:lab`. 
 3. **Observability:** They point the built-in OTEL exporter to their Datadog/Honeycomb APM, ensuring every API call, Event Bus message, and Runner execution generates a single distributed trace.
 

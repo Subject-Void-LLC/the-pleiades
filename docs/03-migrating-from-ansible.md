@@ -4,7 +4,7 @@ status: beta
 
 # Migrating from Ansible, AWX, and AAP
 
-Ansible support is Pleiades' migration on-ramp, not its destination: a workload lands
+Ansible support is The Pleiades' migration on-ramp, not its destination: a workload lands
 unchanged, then converts to native typed collections at its own pace, one playbook at
 a time. This book covers what carries over directly, what does not exist yet, and
 what the exact vocabulary mapping is, so a migration decision can be made from facts
@@ -42,7 +42,7 @@ locking is in-process only and does not exclude a second `pleiades run`, see
 of any kind. See the keyword map below for the complete, itemized list.
 
 None of these are secret gaps. They are the honest distance between "what Ansible
-does today" and "what Pleiades does today," and closing them is most of the open
+does today" and "what The Pleiades does today," and closing them is most of the open
 roadmap.
 
 Some of them still convert. `pleiades forge migrate-playbook` (next section) unrolls a
@@ -149,7 +149,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 
 ## Playbook to runbook keyword map
 
-| Ansible playbook key | Pleiades runbook key | Notes | What `migrate-playbook` does |
+| Ansible playbook key | The Pleiades runbook key | Notes | What `migrate-playbook` does |
 |---|---|---|---|
 | `hosts:` | `hosts:` | Same meaning: a default target. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. | Kept: one device name or tag. `all` and `localhost` are reviewed; a pattern, a list or a template is blocked. |
 | `pre_tasks:` | `pretasks:` | Same phase, no underscore. | Converted. |
@@ -159,7 +159,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). | Converted, with a review finding: it does not run yet. |
 | `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. | Converted, with a review finding: it does not run yet. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. | Kept. |
-| `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. | Translated to CEL for comparisons, `and`/`or`/`not`, `in`, `is defined` and the `bool`/`int`/`length` filters; anything else is blocked. |
+| `when:` (single or list) | `when:` | A list ANDs, same as Ansible. The Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. | Translated to CEL for comparisons, `and`/`or`/`not`, `in`, `is defined` and the `bool`/`int`/`length` filters; anything else is blocked. |
 | none | `when_or:` | New. A list ORed instead of ANDed. | - |
 | none | `when_cel:` | New. One raw CEL expression, for a condition `when`/`when_or` cannot express. | - |
 | none | `register_mask:` | New. Masks a field of this task's own registered result the instant it registers. | - |
@@ -189,14 +189,14 @@ underneath. Where it matters:
   reads identically; anything relying on a Jinja filter does not port and needs
   rewriting against CEL (or `when_cel:` for anything past a bare comparison).
 - **`register:`** in Ansible is read back with `{{ result.stdout }}` templating. In
-  Pleiades there is no templating at all: a later task's `when_cel:` reads it
+  The Pleiades there is no templating at all: a later task's `when_cel:` reads it
   directly (`stat.result['deviceID'].stdout`), and nothing else can reference it.
 - **`block:` conditions.** Ansible's block-level `when:` gates every task inside at
-  once. Pleiades evaluates a task's own condition once per task; a block task's own
+  once. The Pleiades evaluates a task's own condition once per task; a block task's own
   condition is never walked by the executor. The equivalent "skip everything" effect
   today means repeating the same `when_cel:` on every task inside the block.
 - **Credentials.** Ansible reads `{{ vault_* }}` variables from an `ansible-vault`
-  file referenced from `vars:`. Pleiades has no vars or vault mechanism: `pleiades
+  file referenced from `vars:`. The Pleiades has no vars or vault mechanism: `pleiades
   add-credential <device> --username <user>` prompts for a secret once and writes it
   to a local AES-256-GCM encrypted store. Neither a runbook nor `inventory.yaml` ever
   contains a password.
@@ -232,7 +232,7 @@ where each kind of method runs.
 
 **Networking, by hand**
 
-| Ansible | Pleiades FQCN | Capability |
+| Ansible | The Pleiades FQCN | Capability |
 |---|---|---|
 | `junipernetworks.junos.junos_config` | `net.junos.config` (declared) | `JunosCapable` |
 | `arista.eos.eos_config` | `net.eos.config` (declared) | `AristaEOSCapable` |
@@ -243,7 +243,7 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 
 **Extended infrastructure**
 
-| Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
+| Ansible | The Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
 | `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
@@ -289,7 +289,7 @@ off the runbook and give every target-side task its own `params.target`. Ansible
 
 **Gating and facts**
 
-| Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
+| Ansible | The Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
 | `ansible.builtin.uri` | `http.request` | none | controller side |
 | `ansible.builtin.wait_for` with `path:` or `search_regex:` | `wait.path`, `wait.search` | `NetworkAddressableCapable` | hybrid |
@@ -301,7 +301,7 @@ should make the call is a person's decision. The converter maps `wait_for`'s por
 to `pleiades.builtin.wait.port` and `setup` to `facts.gather` itself.
 
 `pleiades.builtin.wait.port` and `set_metadata` are not 1:1 ports of an Ansible
-module; they are native to Pleiades, which is why the first lives under a reserved
+module; they are native to The Pleiades, which is why the first lives under a reserved
 `pleiades.builtin.` namespace and the second is an engine builtin reachable by its
 bare name rather than a Collection FQCN at all. `wait.path`/`wait.search` have not
 been renamed under `pleiades.builtin.` yet, an intentional inconsistency rather than
@@ -313,7 +313,7 @@ an oversight.
 above (`ansible.posix.sysctl` among them). The
 converter drops `ansible.builtin.debug`, which only prints, with an info finding. A missing row here is either a gap to fill
 in a future phase, or a case for `forge new-collection` to add it yourself; see
-[Extending Pleiades](reference/index.md).
+[Extending The Pleiades](reference/index.md).
 
 ## AWX / AAP object map
 
@@ -323,7 +323,7 @@ corresponds to AWX at all. The dispatcher, RBAC, and job model are real and test
 several AWX concepts below have no Pleiades equivalent yet, which this table states
 plainly rather than implying a rough match exists.
 
-| AWX / AAP object | Pleiades equivalent | Status |
+| AWX / AAP object | The Pleiades equivalent | Status |
 |---|---|---|
 | Job template | A Template, launched via `POST /api/v1/templates/{id}/launch` | `beta`: the API, the dispatcher, and the runner's execution against a real device are all real (see [Start here](01-start-here.md) for credential-handling limits). A template names what to run, the inventory to run it against, the values it runs with, which of those a launch may override, and a survey; a template of kind `playbook` reaches the second execution adapter, which runs an *unconverted* playbook unmodified inside a fresh container. See [Running an unconverted playbook](#running-an-unconverted-playbook) below |
 | Inventory | `inventory.yaml`, or a synced inventory via a sync plugin | `beta` (static), `experimental` (sync plugins; only `catalyst_center` exists beyond the built-in `static_yaml`, and it registers as `implemented`, not `declared`: an authenticated, paged REST sync against Cisco Catalyst Center) |
@@ -341,7 +341,7 @@ plainly rather than implying a rough match exists.
 ## Migrating schedules
 
 An AWX schedule and a Pleiades schedule are the same object with the parts unpacked.
-AWX stores one `rrule` string with `DTSTART` and `TZID` folded inside it; Pleiades
+AWX stores one `rrule` string with `DTSTART` and `TZID` folded inside it; The Pleiades
 stores the recurrence, the anchor and the zone as three fields, so each is queryable,
 editable in a form, and visible without parsing the rule.
 
@@ -460,16 +460,16 @@ document ready to post to `/credential-types`.
 
 Four outcomes, and each means something different for you:
 
-**Importable.** A custom type whose injector document Pleiades understands. Post it and
+**Importable.** A custom type whose injector document The Pleiades understands. Post it and
 create your credentials against it. This is the common case for the types your own
 team wrote, which are also the ones your playbooks actually depend on.
 
-**Already shipped.** A namespace Pleiades ships itself: `ssh`, `vault`, `net`, `aws`,
+**Already shipped.** A namespace The Pleiades ships itself: `ssh`, `vault`, `net`, `aws`,
 `controller` or `hcp_terraform`. Reuse it. Do not recreate it as a custom type: it
 would work at first and then silently stop tracking the shipped one when a later
 release corrects it.
 
-**Not implemented.** A type AWX manages and Pleiades does not, reported with the
+**Not implemented.** A type AWX manages and The Pleiades does not, reported with the
 reason. Most are one of three things: AWX builds the type's environment in Python
 rather than in an injector document, so there is no document to import (`gce`,
 `azure_rm`, `openstack`, `vmware`, `kubernetes_bearer_token`, `terraform`); the
@@ -524,7 +524,7 @@ Four differences to plan around, none of which change the shape of the data:
   the credential and its bindings are one write, because a required input with neither
   a value nor a source would otherwise have to be refused.
 - **Chains are bounded at four hops.** AWX allows exactly one: a credential's source
-  may not itself read from a further source. Pleiades allows a source whose own token
+  may not itself read from a further source. The Pleiades allows a source whose own token
   is external, up to four links, and refuses past that by name. Any AWX export is well
   inside this.
 - **`hashivault_kv` is the only external source implemented.** An imported row
@@ -534,7 +534,7 @@ Four differences to plan around, none of which change the shape of the data:
   stored faithfully and fails with an explicit error naming that source, which is the
   same honest-failure convention the "not implemented" types above follow.
 - **A source can also be an ordinary credential, which AWX does not do.** Where AWX
-  requires the source to be an external secret source, Pleiades also lets an input be
+  requires the source to be an external secret source, The Pleiades also lets an input be
   filled from another credential's own field: name that field in the binding's
   `source_field` metadata. Nothing in an AWX export uses this, so it changes no
   imported row. It is worth knowing about because it is how one stored password serves

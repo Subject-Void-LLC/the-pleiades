@@ -33,7 +33,7 @@ Pleiades end user would do it? if not, it's wrong" (memory `end-user-path-or-wro
 1. `pkg/vboxmanage` (ShellNone argv through `winrmexec.CommandLine`, a fuzzed `--machinereadable`
    parser, strict VM and snapshot names) and the `virt.vbox.*` methods through `forge new-collection`,
    `vm.start` following the measured start path.
-2. Media through Pleiades (a download method requiring SHA-256; Ubuntu publishes an OVA), then
+2. Media through The Pleiades (a download method requiring SHA-256; Ubuntu publishes an OVA), then
    Windows Server and FreeBSD guests, the sync plugin, the gates.
 3. Lab project: `~/pleiades-lab` (binary, inventory with `vengeance`, runbooks used for every probe).
 

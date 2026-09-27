@@ -8345,11 +8345,11 @@ tool. Refusing what you cannot read identically is safe; guessing is not.
 
 **Lesson.** When two features meet, re-check what each assumes about the other's inputs. "A Check never writes" was proven per method, so it holds only for the methods someone proved it for.
 
-## 254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+## 254. A Landlock restriction applied from a goroutine could land on the main thread, putting The Pleiades inside the program's own domain
 
 **Symptom.** While building confinement for external Collections, `TestConfinement_AProgramReachesOnlyWhatItWasHanded` showed a confined program able to signal its parent, although a direct probe showed the same ruleset refusing a signal to PID 1 and a read of `/etc/hostname`. It passed a second time. A loop of forty starts then passed with the fix removed, so the defect was intermittent, which is how it would have shipped.
 
-**Root cause.** Landlock restricts one thread, and a child inherits the restriction of the thread that started it. The loader restricts a goroutine that has called `runtime.LockOSThread` and never unlocks it, so the thread dies with the goroutine. The scheduler can run that goroutine on the process's main thread, which cannot exit, so Go parks it for ever instead. The main thread is also the thread group leader, the task a signal to the process's ID is checked against. With the leader inside the program's own Landlock domain, signal scoping allowed the program to signal Pleiades, and a SIGKILL would have killed the whole process.
+**Root cause.** Landlock restricts one thread, and a child inherits the restriction of the thread that started it. The loader restricts a goroutine that has called `runtime.LockOSThread` and never unlocks it, so the thread dies with the goroutine. The scheduler can run that goroutine on the process's main thread, which cannot exit, so Go parks it for ever instead. The main thread is also the thread group leader, the task a signal to the process's ID is checked against. With the leader inside the program's own Landlock domain, signal scoping allowed the program to signal The Pleiades, and a SIGKILL would have killed the whole process.
 
 **Fix.** `confineAndStart` checks `gettid() == getpid()`. On the main thread it keeps that thread locked, so the goroutine it starts cannot be scheduled there, and hands the work to that goroutine. `TestConfinement_NeverOnTheMainThread` is deterministic: it re-runs the test binary with its main goroutine pinned to the main thread by an `init` (`runtime.LockOSThread`), starts a confined program from there, and asserts the signal is refused. With the check removed it fails every time.
 
@@ -9672,7 +9672,7 @@ measuring.
 ## 343. Ansible's orphaned processes are reaped by PID 1, and neither the benchmark's runner nor the Ansible adapter's container has an init
 
 **Symptom.** Found in Phase 110's scaling benchmark. After the 100-host rounds, every fork on the machine
-began failing with EAGAIN: Ansible (`[Errno 11] Resource temporarily unavailable`), Pleiades (`runtime:
+began failing with EAGAIN: Ansible (`[Errno 11] Resource temporarily unavailable`), The Pleiades (`runtime:
 failed to create new OS thread (have 5 already; errno=11)`, exit 2) and an unrelated shell alike. A
 host-wide sampler showed root-owned processes climbing by about one per Ansible task execution (627 to
 4,430 during one 200-host run), and a 20-host run left 460 zombies, all children of the runner

@@ -4,7 +4,7 @@ status: beta
 
 # Running in production
 
-This book covers what a real deployment needs to know before it runs Pleiades
+This book covers what a real deployment needs to know before it runs The Pleiades
 against production infrastructure: what happens when something fails partway
 through, what is checked before anything runs, how credentials and secrets are
 handled, and what is genuinely built versus still design work. As with every page
@@ -478,7 +478,7 @@ rejected) is retried automatically up to a bounded limit before it is reported a
 error. A failure *after* the command was sent (the connection drops mid-run, the
 device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
-once that is known, not Pleiades' job to guess.
+once that is known, not The Pleiades' job to guess.
 
 That is true of one command. It is not yet true of a whole run on the Controller: a
 dispatched run that fails, for any reason including one failed task, is delivered to a
@@ -551,7 +551,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 |---|---|
 | `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
 | `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
-| `provider_program`, `provider_digest` | For a method an external Collection program provides, that program's path and the SHA-256 digest it ran as. Both are empty for a method built into Pleiades. |
+| `provider_program`, `provider_digest` | For a method an external Collection program provides, that program's path and the SHA-256 digest it ran as. Both are empty for a method built into The Pleiades. |
 | `dag_id` | The runbook's own `id:`, as written. |
 | `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
 | `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
@@ -588,14 +588,14 @@ These record which keys a task produced or consumed, never their values.
 The journal records the concrete instruction that would reverse a task that changed
 something: the method to call and the names of the parameters such a call takes. It
 does not record their values, so nothing can replay it automatically, and nothing
-in Pleiades performs a rollback today. Undoing a partial run is an authored
+in The Pleiades performs a rollback today. Undoing a partial run is an authored
 runbook you write and run deliberately, with the journal as the record of what
 actually happened and therefore of what needs undoing.
 
 ### The message bus survives a link outage of any length
 
 **This section is about the control plane only, and the distinction is the whole
-point of reading it.** Pleiades has two independent network planes:
+point of reading it.** The Pleiades has two independent network planes:
 
 - The **control plane** is Controller to NATS to Runner: dispatches out, logs and
   results back, device leases held. Everything below is about that link.
@@ -1052,10 +1052,10 @@ real and holds a per-device lease while it does. The gap is now narrower and liv
 entirely on this side: the Crawl-tier CLI still has no distributed locking, so two
 concurrent `pleiades run` invocations against one device do not coordinate.
 
-**What to do instead:** serialize device access outside Pleiades. Run one
+**What to do instead:** serialize device access outside The Pleiades. Run one
 `pleiades run` at a time per device set. If more than one person or scheduler can start
 a run, gate it with your own mutual exclusion: a CI concurrency group, a change window,
-or a `flock` on a shared path. Do not rely on Pleiades to stop two operators from
+or a `flock` on a shared path. Do not rely on The Pleiades to stop two operators from
 touching one router.
 
 `lock_acquisition:` controls *when* a task takes its locks, and its scope is a single
@@ -1097,7 +1097,7 @@ written and no undo instruction is recorded, and every result it reports carries
 condition is answered wherever the tasks a check could not answer do not decide it, and a
 task whose condition they do decide is named as unchecked too. A device still being
 approved for changes (`simulate-locked`) accepts a check and nothing else, and only from a
-method built into Pleiades. On the command line a check ends with status 0 when every task was
+method built into The Pleiades. On the command line a check ends with status 0 when every task was
 checked, 3 when some were not and nothing failed, and 1 when anything failed, so a
 pipeline can gate on it; `--allow-unchecked <method>` accepts named gaps on purpose.
 
@@ -1223,7 +1223,7 @@ address and a token, and a reference string has nowhere to put either.
 Seven further sources are named after their AWX equivalents and return an explicit
 "declared but not implemented" error: HashiCorp Vault signed SSH, AWS Secrets
 Manager, Azure Key Vault, CyberArk Conjur, Centrify, and the two Thycotic products.
-Read that as a real constraint when deciding whether Pleiades fits an environment
+Read that as a real constraint when deciding whether The Pleiades fits an environment
 that mandates one of them, not as a gap to work around.
 
 ### Input sources: an input supplied by another credential
@@ -1505,7 +1505,7 @@ where the payload carries a handle and the runner fetches it over a
 mutually-authenticated short-lived connection.
 
 The runner identity half of that now exists, and the rest does not, so be precise
-about what has changed. Pleiades can mint a short-lived, subject-scoped credential
+about what has changed. The Pleiades can mint a short-lived, subject-scoped credential
 for a runner and a broker can be configured to require one, which is the
 authentication this was waiting on. What has NOT changed is the payload: a dispatch
 still carries the resolved credential itself, and authentication changes who may read
@@ -1517,7 +1517,7 @@ accordingly.
 
 ### Host key verification, and where a container gets its known_hosts
 
-Every SSH connection Pleiades makes verifies the device's host key against an
+Every SSH connection The Pleiades makes verifies the device's host key against an
 OpenSSH-format `known_hosts` file, and fails closed when it cannot. There is no
 trust on first use: a device with no entry is refused, and so is a device whose key
 stopped matching the entry it has. That is the behavior of `ssh` with
@@ -1718,7 +1718,7 @@ A device that is only reachable through a jump host does not need a second
 transport or a special task parameter. Configure a `route` on whichever level of
 the hierarchy the bastion actually applies to: a single device, a group of
 devices, or a whole inventory. Most specific wins, the same rule every other
-layered setting in Pleiades follows (a group-level bastion with a per-device
+layered setting in The Pleiades follows (a group-level bastion with a per-device
 override behaves exactly like a group-level anything else with a per-device
 override). The value is an ordered list of device names, nearest hop first:
 
@@ -1830,14 +1830,14 @@ advertises a serial port identifier (`/dev/ttyUSB0` on Linux,
 - baud rate, data bits, parity, stop bits. That identifier is opaque: it is
 never parsed, joined, or validated as a filesystem path, because `COM3` is
 not one and even the POSIX names are an identifier the operating system
-assigns, not a path Pleiades constructs. This is the one transport in this
+assigns, not a path The Pleiades constructs. This is the one transport in this
 section requiring no opt-in, because a directly attached serial line has the
 same physical-access trust model a local console does.
 
 **Console servers: two genuinely different claims about the same wire.** A
 console or terminal server (Digi, Opengear, Lantronix, Perle,
 Avocent/Cyclades) proxies a serial line as a TCP port, and it does so in one
-of two ways that Pleiades treats as separate capabilities rather than a
+of two ways that The Pleiades treats as separate capabilities rather than a
 flag, because they are different claims about what the target can do:
 
 | Capability | Task fqcn | What it offers | Opt-in |
@@ -1973,12 +1973,12 @@ calling process as non-root actually restricts that; the daemon's own
 privilege is what matters, not the caller's. The allowlist is the only real
 defense, and it is enforced in one function every request funnels through.
 
-**Digi RealPort is not, and will not be, a protocol Pleiades speaks.**
+**Digi RealPort is not, and will not be, a protocol The Pleiades speaks.**
 RealPort is not a wire protocol in the sense RFC 2217 is - it is an
 operating-system driver product. Install Digi's own RealPort driver on the
 host, and the port it creates behaves like an ordinary local serial device:
 reach it with `serial_exec` exactly as you would a directly attached
-USB-serial adapter. Pleiades deliberately implements no RealPort client of
+USB-serial adapter. The Pleiades deliberately implements no RealPort client of
 its own; doing so would mean re-implementing, in Go, a job the vendor's
 driver already does correctly for the operating system.
 
@@ -2059,7 +2059,7 @@ through `cmd.exe`, and `powershell` runs a script through PowerShell. The WinRM
 service starts every command through `cmd.exe` and cannot be told not to, so
 Pleiades escapes each command line until it passes through unchanged, and the
 parser that acts on a command is the one the task named;
-[Extending Pleiades](11-extending-pleiades.md#the-three-windows-execution-modes)
+[Extending The Pleiades](11-extending-pleiades.md#the-three-windows-execution-modes)
 has the table of what each mode costs. Values a script needs go in `env`, never
 into the script text. A connection that fails before any command was sent is
 retried twice, with backoff; a rejected credential is not, because repeating it
@@ -2090,7 +2090,7 @@ certificate is, and both are enforced rather than documented and hoped for:
   such as a signing key, is not an identity and binds alongside a machine credential
   as normal.
 - Certificate authentication is HTTPS only, because the WinRM profile it uses sends
-  no password and would present nothing at all over plain HTTP. Pleiades selects
+  no password and would present nothing at all over plain HTTP. The Pleiades selects
   HTTPS itself rather than making you set a flag whose only correct value is true.
 
 **Set the device's `port` property to 5986.** A Windows device defaults to 5985,
@@ -2101,7 +2101,7 @@ a plain HTTP listener fails with a transport error about a malformed record, whi
 reads like a broken certificate and sends whoever gets it to inspect the one thing
 that is fine.
 
-**The configuration burden is on the Windows host, not on Pleiades**, and an
+**The configuration burden is on the Windows host, not on The Pleiades**, and an
 operator who has not been told this will read a failed handshake as a defect here.
 The target needs an HTTPS WinRM listener, the issuing authority in its trusted
 roots, and an explicit certificate-to-account mapping (`New-Item -Path
@@ -2149,7 +2149,7 @@ netsh http show sslcert ipport=0.0.0.0:5986
 
 Re-binding that certificate with `clientcertnegotiation=enable` makes TLS 1.3 work with
 this client. It is not the default here because it is configuration on every target, and
-this platform is built to reach fleets of machines it does not own. Note that Pleiades
+this platform is built to reach fleets of machines it does not own. Note that The Pleiades
 currently caps the version unconditionally, so today this only removes the *server* side
 of the obstacle; see the gap below.
 
@@ -2215,7 +2215,7 @@ without `virtualbox: true` is refused, and so is a path that is not absolute fro
 or that holds a quote, `%`, `!` or a control character, since the path is a command line's
 program.
 
-The account Pleiades logs in as needs more from the host than WinRM, and none of it is a
+The account The Pleiades logs in as needs more from the host than WinRM, and none of it is a
 Pleiades setting, because WinRM gives every command a network logon, which Windows treats
 differently from a person at the console. Each of these was found by a failure on a real host,
 and `examples/windows_lab/winrm-cert-setup.ps1 -AllowVirtualBox -VirtualBoxAutostart` grants
@@ -2645,7 +2645,7 @@ Two things about the shape of them are deliberate and do carry over:
   arrives as latency on a request that did nothing wrong. Memory has no equivalent
   graceful degradation, so memory carries a limit and CPU does not. If your cluster
   applies a `LimitRange` that adds CPU limits anyway, that is worth knowing before
-  you conclude Pleiades is slow.
+  you conclude The Pleiades is slow.
 - **The runner scales with the number of concurrent device conversations, not with
   request rate.** Runners pull from one durable NATS consumer group, so adding
   replicas adds parallelism and never duplicates work. There is deliberately no

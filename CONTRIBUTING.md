@@ -1,4 +1,4 @@
-# Contributing to Pleiades
+# Contributing to The Pleiades
 
 ## Before you start
 

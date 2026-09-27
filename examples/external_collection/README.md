@@ -1,7 +1,7 @@
 # An external Collection: `example.note.write`
 
 This directory is a complete external Collection: a program built outside the `pleiades`
-binary that Pleiades runs as a child process, once per task, to provide a Collection method
+binary that The Pleiades runs as a child process, once per task, to provide a Collection method
 of its own. It provides one method, `example.note.write`, which makes sure a file on the
 target holds exactly the text a task asks for.
 
@@ -22,7 +22,7 @@ before recording it. Nothing in the directory runs until its exact build is appr
 rebuild has to be approved again.
 
 The directory must be owned by you (or root) and must not be writable by your group or by
-anyone else. Every file in it must be a program you own with the same rule. Pleiades refuses
+anyone else. Every file in it must be a program you own with the same rule. The Pleiades refuses
 to load the directory otherwise, because every program in it runs as your user. Each run is
 confined with Linux's Landlock to the program's own directory, the system files it needs, your
 `known_hosts` file and a private temporary directory, so it cannot read your credential store or
@@ -54,4 +54,4 @@ pleiades run runbooks/notes.yaml
 - `note.go`: one `collection.Descriptor`, written exactly as a built-in method's is, with an
   `Invoke` and a `Check` that share one code path and differ only in whether the write happens.
 
-See [Extending Pleiades](../../docs/11-extending-pleiades.md) for the full contract.
+See [Extending The Pleiades](../../docs/11-extending-pleiades.md) for the full contract.
