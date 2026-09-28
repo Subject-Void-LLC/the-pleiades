@@ -138,6 +138,22 @@ func (h Host) SetFirmware(ctx context.Context, vm, firmware string) error {
 	return err
 }
 
+// SetConsoleLog writes vm's first serial port to path, a file on the
+// host, so what the guest prints on its serial console can be read while
+// it runs. It is for a VM made before its folder was known, since
+// NewMachine.ConsoleLog needs the path at creation and a VM's folder is
+// the host's to choose when none is given.
+func (h Host) SetConsoleLog(ctx context.Context, vm, path string) error {
+	if err := CheckName("VM", vm); err != nil {
+		return err
+	}
+	if err := CheckPath("console log", path); err != nil {
+		return err
+	}
+	_, err := h.run(ctx, "modifyvm", vm, "--uart1", "0x3F8", "4", "--uart-mode1", "file", path)
+	return err
+}
+
 // CreateDisk makes a new, empty VDI disk of sizeMB megabytes at path,
 // growing on the host as the guest writes to it.
 func (h Host) CreateDisk(ctx context.Context, path string, sizeMB int) error {

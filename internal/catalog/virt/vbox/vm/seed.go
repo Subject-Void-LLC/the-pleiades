@@ -98,8 +98,15 @@ func (l seedLogin) image(m vboxmanage.Machine, c cloneRequest, at time.Time) ([]
 		return windowsSeed(l, c.hostname, m.NICs[2].MAC, c.address).ISO(at)
 	}
 	seed := cloudinit.Seed{InstanceID: m.UUID, Hostname: c.hostname, Login: l.linux, Interfaces: interfaces(m.NICs[1].MAC, m.NICs[2].MAC, c.address)}
+	if m.FreeBSD() {
+		// nuageinit reads the same seed, and FreeBSD's base system has no bash.
+		seed.Shell = freebsdShell
+	}
 	return seed.ISO(at)
 }
+
+// freebsdShell is a FreeBSD clone's login shell: the base system's.
+const freebsdShell = "/bin/sh"
 
 // windowsSeed is a Windows clone's answer file: its computer name, the
 // Administrator's password, and its host-only adapter at address. The NAT

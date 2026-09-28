@@ -71,8 +71,9 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 // parseSSHProbe maps the probe script's output to capabilities. Only the
 // script's own key=value lines count, and each capability needs every
 // fact behind it: a package manager needs its low-level tool too (dpkg for
-// apt, rpm for dnf), firewalld needs a running systemd, and every Linux
-// capability needs the kernel to say Linux.
+// apt, rpm for dnf), firewalld needs a running systemd, every Linux
+// capability needs the kernel to say Linux, and a FreeBSD kernel is granted
+// POSIX file access alone.
 func parseSSHProbe(out string) Probed {
 	lines := strings.Split(out, "\n")
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "pleiades-probe=1" })
@@ -100,7 +101,17 @@ func parseSSHProbe(out string) Probed {
 	}
 
 	caps := []capability.Name{capability.NameShellExec}
-	if facts["kernel"] != "Linux" {
+	switch facts["kernel"] {
+	case "Linux":
+	case "FreeBSD":
+		// The file methods reach FreeBSD: pkg/remotefile reads a file with
+		// BSD stat's form when GNU's fails and hashes with shasum, proven
+		// against FreeBSD 15.1 through the real binary
+		// (TestCLI_FreeBSDFileChecksMatchTheirRealRuns). Nothing Linux-only
+		// is granted: facts.gather reads Linux's files, and apt, dnf and
+		// systemd are Linux's.
+		return Probed{Capabilities: append(caps, capability.NamePOSIXFileSystem), Facts: facts}
+	default:
 		return Probed{Capabilities: caps, Facts: facts}
 	}
 	caps = append(caps, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer)

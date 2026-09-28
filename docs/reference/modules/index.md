@@ -120,7 +120,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.import_disk](virt/vbox/vm/import_disk.md) | implemented | Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX. |
 | [virt.vbox.vm.import_ova](virt/vbox/vm/import_ova.md) | implemented | Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter. |
 | [virt.vbox.vm.info](virt/vbox/vm/info.md) | implemented | Reports a VirtualBox VM's state, hardware and snapshots. |
-| [virt.vbox.vm.install](virt/vbox/vm/install.md) | implemented | Makes a Windows VM by installing Windows from its installation ISO, unattended, and generalizing it as a base to clone. |
+| [virt.vbox.vm.install](virt/vbox/vm/install.md) | implemented | Makes a Windows or FreeBSD VM by installing it from its installation ISO, unattended, as a base to clone. |
 | [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
 | [virt.vbox.vm.log](virt/vbox/vm/log.md) | implemented | Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern. |
 | [virt.vbox.vm.resize](virt/vbox/vm/resize.md) | implemented | Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count. |

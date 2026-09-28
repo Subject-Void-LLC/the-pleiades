@@ -108,6 +108,15 @@ type Host struct {
 	// reads of the machine find it still running before it is off. A
 	// negative count makes it stop abnormally (aborted) instead.
 	GuestShutdownReads map[string]int
+	// Screens are what a screenshot of a named machine shows, as PNG
+	// bytes. A machine not named here gives a PNG's header alone.
+	Screens map[string][]byte
+	// Guests answer what is typed on a named machine's keyboard, as its
+	// guest would: each call's typed text (as Typed records it) goes in,
+	// and what comes out is appended to the machine's serial console log.
+	// The answer is written under the host's lock, so a guest must not
+	// call the host.
+	Guests map[string]func(typed string) []byte
 
 	mu    sync.Mutex
 	vms   []*VM
@@ -310,7 +319,13 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		if vm.State != vboxmanage.StateRunning {
 			return errorOutput(fmt.Sprintf("Machine '%s' is not currently running.", vm.Name))
 		}
-		vm.Typed = append(vm.Typed, strings.Join(args[3:], " "))
+		typed := strings.Join(args[3:], " ")
+		vm.Typed = append(vm.Typed, typed)
+		if guest, ok := h.Guests[vm.Name]; ok && vm.ConsoleLog != "" {
+			if said := guest(typed); len(said) > 0 {
+				h.Files[vm.ConsoleLog] = append(h.Files[vm.ConsoleLog], said...)
+			}
+		}
 		return vboxmanage.Output{}
 	case len(args) == 4 && args[0] == "controlvm" && args[2] == "screenshotpng":
 		vm := h.find(args[1])

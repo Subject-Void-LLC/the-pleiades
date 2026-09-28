@@ -372,6 +372,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 367. The WinRM service and feature gates asserted on text the output no longer printed, and put the lab password on argv
 368. `onboard --json` and `doc --json` wrote terminal control characters raw
 369. An idle Windows Server guest spends the first power-button press waking its display
+370. An address with a byte that is not UTF-8 signed in as a different stored address
+371. A NUL in a sign-in address failed as a Postgres query error, fast and without the decoy
+372. An oversized password told a known address from an unknown one
+373. Authenticate reported UserID 0 on every successful sign-in
+374. A test file named for FreeBSD compiled only on FreeBSD, so its tests silently never ran
+375. On BSD a file's mode was read without its setuid, setgid and sticky digit
+376. `adhoc` read `mode=0755` as a number, and the method refused it with advice about runbooks
+377. A dead port's open circuit reached a later test's live server on the same port
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

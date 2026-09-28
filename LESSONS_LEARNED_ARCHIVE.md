@@ -5251,3 +5251,68 @@ fix needed a hand-written parser for a diff that the JSON report now carries as 
 both unnecessary: `adhoc` runs through the same pipeline as `run`, and `--json` prints the same report
 the text view renders.
 
+
+## 250. Decide a refusal on the raw input, never on what a normalizer made of it
+
+**Rule.** When input is both validated and normalized, validate first, on the input as submitted. A
+normalizer that repairs (`strings.ToLower`, `strings.Map`, a decoder that substitutes U+FFFD) turns a
+malformed value into a well-formed one, and usually turns many different malformed values into the
+same one, so a check run on its output passes things it was written to refuse. And a property that a
+value is refused or accepted must be proven on the production database dialect too, because what is a
+legal value differs between them.
+
+**Why.** FAILURE_PATTERNS 370 and 371, Phase 79's email fuzz. The login address was lowercased and then
+checked for an `@`; `ToLower` rewrote a byte that is not UTF-8 as U+FFFD, and the malformed address
+signed in as a stored one holding that character. A NUL passed the same check, matched no row on SQLite,
+where every unit test ran, and on Postgres failed as a query error that skipped the decoy derivation,
+visible only to the release gate that runs the real binary against the real database.
+
+## 251. A publish buffered through a reconnect is stored when it is flushed, so a dedup window starts after the outage
+
+**Rule.** When a client buffers a publish across a disconnect, the broker's producer-side dedup window
+starts when the buffered message is flushed after the reconnect, not when the caller published it. A
+longer outage therefore never pushes a retry outside that window; only elapsed time after the heal does.
+A gate that means to prove what happens beyond a window must wait past the window after the message is
+stored, and must show the broker actually stored the retry (a message count, not an absence of error),
+or it proves the window rather than whatever stands behind it.
+
+**Why.** Phase 96c's release gate. The roadmap item asked for an outage "longer than the pre-fix 2-minute
+dedup window", which reads as if the outage's length is what defeats the window. Measured against real
+NATS behind real Toxiproxy (D3, and the 2026-09-27 gate), a JetStream publish made while severed blocks
+for its whole context and fails, then is stored at the reconnect flush, so its window opened 13 seconds
+after the heal. The gate retries once at once (the broker suppresses it: `ack.Duplicate`, the stream's
+count unchanged) and again after the window (the count rises), and only the second retry reaches the
+Runner's KV check. With that check removed the same run executed the dispatch twice.
+
+## 252. Drive a guest by what it shows, and let it confirm in its own words
+
+**Rule.** To automate a guest that offers no API (an installer, a firmware menu), decide when to act
+from something the host can observe independently of timing (the screen, a console), and have the
+first thing the automation types make the guest report back on a channel the host reads (a serial
+port). Never type on a fixed delay, and make the step idempotent, keyed on that report, so a rerun
+resumes rather than typing twice.
+
+**Why.** Phase 46 and 112's FreeBSD installer. The design assumed the installer's Welcome dialog would
+appear on the serial console; measured, a BIOS-booted FreeBSD DVD writes nothing there, and the first
+run would have waited out its timeout. Typing on a guess is worse: keys typed at the boot loader's menu
+choose boot options. The screen settled it (the dialog's screen is 82 percent VGA blue, a boot screen
+none), and the typed command's first act is `echo 'pleiades: installerconfig started' > /dev/cuau0`, so
+the host sees the keys landed, and a rerun that finds the line types nothing. Both runs on the real
+host went through, the second resuming the first's VM.
+
+## 253. A memory limit is proven against the limit, under churn, not multiplied from a benchmark
+
+**Rule.** Before telling anyone how much load a memory limit survives, run the real process under that
+limit (the same image, flags and cgroup) at the rate in question for longer than any retention window,
+and include a control with the suspected cost removed. A per-entry cost from a short benchmark counts
+only the live data; it leaves out what the process keeps past expiry and the heap headroom a garbage
+collector holds above the live set, and under steady churn those can be as large as the data itself.
+
+**Why.** Phase 96c's dedup benchmark measured about 220 B per message id, and multiplying rate by
+window by that cost said the chart's 512 MiB broker survived about 15,000 log lines a second at the old
+2-minute window and about 6,000 at the derived 5-minute one. The broker itself, under `--memory=512m`,
+said something different at 7,000 a second: the 5-minute window was OOM-killed in five minutes as
+predicted, but the 2-minute window, which the arithmetic put at less than half the limit, came within
+3 MiB of it and saw-toothed near it for ten minutes, because NATS purges expired ids periodically and Go
+with no GOMEMLIMIT lets the heap reach about twice the live set. The no-id control, flat at 37 MiB with
+2.3 million messages stored, is what made the cause certain rather than likely.

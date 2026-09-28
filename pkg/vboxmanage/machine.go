@@ -68,6 +68,12 @@ func (m Machine) Windows() bool {
 	return strings.HasPrefix(m.OSType, "Windows")
 }
 
+// FreeBSD reports whether m's guest OS type is a FreeBSD one, as
+// showvminfo describes it ("FreeBSD (64-bit)").
+func (m Machine) FreeBSD() bool {
+	return strings.HasPrefix(m.OSType, "FreeBSD")
+}
+
 // Ref is a machine's name and UUID, as list vms reports them.
 type Ref struct {
 	Name string

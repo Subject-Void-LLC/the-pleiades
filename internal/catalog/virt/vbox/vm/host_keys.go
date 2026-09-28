@@ -116,35 +116,53 @@ func runHostKeys(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 // host keys, returning an empty list when once is set and it does not.
 // A VM that is not running is not waited for: nothing would print them.
 func waitForKeys(ctx context.Context, h vboxmanage.Host, name, log string, once bool, timeout time.Duration) ([]string, error) {
+	var keys []string
+	found := func(console []byte) (bool, error) {
+		k, err := cloudinit.HostKeys(string(console))
+		if errors.Is(err, cloudinit.ErrNoHostKeys) {
+			return false, nil
+		}
+		keys = k
+		return err == nil, err
+	}
+	if err := watchConsole(ctx, h, name, log, "host keys", "start it with virt.vbox.vm.start", once, timeout, found); err != nil {
+		return nil, err
+	}
+	if keys == nil {
+		return []string{}, nil
+	}
+	return keys, nil
+}
+
+// watchConsole reads the console log until found says it holds what the
+// caller waits for, which what names in an error. With once set it reads
+// a single time and returns nil whatever it found. A VM that is not
+// running is not waited for, since nothing would print more; the error
+// then ends with hint. At the timeout the error quotes the console's last
+// line, which is where a boot or an install that never finished stopped.
+func watchConsole(ctx context.Context, h vboxmanage.Host, name, log, what, hint string, once bool, timeout time.Duration, found func(console []byte) (bool, error)) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		console, err := h.ReadTail(ctx, log, consoleTail)
 		if err != nil && !errors.Is(err, vboxmanage.ErrNoFile) {
-			return nil, err
+			return err
 		}
-		keys, err := cloudinit.HostKeys(string(console))
-		if err == nil {
-			return keys, nil
-		}
-		if !errors.Is(err, cloudinit.ErrNoHostKeys) {
-			return nil, err
-		}
-		if once {
-			return []string{}, nil
+		if ok, err := found(console); err != nil || ok || once {
+			return err
 		}
 		m, err := h.Machine(ctx, name)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if m.State != vboxmanage.StateRunning {
-			return nil, fmt.Errorf("%q is %s and its console shows no host keys; start it with virt.vbox.vm.start", name, m.State)
+			return fmt.Errorf("%q is %s and its console shows no %s; %s", name, m.State, what, hint)
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%q's console showed no host keys within %s; %s, and its log is %s", name, timeout, lastLine(console), log)
+			return fmt.Errorf("%q's console showed no %s within %s; %s, and its log is %s", name, what, timeout, lastLine(console), log)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(pollInterval):
 		}
 	}

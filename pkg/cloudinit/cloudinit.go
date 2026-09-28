@@ -55,7 +55,19 @@ type Seed struct {
 	Login    Login
 	// Interfaces are the machine's network interfaces.
 	Interfaces []Interface
+	// Shell is the login's shell when the login is not root, or "" for
+	// DefaultShell. A guest must have it: FreeBSD, whose nuageinit reads
+	// this same seed, has /bin/sh and no bash.
+	Shell string
 }
+
+// DefaultShell is the shell a login other than root gets when a seed
+// names none: Ubuntu's.
+const DefaultShell = "/bin/bash"
+
+// shellPattern is an absolute path to a shell: one or more path segments
+// of letters, digits and . _ -.
+var shellPattern = regexp.MustCompile(`^(/[A-Za-z0-9._-]+)+$`)
 
 // hostnamePattern is an RFC 1123 host name label.
 var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -86,6 +98,9 @@ func (s Seed) Validate() error {
 	}
 	if s.Login.PasswordHash != "" && !hashPattern.MatchString(s.Login.PasswordHash) {
 		return fmt.Errorf("cloudinit: the password hash is not a crypt(3) hash")
+	}
+	if s.Shell != "" && !shellPattern.MatchString(s.Shell) {
+		return fmt.Errorf("cloudinit: shell %q is not an absolute path such as /bin/sh", s.Shell)
 	}
 	if len(s.Interfaces) == 0 {
 		return fmt.Errorf("cloudinit: a seed needs at least one network interface")
@@ -160,7 +175,10 @@ func (s Seed) UserData() ([]byte, error) {
 		AuthKeys:     []string{s.Login.AuthorizedKey},
 	}
 	if u.Name != "root" {
-		u.Shell = "/bin/bash"
+		u.Shell = DefaultShell
+		if s.Shell != "" {
+			u.Shell = s.Shell
+		}
 		u.Sudo = "ALL=(ALL) NOPASSWD:ALL"
 	}
 	doc := userData{

@@ -32,10 +32,29 @@ const (
 	busyboxRoot        = "/config/busybox-chmod"
 )
 
-// busyboxTarget starts the sshd container with BusyBox's chmod first on
-// the PATH and returns the harness-shaped server the file tests' device
-// and context helpers take.
-func busyboxTarget(t *testing.T) dirServer {
+// chmodApplet is a chmod other than GNU's and how a test puts it first on
+// the session's PATH in the Alpine sshd image.
+type chmodApplet struct {
+	// name is how a message names it.
+	name string
+	// path is where chmod must resolve to once it is installed, which the
+	// test proves before trusting anything it measures.
+	path string
+	// install puts the applet's binary at path in the running container.
+	install func(t *testing.T, container testcontainers.Container)
+}
+
+// busyboxApplet is the image's own BusyBox, which it already carries.
+var busyboxApplet = chmodApplet{
+	name:    "BusyBox",
+	path:    "/bin/busybox",
+	install: func(*testing.T, testcontainers.Container) {},
+}
+
+// chmodTarget starts the sshd container with applet's chmod first on the
+// PATH and returns the harness-shaped server the file tests' device and
+// context helpers take.
+func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 	t.Helper()
 	ctx := context.Background()
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -55,8 +74,9 @@ func busyboxTarget(t *testing.T) dirServer {
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
 
-	if code, _, err := container.Exec(ctx, []string{"ln", "-sf", "/bin/busybox", "/usr/local/bin/chmod"}); err != nil || code != 0 {
-		t.Fatalf("putting BusyBox's chmod first: exit %d, %v", code, err)
+	applet.install(t, container)
+	if code, _, err := container.Exec(ctx, []string{"ln", "-sf", applet.path, "/usr/local/bin/chmod"}); err != nil || code != 0 {
+		t.Fatalf("putting %s's chmod first: exit %d, %v", applet.name, code, err)
 	}
 	host, err := container.Host(ctx)
 	if err != nil {
@@ -99,9 +119,17 @@ func TestBusyBoxChmod_FiveDigitModesMeanWhatTheySay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts an sshd container")
 	}
-	server := busyboxTarget(t)
-	if got := runOn(t, server, `readlink -f "$(command -v chmod)"`); got != "/bin/busybox" {
-		t.Fatalf("the session's chmod is %q, not BusyBox's, so nothing below would test BusyBox", got)
+	fiveDigitChmodCases(t, busyboxApplet)
+}
+
+// fiveDigitChmodCases runs the file methods and their checks against
+// applet's chmod, over real SSH, and asserts each leaves exactly the mode
+// asked for and then converges.
+func fiveDigitChmodCases(t *testing.T, applet chmodApplet) {
+	t.Helper()
+	server := chmodTarget(t, applet)
+	if got := runOn(t, server, `readlink -f "$(command -v chmod)"`); got != applet.path {
+		t.Fatalf("the session's chmod is %q, not %s's, so nothing below would test %s", got, applet.name, applet.name)
 	}
 	runOn(t, server, fmt.Sprintf("mkdir -p %[1]s && mkdir %[1]s/setgid && chmod 2755 %[1]s/setgid && touch %[1]s/file && chmod 0600 %[1]s/file", busyboxRoot))
 	if got := runOn(t, server, "stat -c %a "+busyboxRoot+"/setgid"); got != "2755" {

@@ -1,0 +1,32 @@
+# Install FreeBSD from its DVD with no one at the keyboard, and keep it as
+# a never-booted base to clone.
+#
+# A released FreeBSD DVD cannot hold the installer's script, so The
+# Pleiades builds it (installerconfig) on a second DVD, watches the VM's
+# screen for the installer's Welcome dialog, and types the command that
+# runs the script. The command reports on the VM's serial console
+# (console.log in its folder), where the installer's own log follows. The script installs the kernel and base system
+# from the DVD, with no network, enables sshd and nuageinit (which reads a
+# clone's seed at its first boot, as cloud-init does on Ubuntu), keeps the
+# serial console on, and prints a clone's SSH host keys there at its first
+# boot for virt.vbox.vm.host_keys. Then the VM powers off, which the task
+# waits for.
+#
+# One CPU: on this host, a multi-CPU guest can hang while it boots.
+id: vbox-lab-freebsd-install
+hosts: vengeance
+tasks:
+  - name: install FreeBSD 15.1 from its DVD
+    virt.vbox.vm.install:
+      name: freebsd-base
+      installer: freebsd
+      iso: G:\iso\FreeBSD-15.1-RELEASE-amd64-dvd1.iso
+      os_type: FreeBSD_64
+      size: small
+      disk_gb: 16
+      timeout: 3600
+  - name: keep the installed system as a snapshot to clone from
+    virt.vbox.snapshot.take:
+      vm: freebsd-base
+      name: base
+      description: FreeBSD 15.1, installed, never booted since

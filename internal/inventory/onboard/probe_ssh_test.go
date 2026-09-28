@@ -37,9 +37,10 @@ func TestParseSSHProbe(t *testing.T) {
 		{"alpine busybox", "pleiades-probe=1\nkernel=Linux\nos_id=alpine\nhas=getent\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
 		{"systemctl without systemd running", "pleiades-probe=1\nkernel=Linux\nhas=systemctl\nhas=firewall-cmd\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
 		{"apt without dpkg", "pleiades-probe=1\nkernel=Linux\nhas=apt-get\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
-		{"not linux", "pleiades-probe=1\nkernel=FreeBSD\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec}},
+		{"freebsd: files, and no Linux package manager", "pleiades-probe=1\nkernel=FreeBSD\nhas=apt-get\nhas=dpkg\nhas=systemctl\nsystemd_running=1\n", []capability.Name{capability.NameShellExec, capability.NamePOSIXFileSystem}},
+		{"a kernel nothing was proven on", "pleiades-probe=1\nkernel=Darwin\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec}},
 		{"a router's command line", "% Invalid input detected at '^' marker.\n", nil},
-		{"a banner before the marker", "kernel=Linux\nhas=apt-get\nhas=dpkg\npleiades-probe=1\nkernel=FreeBSD\n", []capability.Name{capability.NameShellExec}},
+		{"a banner before the marker", "kernel=Linux\nhas=apt-get\nhas=dpkg\npleiades-probe=1\nkernel=OpenBSD\n", []capability.Name{capability.NameShellExec}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := parseSSHProbe(tc.out)

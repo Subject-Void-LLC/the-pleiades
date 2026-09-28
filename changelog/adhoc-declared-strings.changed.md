@@ -1,0 +1,1 @@
+`pleiades adhoc` keeps a `key=value` parameter as text when the method declares it a string, so `mode=0750` is the mode written rather than a number the method refuses; other parameters are typed as before.

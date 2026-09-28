@@ -314,13 +314,14 @@ executing:
 run complete
 ```
 
-`key=value` reads a value as `add-host --set` does: `true` and `false` are booleans, a
-whole number is an integer, and anything else is a string. `key:=value` reads it as
-YAML, for a list, a map, or a string that looks like a number:
+`key=value` keeps the value as text when the method declares that parameter a string,
+so `mode=0750` is the mode you wrote. For any other parameter it reads the value as
+`add-host --set` does: `true` and `false` are booleans, a whole number is an integer,
+and anything else is a string. `key:=value` reads it as YAML, for a list or a map:
 
 ```console
 $ pleiades adhoc web exec.command argv:='[cat, /etc/os-release]'
-$ pleiades adhoc web file.directory path=/tmp/app mode:="'0750'" --mode check
+$ pleiades adhoc web file.directory path=/tmp/app mode=0750 --mode check
 ```
 
 A parameter on a command line is visible to every other process on the machine while

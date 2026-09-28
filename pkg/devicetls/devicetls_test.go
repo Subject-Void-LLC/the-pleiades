@@ -74,6 +74,43 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// TestCAPEM_HandsBackThePinnedAuthorityAsWritten covers the accessor a
+// client that takes PEM rather than a pool reads (pkg/winrmexec's does). The
+// PEM must come back byte for byte, and a pool built from it alone must be
+// enough to verify the real server it pins, or that client would connect to
+// nothing or, worse, fall back to the system's roots. A device with no pin
+// must answer nil, which such a client reads as "use the system's roots".
+func TestCAPEM_HandsBackThePinnedAuthorityAsWritten(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(srv.Close)
+	want := pinned(srv)
+
+	s, err := parse(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: want})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(s.CAPEM()); got != want {
+		t.Fatalf("CAPEM() = %q, want the pinned PEM as written", got)
+	}
+
+	// Verify the real server with a pool built from CAPEM() and nothing
+	// else, the way a PEM-taking client builds its own.
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(s.CAPEM()) {
+		t.Fatal("CAPEM() did not parse as a certificate")
+	}
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}}}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("a pool built from CAPEM() did not verify the pinned server: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if unpinned, err := parse(nil); err != nil || unpinned.CAPEM() != nil {
+		t.Errorf("a device with no pin: CAPEM() = %q, err %v; want nil", unpinned.CAPEM(), err)
+	}
+}
+
 // TestWarnings: the defaults warn about nothing, and each weakening says
 // what it is, naming its own flag.
 func TestWarnings(t *testing.T) {

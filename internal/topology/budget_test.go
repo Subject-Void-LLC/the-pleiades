@@ -74,6 +74,31 @@ func TestDerivedRetentionAlwaysExceedsTheBudget(t *testing.T) {
 	}
 }
 
+// TestTheDedupBucketOutlivesEveryBudgetsFloor holds the one relationship
+// nothing derives. The Runner's admission check remembers an executed
+// dispatch in the dedup bucket, whose TTL is bucket-wide and fixed
+// (DedupDefaultTTL), while the floor it has to reach grows with the budget
+// (DerivedDedupTTLFloor). The two agree today only because 24 hours is
+// exactly twice MaxOutageBudget: raising the ceiling without raising the
+// bucket's TTL would let a marker expire before a retry the budget still
+// promises to survive, and the Runner would run that dispatch a second
+// time. Checked across the whole legal range, not only the default.
+func TestTheDedupBucketOutlivesEveryBudgetsFloor(t *testing.T) {
+	for _, b := range []topology.OutageBudget{
+		topology.MinOutageBudget,
+		topology.DefaultOutageBudget,
+		topology.MaxOutageBudget,
+	} {
+		if floor := topology.DerivedDedupTTLFloor(b); topology.DedupDefaultTTL < floor {
+			t.Errorf("the dedup bucket keeps a marker for %v, less than the %v floor a %s budget needs",
+				topology.DedupDefaultTTL, floor, b)
+		}
+	}
+	if got := topology.DedupBucketConfig().TTL; got != topology.DedupDefaultTTL {
+		t.Errorf("DedupBucketConfig().TTL = %v, want DedupDefaultTTL %v; the bucket is not the one this test checks", got, topology.DedupDefaultTTL)
+	}
+}
+
 // TestDefaultBudgetReproducesTheShippedRetention proves the first release
 // is a pure refactor for MaxAge rather than a live retention change on
 // every existing install, which is what stops the very first upgrade

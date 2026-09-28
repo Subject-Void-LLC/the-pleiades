@@ -381,6 +381,54 @@ file. It works for Linux VMs too, whose seed holds a password hash.
 - `virt.vbox.vm.send_keys` types into its console, in Packer's `<enter>`/`<tab>` notation. Never
   type a secret with it: the text travels on the host's VBoxManage command line.
 
+## FreeBSD guests
+
+The same host makes FreeBSD VMs, the same way: FreeBSD's DVD installed once, with no one at the
+keyboard, into a base never booted again, and each lab VM a linked clone of it with a seed of its
+own. It was built and run on FreeBSD 15.1's `dvd1` ISO, staged on the host at
+`G:\iso\FreeBSD-15.1-RELEASE-amd64-dvd1.iso`.
+
+### 1. Install the base
+
+```bash
+pleiades run runbooks/freebsd-01-install.yaml
+```
+
+`virt.vbox.vm.install` with `installer: freebsd` makes the VM as it does for Windows, and puts
+the DVD and a second one The Pleiades builds in its drives. The second holds bsdinstall's script
+(`installerconfig`), which a released DVD cannot hold. A DVD booted this way writes nothing to the
+serial console, so The Pleiades watches the VM's screen until the installer's Welcome dialog is up,
+chooses Shell, and types one command: mount the script's DVD by its label, say
+`pleiades: installerconfig started` on the serial console (`console.log` in the VM's folder), copy
+the installer's log there, run the script, and power off. The script installs the kernel and base
+system from the DVD onto the first disk, enables sshd and nuageinit, keeps the serial console on,
+and adds a first-boot script that prints the SSH host keys there between cloud-init's markers.
+Running the task again resumes an install that stopped, and never types into one already under way.
+
+### 2. Give the VM an inventory entry and a login
+
+```bash
+pleiades add-host bsd-lab --type generic_ssh --set host=192.168.56.40 --tags lab
+pleiades add-credential bsd-lab --username pleiades --generate
+```
+
+FreeBSD's sshd refuses root by default, so the login is not root. There is no FreeBSD device type,
+so the VM is a `generic_ssh` device, whose capabilities `pleiades onboard` finds on the device.
+
+### 3. Create, boot, trust and onboard
+
+```bash
+pleiades run runbooks/freebsd-02-create.yaml
+pleiades trust-host bsd-lab --from-console vengeance
+pleiades onboard bsd-lab
+```
+
+The clone's seed is the NoCloud seed an Ubuntu clone gets, which FreeBSD's nuageinit reads at first
+boot: the login (with `/bin/sh`, since FreeBSD has no bash), its key and password hash, the host
+name, and the fixed address. `virt.vbox.vm.host_keys` reads the keys the first boot printed, as it
+does an Ubuntu clone's. Onboarding reads the kernel (FreeBSD) and grants the file methods; nothing
+Linux-only, so no `facts.gather`, apt, dnf or systemd.
+
 ## How it works
 
 ### Two accounts, two lists of VMs

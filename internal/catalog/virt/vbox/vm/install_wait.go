@@ -16,9 +16,10 @@ import (
 
 // resumeInstall answers for a VM already under the name. One marked
 // installed is reported with no change. One this method started that is
-// not finished (its answer file is still in a drive) is waited for again
-// and finished, so a run that stopped waiting (a timeout, a failed read)
-// is continued by running the task again. Any other VM is refused.
+// not finished (its answer file is still in a drive) has its installer
+// started if it never was, and is waited for again and finished, so a run
+// that stopped (a timeout, a failed read) is continued by running the task
+// again. Any other VM is refused.
 func resumeInstall(ctx context.Context, rc sdk.RunbookContext, h vboxmanage.Host, fqcn string, m vboxmanage.Machine, r installRequest, mode collection.Mode) (collection.Result, error) {
 	extra, err := h.ExtraData(ctx, m.Name)
 	if err != nil {
@@ -39,6 +40,12 @@ func resumeInstall(ctx context.Context, rc sdk.RunbookContext, h vboxmanage.Host
 	}
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, recordExists(rc, fqcn, true, true)
+	}
+	// An install that stopped before its installer was started (FreeBSD's
+	// is started by typing) is started now; one already under way is left
+	// alone.
+	if err := r.os.started(ctx, h, m.Name, dir); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if err := waitForInstall(ctx, h, m.Name, dir, r.timeout); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

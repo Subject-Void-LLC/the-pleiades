@@ -1165,6 +1165,14 @@ The other two commands are the recovery paths:
 | `controller reset-password --email <address>` | Replaces the password and revokes every session that account holds. Marks the password as needing to be changed at next sign-in. |
 | `controller unlock --email <address>` | Clears a lockout without touching the password. |
 
+**Which addresses are accepted.** An address is trimmed and lowercased, and that
+lowercased form is the account's key everywhere: `You@Example.com` and `you@example.com`
+are one account. Signing in, creating a user and these three commands all apply the
+same rule. An address holding bytes that are not UTF-8, a control character, a tab or
+line break, or a text direction mark is refused rather than repaired, because a
+repaired address could match a different stored one. Two spellings of one accented
+letter (precomposed, or a letter plus a combining mark) are two different addresses.
+
 **There is no password reset by email, deliberately.** Adding one would make the
 first sign-in on a fresh machine depend on outbound mail working, which is the wrong
 thing to put between an operator and their own control plane. Both commands run over

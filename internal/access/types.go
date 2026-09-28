@@ -278,18 +278,15 @@ func normalizeName(kind, name string) (string, error) {
 	return trimmed, nil
 }
 
-// normalizeEmail trims and lowercases a submitted address.
-//
-// Lowercased because it is the join key against a token's subject, and two
-// rows differing only in case would be two identities to one person, with
-// whichever one the token happened to match deciding what they could reach.
+// normalizeEmail reduces a submitted address to its account key through
+// auth.NormalizeEmail, the rule internal/localauth also signs in by, so a
+// user row and its local credential are keyed alike. Lowercased because it
+// is the join key against a token's subject, and two rows differing only in
+// case would be two identities for one person.
 func normalizeEmail(email string) (string, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(email))
-	if trimmed == "" {
-		return "", fmt.Errorf("%w: a user needs an email address", ErrInvalidInput)
+	normalized, err := auth.NormalizeEmail(email)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
-	if !strings.Contains(trimmed, "@") {
-		return "", fmt.Errorf("%w: %q is not an email address", ErrInvalidInput, trimmed)
-	}
-	return trimmed, nil
+	return normalized, nil
 }

@@ -189,18 +189,20 @@ func TestDiskVerbsRefuse(t *testing.T) {
 	h := vboxmanagetest.New()
 	host := h.VBoxHost()
 	for name, err := range map[string]error{
-		"a copy from a relative path": host.CopyDisk(ctx, `a.vhdx`, `G:\b.vdi`),
-		"a copy to a relative path":   host.CopyDisk(ctx, vhdx, `b.vdi`),
-		"a copy from nothing":         host.CopyDisk(ctx, vhdx, `G:\b.vdi`),
-		"a disk of no size":           host.CreateDisk(ctx, `G:\b.vdi`, 0),
-		"a disk at a quoted path":     host.CreateDisk(ctx, `G:\"b.vdi`, 1),
-		"an attach to a bad name":     host.AttachDisk(ctx, "a b", `G:\b.vdi`),
-		"an attach of a bad path":     host.AttachDisk(ctx, "vm", `b.vdi`),
-		"a firmware for a bad name":   host.SetFirmware(ctx, "a b", vboxmanage.FirmwareEFI),
-		"an unknown firmware":         host.SetFirmware(ctx, "vm", "coreboot"),
-		"a screenshot of a bad name":  host.Screenshot(ctx, "a b", `G:\s.png`),
-		"a screenshot to a bad path":  host.Screenshot(ctx, "vm", `s.png`),
-		"a screenshot of no machine":  host.Screenshot(ctx, "vm", `G:\s.png`),
+		"a copy from a relative path":  host.CopyDisk(ctx, `a.vhdx`, `G:\b.vdi`),
+		"a copy to a relative path":    host.CopyDisk(ctx, vhdx, `b.vdi`),
+		"a copy from nothing":          host.CopyDisk(ctx, vhdx, `G:\b.vdi`),
+		"a disk of no size":            host.CreateDisk(ctx, `G:\b.vdi`, 0),
+		"a disk at a quoted path":      host.CreateDisk(ctx, `G:\"b.vdi`, 1),
+		"an attach to a bad name":      host.AttachDisk(ctx, "a b", `G:\b.vdi`),
+		"an attach of a bad path":      host.AttachDisk(ctx, "vm", `b.vdi`),
+		"a firmware for a bad name":    host.SetFirmware(ctx, "a b", vboxmanage.FirmwareEFI),
+		"an unknown firmware":          host.SetFirmware(ctx, "vm", "coreboot"),
+		"a console log for a bad name": host.SetConsoleLog(ctx, "a b", `G:\vm\console.log`),
+		"a console log on no path":     host.SetConsoleLog(ctx, "vm", "console.log"),
+		"a screenshot of a bad name":   host.Screenshot(ctx, "a b", `G:\s.png`),
+		"a screenshot to a bad path":   host.Screenshot(ctx, "vm", `s.png`),
+		"a screenshot of no machine":   host.Screenshot(ctx, "vm", `G:\s.png`),
 	} {
 		if err == nil {
 			t.Errorf("%s: accepted", name)

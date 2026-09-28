@@ -7,8 +7,12 @@ import (
 )
 
 // This file is the Release Gate for svc.windows.*/win.feature.*: the real
-// built binary, driven through init, add-host, add-credential and run,
-// against a real Windows host over real WinRM.
+// built binary, driven the way a user calls one method once
+// (`pleiades adhoc ... --json`), against a real Windows host over real
+// WinRM. Since Phase 46 it also holds every check to its real run: each
+// method's check must predict the change, move nothing, agree with what
+// the run then does, and predict nothing once the host has converged
+// (checkThenRun, shared with the container check gates).
 //
 // # Why this one is env-gated, and reuses winrm_static_ip_release_gate_test.go's constants
 //
@@ -50,251 +54,130 @@ import (
 const (
 	envWinRMTestService = "PLEIADES_WINRM_TEST_SERVICE"
 	envWinRMTestFeature = "PLEIADES_WINRM_TEST_FEATURE"
+
+	// envWinRMProject and envWinRMDevice point these gates at a project
+	// that already manages the Windows host, run as a user runs it: the
+	// binary decrypts the device's credential from that project's own
+	// vault, so no password is put in the environment. The VirtualBox lab
+	// (examples/virtualbox_lab) is such a project. They take precedence over
+	// PLEIADES_WINRM_HOST, _USER and _PASSWORD, which build a throwaway
+	// project instead.
+	envWinRMProject = "PLEIADES_WINRM_PROJECT"
+	envWinRMDevice  = "PLEIADES_WINRM_DEVICE"
 )
 
-// winrmServiceGate skips unless the lab target and a service name to
-// exercise are both configured.
-func winrmServiceGate(t *testing.T) (cfg winrmGateConfig, service string) {
+// winrmCheckTarget returns the project directory and inventory name the
+// gate runs against, and the service or feature thingEnv names, skipping
+// with hint when no target or no thing is configured.
+func winrmCheckTarget(t *testing.T, thingEnv, hint string) (dir, host, thing string) {
 	t.Helper()
-
-	cfg = winrmGateConfig{
-		host:     os.Getenv(envWinRMHost),
-		user:     os.Getenv(envWinRMUser),
-		password: os.Getenv(envWinRMPassword),
+	thing = os.Getenv(thingEnv)
+	project, device := os.Getenv(envWinRMProject), os.Getenv(envWinRMDevice)
+	cfg := winrmGateConfig{host: os.Getenv(envWinRMHost), user: os.Getenv(envWinRMUser), password: os.Getenv(envWinRMPassword)}
+	switch {
+	case thing == "":
+	case project != "" && device != "":
+		return project, device, thing
+	case cfg.host != "" && cfg.user != "" && cfg.password != "":
+		return winrmGateProject(t, cfg), "win-gate", thing
 	}
-	service = os.Getenv(envWinRMTestService)
-
-	var missing []string
-	for name, value := range map[string]string{
-		envWinRMHost: cfg.host, envWinRMUser: cfg.user, envWinRMPassword: cfg.password,
-		envWinRMTestService: service,
-	} {
-		if value == "" {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		t.Skipf("svc.windows.* Release Gate needs a real Windows host and a service to exercise; set %s. "+
-			"This gate stops and restarts the named service, ends it running with an Automatic start type, "+
-			"and toggles its start type through Disabled and back, so point %s at a service you are fine "+
-			"briefly stopping and leaving running/Automatic afterward (Spooler is a reasonable default on a "+
-			"stock Windows Server image).",
-			strings.Join(missing, ", "), envWinRMTestService)
-	}
-	return cfg, service
+	t.Skipf("this Release Gate needs a real Windows host: set %s and %s (a project that manages it), or %s, %s and %s; "+
+		"and %s. %s", envWinRMProject, envWinRMDevice, envWinRMHost, envWinRMUser, envWinRMPassword, thingEnv, hint)
+	return "", "", ""
 }
 
-// winrmFeatureGate skips unless the lab target and a DISM feature name to
-// exercise are both configured.
-func winrmFeatureGate(t *testing.T) (cfg winrmGateConfig, feature string) {
+// serviceHint and featureHint say what each gate does to the thing it is
+// pointed at, so a person chooses one they are fine changing.
+const (
+	serviceHint = "The gate stops, starts, restarts and disables the named service and ends it running and Automatic, " +
+		"so name one you are fine briefly stopping: SysMain is on Windows Server 2025, including Server Core, " +
+		"which has no Spooler."
+	featureHint = "The gate disables the named DISM feature and enables it again, ending it enabled, so name one you " +
+		"are fine leaving enabled that needs no restart to apply (TelnetClient)."
+)
+
+// winrmRead runs a PowerShell expression on the host through
+// exec.winrm.shell, a different method from the one under test, and
+// returns its trimmed output: the state read beside the method rather
+// than from its own report. Anything on stderr fails the test, so a read
+// that went wrong cannot pass as a state.
+func winrmRead(t *testing.T, dir, host, expr string) string {
 	t.Helper()
+	rep, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "exec.winrm.shell", "shell=powershell", "command="+expr)
+	if code != 0 || len(rep.Tasks) != 1 {
+		t.Fatalf("reading %q on %s (exit %d):\n%s", expr, host, code, raw)
+	}
+	if stderr := strings.TrimSpace(stringStat(rep.Tasks[0].Stats, "stderr")); stderr != "" {
+		t.Fatalf("reading %q on %s wrote to stderr: %s", expr, host, stderr)
+	}
+	return strings.TrimSpace(stringStat(rep.Tasks[0].Stats, "stdout"))
+}
 
-	cfg = winrmGateConfig{
-		host:     os.Getenv(envWinRMHost),
-		user:     os.Getenv(envWinRMUser),
-		password: os.Getenv(envWinRMPassword),
+// winrmAdhoc runs one call for its effect and fails on any error. The
+// gates use it to reach a known starting state.
+func winrmAdhoc(t *testing.T, dir, host, method string, params ...string) {
+	t.Helper()
+	rep, raw, code := runPleiadesJSONWithHome(t, dir, "", append([]string{"adhoc", host, method}, params...)...)
+	if code != 0 || len(rep.Tasks) != 1 {
+		t.Fatalf("%s on %s (exit %d):\n%s", method, host, code, raw)
 	}
-	feature = os.Getenv(envWinRMTestFeature)
-
-	var missing []string
-	for name, value := range map[string]string{
-		envWinRMHost: cfg.host, envWinRMUser: cfg.user, envWinRMPassword: cfg.password,
-		envWinRMTestFeature: feature,
-	} {
-		if value == "" {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		t.Skipf("win.feature.* Release Gate needs a real Windows host and a feature to exercise; set %s. "+
-			"This gate disables the named DISM feature and re-enables it, ending it enabled, so point %s at "+
-			"a feature you are fine leaving enabled afterward and that does not need a restart to finish "+
-			"applying (TelnetClient is a lightweight, commonly-available example that needs neither).",
-			strings.Join(missing, ", "), envWinRMTestFeature)
-	}
-	return cfg, feature
 }
 
 // TestWinRMGate_ServiceStartStopAndBack cycles a real service through
-// start -> stop -> start (the reverse), asserting the diff each task
-// records actually changed the way it claims.
+// start, stop, start (the reverse) and restart, each through checkThenRun
+// except the restart, which never converges.
 //
-// Starting first rather than reading state separately is deliberate:
-// svc.windows.* has no bare "read only" FQCN, since every real method is
-// read-then-act by design (see internal/catalog/svc/windows's own package
-// doc). Starting a service that is already running is a documented no-op,
-// so this is safe regardless of the service's state when the gate begins,
-// and it establishes the fixed starting point (running) the rest of the
-// cycle assumes.
+// Starting first establishes the fixed starting point (running) the rest
+// assumes, and is a documented no-op when the service is already running.
 func TestWinRMGate_ServiceStartStopAndBack(t *testing.T) {
-	cfg, service := winrmServiceGate(t)
-	dir := winrmGateProject(t, cfg)
+	dir, host, service := winrmCheckTarget(t, envWinRMTestService, serviceHint)
+	status := func() string { return winrmRead(t, dir, host, "(Get-Service -Name '"+service+"').Status") }
 
-	run := func(name, fqcn string) string {
-		t.Helper()
-		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+service+"\n")
-		out, err := runPleiades(t, dir, "run", rb, "--verbose")
-		if err != nil {
-			t.Fatalf("%s against %s: %v\n%s", fqcn, service, err, out)
-		}
-		return out
+	winrmAdhoc(t, dir, host, "svc.windows.start", "name="+service)
+	checkThenRun(t, dir, "", host, status, "svc.windows.stop", "name="+service)
+	// The reverse. Left running is the fixed end state this file's doc
+	// promises.
+	checkThenRun(t, dir, "", host, status, "svc.windows.start", "name="+service)
+
+	// A restart always makes a change, so its proof is that the check
+	// predicts it and moves nothing, and the run leaves the service running.
+	check, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.windows.restart", "name="+service, "--mode", "check")
+	if code != 0 || check.Tasks[0].Status != "would_change" {
+		t.Fatalf("the restart check did not predict the restart (exit %d):\n%s", code, raw)
 	}
-
-	// Establish a known starting point: running.
-	run("service_start_baseline", "svc.windows.start")
-
-	stopOut := run("service_stop", "svc.windows.stop")
-	if before, after := diffSide(stopOut, "before"), diffSide(stopOut, "after"); before["running"] != "true" || after["running"] != "false" {
-		t.Errorf("svc.windows.stop's diff does not show a running -> not-running transition:\n%s", stopOut)
+	if got := status(); got != "Running" {
+		t.Fatalf("after the restart check %s is %s, want it still Running", service, got)
 	}
-
-	// The reverse. Left running is the fixed end state this file's own
-	// doc comment promises.
-	startOut := run("service_start_reverse", "svc.windows.start")
-	if diffSide(startOut, "after")["running"] != "true" {
-		t.Errorf("the reversing svc.windows.start did not leave %s reporting running:\n%s", service, startOut)
+	run, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.windows.restart", "name="+service)
+	if code != 0 || run.Tasks[0].Status != "changed" {
+		t.Fatalf("the restart did not run (exit %d):\n%s", code, raw)
+	}
+	predictionMatches(t, "svc.windows.restart", check.Tasks[0].Stats, run.Tasks[0].Stats)
+	if got := status(); got != "Running" {
+		t.Fatalf("after the restart %s is %s, want Running", service, got)
 	}
 }
 
-// TestWinRMGate_ServiceEnableDisableAndBack is
-// TestWinRMGate_ServiceStartStopAndBack's own shape for start type rather
-// than run state: enable -> disable -> enable (the reverse), ending
-// Automatic.
+// TestWinRMGate_ServiceEnableDisableAndBack is the same shape for start
+// type: enable, disable, enable (the reverse), ending Automatic.
 func TestWinRMGate_ServiceEnableDisableAndBack(t *testing.T) {
-	cfg, service := winrmServiceGate(t)
-	dir := winrmGateProject(t, cfg)
+	dir, host, service := winrmCheckTarget(t, envWinRMTestService, serviceHint)
+	startType := func() string { return winrmRead(t, dir, host, "(Get-Service -Name '"+service+"').StartType") }
 
-	run := func(name, fqcn string) string {
-		t.Helper()
-		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+service+"\n")
-		out, err := runPleiades(t, dir, "run", rb, "--verbose")
-		if err != nil {
-			t.Fatalf("%s against %s: %v\n%s", fqcn, service, err, out)
-		}
-		return out
-	}
-
-	run("service_enable_baseline", "svc.windows.enable")
-
-	disableOut := run("service_disable", "svc.windows.disable")
-	if diffSide(disableOut, "before")["start_type"] != "Automatic" || diffSide(disableOut, "after")["start_type"] != "Disabled" {
-		t.Errorf("svc.windows.disable's diff does not show an Automatic -> Disabled transition:\n%s", disableOut)
-	}
-
-	enableOut := run("service_enable_reverse", "svc.windows.enable")
-	if diffSide(enableOut, "after")["start_type"] != "Automatic" {
-		t.Errorf("the reversing svc.windows.enable did not leave %s reporting Automatic:\n%s", service, enableOut)
-	}
+	winrmAdhoc(t, dir, host, "svc.windows.enable", "name="+service)
+	checkThenRun(t, dir, "", host, startType, "svc.windows.disable", "name="+service)
+	checkThenRun(t, dir, "", host, startType, "svc.windows.enable", "name="+service)
 }
 
 // TestWinRMGate_FeatureRemoveInstallAndBack cycles a real DISM feature
-// through install -> remove -> install (the reverse), ending enabled.
-//
-// Installing first establishes the fixed starting point (enabled) the
-// same way TestWinRMGate_ServiceStartStopAndBack's opening start does,
-// and is a documented no-op if the feature is already enabled.
+// through install, remove, install (the reverse), ending enabled.
 func TestWinRMGate_FeatureRemoveInstallAndBack(t *testing.T) {
-	cfg, feature := winrmFeatureGate(t)
-	dir := winrmGateProject(t, cfg)
-
-	run := func(name, fqcn string) string {
-		t.Helper()
-		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+feature+"\n")
-		out, err := runPleiades(t, dir, "run", rb, "--verbose")
-		if err != nil {
-			t.Fatalf("%s against %s: %v\n%s", fqcn, feature, err, out)
-		}
-		return out
+	dir, host, feature := winrmCheckTarget(t, envWinRMTestFeature, featureHint)
+	state := func() string {
+		return winrmRead(t, dir, host, "(Get-WindowsOptionalFeature -Online -FeatureName '"+feature+"').State")
 	}
 
-	run("feature_install_baseline", "win.feature.install")
-
-	removeOut := run("feature_remove", "win.feature.remove")
-	if diffSide(removeOut, "before")["state"] != "Enabled" || diffSide(removeOut, "after")["state"] != "Disabled" {
-		t.Errorf("win.feature.remove's diff does not show an Enabled -> Disabled transition:\n%s", removeOut)
-	}
-
-	installOut := run("feature_install_reverse", "win.feature.install")
-	if diffSide(installOut, "after")["state"] != "Enabled" {
-		t.Errorf("the reversing win.feature.install did not leave %s reporting Enabled:\n%s", feature, installOut)
-	}
-}
-
-// diffSide reads one side ("before" or "after") of the first diff in a
-// run --verbose output, as its keys and values. Reading the side rather
-// than searching the whole output is what tells a transition from its
-// reverse: both values appear in either, once in each side.
-func diffSide(out, side string) map[string]string {
-	fields := map[string]string{}
-	lines := strings.Split(out, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "diff:" {
-			continue
-		}
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-		sideAt := strings.Repeat(" ", indent+2) + side + ":"
-		fieldAt := strings.Repeat(" ", indent+4)
-		for j := i + 1; j < len(lines); j++ {
-			if lines[j] != sideAt {
-				continue
-			}
-			for _, field := range lines[j+1:] {
-				if !strings.HasPrefix(field, fieldAt) {
-					break
-				}
-				if strings.HasPrefix(field, fieldAt+" ") {
-					continue
-				}
-				if key, value, ok := strings.Cut(strings.TrimSpace(field), ": "); ok {
-					fields[key] = value
-				}
-			}
-			break
-		}
-		break
-	}
-	return fields
-}
-
-// TestDiffSide runs everywhere, unlike the gates that use diffSide, on
-// output svc.windows.stop printed against a real Windows Server 2025.
-func TestDiffSide(t *testing.T) {
-	out := `executing:
-  tasks[0] [e0b13cb7-3007-4b20-b9e5-b71337705115]: changed
-    diff:
-      after:
-        exists: true
-        name: SysMain
-        running: false
-        start_type: Automatic
-        status: Stopped
-      before:
-        dependents:
-          - a nested line, skipped
-        exists: true
-        running: true
-        status: Running
-    inverse:
-      description: Start SysMain, which this task stopped.
-      fqcn: svc.windows.start
-      params:
-        name: SysMain
-    name: SysMain
-run complete`
-	before, after := diffSide(out, "before"), diffSide(out, "after")
-	if before["running"] != "true" || before["status"] != "Running" || before["exists"] != "true" {
-		t.Errorf("before = %v", before)
-	}
-	if after["running"] != "false" || after["start_type"] != "Automatic" || len(after) != 5 {
-		t.Errorf("after = %v", after)
-	}
-	if _, ok := before["name"]; ok {
-		t.Errorf("before read past its own block: %v", before)
-	}
-	if got := diffSide("no diff here", "after"); len(got) != 0 {
-		t.Errorf("an output with no diff gave %v", got)
-	}
+	winrmAdhoc(t, dir, host, "win.feature.install", "name="+feature)
+	checkThenRun(t, dir, "", host, state, "win.feature.remove", "name="+feature)
+	checkThenRun(t, dir, "", host, state, "win.feature.install", "name="+feature)
 }

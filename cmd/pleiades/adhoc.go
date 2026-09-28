@@ -13,6 +13,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // adhocUsage is adhoc's usage line, for its errors.
@@ -49,7 +50,7 @@ func runAdhoc(args []string) error {
 	}
 	hosts, method := positionals[0], positionals[1]
 	label := adhocLabel(hosts, method)
-	params, err := parseAdhocParams(positionals[2:])
+	params, err := parseAdhocParams(positionals[2:], declaredTypes(method))
 	if err != nil {
 		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, adhocUsage))
 	}
@@ -82,13 +83,15 @@ func adhocLabel(hosts, method string) string {
 
 // parseAdhocParams reads the parameters given after the method.
 //
-// key=value types value as add-host --set does: true and false are
+// key=value keeps value as text when the method declares that parameter a
+// string (declared, from its manifest), so mode=0644 is the text 0644 its
+// author wrote rather than a number the method must then refuse. For any
+// other parameter it types value as add-host --set does: true and false are
 // booleans, a whole base-10 number is an integer, and anything else is a
 // string, a dotted version included. key:=value reads value as YAML, for
-// what key=value cannot say: a list ([a, b]), a map ({X: 1}), or a string
-// that looks like a number ("'0644'"). A value keeps any = it holds,
-// since only the first one ends the key.
-func parseAdhocParams(tokens []string) (map[string]any, error) {
+// what key=value cannot say: a list ([a, b]) or a map ({X: 1}). A value
+// keeps any = it holds, since only the first one ends the key.
+func parseAdhocParams(tokens []string, declared map[string]string) (map[string]any, error) {
 	params := map[string]any{}
 	for _, token := range tokens {
 		key, raw, ok := strings.Cut(token, "=")
@@ -104,7 +107,11 @@ func parseAdhocParams(tokens []string) (map[string]any, error) {
 			return nil, fmt.Errorf("parameter %s is given twice", key)
 		}
 		if !structured {
-			params[key] = parsePropertyValue(raw)
+			if declared[key] == "string" {
+				params[key] = raw
+			} else {
+				params[key] = parsePropertyValue(raw)
+			}
 			continue
 		}
 		var value any
@@ -114,6 +121,21 @@ func parseAdhocParams(tokens []string) (map[string]any, error) {
 		params[key] = value
 	}
 	return params, nil
+}
+
+// declaredTypes returns the type each of method's parameters declares in
+// its manifest, or nil for a method not registered yet (an external one
+// loaded later), whose values are then typed as add-host --set types them.
+func declaredTypes(method string) map[string]string {
+	d, ok := collection.Lookup(method)
+	if !ok {
+		return nil
+	}
+	types := make(map[string]string, len(d.Manifest.Doc.Params))
+	for _, p := range d.Manifest.Doc.Params {
+		types[p.Name] = p.Type
+	}
+	return types
 }
 
 // adhocRunbook is the runbook an ad-hoc run carries out: one task calling

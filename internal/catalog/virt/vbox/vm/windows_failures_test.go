@@ -160,7 +160,7 @@ func TestInstallEarlyRefusals(t *testing.T) {
 	if _, err := call(t, "virt.vbox.vm.install", false, newRecorder(), installParams()); err == nil || failing.VM("ws2025-core") != nil {
 		t.Errorf("createvm refused: %v", err)
 	}
-	if _, err := call(t, "virt.vbox.vm.install", false, newRecorder(), map[string]any{"name": "a b", "iso": serverISO, "image": "1", "os_type": "Windows2025_64"}); err == nil {
+	if _, err := call(t, "virt.vbox.vm.install", false, newRecorder(), map[string]any{"name": "a b", "installer": "windows", "iso": serverISO, "image": "1", "os_type": "Windows2025_64"}); err == nil {
 		t.Error("installed a VM with a bad name")
 	}
 }

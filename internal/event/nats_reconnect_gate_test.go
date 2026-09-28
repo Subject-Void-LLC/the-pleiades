@@ -10,13 +10,10 @@ import (
 	"testing"
 	"time"
 
-	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go/jetstream"
-	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
-	"github.com/testcontainers/testcontainers-go/network"
 )
 
 // This file is Phase 96a's Release Gate. Both tests are throwaway
@@ -38,62 +35,6 @@ import (
 // the behaviour under test rather than a leak. MaxReconnects(-1) makes
 // that strictly more true: the reconnect loop is now unbounded on
 // purpose, so a leak checker would report the feature.
-
-// natsThroughToxiproxy starts a real NATS container and a real Toxiproxy
-// in front of it, returning the proxied URL and the live proxy handle the
-// caller severs with.
-//
-// The harness is extracted from nats_chaos_test.go, which had it inline
-// as the only user. Both files sever the same boundary, and a second
-// hand-rolled copy of a container topology is exactly the drift this
-// repository keeps finding.
-// It takes testing.TB rather than *testing.T so the recovery benchmark
-// can stand up the identical topology instead of hand-rolling a second
-// copy of it. Only Helper, Fatalf and Cleanup are used, all of which are
-// on TB with identical semantics for both.
-func natsThroughToxiproxy(t testing.TB) (string, *toxiproxyclient.Proxy) {
-	t.Helper()
-	ctx := context.Background()
-
-	nw, err := network.New(ctx)
-	if err != nil {
-		t.Fatalf("failed to create network: %v", err)
-	}
-	t.Cleanup(func() { nw.Remove(context.Background()) })
-
-	// The alias is what the proxy's upstream resolves, so it is passed
-	// explicitly rather than defaulted: "nats:4222" below is this line.
-	testsupport.StartNATS(t, testsupport.WithNATSNetwork(nw, "nats"))
-
-	toxiproxyContainer, err := tctoxiproxy.Run(ctx,
-		testsupport.ToxiproxyImage,
-		tctoxiproxy.WithProxy("nats", "nats:4222"),
-		network.WithNetwork([]string{"toxiproxy"}, nw),
-		testsupport.ToxiproxyReady(),
-	)
-	if err != nil {
-		t.Fatalf("failed to start toxiproxy container: %v", err)
-	}
-	t.Cleanup(func() { toxiproxyContainer.Terminate(context.Background()) })
-
-	proxiedHost, proxiedPort, err := toxiproxyContainer.ProxiedEndpoint(8666)
-	if err != nil {
-		t.Fatalf("failed to get proxied endpoint: %v", err)
-	}
-	toxiURI, err := toxiproxyContainer.URI(ctx)
-	if err != nil {
-		t.Fatalf("failed to get toxiproxy control URI: %v", err)
-	}
-	proxies, err := toxiproxyclient.NewClient(toxiURI).Proxies()
-	if err != nil {
-		t.Fatalf("failed to list proxies: %v", err)
-	}
-	proxy, ok := proxies["nats"]
-	if !ok {
-		t.Fatal("toxiproxy has no \"nats\" proxy registered")
-	}
-	return "nats://" + proxiedHost + ":" + proxiedPort, proxy
-}
 
 // severanceBeyondTheOldBudget is how long D1 cuts the link for.
 //
@@ -124,7 +65,7 @@ func TestNatsBus_RecoversFromAnOutageBeyondTheOldReconnectBudget(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	url, proxy := natsThroughToxiproxy(t)
+	_, url, proxy := testsupport.NATSThroughToxiproxy(t)
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
@@ -193,7 +134,7 @@ func TestNatsBus_ConnectsWhenTheBrokerAppearsAfterStartup(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	url, proxy := natsThroughToxiproxy(t)
+	_, url, proxy := testsupport.NATSThroughToxiproxy(t)
 
 	// Sever before constructing anything: from the client's point of view
 	// this is a broker that has not started yet, which is the cold-start
@@ -309,7 +250,7 @@ func TestNatsBus_LogsTheConnectionLifecycle(t *testing.T) {
 		return buf.String()
 	}
 
-	url, proxy := natsThroughToxiproxy(t)
+	_, url, proxy := testsupport.NATSThroughToxiproxy(t)
 	bus, err := event.NewNatsBus(ctx, url, logger, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
@@ -385,7 +326,7 @@ func TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 	ctx := context.Background()
-	url, _ := natsThroughToxiproxy(t)
+	_, url, _ := testsupport.NATSThroughToxiproxy(t)
 
 	// A Controller provisions, then an operator widens retention.
 	provisioner, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)

@@ -60,6 +60,8 @@ func TestHost_SendsExactlyTheseArguments(t *testing.T) {
 		"autostart": {func(h Host) error { return h.SetAutostart(ctx, "vm1", true) }, "modifyvm vm1 --autostart-enabled on --autostart-delay 0"},
 		"hostinfo":  {func(h Host) error { _, err := h.HostInfo(ctx); return err }, "list hostinfo"},
 		"resize":    {func(h Host) error { return h.Resize(ctx, "vm1", 4096, 2) }, "modifyvm vm1 --memory 4096 --cpus 2"},
+		"console log": {func(h Host) error { return h.SetConsoleLog(ctx, "vm1", `G:\vm1\console.log`) },
+			`modifyvm vm1 --uart1 0x3F8 4 --uart-mode1 file G:\vm1\console.log`},
 		"paravirt": {func(h Host) error {
 			return h.Configure(ctx, "vm1", Hardware{MemoryMB: 1024, CPUs: 2, HostOnlyAdapter: "vboxnet0", ConsoleLog: `G:\vm1\console.log`, Paravirt: "none"})
 		}, `modifyvm vm1 --memory 1024 --cpus 2 --nic1 nat --nic2 hostonly --hostonlyadapter2 vboxnet0 --uart1 0x3F8 4 --uart-mode1 file G:\vm1\console.log --autostart-enabled off --paravirt-provider none`},

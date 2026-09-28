@@ -5,12 +5,9 @@ import (
 	"testing"
 	"time"
 
-	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
-	"github.com/testcontainers/testcontainers-go/network"
 )
 
 // TestNatsBus_SurvivesConnectionSeverance is this phase's Chaos Testing
@@ -34,53 +31,12 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	nw, err := network.New(ctx)
-	if err != nil {
-		t.Fatalf("failed to create network: %v", err)
-	}
-	t.Cleanup(func() { nw.Remove(context.Background()) })
-
-	// The alias is what the proxy's upstream resolves, so it is passed
-	// explicitly rather than defaulted: "nats:4222" below is this line.
-	testsupport.StartNATS(t, testsupport.WithNATSNetwork(nw, "nats"))
-
-	// The proxy's upstream is "nats:4222" (the container's network alias
-	// and NATS's default client port), reachable from the toxiproxy
-	// container because both share nw.
-	toxiproxyContainer, err := tctoxiproxy.Run(ctx,
-		testsupport.ToxiproxyImage,
-		tctoxiproxy.WithProxy("nats", "nats:4222"),
-		network.WithNetwork([]string{"toxiproxy"}, nw),
-		testsupport.ToxiproxyReady(),
-	)
-	if err != nil {
-		t.Fatalf("failed to start toxiproxy container: %v", err)
-	}
-	t.Cleanup(func() { toxiproxyContainer.Terminate(context.Background()) })
-
-	proxiedHost, proxiedPort, err := toxiproxyContainer.ProxiedEndpoint(8666)
-	if err != nil {
-		t.Fatalf("failed to get proxied endpoint: %v", err)
-	}
-
-	toxiURI, err := toxiproxyContainer.URI(ctx)
-	if err != nil {
-		t.Fatalf("failed to get toxiproxy control URI: %v", err)
-	}
-	toxiClient := toxiproxyclient.NewClient(toxiURI)
-	proxies, err := toxiClient.Proxies()
-	if err != nil {
-		t.Fatalf("failed to list proxies: %v", err)
-	}
-	proxy, ok := proxies["nats"]
-	if !ok {
-		t.Fatal("toxiproxy has no \"nats\" proxy registered")
-	}
+	_, proxiedURL, proxy := testsupport.NATSThroughToxiproxy(t)
 
 	// natsBus connects THROUGH the proxy, not directly to the NATS
 	// container: every publish and subscribe below crosses the boundary
 	// this test severs.
-	bus, err := event.NewNatsBus(ctx, "nats://"+proxiedHost+":"+proxiedPort, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
+	bus, err := event.NewNatsBus(ctx, proxiedURL, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}

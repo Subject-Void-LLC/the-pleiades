@@ -83,6 +83,30 @@ func TestUserData_AnotherUser(t *testing.T) {
 	}
 }
 
+// TestUserData_AShellTheGuestHas: a FreeBSD clone's login gets the shell
+// its base system has, since nuageinit reads this same seed and FreeBSD
+// has no bash; root's own entry names no shell whatever is set.
+func TestUserData_AShellTheGuestHas(t *testing.T) {
+	seed := lab("pleiades")
+	seed.Shell = "/bin/sh"
+	doc, err := seed.UserData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := decode(t, doc)["users"].([]any)[0].(map[string]any); u["shell"] != "/bin/sh" {
+		t.Errorf("user-data:\n%s", doc)
+	}
+	root := lab("root")
+	root.Shell = "/bin/sh"
+	doc, err = root.UserData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := decode(t, doc)["users"].([]any)[0].(map[string]any); u["shell"] != nil {
+		t.Errorf("root was given a shell:\n%s", doc)
+	}
+}
+
 func TestMetaDataAndNetworkConfig(t *testing.T) {
 	seed := lab("root")
 	meta, err := seed.MetaData()
@@ -124,6 +148,8 @@ func TestValidate(t *testing.T) {
 		"DHCP and an address":            func(s *Seed) { s.Interfaces[0].Address = "10.0.0.2/24" },
 		"neither DHCP nor an address":    func(s *Seed) { s.Interfaces[1].Address = "" },
 		"an address with no prefix":      func(s *Seed) { s.Interfaces[1].Address = "192.168.56.10" },
+		"a shell that is not a path":     func(s *Seed) { s.Shell = "sh" },
+		"a shell with a space":           func(s *Seed) { s.Shell = "/bin/sh -x" },
 	} {
 		seed := lab("root")
 		seed.Interfaces = append([]Interface(nil), seed.Interfaces...)
@@ -163,20 +189,20 @@ func TestHostKeys(t *testing.T) {
 		t.Errorf("a second boot's block: %q, %v", newer, err)
 	}
 	// A block still being printed is not read.
-	partial := string(console)[:strings.Index(string(console), endKeys)]
+	partial := string(console)[:strings.Index(string(console), HostKeysEnd)]
 	if _, err := HostKeys(partial); err != ErrNoHostKeys {
 		t.Errorf("a partial block: %v", err)
 	}
 	for name, text := range map[string]string{
 		"nothing":        "",
-		"an empty block": beginKeys + "\n" + endKeys + "\n",
-		"an end first":   endKeys + "\n" + beginKeys + "\n",
+		"an empty block": HostKeysBegin + "\n" + HostKeysEnd + "\n",
+		"an end first":   HostKeysEnd + "\n" + HostKeysBegin + "\n",
 	} {
 		if _, err := HostKeys(text); err != ErrNoHostKeys {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	broken := beginKeys + "\nssh-ed25519 AAAAnotbase64ofakey\n" + endKeys + "\n"
+	broken := HostKeysBegin + "\nssh-ed25519 AAAAnotbase64ofakey\n" + HostKeysEnd + "\n"
 	if _, err := HostKeys(broken); err == nil || err == ErrNoHostKeys {
 		t.Errorf("a key that does not parse: %v", err)
 	}

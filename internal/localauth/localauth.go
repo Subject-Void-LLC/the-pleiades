@@ -45,6 +45,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // ErrInvalidCredentials is the single authentication failure.
@@ -207,23 +209,22 @@ type Store interface {
 	Unlock(ctx context.Context, email string) error
 }
 
-// NormalizeEmail trims and lowercases a submitted address.
+// NormalizeEmail reduces a submitted address to its account key through
+// auth.NormalizeEmail, the same rule internal/access applies when it
+// creates the user. A credential keyed differently from the user row it
+// belongs to would be a credential that authenticates nobody, or worse, one
+// that authenticates a second identity; one shared rule is what stops that.
 //
-// It matches internal/access's own normalization deliberately: that
-// package's rule is that the address is the join key against a token's
-// subject, so two rows differing only in case would be two identities for
-// one person. A credential keyed by a differently-normalized address than
-// the user row it belongs to would be a credential that authenticates
-// nobody, or worse, one that authenticates a second identity.
+// A refusal is ErrNoSuchAccount here, wrapping auth.ErrInvalidEmail: an
+// address that cannot be a key cannot name an account. Authenticate turns
+// it into the same ErrInvalidCredentials, and the same decoy derivation, as
+// an address that simply matches no row.
 func NormalizeEmail(email string) (string, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(email))
-	if trimmed == "" {
-		return "", fmt.Errorf("%w: an account needs an email address", ErrNoSuchAccount)
+	subject, err := auth.NormalizeEmail(email)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNoSuchAccount, err)
 	}
-	if !strings.Contains(trimmed, "@") {
-		return "", fmt.Errorf("%w: %q is not an email address", ErrNoSuchAccount, trimmed)
-	}
-	return trimmed, nil
+	return subject, nil
 }
 
 // ValidatePassword refuses a proposed password before it is hashed.

@@ -16,6 +16,7 @@ tasks:
   - name: install Windows Server 2025 Core from the evaluation ISO, generalized
     virt.vbox.vm.install:
       name: ws2025-core-base
+      installer: windows
       iso: G:\iso\26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso
       image: Windows Server 2025 Standard Evaluation
       os_type: Windows2025_64

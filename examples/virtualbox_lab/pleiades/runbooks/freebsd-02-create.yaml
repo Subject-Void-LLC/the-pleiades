@@ -1,0 +1,32 @@
+# Clone the FreeBSD lab VM from the base's never-booted snapshot, start
+# it, and read its SSH host keys from its serial console.
+#
+# The clone's seed is the NoCloud seed an Ubuntu clone gets, and FreeBSD's
+# nuageinit reads it at first boot: the login bsd-lab's credential names
+# (pleiades, with /bin/sh, since the base system has no bash), the host
+# name, and the fixed address. FreeBSD's sshd refuses root by default,
+# which is why the login is not root. The base prints the host keys on the
+# console between cloud-init's markers, so virt.vbox.vm.host_keys reads
+# them as it does an Ubuntu clone's, and trust-host --from-console trusts
+# them from there rather than from a first connection.
+#
+# Before this: pleiades add-host bsd-lab --type generic_ssh --set host=192.168.56.40 --tags lab
+#              pleiades add-credential bsd-lab --username pleiades --generate
+id: vbox-lab-freebsd-create
+hosts: vengeance
+tasks:
+  - name: make the FreeBSD lab VM from the base's never-booted snapshot
+    virt.vbox.vm.clone:
+      name: bsd-lab
+      from: freebsd-base
+      snapshot: base
+      login: bsd-lab
+      address: 192.168.56.40/24
+      size: small
+  - name: start it
+    virt.vbox.vm.start:
+      name: bsd-lab
+  - name: wait for its first boot to print its SSH host keys
+    virt.vbox.vm.host_keys:
+      name: bsd-lab
+      timeout: 600
