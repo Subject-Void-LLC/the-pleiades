@@ -282,6 +282,10 @@ story, per `.AGENTS/AGENTS.md`.
 247. **A captured request proves what was asked, not what happened: assert the effect on the far side (2026-09-25).**
 248. **When a guest ignores what it was given, read its own logs before a second guess (2026-09-27).**
 249. **Call a method once with `adhoc --json`, and assert on structure rather than on printed text (2026-09-27).**
+250. **Decide a refusal on the raw input, never on what a normalizer made of it, and prove the refusal on the production database dialect as well as the test one (2026-09-27).**
+251. **A publish buffered through a reconnect is stored, and its dedup window starts, at the flush after the heal; prove what lies beyond a window by waiting past it after storage and showing the broker stored the retry (2026-09-27).**
+252. **Drive a guest by what it shows, not by a delay, and make the first typed step report back on a channel the host reads, keyed so a rerun never types twice (2026-09-27).**
+253. **Prove a memory limit by running the real process under it, at the rate, past every retention window, beside a control with the suspected cost removed; a benchmark's per-entry cost times a rate counts only the live data (2026-09-28).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

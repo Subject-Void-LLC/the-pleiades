@@ -10348,3 +10348,162 @@ the display timeout to never in the install's audit pass.
 **Lesson.** A power button is an input event, and an idle guest may spend it on waking up; a stop that
 waits should not press only once.
 
+
+## 370. An address with a byte that is not UTF-8 signed in as a different stored address
+
+**Symptom.** `FuzzAuthenticateEmail`'s seed `"a\xffb@example.test"`, sent with the right password,
+signed in as the stored account `a<U+FFFD>b@example.test`. Found writing Phase 79's email fuzz, before
+any fix.
+
+**Root cause.** `localauth.NormalizeEmail` and `access.normalizeEmail` each ran
+`strings.ToLower(strings.TrimSpace(email))` and checked only for emptiness and an `@`. `strings.ToLower`
+goes through `strings.Map`, which writes U+FFFD in place of every byte that is not UTF-8, so the
+normalizer repaired a malformed address into a valid key, and any number of different malformed inputs
+into the same key. The users form did not check UTF-8 either, so a row holding U+FFFD could be created.
+The attacker still needed that account's password; what broke is the rule that a malformed address
+fails exactly as an unknown one does.
+
+**Fix.** One rule, `auth.NormalizeEmail` (`internal/auth/email.go`), which both packages now call: it
+refuses, on the trimmed input and BEFORE lowercasing, whatever `termsafe.CheckLine` refuses (invalid
+UTF-8, control characters, text direction marks, tab, newline). The users form refuses the same at the
+field. Tests: `FuzzAuthenticateEmail` (red on this seed first), `TestNormalizeEmail`, `FuzzNormalizeEmail`
+(16.6 M executions clean), `TestUsersView_RefusesAnUnusableAddressAtTheControl`.
+
+**Lesson.** Decide a refusal on the raw input. A normalizer that repairs (ToLower, Map, a decoder with a
+replacement character) turns a malformed value into a valid key, so checking its output checks nothing.
+
+## 371. A NUL in a sign-in address failed as a Postgres query error, fast and without the decoy
+
+**Symptom.** The extended `TestLocalAuthReleaseGate_EveryFailureIsIndistinguishable`, against the real
+binary and real Postgres, sent the bootstrap address with a NUL appended and the right password: 401,
+the same page, in 822 microseconds against 33 milliseconds for a known address. The SQLite-backed store
+tests could not see it: SQLite keeps the NUL and simply matches no row.
+
+**Root cause.** The NUL survived normalization. Postgres refuses a NUL in a text parameter and lib/pq
+does not check first, so `credentialFor` returned a query error, and `Authenticate` returned it wrapped,
+with no decoy derivation and no log line. The login handler answers every error with the same page, so
+nothing showed it. Not an existence oracle (the query fails before it matches anything), but a path an
+attacker can time, and a database failure during sign-in that no operator could see.
+
+**Fix.** `auth.NormalizeEmail` refuses control characters, so a NUL takes the malformed-address path
+and its decoy; `Authenticate` now logs both that path (reason only, never the address) and a credential
+load that fails. The release gate keeps the NUL, invalid-UTF-8 and combining-mark variants, inside the
+login limiter's burst of five.
+
+**Lesson.** Whether a value is legal differs by database. A property that holds on the test dialect needs
+one run on the production dialect, through the real path, before it counts.
+
+## 372. An oversized password told a known address from an unknown one
+
+**Symptom.** `TestAuthenticate_OversizedPasswordIsRefusedBeforeTheLookup`, written before the fix: a
+1,025-byte password against a known address left `FailedAttempts` at 1, and against an unknown address
+ran a decoy. Found by reading `Authenticate`, not by the fuzz.
+
+**Root cause.** `Verify` refuses a password over the 1,024-byte cap before deriving, on the real path and
+on the decoy path alike, so neither spent the tens of milliseconds that hide everything else. What
+remained was `recordFailure`'s UPDATE, which only an existing account performs: an existence oracle
+readable in one or two requests with no derivation to hide it, and a lockout an attacker could run up for
+free. Reasoned from the code; not measured over HTTP.
+
+**Fix.** `Authenticate` refuses an oversized password as its first statement: nothing is looked up,
+derived or counted, and every address gets the same answer. `ValidatePassword` already refused storing
+one, so no real credential is affected.
+
+**Lesson.** An early return that skips expensive work also removes the noise that hid a cheap difference
+below it; after adding one, ask what the two paths still do differently.
+
+## 373. Authenticate reported UserID 0 on every successful sign-in
+
+**Symptom.** `FuzzAuthenticateEmail` needed the matched row to compare addresses and read back
+`Account.UserID` as 0 for every success ("matched user 0, which cannot be read back").
+
+**Root cause.** `recordSuccess` projected the row `UpdateOne(...).Save` returns, which carries no edges,
+so `projectAccount` found no owner and left the id at zero, as its own comment allows. `credentialFor`
+had eager-loaded the owner; the update dropped it. Latent: the one caller, the login adapter, keeps only
+`Subject`, but `Account.UserID` exists for the audit trail.
+
+**Fix.** Carry the loaded owner onto the updated row before projecting.
+`TestAuthenticate_ReportsTheOwnerItMatched` fails (0, want 2) with the line removed.
+
+**Lesson.** An ent update returns the row without its edges; carry across any edge a caller reads.
+
+## 374. A test file named for FreeBSD compiled only on FreeBSD, so its tests silently never ran
+
+**Symptom.** `install_freebsd_test.go`, the FreeBSD installer's tests for `virt.vbox.vm.install`, passed
+by not running: `go test -run 'TestInstall'` listed every Windows install test and none of the new ones,
+and `-run FreeBSD` said "no tests to run". Nothing failed and nothing warned.
+
+**Root cause.** Go reads a file name ending `_<GOOS>.go` or `_<GOOS>_test.go` as an implicit build
+constraint. `_freebsd_test.go` made the file build only when GOOS is freebsd, so on Linux it was an
+ignored file (`go list -f '{{.IgnoredGoFiles}}'` named it). A name chosen to describe what the tests are
+about read to the toolchain as where they may run.
+
+**Fix.** Renamed to `freebsd_install_test.go`. Swept the tree with `go list -f
+'{{.IgnoredGoFiles}}' ./...`: every other ignored file carries an explicit `//go:build` line saying so.
+
+**Lesson.** Never end a Go file name with an OS or architecture name unless the constraint is meant; name
+a file about FreeBSD, Windows or ARM by putting that word first. When a new test does not appear in `-v`
+output, check `IgnoredGoFiles` before anything else.
+
+## 375. On BSD a file's mode was read without its setuid, setgid and sticky digit
+
+**Symptom.** Against a real FreeBSD 15.1 VM, `file.permissions mode=0755` on a directory whose mode
+was 2755 predicted no change and left the setgid bit in place, and `file.directory mode=2750` created
+the directory, then read it back as 0750, so the run's diff disagreed with its check and the task would
+have reported a change on every run. Found by the BSD half of Phase 46's chmod item
+(`TestCLI_FreeBSDFileChecksMatchTheirRealRuns`), the first time the file methods ran on BSD.
+
+**Root cause.** `pkg/remotefile.Stat` asks `stat -c '%f|%a|...'` and falls back to BSD's `stat -f
+'%Xp|%Lp|...'`. GNU's `%a` is the whole octal mode, 2755. BSD's `%Lp` is only the low field, the
+rwx bits: 755. The fallback was written to cover BSD and was never run on one. Measured on the VM:
+`%Lp` gives 755, `%Mp%Lp` gives 2755 (and 4750 for setuid, 1777 for sticky), `%Xp` is the raw mode in
+hex as GNU's `%f` is.
+
+**Fix.** The fallback reads `%Mp%Lp`. Mutation-checked: restoring `%Lp` fails the gate's setgid cases.
+generic_ssh onboarding grants a FreeBSD kernel POSIX file access, with this gate as its proof.
+
+**Lesson.** A portability fallback that no test runs on the platform it names is a guess; the day it
+first meets that platform is the day it is tested. Grant a platform a capability only with a gate that
+runs there.
+
+## 376. `adhoc` read `mode=0755` as a number, and the method refused it with advice about runbooks
+
+**Symptom.** `pleiades adhoc bsd-lab file.permissions path=... mode=0755` failed: "mode is int, not
+text: quote it in the runbook". The natural spelling of a mode on a command line did not work, and the
+error talked about a runbook the user had not written.
+
+**Root cause.** `adhoc` typed every `key=value` the way `add-host --set` types a property: a whole
+number became an integer. `file.permissions` declares `mode` a string and refuses a number, correctly,
+since 0755 read as a number is 755 and not the mode meant. The documented way round was
+`mode:="'0750'"`, YAML inside shell quoting.
+
+**Fix.** `adhoc` reads the method's declared parameter types (`declaredTypes`, from its manifest) and
+keeps `key=value` as text for a parameter declared a string; anything else is typed as before, and a
+method not yet registered gets the old typing throughout. 199 parameters in the catalog are strings.
+The docs now show `mode=0750`. Test: TestParseAdhocParams_KeepsWhatAMethodDeclaresAString.
+
+**Lesson.** When the callee already declares a type, the caller should read the declaration rather than
+guess from the text.
+
+## 377. A dead port's open circuit reached a later test's live server on the same port
+
+**Symptom.** Under `make test-repeat`, `internal/catalog/wait`'s TestPath_DiffRecordFailureIsReported
+failed once in three runs with "remoteexec: circuit open for 127.0.0.1:45991, too many recent
+failures", where 45991 was the port of the in-process SSH server that very test had just started and
+that was up the whole time.
+
+**Root cause.** `remoteexec.Shared` memoizes one Runner per Options for the life of the process, and
+its breaker counts consecutive dial failures per `host:port` with no decay. The package's `deadPort`
+helper takes a port from the kernel, gives it back, and three `wait.connection` tests then dial it until
+they time out, which opens the circuit for that address. The kernel hands a given-back port out again,
+so a later `remoteexectest.Start` could land on it and inherit the open circuit. `SnapshotForTest`
+already documented the same accumulation for one test repeated (`net.ssh.ping`, from `-count=3`); this
+is the cross-test form, through port reuse, and nothing in the victim test is wrong.
+
+**Fix.** `deadPort` calls `t.Cleanup(remoteexec.SnapshotForTest())`, so a test that dials a dead port
+gets its own memo and its failures are discarded when it ends. It sits in the helper rather than in
+each test so a future caller cannot forget it. `go test -count=5` passes for the package.
+
+**Lesson.** Process-wide state keyed by a network address outlives the listener that owned the
+address, and ephemeral ports are reused, so a test that poisons an address must clean up the state
+itself: the next owner of the port is an unrelated test.

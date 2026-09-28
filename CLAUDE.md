@@ -161,7 +161,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   route needs `runbook:check` (`auth.ScopeRunbookCheck`, implied by `runbook:execute` in
   `Identity.HasScope`); a check launched without `runbook:execute` never runs an external
   program's Check (`dispatch.Job.ExternalChecks` to `wire.DispatchPayload.ExternalChecks`
-  to `engine.WithExternalChecks`, off by default). Not built: Phase 35's classifier. A runbook, block or task
+  to `engine.WithExternalChecks`, off by default). Phase 35's conversion classes (observe, asserted,
+  imperative) are cross-checked against each method's check support, disagreements listed with a
+  reason in `internal/forge/playbook`'s `reviewedCheckClass`. A runbook, block or task
   can ask for a check with Ansible's `check_mode: true` (`engine.CheckModeFlag`, copied
   down by the builder, resolved per task by the one shared `engine.TaskMode`); `false`
   is refused at parse, and validation refuses it on an uncheckable action or when a real
@@ -193,7 +195,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   write path refuses (`add-host --set`, `hosts.yaml`, sync create and update, `AddInfo`/`RemoveInfo`).
   A generic device starts `discovered` (`record.InitialState`), which runs nothing. CLI `pleiades onboard`;
   Controller `POST /inventory/devices/{name}/onboard`, scope `inventory:onboard`, which `inventory:write`
-  does not imply. `http.request` with a path `url` calls a device's own API with the device's credential
+  does not imply. The SSH probe grants the Linux capabilities only for a Linux kernel, and a FreeBSD
+  kernel POSIX file access alone (proven by `TestCLI_FreeBSDFileChecksMatchTheirRealRuns`).
+  `http.request` with a path `url` calls a device's own API with the device's credential
   (`pkg/httpapi`). A device's TLS is its own (`pkg/devicetls`): a pinned `tls_ca_pem`, `tls_server_name`,
   mutual TLS from the stored certificate, and for an old device TLS 1.0/1.1, legacy cipher suites or a
   credential over plain HTTP, each behind its own explicit per-device flag and warned about on every
