@@ -294,7 +294,7 @@ func TestImportDiskCleansUpAFailure(t *testing.T) {
 
 // installParams asks for Server Core from the evaluation ISO.
 func installParams() map[string]any {
-	return map[string]any{"name": "ws2025-core", "iso": serverISO, "image": "Windows Server 2025 Standard Evaluation", "os_type": "Windows2025_64"}
+	return map[string]any{"name": "ws2025-core", "installer": "windows", "iso": serverISO, "image": "Windows Server 2025 Standard Evaluation", "os_type": "Windows2025_64"}
 }
 
 // installModel is a host holding the ISO, with another VM running so a
@@ -404,7 +404,7 @@ func TestInstallWaitsThroughAnotherClientsLock(t *testing.T) {
 	model.Fail = map[string]vboxmanage.Output{key: {ExitCode: 1,
 		Stderr: "VBoxManage.exe: error: The machine 'ws2025-core' already has a lock request pending\r\n"}}
 	model.Skip = map[string]int{key: 5}
-	result, err := call(t, "virt.vbox.vm.install", false, newRecorder(), map[string]any{"name": "ws2025-core", "iso": serverISO, "image": "1", "os_type": "Windows2025_64", "timeout": 1})
+	result, err := call(t, "virt.vbox.vm.install", false, newRecorder(), map[string]any{"name": "ws2025-core", "installer": "windows", "iso": serverISO, "image": "1", "os_type": "Windows2025_64", "timeout": 1})
 	// Every read past the fifth is locked, so the wait runs to its timeout
 	// rather than failing on the first lock.
 	if err == nil || !strings.Contains(err.Error(), "had not finished within 1s") {

@@ -1,0 +1,1 @@
+`virt.vbox.vm.install` now requires `installer`, `windows` or `freebsd`, which says how it installs rather than leaving it to be guessed from `os_type`. A runbook that installs Windows adds `installer: windows`; `image` and `language` are for the Windows installer only and are refused with the FreeBSD one.

@@ -19,6 +19,7 @@ var osTypes = map[string]string{
 	"Windows2025_64": "Windows Server 2025 (64-bit)",
 	"Windows2022_64": "Windows Server 2022 (64-bit)",
 	"Ubuntu_64":      "Ubuntu (64-bit)",
+	"FreeBSD_64":     "FreeBSD (64-bit)",
 	"Other_64":       "Other/Unknown (64-bit)",
 }
 
@@ -226,6 +227,10 @@ func (h *Host) mediumio(args []string) vboxmanage.Output {
 func (h *Host) screenshot(vm *VM, path string) vboxmanage.Output {
 	if vm.State != vboxmanage.StateRunning {
 		return errorOutput(fmt.Sprintf("Machine '%s' is not currently running.", vm.Name))
+	}
+	if screen, ok := h.Screens[vm.Name]; ok {
+		h.Files[path] = screen
+		return vboxmanage.Output{}
 	}
 	// A PNG's signature and header chunk: 1024 by 768, as the lab's
 	// screens were captured.

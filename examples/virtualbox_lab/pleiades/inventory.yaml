@@ -1,8 +1,8 @@
 # The Pleiades static inventory for the VirtualBox lab (Crawl tier).
 #
-# Three devices: the Windows host VirtualBox runs on, reached over WinRM,
-# the Ubuntu VM the runbooks make on it, reached over SSH, and the Windows
-# VM they make on it, reached over WinRM. Build this file
+# Four devices: the Windows host VirtualBox runs on, reached over WinRM,
+# the Ubuntu and FreeBSD VMs the runbooks make on it, reached over SSH, and
+# the Windows VM they make on it, reached over WinRM. Build this file
 # with the commands in ../README.md rather than by hand: add-host writes
 # the ids, and set-host pins the host's certificate authority from the
 # ca.pem examples/windows_lab/winrm-cert-setup.ps1 wrote.
@@ -29,3 +29,9 @@ hosts:
         - lab
       properties:
         host: 192.168.56.30       # the address windows-02-create.yaml gives it
+    - name: bsd-lab
+      type: generic_ssh
+      tags:
+        - lab
+      properties:
+        host: 192.168.56.40       # the address freebsd-02-create.yaml gives it

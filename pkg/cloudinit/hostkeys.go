@@ -10,11 +10,13 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// The lines cloud-init's keys-to-console module prints around the host
-// keys it generated.
+// HostKeysBegin and HostKeysEnd are the lines cloud-init's
+// keys-to-console module prints around the host keys it generated.
+// Exported so a guest that is not cloud-init (FreeBSD's first boot, which
+// pkg/bsdinstall prepares) prints the same block HostKeys reads.
 const (
-	beginKeys = "-----BEGIN SSH HOST KEY KEYS-----"
-	endKeys   = "-----END SSH HOST KEY KEYS-----"
+	HostKeysBegin = "-----BEGIN SSH HOST KEY KEYS-----"
+	HostKeysEnd   = "-----END SSH HOST KEY KEYS-----"
 )
 
 // ErrNoHostKeys is returned while the console holds no complete block of
@@ -38,17 +40,17 @@ var escape = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]")
 // block that holds no key is skipped; a line that holds one that does not
 // parse is refused, since a block half read is not a block to trust.
 func HostKeys(console string) ([]string, error) {
-	lines := strings.Split(escape.ReplaceAllString(console, ""), "\n")
+	lines := strings.Split(ConsoleText(console), "\n")
 	end := -1
 	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.Contains(lines[i], endKeys) {
+		if strings.Contains(lines[i], HostKeysEnd) {
 			end = i
 			break
 		}
 	}
 	begin := -1
 	for i := end - 1; i >= 0; i-- {
-		if strings.Contains(lines[i], beginKeys) {
+		if strings.Contains(lines[i], HostKeysBegin) {
 			begin = i
 			break
 		}
@@ -72,4 +74,11 @@ func HostKeys(console string) ([]string, error) {
 		return nil, ErrNoHostKeys
 	}
 	return keys, nil
+}
+
+// ConsoleText returns what a serial console log says, with the terminal
+// escape sequences a guest prints (colors, cursor moves) removed, so text
+// the guest printed can be searched for as written.
+func ConsoleText(console string) string {
+	return escape.ReplaceAllString(console, "")
 }
