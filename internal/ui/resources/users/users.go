@@ -24,6 +24,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -166,6 +167,12 @@ func Register(store access.Users) error {
 				switch {
 				case email == "":
 					errs.Add("email", "A user needs an email address.")
+				case termsafe.CheckLine(email) != nil:
+					// The store refuses these too (auth.NormalizeEmail);
+					// checked here so the refusal names the control. An
+					// address is shown in lists, the activity stream and a
+					// terminal, so it must display as what it is.
+					errs.Add("email", "That address holds a character an address cannot: a control character, a tab or line break, a text direction mark, or bytes that are not UTF-8.")
 				case !strings.Contains(email, "@"):
 					// Checked here as well as in the store so the message
 					// lands on the control rather than as a page-level
