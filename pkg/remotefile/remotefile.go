@@ -164,7 +164,11 @@ func (i Info) Map() map[string]any {
 // It uses `stat` with a format string rather than parsing `ls`, because
 // ls output is localized, column-aligned and ambiguous about names
 // containing spaces. The -c format is GNU coreutils and BusyBox; the
-// fallback below covers the BSD form.
+// fallback below covers the BSD form. Its mode is %Mp%Lp, the setuid,
+// setgid and sticky digit then the permission bits, which is what GNU's %a
+// prints: BSD's %Lp alone drops the first digit, so a setgid directory read
+// as 755 and a task asking for 0755 never cleared it (measured on FreeBSD
+// 15.1, FAILURE_PATTERNS 375).
 func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error) {
 	quoted := remoteexec.QuoteArg(path)
 
@@ -175,7 +179,7 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 	// situation.
 	cmd := "if [ -e " + quoted + " ] || [ -L " + quoted + " ]; then " +
 		"stat -c '%f|%a|%U|%G|%s|%Y' " + quoted + " 2>/dev/null || " +
-		"stat -f '%Xp|%Lp|%Su|%Sg|%z|%m' " + quoted + "; " +
+		"stat -f '%Xp|%Mp%Lp|%Su|%Sg|%z|%m' " + quoted + "; " +
 		"else exit " + strconv.Itoa(statusMissing) + "; fi"
 
 	result, err := conn.Run(ctx, cmd)
