@@ -16,14 +16,24 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // deadPort returns a local TCP port nothing listens on: one a listener
 // held and gave back.
+//
+// It also gives the calling test its own remoteexec memo, discarded when
+// the test ends. Every dial at the dead port is a failure the shared
+// Runner's breaker counts against 127.0.0.1:<port>, with no decay, and the
+// kernel hands a given-back port out again: a later test's in-process
+// server that happened to land on it met "circuit open" for its own live
+// address (seen once under `make test-repeat`, in
+// TestPath_DiffRecordFailureIsReported). See remoteexec.SnapshotForTest.
 func deadPort(t *testing.T) int {
 	t.Helper()
+	t.Cleanup(remoteexec.SnapshotForTest())
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
