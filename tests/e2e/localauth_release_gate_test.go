@@ -157,6 +157,31 @@ func TestLocalAuthReleaseGate_EveryFailureIsIndistinguishable(t *testing.T) {
 			"the derivation, which makes the login form an account-existence oracle",
 			unknownTime, knownTime)
 	}
+
+	// Malformed variants of the REAL address, each sent with the CORRECT
+	// password, against the real database. Each must fail exactly as an
+	// unknown address does, in content and in time. The NUL is the case
+	// only this gate can see: Postgres refuses a NUL in a text parameter,
+	// so an address that carried one failed as a query error, fast and
+	// without the decoy, where SQLite simply matched no row. Three variants
+	// keep the test at five sign-in POSTs, the login limiter's burst.
+	for _, v := range []struct{ name, email string }{
+		{"a NUL after the address", bootstrapEmail + "\x00"},
+		{"a byte that is not UTF-8", strings.Replace(bootstrapEmail, "@", "\xff@", 1)},
+		{"a combining mark", strings.Replace(bootstrapEmail, "@", string(rune(0x301))+"@", 1)},
+	} {
+		status, body, elapsed := attempt(v.email, bootstrapPassword)
+		if status != http.StatusUnauthorized {
+			t.Errorf("%s: status %d, want 401 even with the correct password", v.name, status)
+		}
+		if body != unknownBody {
+			t.Errorf("%s: rendered a different page from an unknown address", v.name)
+		}
+		if elapsed < knownTime/4 {
+			t.Errorf("%s: took %v against a known address's %v; a malformed address is skipping the "+
+				"derivation, a path an attacker can time", v.name, elapsed, knownTime)
+		}
+	}
 }
 
 // TestLocalAuthReleaseGate_PasswordChangeRevokesOtherSessions proves the

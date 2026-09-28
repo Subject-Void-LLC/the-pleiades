@@ -31,6 +31,13 @@ type entStore struct {
 	// straight past by guessing addresses that do not exist.
 	gate *Gate
 
+	// decoy is the derivation a refusal with no real hash to verify runs,
+	// so that path costs what a real verification costs. It is BurnDecoy in
+	// every store this package builds. It is a field only so a test can
+	// observe WHICH path a call took, by counting, the same seam as now
+	// below; a test that wraps it still runs the real derivation.
+	decoy func(password string)
+
 	// now is injectable so lockout expiry is testable without sleeping.
 	// The rest of the codebase uses the same seam (internal/ui/session's
 	// entStore holds an identical field).
@@ -55,6 +62,7 @@ func NewEntStoreWithPolicy(client *ent.Client, logger *slog.Logger, policy Locko
 		policy: policy,
 		logger: logger,
 		gate:   NewGate(DefaultMaxConcurrentDerivations),
+		decoy:  BurnDecoy,
 		now:    time.Now,
 	}
 }
@@ -67,7 +75,7 @@ func NewEntStoreWithPolicy(client *ent.Client, logger *slog.Logger, policy Locko
 // the caller a way to distinguish this path from a real verification, which
 // is precisely what it exists to prevent.
 func (s *entStore) burnDecoy(ctx context.Context, password string) {
-	_ = s.gate.Do(ctx, func() { BurnDecoy(password) })
+	_ = s.gate.Do(ctx, func() { s.decoy(password) })
 }
 
 // verify runs a real verification through the gate.
@@ -101,19 +109,40 @@ func (s *entStore) hash(ctx context.Context, password string) (string, error) {
 
 // Authenticate proves that password belongs to email.
 //
-// Every failure path returns ErrInvalidCredentials and every failure path
-// performs one Argon2id derivation, whether or not there is a hash to
-// verify against. The second half is the part that is easy to omit and
+// Every failure path returns ErrInvalidCredentials, and every failure path
+// that depends on the address performs one Argon2id derivation, whether or
+// not there is a hash to verify against. That half is easy to omit and
 // expensive to omit: a short circuit on "no such user" skips the derivation
 // and makes the unknown-account case tens of milliseconds faster, which
 // turns the login form into an account-existence oracle anyone can query
 // with a stopwatch. The real reason for each refusal goes to the logger.
+//
+// The one refusal made before the address is read is an oversized
+// password, and it is made there precisely so it depends on nothing about
+// the account. Verify would refuse it without deriving on every path, which
+// takes away the derivation's tens of milliseconds, and what remained was
+// the failure counter's write, which only an existing account performs.
 func (s *entStore) Authenticate(ctx context.Context, email, password string) (*Account, error) {
+	if len(password) > maxPasswordLen {
+		// Nothing is looked up, derived or counted: a password that no
+		// stored credential can hold is not a guess at one, and every
+		// address gets this same answer in the same time.
+		s.logger.InfoContext(ctx, "local authentication refused",
+			slog.String("reason", "password over the length limit"))
+		return nil, ErrInvalidCredentials
+	}
+
 	subject, err := NormalizeEmail(email)
 	if err != nil {
 		// A malformed address never matches a row, so it costs the same as
-		// one that simply does not exist.
+		// one that simply does not exist. It is refused here rather than
+		// passed to the query: a NUL, for one, is a query error on Postgres,
+		// and that error came back fast and without the decoy. The address
+		// is not logged, since it is attacker text that failed the check
+		// for being unsafe to print.
 		s.burnDecoy(ctx, password)
+		s.logger.InfoContext(ctx, "local authentication refused",
+			slog.String("reason", "malformed address"))
 		return nil, ErrInvalidCredentials
 	}
 
@@ -125,6 +154,11 @@ func (s *entStore) Authenticate(ctx context.Context, email, password string) (*A
 				slog.String("subject", subject), slog.String("reason", "no local credential"))
 			return nil, ErrInvalidCredentials
 		}
+		// Logged here because nothing above logs it: the login handler
+		// answers every error with the same page, so a database failure
+		// during sign-in was otherwise visible to nobody.
+		s.logger.ErrorContext(ctx, "local authentication could not load a credential",
+			slog.String("subject", subject), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("localauth: failed to load credential: %w", err)
 	}
 
@@ -244,6 +278,11 @@ func (s *entStore) recordSuccess(
 		return projectAccount(subject, cred), nil
 	}
 
+	// The row an update hands back carries no edges, so the owner that
+	// credentialFor eager-loaded is carried across. Without it every
+	// successful authentication reported UserID 0, which nothing read until
+	// a fuzz target needed to know which row a sign-in had matched.
+	updated.Edges.User = cred.Edges.User
 	return projectAccount(subject, updated), nil
 }
 

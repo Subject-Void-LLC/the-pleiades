@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,8 +38,9 @@ func quietLogger() *slog.Logger {
 }
 
 // newStore opens a fresh database and returns a store with a lockout
-// threshold a test can reach without paying for ten real derivations.
-func newStore(t *testing.T, policy localauth.LockoutPolicy) (localauth.Store, *ent.Client) {
+// threshold a test can reach without paying for ten real derivations. It
+// takes testing.TB so a fuzz target can build its store once per worker.
+func newStore(t testing.TB, policy localauth.LockoutPolicy) (localauth.Store, *ent.Client) {
 	t.Helper()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())
@@ -50,7 +53,7 @@ func newStore(t *testing.T, policy localauth.LockoutPolicy) (localauth.Store, *e
 // seedUser creates the User row a credential must hang off. Creating the
 // identity is internal/access's job, which is why the store refuses to do
 // it and why a test has to.
-func seedUser(t *testing.T, client *ent.Client, email string) *ent.User {
+func seedUser(t testing.TB, client *ent.Client, email string) *ent.User {
 	t.Helper()
 
 	u, err := client.User.Create().SetEmail(email).Save(context.Background())
@@ -81,6 +84,30 @@ func TestSetPassword_ThenAuthenticate(t *testing.T) {
 	}
 	if account.FailedAttempts != 0 {
 		t.Errorf("FailedAttempts = %d, want 0", account.FailedAttempts)
+	}
+}
+
+func TestAuthenticate_ReportsTheOwnerItMatched(t *testing.T) {
+	// Account.UserID is how the audit trail names the account a change
+	// happened to, so a successful authentication must report the real
+	// owner. The row an update returns carries no edges, and for a while
+	// every success reported 0 here.
+	store, client := newStore(t, localauth.DefaultLockoutPolicy)
+	ctx := context.Background()
+	seedUser(t, client, "first@example.test")
+	owner := seedUser(t, client, "second@example.test")
+	for _, addr := range []string{"first@example.test", "second@example.test"} {
+		if err := store.SetPassword(ctx, addr, testPassword, false); err != nil {
+			t.Fatalf("SetPassword(%q) error = %v", addr, err)
+		}
+	}
+
+	account, err := store.Authenticate(ctx, "second@example.test", testPassword)
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if account.UserID != owner.ID {
+		t.Errorf("UserID = %d, want %d, the user the credential belongs to", account.UserID, owner.ID)
 	}
 }
 
@@ -196,6 +223,50 @@ func TestAuthenticate_UnknownAccountIsNotFasterThanAKnownOne(t *testing.T) {
 	if unknown < known/4 {
 		t.Errorf("an unknown account took %v and a known one took %v; the unknown path is short circuiting "+
 			"past the derivation, which makes the login form an account-existence oracle", unknown, known)
+	}
+}
+
+func TestAuthenticate_OversizedPasswordIsRefusedBeforeTheLookup(t *testing.T) {
+	// A password over the KDF's input cap is refused by Verify before any
+	// derivation, on the real path and the decoy path alike, which removes
+	// the tens of milliseconds that otherwise hide everything else. What was
+	// left was the failure counter's UPDATE, which only an existing account
+	// runs: an account-existence oracle readable in one or two requests,
+	// and a lockout an attacker could run up for free. So it is refused
+	// before the address is even looked at, and the two addresses must
+	// behave identically: the bare sentinel, no derivation, no row touched.
+	policy := localauth.LockoutPolicy{MaxAttempts: 3, Duration: time.Hour}
+	store, client := newStore(t, policy)
+	ctx := context.Background()
+	seedUser(t, client, "known@example.test")
+	if err := store.SetPassword(ctx, "known@example.test", testPassword, false); err != nil {
+		t.Fatalf("SetPassword() error = %v", err)
+	}
+
+	var decoys atomic.Int64
+	localauth.ObserveDecoys(store, func() { decoys.Add(1) })
+	oversized := strings.Repeat("x", 1025)
+
+	for _, email := range []string{"known@example.test", "nobody@example.test"} {
+		before := decoys.Load()
+		_, err := store.Authenticate(ctx, email, oversized)
+		if err != localauth.ErrInvalidCredentials {
+			t.Errorf("Authenticate(%q, oversized) error = %v, want the bare ErrInvalidCredentials", email, err)
+		}
+		if ran := decoys.Load() - before; ran != 0 {
+			t.Errorf("Authenticate(%q, oversized) ran %d decoy derivations; the refusal must come before "+
+				"anything that differs between a known and an unknown address", email, ran)
+		}
+	}
+
+	account, err := store.Account(ctx, "known@example.test")
+	if err != nil {
+		t.Fatalf("Account() error = %v", err)
+	}
+	if account.FailedAttempts != 0 {
+		t.Errorf("FailedAttempts = %d after an oversized password; a password that can never match "+
+			"must not count toward the lockout, and counting it is the write that told the two addresses apart",
+			account.FailedAttempts)
 	}
 }
 
