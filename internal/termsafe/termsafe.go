@@ -61,13 +61,35 @@ func EscapeLine(s string) string {
 // A caller that can refuse the text outright, rather than escape it, uses
 // this.
 func Check(s string) error {
+	return check(s, Unsafe)
+}
+
+// CheckLine is Check for text that must stay on one line (an email
+// address, a name): it also refuses newline and tab, so it refuses exactly
+// what EscapeLine would escape. A caller that STORES the text, rather than
+// printing it once, refuses it here instead, because escaping on the way
+// in would store a value that is not the one the person typed.
+func CheckLine(s string) error {
+	return check(s, unsafeInLine)
+}
+
+// unsafeInLine is Unsafe plus the two characters EscapeLine escapes and
+// Escape keeps, because they would start a new line or column of output.
+func unsafeInLine(r rune) bool {
+	return r == '\n' || r == '\t' || Unsafe(r)
+}
+
+// check returns an error naming the first invalid byte or the first
+// character unsafe reports, or nil. It never quotes s itself, so the error
+// is safe to print whatever s holds.
+func check(s string, unsafe func(rune) bool) error {
 	for i, r := range s {
 		if r == utf8.RuneError {
 			if _, size := utf8.DecodeRuneInString(s[i:]); size == 1 {
 				return fmt.Errorf("invalid UTF-8 at byte %d", i)
 			}
 		}
-		if Unsafe(r) {
+		if unsafe(r) {
 			return fmt.Errorf("character %U at byte %d, which a terminal acts on instead of showing", r, i)
 		}
 	}

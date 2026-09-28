@@ -67,3 +67,43 @@ func FuzzEscape(f *testing.F) {
 		}
 	})
 }
+
+// TestCheckLine covers the one-line refusal: everything Check refuses,
+// plus newline and tab.
+func TestCheckLine(t *testing.T) {
+	for in, ok := range map[string]bool{
+		"a@example.test":                  true,
+		"a name with spaces":              true,
+		"two\nlines":                      false,
+		"a\ttab":                          false,
+		"hidden\x1b[8m text":              false,
+		"nul\x00byte":                     false,
+		"del\x7f":                         false,
+		"c1 " + string(rune(0x85)):        false,
+		"reversed" + string(rune(0x202e)): false,
+		"invalid \xff utf-8":              false,
+		"accented " + string(rune(0xe9)):  true,
+		"a real " + string(rune(0xfffd)) + " replacement character": true,
+	} {
+		if err := CheckLine(in); (err == nil) != ok {
+			t.Errorf("CheckLine(%q) = %v, want ok=%v", in, err, ok)
+		}
+	}
+}
+
+// FuzzCheckLine proves CheckLine and EscapeLine draw the same line: a
+// string passes CheckLine exactly when EscapeLine would leave it as it is.
+// A caller that refuses with one and another that escapes with the other
+// therefore never disagree about what is unsafe.
+func FuzzCheckLine(f *testing.F) {
+	for _, s := range []string{"", "a@b", "a\nb", "\t", "\x1b", "\xff", "\xef\xbf\xbd", "\\x1b literal"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		refused := CheckLine(s) != nil
+		escaped := EscapeLine(s) != s
+		if refused != escaped {
+			t.Fatalf("CheckLine(%q) refused=%v but EscapeLine changed it=%v", s, refused, escaped)
+		}
+	})
+}
