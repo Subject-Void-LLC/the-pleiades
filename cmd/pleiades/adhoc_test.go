@@ -15,7 +15,7 @@ func TestParseAdhocParams(t *testing.T) {
 	got, err := parseAdhocParams([]string{
 		"command=echo a=b", "port=2222", "force=true", "version=15.2",
 		"mode:='0644'", "env:={LANG: C, N: 1}", "names:=[a, b]", "empty=", "nothing:=",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestParseAdhocParams(t *testing.T) {
 		{"x=1", "x:=2"},
 		{"env:={unclosed"},
 	} {
-		if _, err := parseAdhocParams(bad); err == nil {
+		if _, err := parseAdhocParams(bad, nil); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}
 	}
@@ -118,7 +118,7 @@ func FuzzAdhocParams(f *testing.F) {
 		f.Add("web", "exec.command", seed)
 	}
 	f.Fuzz(func(t *testing.T, hosts, method, token string) {
-		params, err := parseAdhocParams([]string{token})
+		params, err := parseAdhocParams([]string{token}, nil)
 		if err != nil {
 			return
 		}
@@ -137,4 +137,31 @@ func FuzzAdhocParams(f *testing.F) {
 			t.Fatalf("the runbook changed shape:\n%s", payload)
 		}
 	})
+}
+
+// TestParseAdhocParams_KeepsWhatAMethodDeclaresAString: file.permissions
+// declares mode a string, so mode=0755 is the text its author typed. Typed
+// as a number, the method refuses it (rightly: 0755 read as a number is
+// 755, not the mode meant), which was the first thing a user met running a
+// file method ad hoc. A parameter declared anything else keeps the usual
+// typing, and a method not yet registered gets it throughout.
+func TestParseAdhocParams_KeepsWhatAMethodDeclaresAString(t *testing.T) {
+	declared := declaredTypes("file.permissions")
+	if declared["mode"] != "string" {
+		t.Fatalf("file.permissions declares mode as %q; this test assumes a string", declared["mode"])
+	}
+	got, err := parseAdhocParams([]string{"path=/srv/app", "mode=0755", "owner=1000"}, declared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["mode"] != "0755" || got["owner"] != "1000" {
+		t.Errorf("declared strings were typed: %#v", got)
+	}
+	ports, err := parseAdhocParams([]string{"port=8443"}, declaredTypes("fw.firewalld.allow"))
+	if err != nil || ports["port"] != 8443 {
+		t.Errorf("a declared int: %#v, %v", ports, err)
+	}
+	if declaredTypes("no.such.method") != nil {
+		t.Error("an unknown method declared types")
+	}
 }
