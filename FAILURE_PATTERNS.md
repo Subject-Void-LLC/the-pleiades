@@ -256,7 +256,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 251. The environment allowlist was called the whole defense, but a same-user child reads its parent's environment from /proc
 252. A runbook-level `check_mode: true` is accepted and ignored, so the runbook runs for real
 253. Check mode admits simulate-locked devices for any method, including a third party's unproven Check
-254. A Landlock restriction applied from a goroutine could land on the main thread, putting Pleiades inside the program's own domain
+254. A Landlock restriction applied from a goroutine could land on the main thread, putting The Pleiades inside the program's own domain
 255. A YAML unmarshal hook written against gopkg.in/yaml.v3 was never called, so check_mode: false decoded silently
 256. A file-writing tool decoded the escapes in its input, and real bidirectional overrides landed in the source
 257. An external program's own text reached the terminal raw, including at the approval prompt
@@ -356,6 +356,22 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 351. A host-key capture read an SSH banner with no deadline, and hung make ci for thirty minutes
 352. The SSH handshake with a device reached through a bastion had no bound at all
 353. A test broker was declared ready while its published port still refused every connection
+354. Every PowerShell quoting helper doubled only the ASCII apostrophe, and a typographic quote ended the literal
+355. The WinRM lab setup script gave its account far more than a lab run needs, and weakened the host for everyone
+356. Windows ignores WINRS_SKIP_CMD_SHELL, so every WinRM command still ran through cmd.exe while the tests said it did not
+357. The WinRM Adapter mapped credential fields by hand and sent no credential for a PKCS#12 bundle
+358. Bare `pleiades validate` checked only the file `init` writes, and silently dropped its own flags
+359. An `import_tasks` file was diagnosed as an Ansible playbook and sent to the migration tool
+360. `mediumio cat --hex` folds identical rows, and a parser written from its usage text refused the real output
+361. Microsoft's Windows Server evaluation VHDX never reads an answer file from a DVD at its first boot
+362. An EFI VM with two vCPUs stops at the firmware's `DXE_AP` debug point under NEM
+363. `add-credential --generate` made a password Windows' default policy refuses, about one time in 38
+364. A generalized Windows image's first boot never looks on a DVD for its answer file
+365. A running VM keeps a DVD image locked after its drive is emptied, so a seed cannot be deleted until it stops
+366. Windows keeps an unblanked copy of the install's answer file, so every clone carried the audit password
+367. The WinRM service and feature gates asserted on text the output no longer printed, and put the lab password on argv
+368. `onboard --json` and `doc --json` wrote terminal control characters raw
+369. An idle Windows Server guest spends the first power-button press waking its display
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

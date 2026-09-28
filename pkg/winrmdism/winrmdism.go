@@ -120,13 +120,13 @@ type ChangeResult struct {
 // exit line is required rather than cosmetic.
 func dismCommand(logPath string, args ...string) string {
 	parts := append([]string{"dism.exe", "/online"}, args...)
-	parts = append(parts, "/logpath:"+quotePS(logPath))
+	parts = append(parts, "/logpath:"+winrmexec.QuotePS(logPath))
 	return strings.Join(parts, " ") + "\nexit $LASTEXITCODE"
 }
 
 // Status reads what DISM currently reports about featureName.
 func Status(ctx context.Context, session Session, logPath, featureName string) (FeatureState, error) {
-	script := dismCommand(logPath, "/get-featureinfo", "/featurename:"+quotePS(featureName))
+	script := dismCommand(logPath, "/get-featureinfo", "/featurename:"+winrmexec.QuotePS(featureName))
 
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
 	if err != nil {
@@ -165,7 +165,7 @@ func Disable(ctx context.Context, session Session, logPath, featureName string) 
 
 // runChange sends one enable/disable verb against one feature name.
 func runChange(ctx context.Context, session Session, logPath, verb, featureName string, extraFlags ...string) (ChangeResult, error) {
-	args := append([]string{verb, "/featurename:" + quotePS(featureName)}, extraFlags...)
+	args := append([]string{verb, "/featurename:" + winrmexec.QuotePS(featureName)}, extraFlags...)
 	script := dismCommand(logPath, args...)
 
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
@@ -220,14 +220,4 @@ func dismOutput(result winrmexec.Result) string {
 		return "no output"
 	}
 	return strings.Join(parts, "; ")
-}
-
-// quotePS renders s as a PowerShell single-quoted string literal, safe
-// to splice into a script this package builds. See pkg/winrmsvc's own
-// quotePS for the full reasoning; duplicated here because DISM's
-// argument syntax (/flag:value) means this package builds a bare command
-// line rather than calling a cmdlet with named parameters, but the
-// escaping rule is identical.
-func quotePS(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

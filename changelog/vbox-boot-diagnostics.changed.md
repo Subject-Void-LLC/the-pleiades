@@ -1,0 +1,1 @@
+A `virt.vbox.vm.host_keys` timeout now quotes the last line the VM's console printed, which says where its boot stopped, rather than only naming the log file on the host. `virt.vbox.vm.clone` also takes `paravirt_provider`, the paravirtualization interface VirtualBox offers the guest.

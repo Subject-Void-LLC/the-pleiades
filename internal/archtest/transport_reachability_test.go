@@ -77,7 +77,7 @@ func TestDispatchableTransportCapabilitiesAreSatisfiable(t *testing.T) {
 func TestBoundTransportCapabilitiesAreSatisfiable(t *testing.T) {
 	satisfiable := satisfiableCapabilities(t)
 
-	bindings := engine.NewDefaultTransportBindings(nil, nil, nil, nil).All()
+	bindings := engine.NewDefaultTransportBindings(nil, nil, nil, nil, nil).All()
 	if len(bindings) == 0 {
 		t.Fatal("engine.NewDefaultTransportBindings registered nothing, so this test proved nothing")
 	}

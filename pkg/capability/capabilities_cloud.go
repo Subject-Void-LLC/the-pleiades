@@ -22,7 +22,7 @@ type DockerCapable interface {
 	// a Unix socket path on POSIX (e.g. "/var/run/docker.sock") or a
 	// Windows named pipe (e.g. "npipe:////./pipe/docker_engine"). The
 	// value is opaque and must never be parsed, joined, or validated as
-	// a POSIX path — doing so is exactly wrong for the Windows case.
+	// a POSIX path - doing so is exactly wrong for the Windows case.
 	DockerEndpoint() SocketAddress
 }
 

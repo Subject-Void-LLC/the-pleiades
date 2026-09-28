@@ -39,9 +39,11 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `ShellExecCapable` | `CommandExecCapable` | - |
 | `SystemdCapable` | `ServiceManagerCapable` | `FirewalldCapable` |
 | `TelnetCapable` | - | - |
+| `VirtualBoxCapable` | - | - |
 | `WinRMCapable` | - | - |
 | `WindowsCapable` | - | - |
 | `WindowsFeatureCapable` | - | - |
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
+| `WindowsShellCapable` | - | - |
 
-33 capabilities registered.
+35 capabilities registered.

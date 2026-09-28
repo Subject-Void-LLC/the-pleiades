@@ -1,5 +1,5 @@
 /*
- * Pleiades control plane -- the entire client-side behaviour set.
+ * The Pleiades control plane -- the entire client-side behaviour set.
  *
  * Three behaviours, and the count is a design constraint rather than a
  * coincidence. Everything else this UI does happens on the server: the

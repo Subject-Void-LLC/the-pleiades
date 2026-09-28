@@ -1,0 +1,1 @@
+Added support for several runbooks to `pleiades validate`, so `pleiades validate runbooks/*.yaml` checks each one and reports every failure, not just the first. With no runbook named, it now checks every file in `runbooks/` instead of only the `sample.yaml` that `pleiades init` writes, and it skips directories, non-YAML files and `import_tasks` files with a note.

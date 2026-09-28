@@ -155,8 +155,10 @@ func winrmGateProject(t *testing.T, cfg winrmGateConfig) string {
 		"--type", "windows_server", "--set", "host="+cfg.host); err != nil {
 		t.Fatalf("add-host: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "add-credential", "win-gate",
-		"--username", cfg.user, "--password", cfg.password); err != nil {
+	// On a pipe rather than --password, since this is a real machine's
+	// password and a command line is readable by anything on the host.
+	if out, err := runPleiadesWithStdin(t, dir, cfg.password+"\n", "add-credential", "win-gate",
+		"--username", cfg.user, "--password-stdin"); err != nil {
 		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
 	return dir

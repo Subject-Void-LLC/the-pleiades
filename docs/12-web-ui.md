@@ -1,7 +1,7 @@
 # The web UI
 
 The control plane serves its own web interface. `cmd/controller` mounts it at `/ui`,
-same-origin, from assets compiled into the binary — there is no separate front-end
+same-origin, from assets compiled into the binary - there is no separate front-end
 build, no Node toolchain, no second container and no reverse proxy between the two.
 
 Browse to the controller's address and add `/ui`. In a default local run that is
@@ -12,7 +12,7 @@ Browse to the controller's address and add `/ui`. In a default local run that is
 
 Pleiades targets air-gapped and high-security networks. In that setting a Node build
 chain, an npm dependency tree, a separate nginx image and a client-side permission
-table are all liabilities, and a CDN reference is not a slow page — it is a page that
+table are all liabilities, and a CDN reference is not a slow page - it is a page that
 never renders, with no configuration setting that rescues it at runtime.
 
 So every asset the UI serves is embedded in the binary, including the two third-party
@@ -222,8 +222,8 @@ being told.
 
 Three deliberate absences, each for a stated reason rather than for want of time:
 
-- **Device properties are not editable.** They decrypt to real secrets — enable
-  passwords, API keys — and the masking ruleset that would make them safe to render
+- **Device properties are not editable.** They decrypt to real secrets - enable
+  passwords, API keys - and the masking ruleset that would make them safe to render
   belongs to an unbuilt phase. A form field for them would be a secret-exposure
   surface with a friendly label.
 - **Jobs cannot be cancelled or deleted.** There is no `job:write` scope and no
@@ -241,7 +241,7 @@ the request, reading the same endpoint definition the router mounts. A button's
 scope, link relation, method and URL all come from one value.
 
 There is no permission table in the UI. There is no list of routes in the UI. A
-viewer is not shown a delete button, and the delete route refuses a viewer — those
+viewer is not shown a delete button, and the delete route refuses a viewer - those
 are two readings of one decision rather than two rules kept in agreement.
 
 If authorization cannot be evaluated at all, the page renders **no** action buttons
@@ -252,7 +252,7 @@ of them is true.
 ## Appearance
 
 Three independent axes, all resolved on the server and rendered into the first byte
-of the page. There is no flash of the wrong theme and no bootstrap script — which is
+of the page. There is no flash of the wrong theme and no bootstrap script - which is
 also why the content security policy needs no `unsafe-inline`.
 
 | Axis | Values | Control |
@@ -281,7 +281,7 @@ the US classification markings (`unclassified` through `top-secret`, plus `sci`)
 render in their published colours.
 
 Three properties are deliberate. An unrecognised level **fails startup** rather than
-defaulting — an operator who configured a classification marking and silently got none
+defaulting - an operator who configured a classification marking and silently got none
 would believe a marking was displayed when it was not. There is no way for a signed-in
 user to dismiss it. And it survives printing, because a marking that only exists on
 screen is not on the document somebody carries out of the room.
@@ -296,7 +296,7 @@ produced the column headers. The sidebar collapses into a native disclosure. Tou
 targets grow to 44 × 44 px on coarse pointers. Pinch zoom is never disabled.
 
 The live log viewer is the one view designed for a phone first rather than adapted to
-one, because it is the thing most likely to be opened away from a desk — usually
+one, because it is the thing most likely to be opened away from a desk - usually
 because something has already gone wrong. Lines wrap rather than scrolling sideways,
 and the log uses dynamic viewport units so a mobile browser's collapsing toolbar
 cannot hide the most recent output behind it.
@@ -328,7 +328,7 @@ Run this before a release, and after any change to the shared templates or the
 stylesheet. It exists because a documented, executed manual gate is worth more than
 an automated gate that does not exist.
 
-**Keyboard only** — put the mouse away.
+**Keyboard only** - put the mouse away.
 
 1. Load any view. Press `Tab` once. The first stop must be "Skip to main content".
    Activate it; focus must land in the main region.
@@ -341,14 +341,14 @@ an automated gate that does not exist.
    Each entry must link to its field.
 5. Sign out from the keyboard.
 
-**Screen reader** — VoiceOver, NVDA or Orca.
+**Screen reader** - VoiceOver, NVDA or Orca.
 
 6. Navigate a list view by headings, then by tables. Row and column headers must be
    announced.
 7. Trigger an HTMX fragment swap. The change must be announced.
 8. Read the dashboard chart. The canvas must be silent and the table beside it must
    carry the same figures.
-9. Read a badge. The status word must be spoken — never colour alone.
+9. Read a badge. The status word must be spoken - never colour alone.
 
 **Zoom and reflow.**
 
@@ -387,7 +387,7 @@ status to implemented.
 One step the generator cannot do for you, which it prints as its last output: **add the
 view to `internal/ui/resources/registrars.go`.** A view package nothing imports
 registers nothing. It compiles, its tests pass, and it is invisible to the running
-binary — no navigation entry, no route and no error.
+binary - no navigation entry, no route and no error.
 
 Everything else is inherited: routing, paging, forms, validation, per-field errors,
 CSRF, authorization, the mobile card layout, every skin, both themes, the

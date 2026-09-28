@@ -237,7 +237,7 @@ func TestClassify_MapsUpstreamFieldsToTypes(t *testing.T) {
 }
 
 // TestClassify_ReadOnlySourceSimulateLocks proves the read-only flag's
-// first concrete effect. A device Pleiades has only read about, and never
+// first concrete effect. A device The Pleiades has only read about, and never
 // authenticated to directly, must not accept real work until an admin
 // promotes it.
 func TestClassify_ReadOnlySourceSimulateLocks(t *testing.T) {

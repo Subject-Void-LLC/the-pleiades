@@ -1,6 +1,6 @@
 // Package externalscaffold generates a complete, buildable external
 // Collection program: a Go main package, built outside this repository,
-// that Pleiades runs as a child process beside itself and talks to over
+// that The Pleiades runs as a child process beside itself and talks to over
 // the pkg/external contract. It is the generator behind cmd/pleiades's
 // `forge new-external` subcommand.
 //
@@ -11,7 +11,7 @@
 // imports only pkg/ (pkg/external, pkg/collection, pkg/sdk), so a
 // third party can build it against a released Pleiades and install it
 // without a fork or a rebuild. The program never runs on a managed
-// device: Pleiades starts it on the machine running `pleiades run` or on
+// device: The Pleiades starts it on the machine running `pleiades run` or on
 // the Runner, hands it one task and the credential the credential manager
 // resolved for it on stdin, and
 // the method reaches the device the way a built-in method does, through

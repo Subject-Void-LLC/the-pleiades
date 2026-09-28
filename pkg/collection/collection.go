@@ -193,7 +193,34 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkSeedsLogin(d); err != nil {
+		return err
+	}
+
 	return collections.Register(d.Name, d)
+}
+
+// checkSeedsLogin refuses a SeedsLogin that names no required string
+// parameter, and any SeedsLogin on an external Collection's method: a
+// program outside this binary gets the credentials bound to its run and
+// its target's own, never material derived from another device's.
+func checkSeedsLogin(d Descriptor) error {
+	name := d.Manifest.SeedsLogin
+	if name == "" {
+		if d.Manifest.SeedsLoginPassword {
+			return fmt.Errorf("collection: %q sets SeedsLoginPassword without SeedsLogin, so it names no login to seed", d.Name)
+		}
+		return nil
+	}
+	if d.Provider != nil {
+		return fmt.Errorf("collection: %q is an external Collection's method, which cannot seed another device's login", d.Name)
+	}
+	for _, p := range d.Manifest.Doc.Params {
+		if p.Name == name && p.Type == "string" && p.Required {
+			return nil
+		}
+	}
+	return fmt.Errorf("collection: %q seeds the login named by parameter %q, which it does not declare as a required string", d.Name, name)
 }
 
 // MustRegister calls Register and panics on error. This is for

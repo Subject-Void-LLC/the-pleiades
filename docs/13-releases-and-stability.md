@@ -78,7 +78,7 @@ means for an upgrade.
 ### The one versioned extension contract
 
 One interface is versioned today, because code outside this repository builds
-against it: the contract between Pleiades and an
+against it: the contract between The Pleiades and an
 [external Collection](11-extending-pleiades.md#external-collections). It is
 `pkg/external.ProtocolVersion`, currently `1`, and it covers the `describe` output
 and the `invoke` request and response.
@@ -87,7 +87,7 @@ and the `invoke` request and response.
   the request, the response, or a method's manifest. Both sides ignore fields they
   do not know, so a program built against an earlier release keeps loading.
 - **What forces a new version.** Renaming or removing a field, making a new field
-  required, or changing how the response is delivered. Pleiades refuses a program
+  required, or changing how the response is delivered. The Pleiades refuses a program
   built for any other protocol version rather than guessing.
 - **What is not covered.** The Go API of `pkg/` itself (the packages an external
   Collection imports) is not yet under a compatibility promise. Until the first

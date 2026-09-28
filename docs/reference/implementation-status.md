@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**79 of 82 methods are implemented.**
+**101 of 104 methods are implemented.**
 
 ## Implemented
 
@@ -87,8 +87,30 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [pleiades.builtin.wait.port](modules/pleiades/builtin/wait/port.md)
 - [wait.path](modules/wait/path.md)
 - [wait.search](modules/wait/search.md)
+- [wait.connection](modules/wait/connection.md)
 - [facts.gather](modules/facts/gather.md)
 - [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
+- [virt.vbox.vm.info](modules/virt/vbox/vm/info.md)
+- [virt.vbox.vm.start](modules/virt/vbox/vm/start.md)
+- [virt.vbox.vm.stop](modules/virt/vbox/vm/stop.md)
+- [virt.vbox.vm.resize](modules/virt/vbox/vm/resize.md)
+- [virt.vbox.snapshot.take](modules/virt/vbox/snapshot/take.md)
+- [virt.vbox.snapshot.restore](modules/virt/vbox/snapshot/restore.md)
+- [virt.vbox.snapshot.delete](modules/virt/vbox/snapshot/delete.md)
+- [virt.vbox.vm.import_ova](modules/virt/vbox/vm/import_ova.md)
+- [virt.vbox.vm.import_disk](modules/virt/vbox/vm/import_disk.md)
+- [virt.vbox.vm.install](modules/virt/vbox/vm/install.md)
+- [virt.vbox.vm.eject_seed](modules/virt/vbox/vm/eject_seed.md)
+- [virt.vbox.vm.screenshot](modules/virt/vbox/vm/screenshot.md)
+- [virt.vbox.vm.log](modules/virt/vbox/vm/log.md)
+- [virt.vbox.vm.send_keys](modules/virt/vbox/vm/send_keys.md)
+- [virt.vbox.vm.addresses](modules/virt/vbox/vm/addresses.md)
+- [virt.vbox.vm.clone](modules/virt/vbox/vm/clone.md)
+- [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
+- [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)
+- [virt.vbox.vm.list](modules/virt/vbox/vm/list.md)
+- [win.file.download](modules/win/file/download.md)
+- [win.cpu.topology](modules/win/cpu/topology.md)
 
 ## Declared, not yet implemented
 

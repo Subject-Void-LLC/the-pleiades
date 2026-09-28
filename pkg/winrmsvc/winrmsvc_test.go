@@ -27,40 +27,6 @@ func unreachableSession() Session {
 	}
 }
 
-func TestQuotePS(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{name: "plain name", input: "nginx", want: "'nginx'"},
-		{name: "embedded single quote is doubled", input: "O'Brien", want: "'O''Brien'"},
-		{name: "empty string", input: "", want: "''"},
-		{name: "semicolon is inert inside single quotes", input: "svc; Remove-Item C:\\", want: "'svc; Remove-Item C:\\'"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := quotePS(tt.input); got != tt.want {
-				t.Errorf("quotePS(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestQuotePS_DoublingIsTheCompleteEscape proves the property the
-// package doc claims: a value built entirely of embedded single quotes,
-// however many, always round-trips to a syntactically valid PowerShell
-// literal with a balanced, even number of quote characters between the
-// two delimiters.
-func TestQuotePS_DoublingIsTheCompleteEscape(t *testing.T) {
-	input := "'''"
-	got := quotePS(input)
-	want := "''''''''"
-	if got != want {
-		t.Errorf("quotePS(%q) = %q, want %q", input, got, want)
-	}
-}
-
 func TestParseStatusJSON(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -150,7 +116,7 @@ func TestState_MapKeys(t *testing.T) {
 }
 
 // TestOperations_QuoteTheServiceName asserts every operation splices the
-// name through quotePS rather than a raw concatenation, by constructing
+// name through winrmexec.QuotePS rather than a raw concatenation, by constructing
 // the same scripts the runtime functions build and checking a hostile
 // name cannot break out of the quoted literal. This is the injection
 // guard remotesvc.TestOperations_QuoteTheUnitName plays for
@@ -159,7 +125,7 @@ func TestState_MapKeys(t *testing.T) {
 // arrive at.
 func TestOperations_QuoteTheServiceName(t *testing.T) {
 	hostile := `evil'; Remove-Item C:\ -Recurse -Force; '`
-	quoted := quotePS(hostile)
+	quoted := winrmexec.QuotePS(hostile)
 
 	script := "$ErrorActionPreference = 'Stop'\n" + opStart + " -Name " + quoted
 	if strings.Count(script, "Remove-Item") != 1 {

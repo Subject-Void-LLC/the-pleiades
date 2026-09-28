@@ -101,3 +101,18 @@ func TestSplitPositional_BoolFlagTakesNoFollowingValue(t *testing.T) {
 		})
 	}
 }
+
+// TestSplitPositionals covers the scan validate uses to take several
+// runbooks: every non-flag token, in order, wherever the flags sit.
+func TestSplitPositionals(t *testing.T) {
+	positionals, rest := splitPositionals([]string{"a.yaml", "--tags", "web", "b.yaml", "--dir=x", "c.yaml"}, nil)
+	if want := []string{"a.yaml", "b.yaml", "c.yaml"}; !reflect.DeepEqual(positionals, want) {
+		t.Errorf("positionals = %v, want %v", positionals, want)
+	}
+	if want := []string{"--tags", "web", "--dir=x"}; !reflect.DeepEqual(rest, want) {
+		t.Errorf("rest = %v, want %v", rest, want)
+	}
+	if positionals, _ := splitPositionals([]string{"--dir", "x"}, nil); positionals != nil {
+		t.Errorf("positionals = %v, want none", positionals)
+	}
+}

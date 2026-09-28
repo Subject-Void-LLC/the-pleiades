@@ -23,7 +23,7 @@ type natsBus struct {
 }
 
 // NewNatsBus connects to an external NATS broker and binds the single
-// Pleiades stream according to role.
+// The Pleiades stream according to role.
 // It adheres to the Liskov Substitution Principle by perfectly substituting the event.Bus interface.
 //
 // topology.Connect is the module's one way to obtain a NATS connection:

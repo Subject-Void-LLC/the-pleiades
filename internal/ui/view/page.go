@@ -172,7 +172,7 @@ func (p PageModel) DocumentTitle() string {
 	if p.Title == "" {
 		return "Pleiades"
 	}
-	return p.Title + " // Pleiades"
+	return p.Title + " // The Pleiades"
 }
 
 // AssetPath builds the served URL for a content-hashed asset name.

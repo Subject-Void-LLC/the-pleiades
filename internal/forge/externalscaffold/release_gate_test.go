@@ -43,14 +43,14 @@ func repoRoot(t *testing.T) string {
 // TestGenerate_ReleaseGate is the release gate for `forge new-external`:
 // a generated program builds, its own generated test passes, and the
 // built binary answers both commands of the external Collection contract
-// through the real process boundary Pleiades uses.
+// through the real process boundary The Pleiades uses.
 //
 // Every step runs for real. The program is written, with its own
 // generated go.mod, into a fresh directory outside this module, and built
 // by the README's own offline commands (buildOutOfTree): pointed at this
 // checkout, tidied, tested and built as real go subprocesses with the
 // network off. The binary is then started
-// the way Pleiades starts it: one argument, the request on stdin, the
+// the way The Pleiades starts it: one argument, the request on stdin, the
 // response on a real pipe passed as file descriptor 3, and an environment
 // cut down to the one variable the method needs. For the method's own
 // invocations the target is a real SSH server (remoteexectest, a genuine
@@ -239,7 +239,7 @@ func offlineBuildCommands(t *testing.T, readme string) []string {
 }
 
 // assertDescribe runs the built program with "describe" and checks the
-// document Pleiades would load from it: the protocol version and exactly
+// document The Pleiades would load from it: the protocol version and exactly
 // one method, with the contract the generator promises.
 func assertDescribe(t *testing.T, bin, name string) {
 	t.Helper()
@@ -283,7 +283,7 @@ func assertDescribe(t *testing.T, bin, name string) {
 	}
 }
 
-// invokeOverFD3 runs the built program with "invoke" exactly as Pleiades
+// invokeOverFD3 runs the built program with "invoke" exactly as The Pleiades
 // does: the request as JSON on stdin, and the write end of a real pipe as
 // the child's file descriptor 3, which is where external.Main sends the
 // one response. env replaces the whole environment, the way the loader's

@@ -26,6 +26,7 @@ var ActionCapability = map[string]capability.Name{
 	"serial_exec":    capability.NameSerial,
 	"serialtcp_exec": capability.NameRawPassthrough,
 	"telnet_exec":    capability.NameTelnet,
+	"winrm_exec":     capability.NameWinRM,
 }
 
 // CheckActionCapabilityBindings verifies that bindings, a composition

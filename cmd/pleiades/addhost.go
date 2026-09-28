@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -95,6 +96,22 @@ func parsePropertyValue(raw string) interface{} {
 // nil when a command defines no boolean flags (every flag add-host itself
 // defines takes a value).
 func splitPositional(args []string, boolFlags map[string]bool) (positional string, rest []string, err error) {
+	positionals, rest := splitPositionals(args, boolFlags)
+	if len(positionals) > 1 {
+		return "", nil, fmt.Errorf("unexpected extra argument: %q", positionals[1])
+	}
+	if len(positionals) == 0 {
+		return "", nil, errMissingPositional
+	}
+	return positionals[0], rest, nil
+}
+
+// splitPositionals is splitPositional for a command that takes any number
+// of positional arguments (validate's runbooks, which a shell glob such as
+// runbooks/*.yaml expands into several). It returns every non-flag token
+// in the order given, and the flag tokens for flag.FlagSet to parse,
+// reading boolFlags exactly as splitPositional does.
+func splitPositionals(args []string, boolFlags map[string]bool) (positionals, rest []string) {
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -112,15 +129,9 @@ func splitPositional(args []string, boolFlags map[string]bool) (positional strin
 			}
 			continue
 		}
-		if positional != "" {
-			return "", nil, fmt.Errorf("unexpected extra argument: %q", a)
-		}
-		positional = a
+		positionals = append(positionals, a)
 	}
-	if positional == "" {
-		return "", nil, errMissingPositional
-	}
-	return positional, rest, nil
+	return positionals, rest
 }
 
 // errMissingPositional is splitPositional's error for args with no
@@ -197,14 +208,22 @@ func runAddHost(args []string) error {
 		tags = strings.Split(*tagsFlag, ",")
 	}
 
-	hosts = append(hosts, inventory.HostSpec{
+	spec := inventory.HostSpec{
 		ID:         uuid.New().String(),
 		Name:       name,
 		Type:       resolvedType,
 		Classify:   classifyPath,
 		Tags:       tags,
 		Properties: props.values,
-	})
+	}
+	// Built once as its type before it is written, so a property the type
+	// refuses is refused here rather than on the first run.
+	if _, err := inventory.NewItemFactory().Build(record.Record{
+		ID: pkginventory.DeviceID(spec.ID), Name: name, Type: resolvedType, Properties: spec.Properties,
+	}); err != nil {
+		return fmt.Errorf("host %q not added: %w", name, err)
+	}
+	hosts = append(hosts, spec)
 
 	if err := inventory.WriteHosts(path, hosts); err != nil {
 		return err

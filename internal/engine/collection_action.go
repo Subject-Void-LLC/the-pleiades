@@ -45,6 +45,10 @@ type collectionActionExecutor struct {
 	// connections open between its tasks when persist admits the device.
 	pool    *remoteexec.Pool
 	persist PersistFunc
+
+	// seed, set by WithLoginSeeder, resolves the login a method whose
+	// manifest sets SeedsLogin gives to the machine it creates.
+	seed LoginSeeder
 }
 
 // CollectionInvoker replaces how a registered, StatusImplemented
@@ -195,6 +199,13 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		return ActionResult{}, err
 	}
 
+	var seed map[string]string
+	if param := desc.Manifest.SeedsLogin; param != "" {
+		if seed, err = e.seedLogin(ctx, task.FQCN, param, desc.Manifest.SeedsLoginPassword, task.Params); err != nil {
+			return ActionResult{}, err
+		}
+	}
+
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
 		if err != nil {
@@ -211,6 +222,13 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	rc, err := e.newContext(ctx, device)
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+	}
+	if seed != nil {
+		seeded, ok := rc.(*runbookContext)
+		if !ok {
+			return ActionResult{}, fmt.Errorf("collection method %q seeds a login, which this run's context cannot carry", task.FQCN)
+		}
+		seeded.addSecrets(seed)
 	}
 
 	e.lendPool(ctx, rc, device)

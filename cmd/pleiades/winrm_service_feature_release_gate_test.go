@@ -133,7 +133,7 @@ func TestWinRMGate_ServiceStartStopAndBack(t *testing.T) {
 	run := func(name, fqcn string) string {
 		t.Helper()
 		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    fqcn: "+fqcn+"\n    params:\n      name: "+service+"\n")
+			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+service+"\n")
 		out, err := runPleiades(t, dir, "run", rb, "--verbose")
 		if err != nil {
 			t.Fatalf("%s against %s: %v\n%s", fqcn, service, err, out)
@@ -145,14 +145,14 @@ func TestWinRMGate_ServiceStartStopAndBack(t *testing.T) {
 	run("service_start_baseline", "svc.windows.start")
 
 	stopOut := run("service_stop", "svc.windows.stop")
-	if !strings.Contains(stopOut, `running:true`) || !strings.Contains(stopOut, `running:false`) {
+	if before, after := diffSide(stopOut, "before"), diffSide(stopOut, "after"); before["running"] != "true" || after["running"] != "false" {
 		t.Errorf("svc.windows.stop's diff does not show a running -> not-running transition:\n%s", stopOut)
 	}
 
 	// The reverse. Left running is the fixed end state this file's own
 	// doc comment promises.
 	startOut := run("service_start_reverse", "svc.windows.start")
-	if !strings.Contains(startOut, `running:true`) {
+	if diffSide(startOut, "after")["running"] != "true" {
 		t.Errorf("the reversing svc.windows.start did not leave %s reporting running:\n%s", service, startOut)
 	}
 }
@@ -168,7 +168,7 @@ func TestWinRMGate_ServiceEnableDisableAndBack(t *testing.T) {
 	run := func(name, fqcn string) string {
 		t.Helper()
 		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    fqcn: "+fqcn+"\n    params:\n      name: "+service+"\n")
+			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+service+"\n")
 		out, err := runPleiades(t, dir, "run", rb, "--verbose")
 		if err != nil {
 			t.Fatalf("%s against %s: %v\n%s", fqcn, service, err, out)
@@ -179,12 +179,12 @@ func TestWinRMGate_ServiceEnableDisableAndBack(t *testing.T) {
 	run("service_enable_baseline", "svc.windows.enable")
 
 	disableOut := run("service_disable", "svc.windows.disable")
-	if !strings.Contains(disableOut, "Automatic") || !strings.Contains(disableOut, "Disabled") {
+	if diffSide(disableOut, "before")["start_type"] != "Automatic" || diffSide(disableOut, "after")["start_type"] != "Disabled" {
 		t.Errorf("svc.windows.disable's diff does not show an Automatic -> Disabled transition:\n%s", disableOut)
 	}
 
 	enableOut := run("service_enable_reverse", "svc.windows.enable")
-	if !strings.Contains(enableOut, `start_type:Automatic`) {
+	if diffSide(enableOut, "after")["start_type"] != "Automatic" {
 		t.Errorf("the reversing svc.windows.enable did not leave %s reporting Automatic:\n%s", service, enableOut)
 	}
 }
@@ -202,7 +202,7 @@ func TestWinRMGate_FeatureRemoveInstallAndBack(t *testing.T) {
 	run := func(name, fqcn string) string {
 		t.Helper()
 		rb := writeRunbook(t, dir, name, "id: "+name+"\nhosts: win-gate\ntasks:\n"+
-			"  - name: "+fqcn+"\n    fqcn: "+fqcn+"\n    params:\n      name: "+feature+"\n")
+			"  - name: "+fqcn+"\n    "+fqcn+":\n      name: "+feature+"\n")
 		out, err := runPleiades(t, dir, "run", rb, "--verbose")
 		if err != nil {
 			t.Fatalf("%s against %s: %v\n%s", fqcn, feature, err, out)
@@ -213,12 +213,88 @@ func TestWinRMGate_FeatureRemoveInstallAndBack(t *testing.T) {
 	run("feature_install_baseline", "win.feature.install")
 
 	removeOut := run("feature_remove", "win.feature.remove")
-	if !strings.Contains(removeOut, `state:Enabled`) || !strings.Contains(removeOut, `state:Disabled`) {
+	if diffSide(removeOut, "before")["state"] != "Enabled" || diffSide(removeOut, "after")["state"] != "Disabled" {
 		t.Errorf("win.feature.remove's diff does not show an Enabled -> Disabled transition:\n%s", removeOut)
 	}
 
 	installOut := run("feature_install_reverse", "win.feature.install")
-	if !strings.Contains(installOut, `state:Enabled`) {
+	if diffSide(installOut, "after")["state"] != "Enabled" {
 		t.Errorf("the reversing win.feature.install did not leave %s reporting Enabled:\n%s", feature, installOut)
+	}
+}
+
+// diffSide reads one side ("before" or "after") of the first diff in a
+// run --verbose output, as its keys and values. Reading the side rather
+// than searching the whole output is what tells a transition from its
+// reverse: both values appear in either, once in each side.
+func diffSide(out, side string) map[string]string {
+	fields := map[string]string{}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "diff:" {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		sideAt := strings.Repeat(" ", indent+2) + side + ":"
+		fieldAt := strings.Repeat(" ", indent+4)
+		for j := i + 1; j < len(lines); j++ {
+			if lines[j] != sideAt {
+				continue
+			}
+			for _, field := range lines[j+1:] {
+				if !strings.HasPrefix(field, fieldAt) {
+					break
+				}
+				if strings.HasPrefix(field, fieldAt+" ") {
+					continue
+				}
+				if key, value, ok := strings.Cut(strings.TrimSpace(field), ": "); ok {
+					fields[key] = value
+				}
+			}
+			break
+		}
+		break
+	}
+	return fields
+}
+
+// TestDiffSide runs everywhere, unlike the gates that use diffSide, on
+// output svc.windows.stop printed against a real Windows Server 2025.
+func TestDiffSide(t *testing.T) {
+	out := `executing:
+  tasks[0] [e0b13cb7-3007-4b20-b9e5-b71337705115]: changed
+    diff:
+      after:
+        exists: true
+        name: SysMain
+        running: false
+        start_type: Automatic
+        status: Stopped
+      before:
+        dependents:
+          - a nested line, skipped
+        exists: true
+        running: true
+        status: Running
+    inverse:
+      description: Start SysMain, which this task stopped.
+      fqcn: svc.windows.start
+      params:
+        name: SysMain
+    name: SysMain
+run complete`
+	before, after := diffSide(out, "before"), diffSide(out, "after")
+	if before["running"] != "true" || before["status"] != "Running" || before["exists"] != "true" {
+		t.Errorf("before = %v", before)
+	}
+	if after["running"] != "false" || after["start_type"] != "Automatic" || len(after) != 5 {
+		t.Errorf("after = %v", after)
+	}
+	if _, ok := before["name"]; ok {
+		t.Errorf("before read past its own block: %v", before)
+	}
+	if got := diffSide("no diff here", "after"); len(got) != 0 {
+		t.Errorf("an output with no diff gave %v", got)
 	}
 }

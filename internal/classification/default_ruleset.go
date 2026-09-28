@@ -12,7 +12,7 @@ import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 // were each added later, when the sync plugin that needed them was built,
 // not when their device types first landed; windows_server was added
 // later still, when svc.windows.*/win.feature.* gave windows.Server real
-// capability accessors to classify into — the same pattern this file
+// capability accessors to classify into - the same pattern this file
 // itself follows for whatever the next plugin or method batch needs.
 //
 // The tree shape mirrors PLAN.md Section 6d's own worked example

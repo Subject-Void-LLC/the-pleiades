@@ -32,8 +32,8 @@ type SerialCapable interface {
 // console or terminal server's bare TCP byte pipe: a Digi, Opengear,
 // Lantronix, Perle, or Avocent/Cyclades unit proxying one serial line as
 // one TCP port with ZERO framing, ZERO authentication, and ZERO
-// encryption at the protocol level. There is no line control at all —
-// no baud rate, no DTR/RTS, no break signal — which is the entire
+// encryption at the protocol level. There is no line control at all -
+// no baud rate, no DTR/RTS, no break signal - which is the entire
 // difference from RFC2217Capable below.
 type RawPassthroughCapable interface {
 	// RawPassthroughHost returns the console server's address.
@@ -50,7 +50,7 @@ type RawPassthroughCapable interface {
 // DTR/RTS, and break the way a locally attached serial line would offer
 // them directly. This is a materially different claim about a target
 // than RawPassthroughCapable's bare byte pipe, so it is a genuine
-// sibling capability rather than a boolean flag on it — a flag would let
+// sibling capability rather than a boolean flag on it - a flag would let
 // capability.Resolves answer a control-line question ("can this device's
 // baud rate be changed") "yes" for a target that can only move bytes.
 //
@@ -72,7 +72,7 @@ type RFC2217Capable interface {
 	RFC2217Port() int
 
 	// RFC2217Line returns the line configuration negotiated over the
-	// control channel — the same serialline.Config shape SerialCapable
+	// control channel - the same serialline.Config shape SerialCapable
 	// uses for a local line, since RFC 2217 is, in substance, remote
 	// control of the identical baud/parity/stop-bit settings.
 	RFC2217Line() serialline.Config

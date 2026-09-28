@@ -56,7 +56,7 @@ func TestResolveKey_EnvVarTakesPrecedence(t *testing.T) {
 // TestResolveKey_EnvVarMalformedIsExplicitError proves a malformed env var
 // is a hard error, not a silent fallback to file-based resolution: an
 // operator who deliberately set a bad value should learn about it loudly,
-// not have Pleiades quietly use a different key.
+// not have The Pleiades quietly use a different key.
 func TestResolveKey_EnvVarMalformedIsExplicitError(t *testing.T) {
 	dir := t.TempDir()
 

@@ -25,7 +25,7 @@
 //
 // Scope is deliberately narrow, matching every other batch's restraint
 // this session: EC2 instances only, never S3 (there is no S3-bucket
-// "inventory" concept anywhere in this codebase — inventory means hosts).
+// "inventory" concept anywhere in this codebase - inventory means hosts).
 // Both instance platforms EC2 reports classify: a Linux instance resolves
 // to linux_server, a Windows one to windows_server (added once
 // svc.windows.*/win.feature.* gave that device type real capability

@@ -165,3 +165,22 @@ func TestPrintMetadata(t *testing.T) {
 		}
 	})
 }
+
+// TestPrintNodeStats_ListsAndMaps covers a stat holding a list of maps (a
+// VirtualBox host's VMs) or a map (a diff): written as indented YAML, one
+// entry to a line, rather than as one map[...] line.
+func TestPrintNodeStats_ListsAndMaps(t *testing.T) {
+	out := captureStdout(t, func() {
+		printNodeStats(map[string]any{
+			"vms":  []any{map[string]any{"name": "ubuntu-lab", "state": "running"}, map[string]any{"name": "base", "state": "poweroff"}},
+			"keys": []string{"ssh-ed25519 AAAA", "ssh-rsa AAAA"},
+			"diff": map[string]any{"before": map[string]any{"exists": false}},
+		}, nil)
+	})
+	want := "    diff:\n      before:\n        exists: false\n" +
+		"    keys:\n      - ssh-ed25519 AAAA\n      - ssh-rsa AAAA\n" +
+		"    vms:\n      - name: ubuntu-lab\n        state: running\n      - name: base\n        state: poweroff\n"
+	if out != want {
+		t.Errorf("printed:\n%s\nwant:\n%s", out, want)
+	}
+}

@@ -1,4 +1,4 @@
-// Package api is the Front Controller for the Pleiades control plane: one
+// Package api is the Front Controller for The Pleiades control plane: one
 // chi router owns routing and every cross-cutting concern (tracing,
 // structured logging, RED metrics, panic recovery, rate limiting, auth) so
 // no individual handler can accidentally opt out of telemetry.

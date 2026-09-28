@@ -5,7 +5,7 @@ anything.
 
 Store the certificate as a credential of a `cryptography`-kind type carrying
 `certificate` and `private_key`, and bind it to a template as you would a machine
-credential. Certificate authentication is HTTPS only, so Pleiades selects HTTPS itself
+credential. Certificate authentication is HTTPS only, so The Pleiades selects HTTPS itself
 rather than asking you to set a flag whose only correct value is true, and it refuses a
 device still pointed at the cleartext WinRM port rather than attempting a TLS handshake
 against it. The Windows side needs a matching certificate-to-account mapping; Running

@@ -253,7 +253,7 @@ func main() {
 
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
-	// Pleiades stream (topology.EnsureStream) exists.
+	// The Pleiades stream (topology.EnsureStream) exists.
 	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader, outageBudget, false, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)

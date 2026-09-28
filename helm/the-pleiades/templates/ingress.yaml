@@ -9,7 +9,7 @@ THE ONE THING THAT SURPRISES PEOPLE HERE. In two of the three TLS modes the
 controller serves HTTPS on its own listener, so the ingress controller has to
 speak HTTPS to the backend as well. Most controllers assume plain HTTP unless
 told otherwise, and the symptom of getting it wrong is a 502 with a protocol
-error in the ingress controller's log rather than anything Pleiades prints. On
+error in the ingress controller's log rather than anything The Pleiades prints. On
 ingress-nginx the annotation is:
 
   nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"

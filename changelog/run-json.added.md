@@ -1,0 +1,1 @@
+`pleiades run --json` and `pleiades adhoc --json` print the run as one JSON document, with the plan, each task's status and full output, and how the run ended, alongside the same exit status as the text view.

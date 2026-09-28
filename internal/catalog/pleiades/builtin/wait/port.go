@@ -7,7 +7,7 @@
 // wait.path and wait.search sit in the bare "wait" namespace. This one
 // does not, and the difference is deliberate rather than an oversight:
 // this is the catalog's one native-only gate marked as belonging to
-// Pleiades' own reserved namespace instead of mapping one to one onto an
+// The Pleiades' own reserved namespace instead of mapping one to one onto an
 // Ansible module name. Renaming the two siblings to match would be a
 // second change riding along on this one, so they are left alone.
 //

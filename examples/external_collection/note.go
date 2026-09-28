@@ -92,7 +92,7 @@ func writeNote(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		return collection.Result{}, fmt.Errorf("%s: %w", noteFQCN, err)
 	}
 
-	// The credential arrives through rc, which Pleiades filled from the
+	// The credential arrives through rc, which The Pleiades filled from the
 	// request on this program's stdin: the one its credential manager
 	// resolved for this task, exactly as a built-in method would receive it.
 	conn, err := sdk.Connect(ctx, rc, device, params, noteFQCN)

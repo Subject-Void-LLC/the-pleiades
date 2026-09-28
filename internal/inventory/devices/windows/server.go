@@ -26,10 +26,14 @@
 package windows
 
 import (
+	"fmt"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 func init() {
@@ -54,6 +58,10 @@ func init() {
 // truthful "false" with an untested "true".
 type Server struct {
 	*record.Base
+	// tls is what its WinRM listener is verified with; see tls.go.
+	tls devicetls.Settings
+	// vbox is what its record says about VirtualBox; see vbox.go.
+	vbox virtualBoxSettings
 }
 
 var _ inventory.InventoryItem = (*Server)(nil)
@@ -74,12 +82,21 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 			capability.Name("WinRMCapable"),
 			capability.Name("WindowsServiceCapable"),
 			capability.Name("WindowsFeatureCapable"),
+			capability.NameWindowsShell,
 			capability.NameNetworkAddressable,
 		},
 		rec.Capabilities,
 	)
-	base := record.NewBase(rec, caps)
-	return &Server{Base: base}, nil
+	settings, err := winrmTLS(rec)
+	if err != nil {
+		return nil, fmt.Errorf("windows_server %s: %w", rec.Name, err)
+	}
+	vbox, err := parseVirtualBox(inventory.NewProperties(rec.Properties))
+	if err != nil {
+		return nil, fmt.Errorf("windows_server %s: %w", rec.Name, err)
+	}
+	base := record.NewBase(rec, policy.UnionSlices(caps, vbox.capabilities()))
+	return &Server{Base: base, tls: settings, vbox: vbox}, nil
 }
 
 // HasCapability checks the declared classification AND the structural
@@ -104,10 +121,17 @@ func (w *Server) WinRMHost() string {
 // requiring SPNEGO message encryption on it rather than by pretending
 // the default is TLS.
 func (w *Server) WinRMPort() int {
-	if port, ok := w.Properties().Int("port"); ok && port != 0 {
+	return winrmPort(w.Properties())
+}
+
+// winrmPort reads the port property, defaulting to the HTTP listener's.
+// NewServer reads it before the Server exists, so it takes the properties
+// rather than the Server.
+func winrmPort(props inventory.Properties) int {
+	if port, ok := props.Int("port"); ok && port != 0 {
 		return port
 	}
-	return 5985
+	return winrmexec.DefaultPort
 }
 
 // IPAddress returns this server's reachable network address, the same

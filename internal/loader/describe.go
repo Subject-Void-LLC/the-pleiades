@@ -103,7 +103,7 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 		return false, fmt.Errorf("method %q: %w", m.Name, err)
 	}
 	if ns, _, _ := strings.Cut(m.Name, "."); reserved[ns] {
-		return false, fmt.Errorf("method %q is in the %q namespace, which belongs to Pleiades itself; an external Collection must use a namespace of its own, such as your organization's name", m.Name, ns)
+		return false, fmt.Errorf("method %q is in the %q namespace, which belongs to The Pleiades itself; an external Collection must use a namespace of its own, such as your organization's name", m.Name, ns)
 	}
 	if m.Manifest.Status != collection.StatusImplemented {
 		// A program exists to run code, and a declared stub has none. It
@@ -163,7 +163,7 @@ func clip(s string, limit int) string {
 }
 
 // alwaysReserved are namespaces reserved whether or not anything in this
-// build registers in them: Pleiades's own, and Ansible's, whose names a
+// build registers in them: The Pleiades's own, and Ansible's, whose names a
 // migrating playbook already uses and which a third party must not be
 // able to impersonate.
 var alwaysReserved = []string{"pleiades", "ansible"}
@@ -172,7 +172,7 @@ var alwaysReserved = []string{"pleiades", "ansible"}
 // each one a method compiled into this binary uses, read from the
 // registry when Load runs, so a namespace the catalog adds is reserved
 // with no second edit, plus alwaysReserved. A name in any of them can
-// then only mean code that ships with Pleiades.
+// then only mean code that ships with The Pleiades.
 func reservedNamespaces() map[string]bool {
 	reserved := map[string]bool{}
 	for _, ns := range collection.BuiltinNamespaces() {

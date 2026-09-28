@@ -11,8 +11,8 @@
 // read or write anything from inside it. This package makes that
 // impossible structurally, not by convention: every request it can
 // possibly send is checked against a fixed, positive allowlist of
-// exactly three (method, path) pairs — POST /containers/{id}/exec,
-// POST /exec/{id}/start, GET /exec/{id}/json — in checkAllowed, the ONE
+// exactly three (method, path) pairs - POST /containers/{id}/exec,
+// POST /exec/{id}/start, GET /exec/{id}/json - in checkAllowed, the ONE
 // function every request in this package funnels through, before a
 // single byte reaches the socket. There is no exported, or internally
 // reachable, "send this request to the daemon" method a future caller
@@ -43,7 +43,7 @@
 //
 // # The command runs through the container's own shell, like every other adapter's target
 //
-// Cmd is sent as ["/bin/sh", "-c", command] — Docker's API takes Cmd as
+// Cmd is sent as ["/bin/sh", "-c", command] - Docker's API takes Cmd as
 // an argv array and does not itself interpret shell syntax (pipes,
 // redirection, quoting) the way a remote sshd's own shell does for
 // ssh_exec. Wrapping command in "/bin/sh -c" is what makes a Docker exec
@@ -58,7 +58,7 @@
 // Every request names a fixed API version (apiVersion below) rather than
 // the version-less endpoint form the daemon also accepts, which silently
 // resolves to whatever the daemon's own minimum supported version
-// happens to be — a moving target this package could not pin or test
+// happens to be - a moving target this package could not pin or test
 // against. Bumping apiVersion is a reviewed decision, mirroring the
 // Makefile's own GOSEC_VERSION/GOVULNCHECK_VERSION precedent, not a
 // default a newer daemon should be allowed to silently renegotiate. Pinned
@@ -82,17 +82,17 @@
 //
 // Docker's own exec-start stream is real length-prefixed framing
 // (RFC-less, but a stable, documented Docker protocol: an 8-byte header
-// per frame — stream type byte, 3 reserved bytes, 4-byte big-endian
-// payload length — repeated until the connection closes), not an
+// per frame - stream type byte, 3 reserved bytes, 4-byte big-endian
+// payload length - repeated until the connection closes), not an
 // undelimited byte stream. Completion is therefore a genuine EOF, not a
 // guess based on a quiet period the way pkg/serialexec, pkg/serialtcp,
 // and pkg/telnetexec must infer one. There is no ReadTimeout option here
 // for that reason: nothing to tune, because there is no heuristic.
 //
-// A handful of branches — json.Marshal failing on this package's own
+// A handful of branches - json.Marshal failing on this package's own
 // fixed request structs, http.NewRequestWithContext failing on a fixed,
 // well-formed URL, and req.Write/http.ReadResponse failing against a
-// freshly dialed, working connection — are real defensive coverage but
+// freshly dialed, working connection - are real defensive coverage but
 // not reachable from this package's own test suite without fault
 // injection this module does not fabricate, the identical class of gap
 // pkg/serialexec, pkg/serialtcp, pkg/telnetexec, and pkg/rfc2217 each
@@ -154,7 +154,7 @@ type Result struct {
 
 	// ExitCode is the command's real process exit status, reported by
 	// the daemon's own exec-inspect endpoint. Always meaningful, unlike
-	// this phase's other byte-stream transports — see the package doc
+	// this phase's other byte-stream transports - see the package doc
 	// comment.
 	ExitCode int
 }
@@ -181,7 +181,7 @@ func validateID(kind, id string) error {
 // exactly the three (method, path-shape) pairs this package will ever
 // send. The path patterns re-validate the ID segment's shape
 // independently of validateID (called earlier, at each ID's own point of
-// origin), so this chokepoint is a real, self-contained safety net —
+// origin), so this chokepoint is a real, self-contained safety net -
 // not a formality that trusts every caller already sanitized its input.
 var allowedRequests = []struct {
 	method  string
@@ -429,7 +429,7 @@ func (c *client) startExec(ctx context.Context, execID string) (stdout, stderr s
 
 // readDemux reads Docker's own exec-attach stream framing from r until a
 // clean EOF (the daemon closing the connection once the command has
-// finished — see the package doc comment for why this is a real
+// finished - see the package doc comment for why this is a real
 // completion signal here, not a heuristic): a repeating 8-byte header
 // (stream type byte, 3 reserved bytes, 4-byte big-endian payload
 // length) followed by that many payload bytes, stream type 1 meaning

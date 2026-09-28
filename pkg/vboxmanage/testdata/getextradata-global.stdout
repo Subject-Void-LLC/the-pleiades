@@ -1,0 +1,5 @@
+Key: HostOnly/{e7db4aea-6fc2-45df-99b8-0138ac2ec7b0}/IPAddress, Value: 192.168.56.1
+Key: HostOnly/{e7db4aea-6fc2-45df-99b8-0138ac2ec7b0}/IPNetMask, Value: 255.255.255.0
+Key: HostOnly/{e7db4aea-6fc2-45df-99b8-0138ac2ec7b0}/IPV6Address, Value: fe80::4c85:fd5f:d4d5:facf
+Key: HostOnly/{e7db4aea-6fc2-45df-99b8-0138ac2ec7b0}/IPV6PrefixLen, Value: 64
+Key: HostOnly/{e7db4aea-6fc2-45df-99b8-0138ac2ec7b0}/Name, Value: VirtualBox Host-Only Ethernet Adapter

@@ -1,9 +1,9 @@
 // Package external is the SDK for an external Collection: a Collection
 // built outside this repository, compiled into a program of its own, and
-// run by Pleiades as a child process, once per task.
+// run by The Pleiades as a child process, once per task.
 //
 // A built-in Collection is a Go package compiled into the pleiades binary,
-// which means adding one means rebuilding Pleiades. An external one is a
+// which means adding one means rebuilding The Pleiades. An external one is a
 // separate program that imports only pkg/ (this package, pkg/collection,
 // pkg/sdk and whatever else under pkg/ it needs) and hands its methods to
 // Main:
@@ -23,7 +23,7 @@
 //
 // # The contract
 //
-// Pleiades runs the program with one argument, in one of two ways:
+// The Pleiades runs the program with one argument, in one of two ways:
 //
 //   - "describe": the program prints a Description (every method and its
 //     full manifest) as JSON on stdout and exits 0. The loader reads it
@@ -34,7 +34,7 @@
 //     exactly the exchange the Runner already uses with its own per-task
 //     child, run by the same ServeChild.
 //
-// The program never runs on a managed device. It runs beside Pleiades, on
+// The program never runs on a managed device. It runs beside The Pleiades, on
 // the machine running `pleiades run` or on the Runner, and reaches the
 // device the way a built-in method does, through pkg/sdk.Connect and the
 // credential in the request. Copying a program onto a target and running
@@ -45,7 +45,7 @@
 // # What crosses the boundary
 //
 // In: the method name, the mode, the task's params, the target device's
-// identity, address and capabilities, and the credential Pleiades resolved
+// identity, address and capabilities, and the credential The Pleiades resolved
 // for the task (on stdin, never in argv or the environment). That
 // credential is exactly what a built-in method receives through
 // sdk.RunbookContext.InjectSecrets: the machine credential bound to the
@@ -70,7 +70,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
-// ProtocolVersion is the version of the contract between Pleiades and an
+// ProtocolVersion is the version of the contract between The Pleiades and an
 // external Collection: the describe document and the invoke exchange.
 //
 // It is one number for the whole contract, bumped only by a change an
@@ -161,7 +161,7 @@ func Main(descs ...collection.Descriptor) {
 // failing in the loader on somebody else's.
 func Serve(ctx context.Context, args []string, descs []collection.Descriptor, s Streams) int {
 	if len(args) != 1 || (args[0] != CommandDescribe && args[0] != CommandInvoke) {
-		fmt.Fprintf(s.Err, "usage: %s %s|%s\n\nThis program is an external Collection for Pleiades. Pleiades runs it; it is not meant to be run by hand.\n",
+		fmt.Fprintf(s.Err, "usage: %s %s|%s\n\nThis program is an external Collection for The Pleiades. The Pleiades runs it; it is not meant to be run by hand.\n",
 			programName(), CommandDescribe, CommandInvoke)
 		return 2
 	}

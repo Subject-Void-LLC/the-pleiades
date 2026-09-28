@@ -8,7 +8,7 @@
 # exception, confirmed by reading /usr/share/doc/ser2net/copyright
 # inside a real build, the standard Debian bookworm package (4.3.11-1)
 # -- and socat's (GPL-2), both external daemons run in this container,
-# never imported into Pleiades' own binary, so the module's
+# never imported into The Pleiades' own binary, so the module's
 # dependency-license rule does not reach them; confirmed anyway.
 #
 # ser2net.yaml's own "telnet(rfc2217),tcp,<port>" accepter syntax and

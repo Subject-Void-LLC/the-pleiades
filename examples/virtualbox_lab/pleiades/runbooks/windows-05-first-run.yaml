@@ -1,0 +1,11 @@
+# The first run against the Windows VM itself, over WinRM.
+id: vbox-lab-windows-first-run
+hosts: win-lab
+tasks:
+  - name: who and where the VM says it is
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        "computer=$env:COMPUTERNAME user=$(whoami)"
+        (Get-CimInstance Win32_OperatingSystem).Caption
+        Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' } | ForEach-Object { "$($_.InterfaceAlias) $($_.IPAddress)/$($_.PrefixLength)" }

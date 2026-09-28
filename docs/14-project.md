@@ -32,7 +32,7 @@ Pleiades is licensed under GPLv3 (see [`LICENSE`](../LICENSE) at the repository
 root). Every new source file must be GPLv3-compatible; an Apache 2.0 dependency is
 fine, a proprietary or more restrictive one is not. Because there is no out-of-tree
 extension loading mechanism today (see
-[Extending Pleiades](11-extending-pleiades.md)), extending Pleiades means
+[Extending The Pleiades](11-extending-pleiades.md)), extending The Pleiades means
 contributing to this repository or maintaining a fork, and GPLv3's copyleft applies
 to the whole binary either way: a distributed modified build must itself be GPLv3,
 with source available to whoever receives it.

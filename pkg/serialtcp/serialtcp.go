@@ -139,7 +139,7 @@ func Exec(ctx context.Context, host string, port int, opts Options, command stri
 // is now a thin wrapper: dial, then call this.
 //
 // This exists for a caller who already has a live connection to the
-// console server by some other means Exec cannot express — most
+// console server by some other means Exec cannot express - most
 // concretely, pkg/remoteexec.Runner.DialThroughHops, which tunnels
 // through a bastion chain (transport.Target.Route) and hands back a raw
 // net.Conn with no SSH handshake on the final leg, exactly the shape a

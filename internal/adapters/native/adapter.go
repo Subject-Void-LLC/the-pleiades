@@ -24,12 +24,14 @@ import (
 	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
 	telnettransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet"
+	winrmtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -80,6 +82,7 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 			serialtransport.New(serialexec.Options{}),
 			serialtcptransport.New(serialtcp.Options{}, remoteexec.Options{}),
 			telnettransport.New(telnetexec.Options{}, remoteexec.Options{}),
+			winrmtransport.New(winrmexec.Options{}),
 		).All(),
 		ipc:    ipc,
 		logger: logger,

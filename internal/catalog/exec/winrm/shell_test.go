@@ -2,7 +2,19 @@ package winrm_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
+	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -95,22 +107,26 @@ func TestRefusesBadParams(t *testing.T) {
 		{name: "no command", params: map[string]any{"shell": "powershell"}, wantText: "command"},
 		{name: "no shell", params: map[string]any{"command": "hostname"}, wantText: "shell"},
 		{
-			// The refusal that matters most: "none" would mean running a
-			// program with an argument vector nothing parses, and this
-			// transport cannot promise that.
-			name:     "shell none is refused",
-			params:   map[string]any{"command": "hostname", "shell": "none"},
-			wantText: "WINRS_SKIP_CMD_SHELL",
-		},
-		{
 			name:     "unknown shell lists the valid values",
 			params:   map[string]any{"command": "hostname", "shell": "bash"},
 			wantText: "powershell",
 		},
 		{
-			name:     "cmd script closing the CDATA section",
-			params:   map[string]any{"command": "echo ]]> hi", "shell": "cmd"},
-			wantText: "CDATA",
+			// cmd.exe /c stops at the first line break, so a second line
+			// would be silently dropped.
+			name:     "multi-line cmd script",
+			params:   map[string]any{"command": "echo a\necho b", "shell": "cmd"},
+			wantText: "one line",
+		},
+		{
+			name:     "env that is not a map",
+			params:   map[string]any{"command": "hostname", "shell": "none", "env": "A=1"},
+			wantText: "must be a map",
+		},
+		{
+			name:     "a character WS-Man cannot carry",
+			params:   map[string]any{"command": "hostname\x00", "shell": "none"},
+			wantText: "cannot carry",
 		},
 	}
 	for _, tt := range tests {
@@ -289,5 +305,102 @@ func TestAcceptsAFloatTimeout(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "not a whole number") {
 		t.Errorf("a float carrying a whole number was refused: %v", err)
+	}
+}
+
+// shellDevice is a WinRM device that also says where its interpreters
+// live and where commands start, as windows.Server does.
+type shellDevice struct {
+	*winrmDevice
+	cmdPath, powerShellPath, workingDirectory string
+}
+
+func (d *shellDevice) CmdPath() string          { return d.cmdPath }
+func (d *shellDevice) PowerShellPath() string   { return d.powerShellPath }
+func (d *shellDevice) WorkingDirectory() string { return d.workingDirectory }
+
+// TestHonorsTheDevicesInterpreterPaths proves the device's own paths reach
+// the command, with no network: a path the command line cannot carry is
+// refused naming that path, which the default path never would be.
+func TestHonorsTheDevicesInterpreterPaths(t *testing.T) {
+	desc, ok := collection.Lookup("exec.winrm.shell")
+	if !ok {
+		t.Fatal("exec.winrm.shell is not registered")
+	}
+	tests := []struct {
+		name   string
+		dev    *shellDevice
+		shell  string
+		wanted string
+	}{
+		{name: "powershell_path", dev: &shellDevice{winrmDevice: device(), powerShellPath: `C:\bad"path\pwsh.exe`}, shell: "powershell", wanted: strconv.Quote(`C:\bad"path\pwsh.exe`)},
+		{name: "cmd_path", dev: &shellDevice{winrmDevice: device(), cmdPath: `C:\bad"path\cmd.exe`}, shell: "cmd", wanted: strconv.Quote(`C:\bad"path\cmd.exe`)},
+		{name: "working_directory", dev: &shellDevice{winrmDevice: device(), workingDirectory: "C:\\bad\x00dir"}, shell: "powershell", wanted: "working directory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := desc.Invoke(context.Background(), &ctxStub{stats: map[string]any{}}, tt.dev,
+				map[string]any{"command": "hostname", "shell": tt.shell})
+			if err == nil || !strings.Contains(err.Error(), tt.wanted) {
+				t.Errorf("err = %v, want it to name %q, the device's own setting", err, tt.wanted)
+			}
+		})
+	}
+}
+
+// tlsDevice is a WinRM device whose record pins TLS settings.
+type tlsDevice struct {
+	*winrmDevice
+	settings devicetls.Settings
+}
+
+func (d *tlsDevice) TLSSettings() devicetls.Settings { return d.settings }
+
+// certCtx supplies a client certificate as the device's credential,
+// which is what selects WinRM over HTTPS.
+type certCtx struct {
+	ctxStub
+	certPEM, keyPEM string
+}
+
+func (c *certCtx) InjectSecrets() map[string]string {
+	return map[string]string{wire.SecretCertificatePEM: c.certPEM, wire.SecretPrivateKeyPEM: c.keyPEM}
+}
+
+// TestUsesTheDevicesPinnedAuthority proves the device's own authority
+// reaches the handshake: against a listener with a private certificate,
+// the pinned device gets past TLS and the unpinned one does not.
+func TestUsesTheDevicesPinnedAuthority(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not soap"))
+	}))
+	defer server.Close()
+	host, portText, _ := net.SplitHostPort(strings.TrimPrefix(server.URL, "https://"))
+	port, _ := strconv.Atoi(portText)
+	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "lab"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	rc := &certCtx{ctxStub: ctxStub{stats: map[string]any{}},
+		certPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		keyPEM:  string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
+
+	desc, _ := collection.Lookup("exec.winrm.shell")
+	params := map[string]any{"command": "hostname", "shell": "powershell", "timeout": 10}
+	base := &winrmDevice{Stub: device().Stub, host: host, port: port}
+
+	pinned, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = desc.Invoke(context.Background(), rc, &tlsDevice{winrmDevice: base, settings: pinned}, params)
+	if err == nil || strings.Contains(err.Error(), "certificate") || !strings.Contains(err.Error(), "rather than SOAP") {
+		t.Errorf("pinned: err = %v, want the handshake to succeed", err)
+	}
+	_, err = desc.Invoke(context.Background(), rc, &tlsDevice{winrmDevice: base}, params)
+	if err == nil || !strings.Contains(err.Error(), "unknown authority") {
+		t.Errorf("unpinned: err = %v, want an unknown-authority failure", err)
 	}
 }

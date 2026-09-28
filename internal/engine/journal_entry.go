@@ -101,6 +101,7 @@ var engineActionStatKeys = map[string][]string{
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,
 	"telnet_exec":                   transportExecStatKeys,
+	"winrm_exec":                    transportExecStatKeys,
 }
 
 // The two keys sdk.RecordInverse writes its record under

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable user-facing changes to Pleiades are recorded here. Format loosely follows
+All notable user-facing changes to The Pleiades are recorded here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); entries are assembled from
 `changelog/*.md` fragments (see `changelog/README.md`).
 

@@ -26,7 +26,7 @@ type Config struct {
 	// external program and the built-in catalog without being renamed.
 	Name string
 
-	// Engine is the version of the Pleiades build generating the program
+	// Engine is the version of The Pleiades build generating the program
 	// (internal/buildinfo.Version), which decides the method's engine
 	// version constraint: a release build states its own release as the
 	// minimum, and a development build states none, since its 0.0.0

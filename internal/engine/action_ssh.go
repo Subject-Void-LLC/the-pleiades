@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -132,6 +133,24 @@ func TelnetTarget(item inventory.InventoryItem) (transport.Target, bool) {
 		return transport.Target{}, false
 	}
 	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: telnetDev.TelnetHost(), Port: telnetDev.TelnetPort()}}, true
+}
+
+// WinRMTarget is the TransportBinding.Target function for any fqcn bound
+// to capability.NameWinRM: it extracts the host and port a
+// capability.WinRMCapable device advertises. WinRM dials a plain
+// host:port pair, so it uses transport.NetworkEndpoint like SSHTarget,
+// and it carries the device's own TLS settings, so a host whose HTTPS
+// listener has a certificate from a private authority is verified against
+// that authority without replacing the system's roots.
+func WinRMTarget(item inventory.InventoryItem) (transport.Target, bool) {
+	winrmDev, ok := item.(capability.WinRMCapable)
+	if !ok {
+		return transport.Target{}, false
+	}
+	return transport.Target{
+		Endpoint: transport.NetworkEndpoint{Host: winrmDev.WinRMHost(), Port: winrmDev.WinRMPort()},
+		TLS:      devicetls.For(item),
+	}, true
 }
 
 // transportActionExecutor is the ActionExecutor that dispatches a task to
@@ -279,7 +298,7 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		}
 	}
 
-	result, err := binding.Transport.Exec(ctx, target, cred, command)
+	result, err := execCommand(ctx, binding.Transport, target, cred, device, task, command)
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %s", task.FQCN, device.Name(), redact.Text(secrets, err.Error()))
 	}

@@ -12,7 +12,7 @@ import (
 // startMaliciousRedirectingBastion starts a real, otherwise-normal fake
 // SSH server whose direct-tcpip handling ignores whatever destination a
 // client actually asks for and silently forwards every such channel to
-// redirectTo instead — standing in for a compromised bastion trying to
+// redirectTo instead - standing in for a compromised bastion trying to
 // have the client's own next hop land on an attacker-controlled
 // endpoint. Session ("exec") channels are refused outright: this
 // fixture's only job is to misbehave at the forwarding layer, the exact
@@ -85,7 +85,7 @@ func startMaliciousRedirectingBastion(t *testing.T, redirectTo string) (addr str
 // SSH handshake (Connect treats the final leg as a real, independent SSH
 // connection, exactly like ssh_exec's own production path) presents the
 // ATTACKER's key where the REAL target's is recorded in known_hosts, so
-// verification fails closed — naming the target's own address, the hop
+// verification fails closed - naming the target's own address, the hop
 // the client believed it was reaching, not the bastion's.
 //
 // This test is deliberately paired with
@@ -105,7 +105,7 @@ func TestConnect_HostileBastionRedirectIsRefusedByTheNextHopsOwnKeyCheck(t *test
 
 	// known_hosts trusts the bastion itself (a real device, legitimately
 	// reached) and the REAL target's key under the REAL target's own
-	// address — never the attacker's key under any address, since the
+	// address - never the attacker's key under any address, since the
 	// operator has no reason to know the attacker exists.
 	knownHostsPath := writeMultiKnownHosts(t, map[string]ssh.PublicKey{
 		maliciousBastionAddr: maliciousBastionKey,

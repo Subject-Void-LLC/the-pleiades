@@ -3,12 +3,12 @@
 One file per pull request that changes user-facing behavior, named
 `changelog/<short-slug>.<type>.md`, where `<type>` is one of:
 
-- `breaking` — an existing behavior changed incompatibly
-- `deprecated` — something still works but is on its way out
-- `removed` — something that used to work no longer exists
-- `added` — a new capability
-- `fixed` — a bug fix
-- `security` — a vulnerability fix or hardening change
+- `breaking` - an existing behavior changed incompatibly
+- `deprecated` - something still works but is on its way out
+- `removed` - something that used to work no longer exists
+- `added` - a new capability
+- `fixed` - a bug fix
+- `security` - a vulnerability fix or hardening change
 
 Content is one or two plain sentences, present tense, no em-dashes: what changed, from
 a user's point of view, not an implementation narrative. Example

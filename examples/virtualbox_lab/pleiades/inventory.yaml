@@ -1,0 +1,31 @@
+# The Pleiades static inventory for the VirtualBox lab (Crawl tier).
+#
+# Three devices: the Windows host VirtualBox runs on, reached over WinRM,
+# the Ubuntu VM the runbooks make on it, reached over SSH, and the Windows
+# VM they make on it, reached over WinRM. Build this file
+# with the commands in ../README.md rather than by hand: add-host writes
+# the ids, and set-host pins the host's certificate authority from the
+# ca.pem examples/windows_lab/winrm-cert-setup.ps1 wrote.
+hosts:
+    - name: vengeance
+      type: windows_server
+      tags:
+        - lab
+      properties:
+        host: 172.18.32.1         # the Windows host as WSL reaches it
+        port: 5986
+        # tls_ca_pem: set by: pleiades set-host vengeance --set "tls_ca_pem=$(cat ca.pem)"
+        virtualbox: true
+        vm_folder: G:\PleiadesLab
+    - name: ubuntu-lab
+      type: linux_server
+      tags:
+        - lab
+      properties:
+        host: 192.168.56.10       # the address 03-create.yaml gives it
+    - name: win-lab
+      type: windows_server
+      tags:
+        - lab
+      properties:
+        host: 192.168.56.30       # the address windows-02-create.yaml gives it

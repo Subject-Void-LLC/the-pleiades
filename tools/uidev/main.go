@@ -438,7 +438,7 @@ func banner(token, addr string, cert testsupport.ServingCert) string {
 	host := "https://localhost" + addr
 	return fmt.Sprintf(`
 ================================================================
-  Pleiades UI  ->  %[1]s/ui
+  The Pleiades UI  ->  %[1]s/ui
 ================================================================
 
   Sign in at  %[1]s/ui/login

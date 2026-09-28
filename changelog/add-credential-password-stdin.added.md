@@ -1,0 +1,1 @@
+`pleiades add-credential --password-stdin` reads the password as one line on standard input, so a script can store one without a terminal prompt and without putting it on its command line, where other processes can read it.

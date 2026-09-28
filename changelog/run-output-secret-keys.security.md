@@ -1,0 +1,1 @@
+`pleiades run` output now masks a task's output field whose name marks it as a secret (`password`, `token`, `private_key` and the rest of the masking ruleset's key rules) as `$encrypted$`, whatever it holds, where before only a value already known to be secret was masked.

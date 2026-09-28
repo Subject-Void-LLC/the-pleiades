@@ -59,12 +59,12 @@ func checkDir(dir string) (string, error) {
 // anyone other than this process's effective user or root. Its errors
 // read as the end of a sentence naming the path.
 //
-// Either one would let a second account decide what Pleiades runs:
+// Either one would let a second account decide what The Pleiades runs:
 // writable by others directly, and owned by someone else because an owner
 // can always change the mode back.
 func checkOwnership(info fs.FileInfo) error {
 	if perm := info.Mode().Perm(); perm&writableByOthers != 0 {
-		return fmt.Errorf("is group- or world-writable (mode %04o): only its owner may be able to change what Pleiades runs", perm)
+		return fmt.Errorf("is group- or world-writable (mode %04o): only its owner may be able to change what The Pleiades runs", perm)
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -148,7 +148,7 @@ func openProgram(path string) (*os.File, string, error) {
 		return fail(fmt.Errorf("is not executable by its owner (mode %04o)", mode.Perm()))
 	}
 	if mode&(fs.ModeSetuid|fs.ModeSetgid) != 0 {
-		return fail(errors.New("is setuid or setgid; an external Collection runs as the Pleiades user and never needs to change who it runs as"))
+		return fail(errors.New("is setuid or setgid; an external Collection runs as The Pleiades user and never needs to change who it runs as"))
 	}
 	if err := checkOwnership(info); err != nil {
 		return fail(err)

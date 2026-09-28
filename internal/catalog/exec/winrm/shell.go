@@ -1,6 +1,6 @@
 // Package winrm implements the "exec.winrm.shell" Collection method:
-// running a script on a Windows target through PowerShell or cmd.exe,
-// over WinRM.
+// running a command on a Windows target through PowerShell, cmd.exe or
+// no shell of its own choosing, over WinRM.
 //
 // Scaffolded by pleiades forge new-collection from
 // internal/forge/catalogdata, then hand-completed. Edit the data there,
@@ -29,6 +29,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -38,6 +39,7 @@ import (
 const (
 	paramCommand          = "command"
 	paramShell            = "shell"
+	paramEnv              = "env"
 	paramTimeout          = "timeout"
 	paramExpectDisconnect = "expect_disconnect"
 	paramReconnectTimeout = "reconnect_timeout"
@@ -87,11 +89,12 @@ func init() {
 // internal/archtest's TestCatalogDataDocsMatchTheRegistry enforces.
 func shellDoc() collection.Doc {
 	return collection.Doc{
-		Summary:     "Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM.",
-		Description: "Runs a script on a Windows host over WinRM, naming which interpreter runs it. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. Two shells are available and the task must pick one. powershell encodes the script UTF-16LE and base64 into powershell.exe -EncodedCommand, which is also what makes it safe: the base64 alphabet contains no cmd.exe metacharacter, so no script content can reach a shell as syntax. cmd runs the script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. Running a program directly with an argument vector nothing parses is refused rather than approximated, because the WS-Man option that would make it true is not settable from here. A script cannot be inspected, so this reports changed every time it runs.",
+		Summary:     "Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM.",
+		Description: "Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs.",
 		Params: []collection.Param{
-			{Name: paramCommand, Type: "string", Required: true, Description: "The script to run. It is passed to the interpreter named by shell, verbatim, so every metacharacter that interpreter understands is syntax and any runbook value interpolated into it is code."},
-			{Name: paramShell, Type: "string", Required: true, Default: "powershell", Description: "Which interpreter runs the script: powershell or cmd. Required rather than defaulted silently, because the two have disjoint metacharacter sets and a script written for one is not safe in the other. The value none is refused: it would mean running a program directly with no interpreter, and this transport cannot promise that."},
+			{Name: paramCommand, Type: "string", Required: true, Description: "The script to run, or with shell none the command line: a program and its arguments, quoted the way that program expects. It is passed on verbatim, so every metacharacter the named shell understands is syntax and any runbook value interpolated into it is code. Pass values in env instead."},
+			{Name: paramShell, Type: "string", Required: true, Default: "powershell", Description: "How the command runs: powershell, cmd or none. powershell and cmd name the interpreter that reads a script, and none runs a command line directly with no interpreter. Required rather than defaulted silently, because the three read the same text three different ways and a command written for one is not safe in another. Which programs run is the device's own setting (cmd_path, powershell_path)."},
+			{Name: paramEnv, Type: "dict", Description: "Values the command reads, set as environment variables before it starts. Each name becomes PLEIADES_ followed by the name, read as $env:PLEIADES_NAME in PowerShell or !PLEIADES_NAME! in cmd, so a value never becomes part of the command text and needs no escaping for either shell. In cmd the %PLEIADES_NAME% form is refused, because cmd.exe expands it before it parses the line. Values must be strings, numbers or booleans. The environment is visible to other processes on the device, so a secret does not belong here."},
 			{Name: paramTimeout, Type: "int", Default: "60", Description: "How many seconds to wait for the script to finish before giving up. This bounds the whole operation, including a device that accepts the connection and then never answers, which is what a host looks like after a script has reconfigured its own network. Raise it for an installer or an update run; the default is short because most work here is not."},
 			{Name: paramExpectDisconnect, Type: "bool", Default: "false", Description: "Declare that this script is expected to destroy the connection carrying it, as an address change or a reboot does. The task then waits for the device to answer WinRM again instead of failing, and reports result_known false, because the script's exit status and output went down with the connection and are not recoverable. A device that never comes back is still a failure."},
 			{Name: paramReconnectTimeout, Type: "int", Default: "300", Description: "How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored."},
@@ -99,12 +102,14 @@ func shellDoc() collection.Doc {
 		Returns: []collection.ReturnField{
 			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the script wrote to standard output."},
 			{Name: statStderr, Type: "string", Returned: "always", Description: "Everything the script wrote to standard error. PowerShell progress output is suppressed before the script runs, so this carries real errors rather than progress records."},
-			{Name: statExitCode, Type: "int", Returned: "always", Description: "The script's exit status. A non-zero status fails the task."},
+			{Name: statExitCode, Type: "int", Returned: "always", Description: "The command's exit status. Under powershell a failing native program's own code survives, and a failed cmdlet reports 1. A non-zero status fails the task."},
 			{Name: statResultKnown, Type: "bool", Returned: "always", Description: "Whether this task actually saw the script finish. False only after an expected disconnect, where stdout, stderr and the exit status are all unavailable. Check this before trusting the other three: an unreceived result and a silent success are otherwise indistinguishable."},
 		},
 		Examples: []collection.Example{
 			{Name: "Read a fact from a Windows host", RunbookYAML: "- name: Report the OS caption\n  exec.winrm.shell:\n    shell: powershell\n    command: (Get-CimInstance Win32_OperatingSystem).Caption\n  register: os_caption\n"},
 			{Name: "Use a cmd builtin", RunbookYAML: "- name: Show the environment cmd sees\n  exec.winrm.shell:\n    shell: cmd\n    command: set\n"},
+			{Name: "Pass a value as data, not script text", RunbookYAML: "- name: Create the deployment folder\n  exec.winrm.shell:\n    shell: powershell\n    command: New-Item -ItemType Directory -Force -Path $env:PLEIADES_DIR\n    env:\n      DIR: C:\\Deploy\n"},
+			{Name: "Run a program with no shell", RunbookYAML: "- name: Query the time service\n  exec.winrm.shell:\n    shell: none\n    command: w32tm /query /status\n"},
 		},
 		SeeAlso: []string{"exec.shell", "exec.command"},
 	}
@@ -139,6 +144,10 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	env, err := sdk.EnvParam(params, paramEnv)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	target, err := winrmTarget(device)
 	if err != nil {
@@ -170,9 +179,21 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	opts := winrmexec.Options{Timeout: timeout}
+	// The device's own pinned authority and server name, if it names any.
+	opts := winrmexec.WithDeviceTLS(winrmexec.Options{Timeout: timeout}, devicetls.For(device))
+	// A command that is expected to cut its own connection is doing its
+	// job when the wait for it runs out, so it is left running; any other
+	// command is stopped then, rather than left on the device.
+	opts.LeaveRunningOnTimeout = expectDisconnect
+	// A device that says where its interpreters live, or where commands
+	// start, is honored; one that does not gets the stock paths.
+	if dev, ok := device.(capability.WindowsShellCapable); ok {
+		opts.CmdPath = dev.CmdPath()
+		opts.PowerShellPath = dev.PowerShellPath()
+		opts.WorkingDirectory = dev.WorkingDirectory()
+	}
 
-	result, runErr := winrmexec.Run(ctx, target, auth, shell, script, opts)
+	result, runErr := winrmexec.Execute(ctx, target, auth, winrmexec.Command{Shell: shell, Script: script, Env: env}, opts)
 	if runErr != nil {
 		if !expectDisconnect {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, runErr)

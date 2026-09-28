@@ -29,6 +29,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmdism"
@@ -218,6 +219,8 @@ func winrmSession(rc sdk.RunbookContext, device inventory.InventoryItem, fqcn st
 	session := winrmdism.Session{
 		Target: winrmexec.Target{Host: winrmDev.WinRMHost(), Port: winrmDev.WinRMPort()},
 		Auth:   auth,
+		// The device's own pinned authority and server name, if it names any.
+		Options: winrmexec.WithDeviceTLS(winrmexec.Options{}, devicetls.For(device)),
 	}
 	return session, featureDev.DISMLogPath(), nil
 }

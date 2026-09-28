@@ -82,7 +82,7 @@ func TestCheckMode_AnExternalCheckSkipsASimulateLockedDevice(t *testing.T) {
 // TestJournal_AnExternalMethodsEntryNamesItsProgram proves the journal
 // entry of a method an external program provides records that program and
 // the digest it ran as, and a built-in method's entry records neither, so
-// a reader of the journal alone can tell third-party work from Pleiades's
+// a reader of the journal alone can tell third-party work from The Pleiades's
 // own.
 func TestJournal_AnExternalMethodsEntryNamesItsProgram(t *testing.T) {
 	t.Cleanup(collection.SnapshotForTest())

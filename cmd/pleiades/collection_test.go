@@ -95,7 +95,7 @@ func TestCLI_CollectionApproveAsksAndRecords(t *testing.T) {
 // binary with the whole built-in catalog registered, that an approved
 // external program still cannot provide a method in a namespace the
 // catalog uses: a name like file.* can only mean code that ships with
-// Pleiades.
+// The Pleiades.
 func TestCLI_AProgramCannotClaimACatalogNamespace(t *testing.T) {
 	collections := t.TempDir()
 	if err := os.Chmod(collections, 0o700); err != nil {
@@ -111,7 +111,7 @@ func TestCLI_AProgramCannotClaimACatalogNamespace(t *testing.T) {
 		t.Fatalf("approving: %v\n%s", err, out)
 	}
 	out, err := runWithStdin(t, dir, env, "", "doc", "--list")
-	if err == nil || !strings.Contains(out, `"file" namespace, which belongs to Pleiades itself`) {
+	if err == nil || !strings.Contains(out, `"file" namespace, which belongs to The Pleiades itself`) {
 		t.Fatalf("doc --list = %v, want the impostor refused for its namespace:\n%s", err, out)
 	}
 }

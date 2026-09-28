@@ -29,7 +29,7 @@
 // payload it receives without inspecting it. There is nothing an
 // accepted option would let an Exec-shaped, one-command-in-one-command-out
 // session do that plain refusal does not already cover, and refusing
-// keeps the protocol surface this package must defend at its smallest —
+// keeps the protocol surface this package must defend at its smallest -
 // the same reasoning pkg/rfc2217's own doc comment gives for why THAT
 // package, unlike this one, needs to actually negotiate one specific
 // option (COM-PORT-OPTION) rather than refuse everything.
@@ -43,7 +43,7 @@
 // # How "the command finished" is decided, and the one extra read this package pays for
 //
 // Exec reads once before writing anything, to drain and answer whatever
-// opening negotiation burst the far end sends immediately on connect —
+// opening negotiation burst the far end sends immediately on connect -
 // a real telnetd commonly sends WILL ECHO / WILL SUPPRESS-GO-AHEAD before
 // its login banner, and some hold that banner back until the client has
 // replied. Nothing read here is discarded: it is simply the first part
@@ -53,12 +53,12 @@
 // shape, and it costs one full Options.ReadTimeout of latency on every
 // call even against a server with no banner at all (there is no way to
 // tell "nothing is coming" from "something is coming slowly" without
-// waiting out the timeout) — a documented, bounded cost, not an oversight.
+// waiting out the timeout) - a documented, bounded cost, not an oversight.
 //
 // After that, Exec writes the command, then reads with a bounded
 // per-call timeout (Options.ReadTimeout, via net.Conn.SetReadDeadline)
 // in a loop, accumulating bytes, until one read call either times out
-// (net.Error.Timeout() == true) or returns io.EOF, treated identically —
+// (net.Error.Timeout() == true) or returns io.EOF, treated identically -
 // pkg/serialtcp's own doc comment gives the full reasoning for why an
 // EOF is exactly as valid an answer as a quiet period, not a failure.
 //
@@ -169,7 +169,7 @@ func Exec(ctx context.Context, host string, port int, opts Options, command stri
 // Exec is now a thin wrapper: dial, then call this.
 //
 // This exists for a caller who already has a live connection to the
-// device by some other means Exec cannot express — most concretely,
+// device by some other means Exec cannot express - most concretely,
 // pkg/remoteexec.Runner.DialThroughHops, which tunnels through a bastion
 // chain (transport.Target.Route) and hands back a raw net.Conn with no
 // SSH handshake on the final leg, exactly the shape a Telnet-only device
@@ -232,16 +232,16 @@ func writeIAC(conn io.Writer, cmd, opt byte) error {
 // readUntilQuiet accumulates plain data bytes read from conn, running
 // each chunk through f so any telnet negotiation is answered and
 // stripped before the data reaches the caller. It returns when a read
-// call times out (net.Error.Timeout() == true) or returns io.EOF — see
+// call times out (net.Error.Timeout() == true) or returns io.EOF - see
 // this package's own doc comment for why both mean the same thing here
-// — when ctx is canceled, or when the accumulated total exceeds
+// - when ctx is canceled, or when the accumulated total exceeds
 // maxOutput, in which case it is refused outright rather than silently
 // truncated.
 //
 // conn.SetReadDeadline failing, and f.feed failing because writeIAC's own
 // conn.Write failed while answering a negotiation offer, are both real
 // defensive coverage but neither is reachable from this package's own
-// test suite without fault injection this module does not fabricate —
+// test suite without fault injection this module does not fabricate -
 // the identical, already-documented gap pkg/serialexec.Exec and
 // pkg/serialtcp.readUntilQuiet each carry for the same reason. Left in
 // place so a future net.Conn implementation's failure mode here gets a
@@ -339,7 +339,7 @@ func (f *iacFilter) feed(conn io.Writer, raw []byte) ([]byte, error) {
 			// DONT/WONT need no reply at all (RFC 854: a reply is only
 			// required to acknowledge a state change, and this client is
 			// already refusing everything, so a DONT/WONT confirms what
-			// it already believes) — replying anyway would risk a
+			// it already believes) - replying anyway would risk a
 			// negotiation loop with a server that follows the same rule.
 			switch f.negotiating {
 			case doByte:

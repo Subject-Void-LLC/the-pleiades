@@ -19,18 +19,19 @@ import (
 // method registry, and the inventory device-type table), not a new
 // hand-rolled map.
 //
-// sshTransport, serialTransport, serialtcpTransport, and telnetTransport
-// are the real transport.Transport values a caller has already
-// constructed (internal/transport/ssh.New(...),
+// sshTransport, serialTransport, serialtcpTransport, telnetTransport and
+// winrmTransport are the real transport.Transport values a caller has
+// already constructed (internal/transport/ssh.New(...),
 // internal/transport/serial.New(...), internal/transport/serialtcp.New(...),
-// internal/transport/telnet.New(...)); this function does not construct
+// internal/transport/telnet.New(...), internal/transport/winrm.New(...));
+// this function does not construct
 // any of them itself, since a composition root's own choice of options
 // (known_hosts path, retry/breaker tuning, serial read timeouts) is not
 // this package's decision to make.
 //
-// Adding a second real COMMAND-ORIENTED transport (WinRM, for one) is a
-// new MustRegister call here plus a new transport.Transport
-// implementation elsewhere, never a change to transportActionExecutor:
+// Adding a real COMMAND-ORIENTED transport is a new MustRegister call
+// here plus a new transport.Transport implementation elsewhere, never a
+// change to transportActionExecutor:
 // the same "data,
 // not a type switch" property TransportBinding's own doc comment already
 // claims for the map form holds identically for the Registry form.
@@ -38,13 +39,17 @@ import (
 // second, third, and fourth real proof of that claim: none needed a
 // change to transportActionExecutor.Execute beyond the
 // RequireOptInParam gate, which is itself data on the binding, not a
-// type switch on the fqcn.
+// type switch on the fqcn. winrm_exec (Phase 75) is the fifth, with one
+// named exception: a transport that is also a transport.ShellTransport
+// is reached through ExecShell, which transportActionExecutor
+// type-asserts for when a task names params.shell, and that assertion is
+// the one change to the executor WinRM needed.
 //
 // NETCONF was named here as a future entry and is not one: it is not
 // Exec-shaped (no command string, no stdout, no exit code), so it has no
 // TransportBinding and never will. See pkg/datastore, the port the
 // structured-configuration protocols use instead.
-func NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTransport, telnetTransport transport.Transport) *registry.Registry[TransportBinding] {
+func NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTransport, telnetTransport, winrmTransport transport.Transport) *registry.Registry[TransportBinding] {
 	bindings := registry.New[TransportBinding]()
 	bindings.MustRegister("ssh_exec", TransportBinding{
 		Capability: ActionCapability["ssh_exec"],
@@ -67,6 +72,11 @@ func NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTranspo
 		Transport:         telnetTransport,
 		Target:            TelnetTarget,
 		RequireOptInParam: ParamInsecureTelnet,
+	})
+	bindings.MustRegister("winrm_exec", TransportBinding{
+		Capability: ActionCapability["winrm_exec"],
+		Transport:  winrmTransport,
+		Target:     WinRMTarget,
 	})
 	return bindings
 }

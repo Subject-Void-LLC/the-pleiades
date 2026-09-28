@@ -29,8 +29,10 @@ import (
 // The zero Auth is not usable and is refused before any dial; see
 // Runner.Connect.
 type Auth struct {
-	user   string
-	method ssh.AuthMethod
+	user string
+	// methods are offered to the server in order: a key before a password
+	// when a credential holds both, as OpenSSH's client does.
+	methods []ssh.AuthMethod
 
 	// identity tells two Auths apart without holding their secrets: an
 	// HMAC, under a key drawn at random once per process, of the user and
@@ -69,7 +71,7 @@ func identityOf(kind string, parts ...[]byte) [sha256.Size]byte {
 // A zero Auth is not usable, which is what stops an unauthenticated
 // connection attempt from ever leaving the process.
 func (a Auth) usable() bool {
-	return a.method != nil
+	return len(a.methods) > 0
 }
 
 // clientConfig builds the ssh.ClientConfig for one connection: this
@@ -82,7 +84,7 @@ func (a Auth) usable() bool {
 func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, dialTimeout time.Duration) *ssh.ClientConfig {
 	return &ssh.ClientConfig{
 		User:            a.user,
-		Auth:            []ssh.AuthMethod{a.method},
+		Auth:            a.methods,
 		HostKeyCallback: hostKey,
 		// Timeout is a fallback bound only. The caller's ctx is honored
 		// inside realDial and dialWithRetry, so a context deadline aborts
@@ -94,7 +96,7 @@ func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, dialTimeout time.Duratio
 
 // PasswordAuth returns an Auth that authenticates as user with password.
 func PasswordAuth(user, password string) Auth {
-	return Auth{user: user, method: ssh.Password(password), identity: identityOf("password", []byte(user), []byte(password))}
+	return Auth{user: user, methods: []ssh.AuthMethod{ssh.Password(password)}, identity: identityOf("password", []byte(user), []byte(password))}
 }
 
 // PrivateKeyAuth returns an Auth that authenticates as user with the
@@ -115,12 +117,21 @@ func PrivateKeyAuth(user string, privateKeyPEM []byte, passphrase string) (Auth,
 	if err != nil {
 		return Auth{}, fmt.Errorf("parse private key: %w", err)
 	}
-	return Auth{user: user, method: ssh.PublicKeys(signer), identity: identityOf("key", []byte(user), signer.PublicKey().Marshal())}, nil
+	return Auth{user: user, methods: []ssh.AuthMethod{ssh.PublicKeys(signer)}, identity: identityOf("key", []byte(user), signer.PublicKey().Marshal())}, nil
 }
 
 // AuthFrom turns the four pieces of authentication material this
-// platform stores into exactly one Auth, preferring a password and
-// falling back to a private key.
+// platform stores into exactly one Auth: a password, a private key, or,
+// when a credential holds both, the key offered first and the password
+// after it.
+//
+// Both is what a credential generated for a new machine holds (pleiades
+// add-credential --generate): the key to log in with, and a password for
+// its console. OpenSSH's client offers a key before a password, and a
+// server that refuses passwords for the account, as Ubuntu does for root
+// by default, then still admits it. A key that does not parse is an error
+// even beside a password: skipping it would hide a broken credential
+// behind a login that works for another reason.
 //
 // This is the single place that preference order is written down. It has
 // two callers with two different sources (a credential store on one
@@ -133,6 +144,18 @@ func PrivateKeyAuth(user string, privateKeyPEM []byte, passphrase string) (Auth,
 // from a device whose credential was not found.
 func AuthFrom(user, password string, privateKeyPEM []byte, passphrase string) (Auth, error) {
 	switch {
+	case password != "" && len(privateKeyPEM) > 0:
+		key, err := PrivateKeyAuth(user, privateKeyPEM, passphrase)
+		if err != nil {
+			return Auth{}, err
+		}
+		keyIdentity := key.identity
+		return Auth{
+			user:     user,
+			methods:  []ssh.AuthMethod{key.methods[0], ssh.Password(password)},
+			identity: identityOf("key+password", []byte(user), keyIdentity[:], []byte(password)),
+		}, nil
+
 	case password != "":
 		return PasswordAuth(user, password), nil
 

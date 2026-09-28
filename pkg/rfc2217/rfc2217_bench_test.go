@@ -17,7 +17,7 @@ import (
 // server on loopback TCP. This is what a runbook actually pays: unlike
 // SSH (one handshake amortized across a whole session), RFC 2217 has no
 // session concept here at all, so a per-command caller renegotiates
-// every single time — this benchmark exists to make that real,
+// every single time - this benchmark exists to make that real,
 // measurable cost visible, not to measure ser2net's own performance (a
 // real daemon would add real I/O latency this in-process fake server
 // deliberately has none of, keeping the number specific to this

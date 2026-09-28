@@ -116,10 +116,11 @@ type Reversibility struct {
 // can never loosen it.
 type Manifest struct {
 	// SupportedTransports names the transports this method can run over
-	// (for example "ssh"). It is a plain string set rather than a
-	// reference to a concrete transport type: only one transport exists
-	// in this codebase today, and binding this field to it ahead of a
-	// second transport existing would be premature structure.
+	// (for example "ssh" or "winrm"). It is a plain string set rather
+	// than a reference to a concrete transport type: several transports
+	// exist, but no phase has yet claimed typing this field against them.
+	// Nothing checks it against a device either, so today it documents a
+	// method rather than gating one; RequiredCapabilities is what gates.
 	SupportedTransports []string `json:"supportedTransports,omitempty"`
 
 	// RequiredCapabilities is what a device must structurally implement
@@ -186,6 +187,26 @@ type Manifest struct {
 	// next task logs in again. It matters only when connections persist
 	// between tasks; without that every task logs in afresh anyway.
 	EndsLoginSession bool `json:"endsLoginSession,omitempty"`
+
+	// SeedsLogin names the parameter, if any, whose value names an
+	// inventory device this method creates a machine for, seeding the
+	// machine with that device's stored login. The engine resolves the
+	// device's credential and hands the method only what a machine needs
+	// to admit it (wire.SecretSeedUsername, SecretSeedAuthorizedKey and
+	// SecretSeedPasswordHash): the username, the key's public half and a
+	// freshly salted hash of the password, never the key or the password.
+	// A tier that cannot resolve it refuses the method rather than
+	// running it with no login to seed, and Register refuses it on an
+	// external Collection's method.
+	SeedsLogin string `json:"seedsLogin,omitempty"`
+
+	// SeedsLoginPassword says the method can seed a machine that is
+	// reached over WinRM, such as a Windows VM, which admits a password
+	// rather than a key. For a device reached that way the engine hands
+	// the method the password itself (wire.SecretSeedPassword) in place
+	// of a key and a hash; a method without it is refused such a device.
+	// It needs SeedsLogin.
+	SeedsLoginPassword bool `json:"seedsLoginPassword,omitempty"`
 
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries

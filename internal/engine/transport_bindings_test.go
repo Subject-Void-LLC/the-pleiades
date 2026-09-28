@@ -26,13 +26,33 @@ func TestNewDefaultTransportBindings_RegistersAllThree(t *testing.T) {
 	serialTransport := &fakeTransport{}
 	serialtcpTransport := &fakeTransport{}
 	telnetTransport := &fakeTransport{}
+	winrmTransport := &fakeTransport{}
 
-	bindings := engine.NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTransport, telnetTransport)
+	bindings := engine.NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTransport, telnetTransport, winrmTransport)
 	all := bindings.All()
 
-	if len(all) != 4 {
-		t.Fatalf("len(all) = %d, want 4", len(all))
+	if len(all) != 5 {
+		t.Fatalf("len(all) = %d, want 5", len(all))
 	}
+
+	t.Run("winrm_exec", func(t *testing.T) {
+		binding, ok := all["winrm_exec"]
+		if !ok {
+			t.Fatal("expected a registered binding for \"winrm_exec\"")
+		}
+		if binding.Capability != capability.NameWinRM {
+			t.Errorf("Capability = %s, want %s", binding.Capability, capability.NameWinRM)
+		}
+		if binding.Transport != winrmTransport {
+			t.Error("Transport is not the exact instance passed in")
+		}
+		if binding.RequireOptInParam != "" {
+			t.Errorf("RequireOptInParam = %q, want empty: WinRM is authenticated and encrypted", binding.RequireOptInParam)
+		}
+		if _, ok := binding.Target(newSSHDevice("linux1", "10.0.0.1", 22)); ok {
+			t.Error("Target accepted a device with no WinRM accessors")
+		}
+	})
 
 	t.Run("ssh_exec", func(t *testing.T) {
 		binding, ok := all["ssh_exec"]
@@ -127,7 +147,7 @@ func TestNewDefaultTransportBindings_RegistersAllThree(t *testing.T) {
 // All() output, with all four transports supplied so the check covers
 // every binding this constructor can produce.
 func TestNewDefaultTransportBindings_AgreesWithActionCapability(t *testing.T) {
-	bindings := engine.NewDefaultTransportBindings(&fakeTransport{}, &fakeTransport{}, &fakeTransport{}, &fakeTransport{})
+	bindings := engine.NewDefaultTransportBindings(&fakeTransport{}, &fakeTransport{}, &fakeTransport{}, &fakeTransport{}, &fakeTransport{})
 	if err := engine.CheckActionCapabilityBindings(bindings.All()); err != nil {
 		t.Errorf("CheckActionCapabilityBindings: %v", err)
 	}

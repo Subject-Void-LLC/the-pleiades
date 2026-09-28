@@ -50,7 +50,7 @@ tasks:
       lines:
         - no interface Loopback8990
 
-# Safety note: Pleiades does not yet execute rescue:/always: blocks.
+# Safety note: The Pleiades does not yet execute rescue:/always: blocks.
 # The runbook schema accepts block:/rescue:, but no executor routes
 # anything to them yet, so nothing in this platform can guarantee the
 # removal

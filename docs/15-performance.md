@@ -10,17 +10,17 @@ logins, network and disk all measured. Everything on this page comes from one ru
 [`tools/ansiblebench`](../tools/ansiblebench/bench.py) on 2026-09-24; its raw output is
 [`tools/ansiblebench/results/2026-09-24.json`](../tools/ansiblebench/results/2026-09-24.json).
 
-**In short.** On this workload Pleiades finished 24 to 41 times sooner at every size. At 200 hosts
+**In short.** On this workload The Pleiades finished 24 to 41 times sooner at every size. At 200 hosts
 it used about 57 times less CPU on the machine running it, and about 72 times less across the
 whole machine, devices included. It also used 9 to 14 times less memory on the control node. At
 every size it sent about 62 times less network traffic. Neither tool's disk use was significant. Most of Ansible's cost is not SSH:
 for every task on every host it builds a Python module, copies it over and starts Python on the
-device. Pleiades sends the command and reads the answer.
+device. The Pleiades sends the command and reads the answer.
 
 ## What was measured
 
 - **The work.** Every host runs ten tasks, and each reads `/etc/os-release`. On the Ansible side
-  that is a playbook of ten `ansible.builtin.command` tasks. On the Pleiades side it is the runbook
+  that is a playbook of ten `ansible.builtin.command` tasks. On The Pleiades side it is the runbook
   `migrate-playbook` makes of that playbook: ten `exec.command` tasks. Each run is accepted only
   when the tool reports all ten tasks done on every host.
 - **The tools.**
@@ -67,7 +67,7 @@ tools. They are the total cost of a run, not the control node's alone.
 
 Wall-clock time per run:
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off | Pleiades faster by |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off | The Pleiades faster by |
 |---|---|---|---|---|---|
 | 1 | 5 | 2.45 s | 0.10 s | 0.63 s | 24x |
 | 10 | 5 | 5.15 s | 0.19 s | 1.27 s | 28x |
@@ -81,7 +81,7 @@ Wall-clock time per run:
 
 CPU seconds per run (control node / whole machine):
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off |
 |---|---|---|---|---|
 | 1 | 5 | 1.27 / 4.24 | 0.04 / 0.12 | 0.06 / 0.38 |
 | 10 | 5 | 9.63 / 29.04 | 0.19 / 0.45 | 0.31 / 2.15 |
@@ -95,7 +95,7 @@ CPU seconds per run (control node / whole machine):
 
 Peak memory added, MiB (control node / whole machine):
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off |
 |---|---|---|---|---|
 | 1 | 5 | 63 / 105 | 10 / 24 | 11 / 15 |
 | 10 | 5 | 136 / 213 | 16 / 29 | 15 / 23 |
@@ -109,7 +109,7 @@ Peak memory added, MiB (control node / whole machine):
 
 Tasks (threads and processes): peak added on the control node / on the whole machine, and processes created per run:
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off |
 |---|---|---|---|---|
 | 1 | 5 | 8 / 12, 289 created | 13 / 18, 26 created | 13 / 28, 59 created |
 | 10 | 5 | 32 / 70, 2592 created | 17 / 42, 147 created | 17 / 32, 429 created |
@@ -123,7 +123,7 @@ Tasks (threads and processes): peak added on the control node / on the whole mac
 
 SSH logins (TCP connections opened) and network traffic per run:
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off |
 |---|---|---|---|---|
 | 1 | 5 | 0 logins, 1.3 MiB | 1 login, 0.0 MiB | 10 logins, 0.1 MiB |
 | 10 | 5 | 0 logins, 12.7 MiB | 10 logins, 0.2 MiB | 100 logins, 0.7 MiB |
@@ -137,7 +137,7 @@ SSH logins (TCP connections opened) and network traffic per run:
 
 Disk per run, MiB (control node read / write; whole machine read / write):
 
-| Hosts | Forks | Ansible | Pleiades | Pleiades, persistence off |
+| Hosts | Forks | Ansible | The Pleiades | The Pleiades, persistence off |
 |---|---|---|---|---|
 | 1 | 5 | 0.0 / 0.0; 0.0 / 0.4 | 0.0 / 0.0; 0.0 / 0.3 | 0.0 / 0.0; 0.0 / 0.4 |
 | 10 | 5 | 0.0 / 0.0; 0.0 / 1.1 | 0.0 / 0.1; 0.0 / 0.6 | 0.0 / 0.1; 0.0 / 1.1 |
@@ -154,31 +154,31 @@ Disk per run, MiB (control node read / write; whole machine read / write):
 - **Time grows linearly with hosts for both tools; only the slope differs.** At 5 devices at a
   time the cost per host is:
   - Ansible: 0.46 s;
-  - Pleiades: 0.016 s, or 0.12 s with persistence off.
+  - The Pleiades: 0.016 s, or 0.12 s with persistence off.
 
   Going from 5 devices at a time to 25 made 200 hosts 2.15 times faster for Ansible, 3.1 times
-  for Pleiades and 4.3 times for Pleiades with persistence off.
+  for The Pleiades and 4.3 times for The Pleiades with persistence off.
 - **Ansible is limited by CPU, and at 25 wide it ran out.** It used about 0.1 CPU seconds on the
   control node for each task on each host, and 0.3 CPU seconds across the whole machine.
   - At 200 hosts and 25 devices at a time, it kept about 18.7 of the machine's 20 CPUs busy for
     the whole run. That is why five times the parallelism bought it only about twice the speed.
-  - Pleiades used 1.7 ms of control-node CPU per task, and 4.2 ms across the machine. At the same
+  - The Pleiades used 1.7 ms of control-node CPU per task, and 4.2 ms across the machine. At the same
     size it had about 8.5 CPUs busy for one second.
   - Put per core: one core of control-node CPU handles about 10 of these tasks a second under
-    Ansible, and about 575 under Pleiades.
+    Ansible, and about 575 under The Pleiades.
 - **Memory.** On the control node Ansible's memory grows with hosts:
   - Ansible at 200 hosts: 479 to 555 MiB. It keeps an `ssh` process and an `sshpass` process for
     every host it has logged in to.
-  - Pleiades at 200 hosts: 35 to 62 MiB.
-- **Kept connections cost something on the devices.** With persistence on, Pleiades holds one
+  - The Pleiades at 200 hosts: 35 to 62 MiB.
+- **Kept connections cost something on the devices.** With persistence on, The Pleiades holds one
   SSH session open on every device until its run ends. Across the machine that added about
   1.5 MiB and two processes per device: 335 MiB and 429 tasks at 200 hosts, against 33 MiB and
   44 tasks with persistence off. Ansible's kept connections cost the same kind of thing, and they
   outlive its run by 60 seconds.
 - **Threads and processes.**
   - Ansible created about 26 processes per task on each host, 51,330 for one 200-host run.
-  - Pleiades created about 1.3 per task with persistence and 4.2 without.
-  - Pleiades's control-node thread count stayed between 13 and 29 at every size.
+  - The Pleiades created about 1.3 per task with persistence and 4.2 without.
+  - The Pleiades's control-node thread count stayed between 13 and 29 at every size.
   - Ansible's whole-machine task peak at 25 devices at a time (174 at 200 hosts) is lower than at
     5 (645). The sampler runs in the same container, and at 25 wide Ansible kept the machine's
     CPUs about 94% busy, so those two peaks may be understated. The counts of processes created
@@ -187,17 +187,17 @@ Disk per run, MiB (control node read / write; whole machine read / write):
   - Ansible's timed runs opened no connections at all, because each reused the ones its warm-up
     kept open. Instead it sent about 130 KiB per task: the module, and Python's output coming
     back.
-  - Pleiades logged in once per host per run and sent about 2 KiB per task.
-  - With persistence off, Pleiades logs in once per task. Each extra login cost about 57 ms here:
+  - The Pleiades logged in once per host per run and sent about 2 KiB per task.
+  - With persistence off, The Pleiades logs in once per task. Each extra login cost about 57 ms here:
     200 hosts took 20 s longer at 5 devices at a time, over 1,800 extra logins. The logins also
     cost CPU on the devices, 32 CPU seconds against 8 for 200 hosts.
 - **Disk.**
-  - Pleiades writes its run journal on the control node, about 8 KiB per host per run.
+  - The Pleiades writes its run journal on the control node, about 8 KiB per host per run.
   - Ansible's per-task module files on the devices are usually deleted before they are ever
     written out. They showed up as up to 69 MiB written across the machine for 200 hosts.
   - Neither is a constraint at this scale.
 - **Install footprint.**
-  - Pleiades: one static binary of 90 MiB on the control node, and nothing on a device beyond a
+  - The Pleiades: one static binary of 90 MiB on the control node, and nothing on a device beyond a
     shell.
   - Ansible: ansible-core is 15 MiB, inside a Python installation of 68 MiB. Every device needs
     Python too, 30 MiB here.
@@ -227,7 +227,7 @@ Disk per run, MiB (control node read / write; whole machine read / write):
   container that runs `sshd` as an unprivileged user, which skips the privilege separation a
   root `sshd` performs for every login. Its logins cost about 22 ms. The same login costs about
   60 ms on a root `sshd` like the target above. The first comparison therefore understated
-  login cost, most of all for Pleiades with persistence off, and this page supersedes it.
+  login cost, most of all for The Pleiades with persistence off, and this page supersedes it.
 - **Ansible needs an init process in a container.** Ansible leaves orphaned processes for PID 1
   to reap: its finished worker processes, and its kept `ssh` connections. An ordinary host's
   init does that. The benchmark's control container first ran `sleep` as PID 1, which never

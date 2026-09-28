@@ -14,7 +14,7 @@
 // Setup does also install its provider and propagator on OpenTelemetry's
 // own globals. That is not a second source of truth: third-party
 // instrumentation libraries have no way to be handed a provider, so the
-// globals exist for them. Pleiades code always takes the injected value.
+// globals exist for them. The Pleiades code always takes the injected value.
 package telemetry
 
 import (
@@ -146,7 +146,7 @@ func Propagator() propagation.TextMapPropagator {
 
 // Setup builds the tracing pipeline described by cfg and installs it on
 // OpenTelemetry's globals for third-party instrumentation. The returned
-// Provider is what Pleiades code should use directly.
+// Provider is what The Pleiades code should use directly.
 func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 	if cfg.ServiceName == "" {
 		return nil, fmt.Errorf("telemetry: ServiceName is required")
@@ -239,7 +239,7 @@ func buildExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, erro
 }
 
 // ConfigFromEnv reads the standard OpenTelemetry environment variables a
-// deployment already knows how to set, so an operator configures Pleiades
+// deployment already knows how to set, so an operator configures The Pleiades
 // tracing the same way they configure any other OTEL process:
 //
 //   - OTEL_SERVICE_NAME overrides serviceName.

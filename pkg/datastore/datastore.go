@@ -9,7 +9,7 @@
 // network device keeps configuration, named running, candidate,
 // intended or operational. It never refers to this platform's own state
 // store, which is inventory.Repository and is never called a datastore
-// anywhere. Nothing in this package touches Pleiades' inventory,
+// anywhere. Nothing in this package touches The Pleiades' inventory,
 // credentials or job state.
 //
 // # Why a port at all, and what it deliberately does not carry

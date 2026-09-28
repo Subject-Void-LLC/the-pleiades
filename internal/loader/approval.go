@@ -1,5 +1,5 @@
 // Package loader: the approval list's format, which says which build of
-// which program a person has agreed to let Pleiades run.
+// which program a person has agreed to let The Pleiades run.
 package loader
 
 import (

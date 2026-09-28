@@ -19,7 +19,7 @@ demonstrate a real write against a real, shared device with.
 All four runbooks name that one interface literally, and the device is shared:
 if someone else is running this example at the same time you are, one run's
 cleanup task will remove the other run's interface, and each will then see a
-verification it cannot explain. Pleiades cannot pick the number for you here,
+verification it cannot explain. The Pleiades cannot pick the number for you here,
 because a runbook cannot yet compute a value at run time (task-param rendering
 is a separate, unbuilt piece of work), so this is a genuine limit of today's
 engine rather than an oversight in the example. The Release Gate covering these
@@ -42,7 +42,7 @@ if you deleted or never ran `pleiades init` in this directory yourself.)
 
 - `runbooks/verify_present.yaml` -- read-only. Run it between `round_trip.yaml`'s
   two tasks (or right after, since the interface is gone again quickly) to see
-  the interface really landed, independent of trusting Pleiades' own "changed".
+  the interface really landed, independent of trusting The Pleiades' own "changed".
 - `runbooks/verify_absent.yaml` -- read-only. Confirms cleanup: IOS refuses `show
   running-config interface <name>` for a name that does not exist
   (`% Invalid input detected at '^' marker.`) rather than returning empty output,

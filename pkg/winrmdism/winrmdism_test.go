@@ -22,30 +22,12 @@ func unreachableSession() Session {
 	}
 }
 
-func TestQuotePS(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{name: "plain feature name", input: "IIS-WebServerRole", want: "'IIS-WebServerRole'"},
-		{name: "embedded single quote is doubled", input: "O'Brien", want: "'O''Brien'"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := quotePS(tt.input); got != tt.want {
-				t.Errorf("quotePS(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDismCommand_Status(t *testing.T) {
-	script := dismCommand(testLogPath, "/get-featureinfo", "/featurename:"+quotePS("IIS-WebServerRole"))
+	script := dismCommand(testLogPath, "/get-featureinfo", "/featurename:"+winrmexec.QuotePS("IIS-WebServerRole"))
 
 	for _, want := range []string{
 		"dism.exe", "/online", "/get-featureinfo", "/featurename:'IIS-WebServerRole'",
-		"/logpath:" + quotePS(testLogPath), "exit $LASTEXITCODE",
+		"/logpath:" + winrmexec.QuotePS(testLogPath), "exit $LASTEXITCODE",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("script = %q, want it to contain %q", script, want)
@@ -58,12 +40,12 @@ func TestDismCommand_Status(t *testing.T) {
 // in its required parent features, and disabling one does not cascade
 // to the parents it depended on.
 func TestDismCommand_EnableIncludesAllDisableDoesNot(t *testing.T) {
-	enableScript := dismCommand(testLogPath, "/enable-feature", "/featurename:"+quotePS("Foo"), "/all", "/norestart")
+	enableScript := dismCommand(testLogPath, "/enable-feature", "/featurename:"+winrmexec.QuotePS("Foo"), "/all", "/norestart")
 	if !strings.Contains(enableScript, "/all") {
 		t.Errorf("enable script = %q, want it to contain /all", enableScript)
 	}
 
-	disableScript := dismCommand(testLogPath, "/disable-feature", "/featurename:"+quotePS("Foo"), "/norestart")
+	disableScript := dismCommand(testLogPath, "/disable-feature", "/featurename:"+winrmexec.QuotePS("Foo"), "/norestart")
 	if strings.Contains(disableScript, "/all") {
 		t.Errorf("disable script = %q, want it to NOT contain /all", disableScript)
 	}

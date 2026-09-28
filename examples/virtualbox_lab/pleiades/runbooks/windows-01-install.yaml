@@ -1,0 +1,26 @@
+# Install Windows Server from Microsoft's evaluation ISO with no one at the
+# keyboard, generalize it, and keep it as a never-booted base to clone.
+#
+# The answer file is built by The Pleiades: it partitions the disk,
+# installs the edition named by image, and ends with Windows generalizing
+# itself and shutting down, which the task waits for (about eight minutes
+# on the lab host). Its only password is one made at random for audit
+# mode's sign-in and kept nowhere by The Pleiades; audit mode deletes the
+# copies of the answer file Windows caches, one of which holds it.
+#
+# Fetch the ISO first with win.file.download, as 01-media.yaml fetches
+# Ubuntu's image.
+id: vbox-lab-windows-install
+hosts: vengeance
+tasks:
+  - name: install Windows Server 2025 Core from the evaluation ISO, generalized
+    virt.vbox.vm.install:
+      name: ws2025-core-base
+      iso: G:\iso\26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso
+      image: Windows Server 2025 Standard Evaluation
+      os_type: Windows2025_64
+  - name: keep the generalized install as a snapshot to clone from
+    virt.vbox.snapshot.take:
+      vm: ws2025-core-base
+      name: base
+      description: Windows Server 2025 Core, generalized, never booted since

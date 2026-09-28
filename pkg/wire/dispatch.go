@@ -119,6 +119,24 @@ const (
 	// SecretPassphrase at the point of use rather than anywhere earlier,
 	// which is the whole point of shipping the sealed bundle.
 	SecretPFXBase64 = "pfx_base64"
+
+	// SecretSeedUsername, SecretSeedAuthorizedKey and SecretSeedPasswordHash
+	// are what a method whose manifest sets SeedsLogin receives about the
+	// device whose login it seeds into a machine it creates: the account
+	// name, the key's public half as an authorized_keys line, and a salted
+	// SHA-512 crypt hash of the password, empty when the credential has
+	// none. They are derived from that device's credential; its private
+	// key and password never reach the method.
+	SecretSeedUsername      = "seed_username"
+	SecretSeedAuthorizedKey = "seed_authorized_key"
+	SecretSeedPasswordHash  = "seed_password_hash"
+
+	// SecretSeedPassword is the password itself, which a method receives
+	// in place of a key and a hash only when its manifest also sets
+	// SeedsLoginPassword and the device it seeds is reached over WinRM: a
+	// Windows machine admits a password rather than a key, and its answer
+	// file can hold nothing else.
+	SecretSeedPassword = "seed_password"
 )
 
 // DispatchPayload is the message body the Controller publishes to NATS

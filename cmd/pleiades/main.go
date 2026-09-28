@@ -25,10 +25,13 @@ type commandFunc func(args []string) error
 var commands = map[string]commandFunc{
 	"init":           runInit,
 	"add-host":       runAddHost,
+	"set-host":       runSetHost,
 	"add-credential": runAddCredential,
 	"onboard":        runOnboard,
+	"trust-host":     runTrustHost,
 	"validate":       runValidate,
 	"run":            runRunbook,
+	"adhoc":          runAdhoc,
 	"forge":          runForge,
 	"import":         runImport,
 	"inventory":      runInventory,

@@ -1,5 +1,5 @@
 // Package catalystcenter is a minimal REST client for Cisco Catalyst
-// Center (formerly DNA Center), covering the read-only endpoints Pleiades
+// Center (formerly DNA Center), covering the read-only endpoints The Pleiades
 // needs to import an inventory and gather facts.
 //
 // It lives under pkg/ rather than internal/ for a structural reason, not a
@@ -17,7 +17,7 @@
 // command strings, which is a worse fit than net/http used directly.
 //
 // Scope is deliberately narrow: this client reads. There is no create,
-// update, or delete anywhere in it, because the one thing Pleiades does
+// update, or delete anywhere in it, because the one thing The Pleiades does
 // with a Catalyst Center is treat it as an authoritative upstream source.
 package catalystcenter
 

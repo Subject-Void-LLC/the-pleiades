@@ -40,7 +40,7 @@ added host "web1" (linux_server) to inventory.yaml
 `inventory.yaml` now has a real entry, written by the CLI, not by hand:
 
 ```yaml
-# Pleiades static inventory (Crawl tier: no server, no database, no broker).
+# The Pleiades static inventory (Crawl tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts:
     - id: 6e3dd54a-763e-45f2-ae77-dd9fd90d0898
@@ -53,6 +53,16 @@ hosts:
         port: 2222
 ```
 
+The device is built as its type before it is written, so a property that type refuses is
+refused here, not on the first run. To change a host later, `set-host` adds or replaces a
+property with `--set` and removes one with `--unset`, each change a revision in the host's
+history:
+
+```console
+$ pleiades set-host web1 --set port=2200
+updated host "web1": set port
+```
+
 A device with no type of its own gets a generic one, and its capabilities come from the
 device rather than from the inventory. It starts `discovered`, which runs nothing, until it
 is onboarded once its credential is stored (step 4):
@@ -62,7 +72,7 @@ $ pleiades add-host edge1 --type generic_ssh --set host=10.0.0.5
 $ pleiades onboard edge1        # after add-credential; --json prints the same result as JSON
 ```
 
-See [Extending Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types)
+See [Extending The Pleiades](11-extending-pleiades.md#before-writing-a-device-type-the-generic-types)
 for the four generic types and what each probe proves.
 
 ### 4. Store a credential
@@ -74,7 +84,9 @@ stored credential for device "web1"
 ```
 
 With neither `--password` nor `--key` given, `add-credential` prompts interactively
-with no echo, so a password never lands in shell history. The credential is written
+with no echo, so a password never lands in shell history. A script, which has no
+terminal to answer a prompt, pipes the password in with `--password-stdin` instead of
+putting it on its own command line, where anything else on the machine could read it. The credential is written
 to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held master key
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
@@ -86,9 +98,16 @@ $ pleiades validate
 validate: no issues found
 ```
 
-`validate` checks the runbook against the inventory without touching any device:
+`validate` checks runbooks against the inventory without touching any device:
 every task's FQCN resolves to a registered, implemented method, and every conditional
 expression compiles.
+
+With no runbook named it checks every file in `runbooks/`, so right after `init` that
+is `sample.yaml`. You can also name one or more runbooks, or a glob such as
+`pleiades validate runbooks/*.yaml`. When it checks more than one, it prints a line for
+each runbook and fails if any of them does. It skips a directory, a file that is not
+`.yaml` or `.yml`, and a list of tasks (a file that `import_tasks` pulls in, which is
+checked as part of the runbook that imports it), and prints a note for each.
 
 It does not check capabilities for catalog FQCNs. Only the two legacy action names
 `ssh_exec` and `ios_backup` get a device capability check, so a task calling
@@ -266,6 +285,97 @@ named as unchecked too. But a condition the rest of it settles is answered anywa
 would have registered, and a `when` list with a member that is false is skipped, just as
 a real run would skip it. A condition that is simply wrong, such as one reading a
 register no earlier task registers, fails the check the way it would fail a real run.
+
+### 9. Run one method, with no runbook
+
+`pleiades adhoc` is Ansible's `ansible <hosts> -m <module> -a <args>`: one method
+against a device or a tag, named exactly as a runbook's `hosts:` names one, with its
+parameters after it. It writes the one-task runbook you would have written and runs it
+the way `run` does, so it is validated, checked, journaled and reported the same way,
+and takes the same `--mode`, `--forks`, `--verbose` and `--json`. Captured against the
+lab's Ubuntu VM:
+
+```console
+$ pleiades adhoc ubuntu-lab exec.command cmd=uptime --verbose
+plan for adhoc exec.command on ubuntu-lab (1 nodes, 6 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  exec.command
+
+executing:
+  tasks[0] [0a8aadb1-2395-45e5-83ef-c07c3329aa53]: changed
+    cmd: 'uptime'
+    rc: 0
+    skipped: false
+    stdout:  22:04:31 up  6:26,  1 user,  load average: 0.24, 0.05, 0.02
+
+run complete
+```
+
+`key=value` reads a value as `add-host --set` does: `true` and `false` are booleans, a
+whole number is an integer, and anything else is a string. `key:=value` reads it as
+YAML, for a list, a map, or a string that looks like a number:
+
+```console
+$ pleiades adhoc web exec.command argv:='[cat, /etc/os-release]'
+$ pleiades adhoc web file.directory path=/tmp/app mode:="'0750'" --mode check
+```
+
+A parameter on a command line is visible to every other process on the machine while
+the command runs, so never pass a secret as one. A method that needs a credential gets
+the device's own from the vault, as it does in a runbook.
+
+**`--json`**, on `run` and on `adhoc`, prints the run as one JSON document on standard
+output instead of text: the plan, each task's status, device and output (every stat,
+whether or not `--verbose` is given), and how the run ended. The exit status is the
+same as the text view's, and the document says it too, so a program reading it never
+has to tell a failure from an empty answer: a runbook that does not load, a refused
+parameter and a validation failure are all reports, with `outcome.status` set to
+`error`, `invalid` or `failed`.
+
+```console
+$ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json
+{
+  "runbook": "adhoc exec.command on ubuntu-lab",
+  "mode": "execute",
+  ...
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "exec.command",
+      "method": "exec.command",
+      "device": "0a8aadb1-2395-45e5-83ef-c07c3329aa53",
+      "host": "ubuntu-lab",
+      "status": "changed",
+      "stats": {
+        "cmd": "'cat' '/etc/hostname'",
+        "rc": 0,
+        "skipped": false,
+        "stderr": "",
+        "stdout": "ubuntu-lab"
+      },
+      "started_at": "2026-09-27T22:04:32.428551884Z",
+      "finished_at": "2026-09-27T22:04:32.655176286Z"
+    }
+  ],
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}
+```
+
+A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`,
+`skipped` and `unchecked`. Everything in the document is masked as the text view is,
+and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
+the like) reads `$encrypted$` in both. Characters a terminal would act on are written
+as `\u` escapes, so the document is safe to print.
+
+`adhoc` is a Crawl-tier command only. The Controller has no ad-hoc path: everything it
+runs goes through a saved template.
 
 ## Quickstart: Walk tier
 

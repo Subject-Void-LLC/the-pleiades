@@ -2,9 +2,18 @@
 // that travels to a Runner.
 package windows
 
-import "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+import (
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+)
 
 func init() {
-	record.RegisterDispatchProperties("windows_server",
-		"dism_log_path", "host", "port", "service_manager", "windows_edition", "windows_service_start_mode")
+	// Every device TLS property, not only the two WinRM applies: the
+	// constructor refuses the others, and a Runner rebuilding the device
+	// must see them to refuse them too, rather than rebuild a device the
+	// Controller would not load.
+	record.RegisterDispatchProperties("windows_server", append([]string{
+		"cmd_path", "dism_log_path", "host", "port", "powershell_path", "service_manager", "windows_edition",
+		"windows_service_start_mode", "working_directory", propVirtualBox, propVBoxManagePath, propVMFolder},
+		devicetls.Properties()...)...)
 }

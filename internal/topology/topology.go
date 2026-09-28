@@ -1,6 +1,6 @@
 // Package topology is the single owner of every NATS JetStream subject,
 // stream, consumer, key-value bucket, and retention/replica setting used
-// by Pleiades.
+// by The Pleiades.
 //
 // Before this package existed, three call sites each declared their own
 // idea of what stream and subjects the mesh uses: event.NewNatsBus created

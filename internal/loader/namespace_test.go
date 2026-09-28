@@ -1,6 +1,6 @@
 //go:build unix
 
-// Package loader: tests that a program cannot claim a namespace Pleiades
+// Package loader: tests that a program cannot claim a namespace The Pleiades
 // reserves.
 package loader
 
@@ -35,7 +35,7 @@ func registerBuiltin(t *testing.T, name string) {
 }
 
 // TestLoad_ReservedNamespacesAreRefused proves an external method may not
-// use a namespace that belongs to Pleiades: any a built-in method uses,
+// use a namespace that belongs to The Pleiades: any a built-in method uses,
 // read from the registry when Load runs, so registering a built-in in a
 // brand-new namespace reserves it with no other change, plus pleiades and
 // ansible always. A namespace of the program's own is accepted, and an

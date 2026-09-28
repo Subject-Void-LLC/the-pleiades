@@ -1,5 +1,223 @@
 # Handoff Document Archive
 
+## Previous session, 2026-09-27: Windows Server guests on `feature/virtualbox-support`
+
+*Superseded the same day by the WinRM gates run and Phase 113 (ad-hoc runs and `--json`). The text below is as it stood before that.*
+
+**Branch `feature/virtualbox-support`, 2026-09-27: Windows Server guests (the user: "Build both
+methods", the VHDX and the ISO).** Rules unchanged: the lab is provisioned by The Pleiades only, gaps
+are built through `pleiades forge`, "is this how a Pleiades end user would do it?", runbook tasks use
+the method-as-key form (never `fqcn:`/`params:`), and temporary tooling becomes real methods.
+
+### Where it stands
+
+- **Committed, not pushed:** `3d2982b` (lab runbooks in the method-as-key form), `955e62f` (Windows
+  guests), `e9a3cc5` (install's wait split out), and the findings commit after them.
+
+- **Built and tested (model host):** `pkg/winunattend` (answer files rendered in Go on a Joliet ISO);
+  `virt.vbox.vm.import_disk`, `install`, `eject_seed`, `screenshot`, `log`, `send_keys`, `addresses`;
+  `wait.connection`; clone seeding a Windows base (answer file on a SATA DVD, default size small); the
+  engine giving a login's password only to a method declaring `SeedsLoginPassword` and only for a
+  device reached over WinRM; `add-credential --generate` passwords always meeting Windows' policy;
+  `mediumio` ditto lines; `ErrLocked` for VirtualBox's pending-lock answer; resuming an install that
+  stopped waiting. Catalog 104 registered / 101 implemented.
+- **Measured on the lab host:** VHDX import works (2 min 46 s, EFI read off the disk); EFI + 2 vCPUs
+  hangs at `DXE_AP` (1 vCPU boots; measured while the user's watcher pinned VBoxSVC to the P-cores);
+  Microsoft's VHDX never reads a seed DVD at first boot (FAILURE_PATTERNS 361); the ISO install runs
+  unattended at 2 vCPUs on BIOS in about 8 minutes; the four windowless methods work on the host.
+- **The ISO path works end to end on the lab host:** install (5 to 9 min), clone (small), first boot
+  reads the seed through the `UnattendFile` registry pointer the install sets (a generalized Windows
+  never searches a DVD; FAILURE_PATTERNS 364), WinRM as the vaulted Administrator at 192.168.56.30 in
+  82 s, eject (the file is deleted only once the VM is stopped; 365), restart and WinRM in 17 s.
+  `win-lab` is running now.
+- **Open:** the VHDX's clones cannot be seeded (nothing in that image points Windows at the DVD).
+- **Diagnostic leftovers in `~/pleiades-lab`:** the `win-diag` device (a throwaway password), and
+  scratch runbooks under `runbooks/win/`.
+
+### Next
+
+1. Run the env-gated WinRM release gates against `win-lab` (the plan's payoff), and re-measure the
+   EFI two-vCPU hang with the user's pinning watcher stopped.
+2. The VHDX: put the answer file into the image before first boot, or document it as unseedable.
+3. Follow-ons recorded in Phase 112: `--vault`/`--inventory` flags; the docs corpus for collections
+   (asked, not yet answered).
+
+### Files changed this session
+
+`pkg/winunattend` (new), `pkg/vboxmanage` (create, keyboard, leases, EjectDVD, OSType/Firmware,
+ErrLocked, the model host), `pkg/collection` (SeedsLoginPassword), `pkg/wire` (SecretSeedPassword),
+`internal/engine/login_seed.go`, `internal/credential/generate.go`, `internal/catalog/virt/vbox/vm`
+(seven new methods, clone's Windows seed, delete's leftovers), `internal/catalog/wait/connection.go`,
+`internal/forge/catalogdata`, `cmd/pleiades/run.go`, `examples/virtualbox_lab` (method-as-key form,
+Windows runbooks and README section), docs/reference, `internal/api/wellknown`, CLAUDE.md counts,
+`coverage-floor.json`, changelog, FAILURE_PATTERNS 360-365, LESSONS 248. Local only:
+`IMPLEMENTATION.md` (Phase 112 items, the `--vault`/`--inventory` follow-on).
+
+## Previous session, 2026-09-27: VirtualBox sizes and the multi-CPU hang on `feature/virtualbox-support`
+
+*Superseded the same day by Windows Server guests (the user: "Build both methods"). The text below is as it stood before that.*
+
+**Branch `feature/virtualbox-support`.** Rules set by the user: the VirtualBox lab is provisioned by
+The Pleiades only, gaps are built through `pleiades forge`, and every step is checked with "is this how a
+Pleiades end user would do it? if not, it's wrong" (memory `end-user-path-or-wrong`).
+
+### Where it stands
+
+- **The Pleiades makes, seeds, boots, trusts and manages Ubuntu VMs on the lab host**, all through the
+  CLI: `examples/virtualbox_lab` is the walkthrough, run on VENGEANCE. `win.file.download` fetched the
+  cloud image, `virt.vbox.vm.import_ova` + `snapshot.take` made a never-booted base, `vm.clone`
+  (seeded login, NoCloud seed rendered in Go and sent on WinRM stdin), `vm.start`, `vm.host_keys`,
+  `pleiades trust-host --from-console`, then `pleiades run` against `ubuntu-lab` (192.168.56.10) as root
+  by key. `vm.delete` and `vm.list` also run on the real host. `ubuntu-lab` is running now.
+- **Credentials (the user's choices):** `add-credential --generate` (random ed25519 key + password in
+  the vault); `Manifest.SeedsLogin` and `engine.WithLoginSeeder` hand a creating method only the user
+  name, public key and a fresh SHA-512 crypt hash (`pkg/shacrypt`). CLI only: the Walk tier refuses.
+  A key-plus-password credential now logs in key first (`remoteexec.AuthFrom`).
+- **Host keys (the user's choices):** from the serial console over WinRM (`--from-console`), and a warned
+  `--first-connect`; `internal/hosttrust`. Changed keys need `--replace`.
+- **T-shirt sizes (2026-09-27):** `pkg/vmsize`, `size` on `vm.clone`, new `virt.vbox.vm.resize`,
+  `size` in `info`/`list`, host-capacity refusals (`list hostinfo`) at clone, resize and start, and a
+  warning when clone finds a VM of another size. Tested on the real host per size.
+- **Multi-CPU hang, measured (2026-09-27):** under WHPX (Hyper-V on for WSL 2/Docker) Ubuntu guests
+  with 2-4 vCPUs hang at the initramfs raid6/xor benchmark (first boots about 1 in 3, reboots 7/8);
+  P-core pinning and `paravirt_provider: none` do not fix it; a guest whose initramfs no longer loads
+  raid6_pq/xor booted 8/8. Write-up for the user's other WHPX project is a private page; the lab
+  README carries the short version. `win.cpu.topology` came out of it (the user's choice).
+- **The user sees no VMs in their own VirtualBox Manager** because the VMs belong to `pleiades-gate`;
+  they chose to see them through The Pleiades (`vm.list`, `run -v` prints lists as YAML).
+- **Not built yet:** the Walk tier's seeded login, `become`, deleting the seed ISO after first boot, the
+  VirtualBox sync plugin, Windows and FreeBSD guests, the env-gated Release Gate for `virt.vbox.*`,
+  runbook `rescue:`/`always:` execution (they parse but never run).
+
+### Next
+
+1. The open hang question (lost tick or AVX2: hide AVX2 via `VBoxInternal/CPUM/IsaExts/AVX2`), if the
+   user wants it; an unpinned reboot run to settle whether pinning raised the rate.
+2. The VirtualBox sync plugin (VMs into inventory), then the Release Gate, then Windows Server guests.
+3. Walk-tier seeding, and `become`. Lab project: `~/pleiades-lab`.
+
+### Files changed this session
+
+`pkg/cloudinit`, `pkg/iso9660`, `pkg/shacrypt`, `pkg/vboxmanage` (appliance, hardware, files,
+extradata, the model host `vboxmanagetest`), `pkg/remoteexec/auth.go` and its test server,
+`pkg/collection` (SeedsLogin), `pkg/wire` (seed keys), `internal/credential/generate.go`,
+`internal/engine/login_seed.go`, `internal/hosttrust`, `internal/catalog/virt/vbox/*`,
+`internal/catalog/win/file`, `internal/forge/catalogdata`, `cmd/pleiades` (add-credential --generate,
+trust-host, run -v YAML), `internal/clispec`, `examples/virtualbox_lab`, docs 10, the Windows lab
+README, `changelog/`, `docs/reference/`, `internal/api/wellknown/`, `coverage-floor.json`, CLAUDE.md
+counts, and the second "The Pleiades" rename pass redone across 65 Go files. Then: `pkg/vmsize`,
+`pkg/wincpu`, `pkg/vboxmanage` (hostinfo, Resize, paravirt), `internal/catalog/virt/vbox/vm` (size,
+resize, host_keys last line), `internal/catalog/win/cpu`. Local only: `IMPLEMENTATION.md` (Phase 112).
+
+## Previous session, 2026-09-25: Phase 111 follow-up (device TLS, the Walk tier) on `phase-111b`
+
+*Superseded the same day by Phase 75 (WinRM execution modes) and Phase 112 (VirtualBox) on `feature/virtualbox-support`. The text below is as it stood before that.*
+
+**Phase 110 (connection persistence) and Phase 111 (generic device types) are committed and pushed on
+`feature/playbook-migration` (push gate passed at `6530e2e`).** On 2026-09-25 the user answered the open
+decisions: put the Walk-tier fix in Phase 111, run `make ci`, leave versioning, and build TLS and mutual
+TLS for `generic_http`, with deprecated TLS allowed only explicitly, loudly, and never by default. That
+follow-up is built on branch `phase-111b` (from `6530e2e`) and described below; the previous status
+(Phase 111 itself) is in the archive.
+
+### What the follow-up is
+
+- **Device TLS (`pkg/devicetls`)**, used by `generic_http`, `generic_grpc`, both onboarding probes and
+  `http.request`'s device mode: `tls_ca_pem` (a pinned authority instead of the system roots),
+  `tls_server_name`, `tls_min_version` (1.2 default, 1.3 allowed), and `tls_client_certificate` (mutual
+  TLS from the stored certificate and key, or a PKCS#12 bundle). Certificates are always verified.
+- **Weakening, only per device, each behind its own flag, each warned on every use** (the user's rule;
+  saved as a memory): `tls_allow_deprecated_versions` for TLS 1.0/1.1; the separate
+  `tls_allow_legacy_ciphers` for 3DES, RC4 and RSA key exchange (the user's choice for the second tier;
+  SSL 3.0 is impossible in Go); and `http_allow_plaintext_credentials` for a credential over `http://`,
+  whose warning says to rotate it (the user reversed "keep refusing" to "explicit allow"). A flag that
+  allows nothing is refused. `generic_grpc` refuses both TLS weakenings (HTTP/2 forbids them) and still
+  refuses a credential over plaintext. `http.request`'s device mode refuses `validate_certs: false`.
+- **Warnings reach the person:** `sdk.StatWarnings`, printed by `pleiades run` always; a `task.warning`
+  job-log event on the Walk tier; `onboard.Result.Warnings` on the CLI and the API.
+- **Downgrade proof first, as the user asked:** a 35-handshake matrix in `pkg/devicetls`, then the HTTP
+  probe, the gRPC probe and `http.request` each shown to refuse a TLS 1.0-only or 3DES-only server by
+  default and reach it only with its flag, a modern server still negotiating TLS 1.3; every such test
+  mutation-checked. `TestOnlyDevicetlsLowersTLS` keeps every weak version and suite name in
+  `pkg/devicetls`.
+- **Walk tier:** a Runner rebuilds each dispatched device as its real type (`record.LookupType`) from
+  `wire.DispatchPayload.DeviceType`/`DeviceProperties`, which carry only the keys the type declares its
+  accessors read (`record.RegisterDispatchProperties`, one small file per device package) plus its
+  discovery. `TestDispatchPropertiesAreWhatTheCodeReads` holds each package's declaration equal to what
+  its code reads and refuses a secret-named key (two validated exemptions, each self-verifying). The
+  forge scaffold emits an empty declaration. An older Controller's payload falls back to the
+  address-only device. Found on the way: the Controller's worker would have skipped every generic HTTP
+  or gRPC device for having no `host` (FAILURE_PATTERNS 348, LESSONS 240), fixed by falling back to the
+  declared address.
+
+### Verification
+
+The Walk-tier gate is `TestGenericWalkReleaseGate_DeviceAccessorsReachTheRunner` (`cmd/runner`),
+passing under `-race` with the rest of `cmd/runner` and `cmd/pleiades`. Five touched packages had
+fallen below their coverage floors (native, sdk, generic, `catalog/http`, onboard). Tests covering
+the new refusals and the warning events bring each back above its floor.
+
+**`make ci` on `6530e2e` failed in its coverage pass, twice.** Every step before coverage passed. Then
+`internal/backup`'s Postgres container missed readiness at exactly 60 seconds, on different tests each
+time. The package passes alone in 35 seconds. The cause is a test-harness defect, not contention:
+FAILURE_PATTERNS 310's fix bounded testcontainers' wait group at two minutes, but each step inside the
+group kept the library's own 60-second default, so the bound never applied (FAILURE_PATTERNS 350,
+LESSONS 243). Fixed on this branch for Postgres, Toxiproxy, LocalStack and one SSH gate, with a test
+that reads each step's own timeout.
+
+**The rerun on `e3d84b9` failed differently.** `cmd/runner` hit go test's 30-minute timeout, because a
+test helper read an SSH banner with no deadline from a port Docker's proxy had accepted
+(FAILURE_PATTERNS 351). It is fixed by `testsupport.CaptureHostKey`, which bounds each attempt and
+retries. The same run's `internal/event` failure, and one more in the next run, were a broker whose
+published port refused connections after it said it was ready (FAILURE_PATTERNS 353). In one run it
+stayed refused for two minutes, so this is Docker Desktop's port forwarding going dead, cause not
+diagnosed, not a short lag. `StartNATS` now waits for the port to answer with a NATS greeting, and a
+port that never does fails in the harness, naming it. That is a clearer failure, not a cure.
+
+**Security finding, measured and fixed (FAILURE_PATTERNS 352).** Found by checking the other callers
+of the same SSH call. Through a bastion, the handshake with the device had no bound:
+`ssh.NewClientConn` takes no context, a tunneled connection supports no deadline, and
+`ssh.ClientConfig.Timeout` covers only `ssh.Dial`. So anything answering on a device's address behind
+a bastion could hold a run, or a Runner's task and its device lease, for as long as it liked. It only
+had to accept the connection and send nothing, with no credential. `pkg/remoteexec`'s direct dial
+already had the guard. Both paths now share it (`closeOnDone`, `handshakeContext`), and
+`TestConnect_HopChain_ASilentTargetIsBounded` returns at its context's two seconds where before it hung.
+No upstream fix applies. Recorded in the vulnerability corpus as new class C15, unbounded wait on a
+peer. What happens next with it (a tracked issue, anything further) is the user's decision.
+
+Also fixed on the way: the Runner's per-dispatch executor had lost its check that a call's device is
+the dispatched one, when the address-only type check was removed. A bound executor now refuses any
+other device by name, and a nil one, before a child starts.
+
+### Attestation evidence hunt (2026-09-25)
+
+The roadmap's attestation checker reported four security problems: finished Fuzz/Stress,
+Schema/Injection and Release Gate items citing nothing it could check (Phases 20, 53, 54, 55, 57, 74a,
+79, 83, 96a, 96b, 96c). Each item now carries a dated evidence line in the tracker, and the checker
+reports zero. Tracing them found real gaps, recorded as FAILURE_PATTERNS 349 and LESSONS 241 and 242:
+
+- **Phase 96c's Release Gate is re-opened.** No test runs one dispatch, severed and healed over real
+  NATS and Toxiproxy past the old two-minute window, and counts it delivered exactly once. The halves
+  exist separately (the admission check on an in-memory store; 96a's recovery with no dedup).
+- **Two ticked items were split** into open items for their unbuilt halves: 96c's dedup-table cost
+  benchmark, and Phase 79's fuzzing of the sign-in email (only the password is fuzzed).
+- **Phase 55's "no I/O" claim was false** (`ShiftTimezone` reads the zone database). The claim is now
+  exact and enforced by `TestFiltersDoNoNetworkFileOrProcessIO`.
+- **Phase 20's Helm audit, recorded after the fact:** four chart values are interpolated unquoted into
+  `nats.conf` and the broker StatefulSet. All came from later phases and all are supplied by the
+  installer, so none crosses a trust boundary. No finding.
+
+The tracker cites `TestFiltersDoNoNetworkFileOrProcessIO` from four phases, so those citations read as
+missing until this branch lands.
+
+### Decisions for the user
+
+1. Versioning stays as proposed (the user's answer, 2026-09-25).
+2. The remaining TLS clients (WinRM, Catalyst Center, a full-URL `http.request`, Git over HTTPS) keep
+   their current fixed settings; the device-TLS model can extend to them when wanted.
+3. When to build what the hunt re-opened: 96c's exactly-once release gate (a real NATS and Toxiproxy
+   test that runs past two minutes), 96c's dedup benchmark, and 79's email fuzz.
+
 ## Previous session, 2026-09-24/25: Phase 111 (Generic Device Types) committed and pushed
 
 *Superseded the next day by the Phase 111 follow-up (device TLS, the Walk tier). The text below is as it stood before that.*
@@ -135,7 +353,7 @@ not re-checked by `tools/coverage-check`.
 - `pleiades run --forks N` (1 to 1000, default 5, Ansible's), `TestCLI_RunForks`.
 - `tools/ansiblebench` (Python, manual, like `tools/genrrulefixtures`) and its report,
   `docs/15-performance.md`, with raw results in `tools/ansiblebench/results/2026-09-24.json`. 27
-  measurements (1 to 200 hosts, 5 and 25 wide), all passing: Pleiades 24 to 41 times faster, about 57
+  measurements (1 to 200 hosts, 5 and 25 wide), all passing: The Pleiades 24 to 41 times faster, about 57
   times less control-node CPU per task at 200 hosts, 9 to 14 times less control memory, 62 times less
   network. docs/10's persistence numbers now come from it (the first comparison's target ran `sshd`
   unprivileged and understated logins, FAILURE_PATTERNS 341).
@@ -1674,7 +1892,7 @@ tree and `cmd/pleiades` suites, `-race` on `static_yaml`, vet, docs-lint.
    usable only by the directory's owner or root; the approval-lockfile build item closes it by
    executing the bytes it hashed (not built; confinement did not need a re-exec shim after all).
 9. **Security, found while building and fixed (FAILURE_PATTERNS 254):** Landlock applied from a
-   goroutine could land on the main thread, putting Pleiades inside the program's own domain (the
+   goroutine could land on the main thread, putting The Pleiades inside the program's own domain (the
    program could signal it). Intermittent; now pinned by a deterministic main-thread probe test.
 10. **Correctness, found while building and fixed (FAILURE_PATTERNS 255):** an unmarshal hook written
     against `gopkg.in/yaml.v3` is never called by the engine's `go.yaml.in/yaml/v3` decoder, so
@@ -4305,24 +4523,24 @@ matching the standing rule): `835431b` (Workstream A, the `pkg/retry.Do` consoli
 matrix, and chaos/fuzz/adversarial/hardening/docs). The only thing left uncommitted at the moment
 this section was written is this session's own documentation bookkeeping: two new
 `FAILURE_PATTERNS.md`/`FAILURE_PATTERNS_ARCHIVE.md` entries (#168, #169, below) and this
-handoff rotation itself. No commit message is needed for the code — it is already in history: see
+handoff rotation itself. No commit message is needed for the code - it is already in history: see
 `git show dc8e2df` for the full message.**
 
 This session implemented **Phase 72: Transport Foundation (the Circuit Breaker, `retry.Do`, and the
-Hop Chain)** end to end — the foundational phase of Part XV (the Transport Layer) that Phases 73-77
+Hop Chain)** end to end - the foundational phase of Part XV (the Transport Layer) that Phases 73-77
 depend on.
 
 ### What landed
 
-**Workstream A — `pkg/retry.Do[T]`/`Sleep`.** One generic, context-aware retry loop replacing three
+**Workstream A - `pkg/retry.Do[T]`/`Sleep`.** One generic, context-aware retry loop replacing three
 independent hand-rolled ones (`internal/lock/queue.go`'s `acquireWithContention`,
 `internal/lock/nats.go`'s timer half, `pkg/remoteexec/dial.go`'s `dialWithRetry`). Circuit-breaker
 `Allow`/`RecordFailure` calls stayed at the SSH-dial call site, deliberately, since they are
-dial-specific, not generic retry behavior. All three migrations were behavior-preserving — existing
+dial-specific, not generic retry behavior. All three migrations were behavior-preserving - existing
 tests passed unmodified, which is the actual proof. A new `internal/archtest` rule now asserts no
 second retry loop or second breaker exists anywhere in the module.
 
-**Workstream B — the N-hop SSH tunnel (`pkg/remoteexec`, `internal/transport`).**
+**Workstream B - the N-hop SSH tunnel (`pkg/remoteexec`, `internal/transport`).**
 `transport.Target` gained `Route []Hop` (`Host`, `Port`, `DeviceName`, a resolved
 `credential.Credential`); an empty `Route` is exactly today's behavior, so every existing caller is
 unedited. `pkg/remoteexec` gained the matching hop-chain shape and does the real tunneling: hop 1
@@ -4332,33 +4550,33 @@ the previous hop's already-authenticated `*ssh.Client` via `DialContext`, then a
 verification and `InsecureSkipHostKeyVerify` are both per-hop, not global. `internal/transport/ssh`
 stayed a thin translator, looping the same single-target conversion it already did.
 
-**Workstream C — hierarchical bastion configuration (new storage + resolver).** `Group` and
+**Workstream C - hierarchical bastion configuration (new storage + resolver).** `Group` and
 `Inventory` both gained a `properties` field (`field.JSON`, matching `Device`'s existing shape),
 with real migrations for both dialects
 (`internal/ent/migrate/migrations/{sqlite/0017,postgres/0014}_add_group_inventory_properties.sql`).
 `internal/inventory.Repository.GroupAncestry` (`internal/inventory/ent_group_ancestry.go`) is the
-first real BFS walk of Group's parent/child DAG this codebase has ever needed — group nesting is a
+first real BFS walk of Group's parent/child DAG this codebase has ever needed - group nesting is a
 graph, not a tree, so it needed a deterministic tiebreak (ascending name) for siblings at equal
 distance. `engine.ResolveRoute` (`internal/engine/hop_resolve.go`) feeds the ancestry chain through
 the existing `policy.Resolve`, most-specific-wins, capped at 16 hops
 (`maxRouteHops`), rejected at resolve time before any per-hop lookup happens.
 
-**Workstream D — engine wiring.** `NewTransportActionExecutor` gained a fourth constructor
+**Workstream D - engine wiring.** `NewTransportActionExecutor` gained a fourth constructor
 parameter, an inventory-lookup dependency (`hopChainInventory`), needed because resolving hop *N*
 requires looking up hop *N*'s own device (for `SSHHost()`/`SSHPort()`) and hop *N*'s own credential
 independently of the primary target's. Every composition root that builds one was updated
 (`cmd/pleiades/run.go` and others). The secret-masking union at
 `internal/engine/action_ssh.go` was extended to cover every hop's `Password`/`PrivateKeyPEM`/
-`Passphrase`, not just the target's — the same class of gap `FAILURE_PATTERNS.md` #22 already
+`Passphrase`, not just the target's - the same class of gap `FAILURE_PATTERNS.md` #22 already
 recorded for `MarshalJSON`, recurring in a new shape. `internal/adapters/native`'s per-task
 subprocess path deliberately skips route resolution rather than half-implementing it (no live
-inventory connection there, a credential store scoped to one device) — recorded as a named gap, not
+inventory connection there, a credential store scoped to one device) - recorded as a named gap, not
 silently worked around.
 
-**Workstream E — the CI matrix.** `.github/workflows/ci.yml` went from one `ubuntu-latest` job to
+**Workstream E - the CI matrix.** `.github/workflows/ci.yml` went from one `ubuntu-latest` job to
 three: ubuntu (blocking, unchanged, still the only leg with Docker and therefore the only one
 running the container-backed conformance tests) and macOS (blocking: build, vet, and every
-non-Docker-dependent unit test, verified concretely — `pkg/remoteexec`'s own suite uses an
+non-Docker-dependent unit test, verified concretely - `pkg/remoteexec`'s own suite uses an
 in-process fake SSH server, no Docker, so it genuinely runs for real on macOS) both required;
 Windows is advisory/non-blocking (`remoteexectest` shells out to `/bin/sh`, which doesn't exist
 there). A new Makefile target names the non-Docker package set explicitly rather than by a fragile
@@ -4366,10 +4584,10 @@ glob, so a future container-backed test doesn't silently join or leave a leg it 
 comment next to the matrix records the `_windows`/`_linux`/`_darwin` implicit-build-constraint trap
 (`FAILURE_PATTERNS.md` #51) for whoever reaches for a platform-suffixed file in Phase 73/75.
 
-**Workstream F — chaos, fuzz, stress, adversarial, hardening, docs.** A real Toxiproxy-fronted SSH
+**Workstream F - chaos, fuzz, stress, adversarial, hardening, docs.** A real Toxiproxy-fronted SSH
 container severed at three moments (mid-dial: retry then breaker trip; after session establishment:
 error, no retry, per the existing no-retry-after-send rule; mid-tunneled-command on the bastion hop:
-error naming the failed hop, never a silent zero-value `Result`) — all under `-race` and `goleak`.
+error naming the failed hop, never a silent zero-value `Result`) - all under `-race` and `goleak`.
 Route parsing is fuzzed against deeply nested/self-referential/absurdly long chains: never panics,
 fails closed naming the offending hop, and fails at parse time rather than dial time. 300 concurrent
 hop-chained sessions ran clean under `-race`, with a per-hop cost benchmark. An adversarial pair
@@ -4377,7 +4595,7 @@ proves per-hop key confusion (bastion's key known, tunneled endpoint's deliberat
 `known_hosts`) fails closed and is attributable to the right hop, then proves the same chain
 succeeds once the real key is added. `PATTERNS.md`'s Circuit Breaker entry moved from `POTENTIALLY`
 to **YES**, correctly naming `pkg/remoteexec` (not the stale spec's assumed
-`internal/transport/resilience`) as where it actually lives — see the "stale spec" note below.
+`internal/transport/resilience`) as where it actually lives - see the "stale spec" note below.
 `docs/10-running-in-production.md` and a changelog fragment
 (`changelog/ssh-bastion-hop-chains.added.md`) cover the bastion/hop-chain configuration, the
 per-hop credential rule, and the per-hop host-key requirement.
@@ -4386,11 +4604,11 @@ per-hop credential rule, and the per-hop host-key requirement.
 
 See `FAILURE_PATTERNS.md` #168 and #169 (full detail in `FAILURE_PATTERNS_ARCHIVE.md`):
 
-1. **#168 — `Connect`'s per-hop loop only kept the last `*ssh.Client`, leaking every earlier hop's
+1. **#168 - `Connect`'s per-hop loop only kept the last `*ssh.Client`, leaking every earlier hop's
    connection.** Found by a real `goleak`-based container test failure, not by inspection. `Conn`
    gained a `chain []*ssh.Client`; `Close()` walks it in reverse; `Connect` also gained a `defer`
    cleanup for the partial-failure case (a later hop fails after earlier ones succeeded).
-2. **#169 — a `goleak` check in the new Toxiproxy chaos test depended on a `sync.Once`-populated
+2. **#169 - a `goleak` check in the new Toxiproxy chaos test depended on a `sync.Once`-populated
    package-level baseline an unrelated test happened to populate first**, so the check passed only
    when run as part of the full suite and failed when run in isolation. Fixed with a local
    `goleak.IgnoreCurrent()` snapshot taken after the test's own setup completed, independent of
@@ -4398,7 +4616,7 @@ See `FAILURE_PATTERNS.md` #168 and #169 (full detail in `FAILURE_PATTERNS_ARCHIV
 
 ### Read this first
 
-**A stale spec section is a starting hypothesis, not an instruction to follow literally — verify
+**A stale spec section is a starting hypothesis, not an instruction to follow literally - verify
 against the real code first.** Phase 72's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` said
 to extract the circuit breaker out of `internal/transport/ssh` into a new
 `internal/transport/resilience` package. Reading the actual code first showed the breaker already
@@ -4406,30 +4624,30 @@ lived in `pkg/remoteexec` (built after the checklist was written) and was alread
 encapsulated, so the concern the checklist was guarding against was already handled. Relocating
 working, already-encapsulated code to satisfy a stale doc's literal file path would have been pure
 churn. Decision, made explicit in the plan before any code was written: leave it where it is. This
-matches the Architecture Mismatch/Map Verification protocol in `.AGENTS/AGENTS.md` — it existed for
+matches the Architecture Mismatch/Map Verification protocol in `.AGENTS/AGENTS.md` - it existed for
 exactly this situation.
 
 **`AllowTcpForwarding no` is the default in the SSH test image** (`lscr.io/linuxserver/openssh-server`),
 which silently breaks any hop-chain test relying on `direct-tcpip` tunneling until it's overridden.
 Found by starting a real probe container and reading its `sshd_config` directly, not by guessing.
 Fixed by mounting a `.conf` snippet at `/config/sshd/sshd_config.d/allow-tcp-forwarding.conf` via
-testcontainers' `Files` field — verify this with a real throwaway `ssh -L` test before trusting it,
+testcontainers' `Files` field - verify this with a real throwaway `ssh -L` test before trusting it,
 the same way this session did, if a future phase (73/75/77) touches this container setup again.
 
 **`command | tee file` reports `tee`'s exit code, not the piped command's.** Cost real time this
 session: a `make ci 2>&1 | tee log` was assumed to have succeeded because the harness reported exit
 code 0, when the real failure was buried in the log body (a known-flaky `cmd/runner` container
-test — confirmed via `flaky-packages.json` and five clean isolated reruns, not a regression). Always
+test - confirmed via `flaky-packages.json` and five clean isolated reruns, not a regression). Always
 read the log tail directly, or use `PIPESTATUS`/`set -o pipefail`, never trust a piped command's
 reported exit code.
 
 **`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run, or unrelated
 AWS-backed packages report false regressions.** Unchanged gotcha from prior sessions:
-`.IGNORE/.localstack.env`'s key is `token=`, not `LOCALSTACK_AUTH_TOKEN=` — it must be manually
+`.IGNORE/.localstack.env`'s key is `token=`, not `LOCALSTACK_AUTH_TOKEN=` - it must be manually
 translated before export, or LocalStack-backed tests silently skip rather than fail, and coverage
 reads as a regression that isn't one.
 
-**No commit without the user's own live word in the current conversation.** Held throughout — both
+**No commit without the user's own live word in the current conversation.** Held throughout - both
 of this session's commits (`835431b`, `dc8e2df`) were made by the user, not the assistant, even
 after the assistant offered drafted commit message text both times.
 
@@ -4439,7 +4657,7 @@ Held throughout this session.
 ### Verification state
 
 `go build ./...`, `go vet ./...`, `gofmt -l` all clean. `go test ./internal/transport/...
-./pkg/remoteexec/... ./pkg/retry/... ./internal/lock/... ./internal/engine/... -race` clean —
+./pkg/remoteexec/... ./pkg/retry/... ./internal/lock/... ./internal/engine/... -race` clean -
 proves the `retry.Do` migration is behavior-preserving. `internal/ent/migrate/parity_test.go`
 clean (both dialects have the new `properties` field). `go test ./internal/archtest/...` clean,
 including the new no-second-breaker/no-second-retry-loop rule. `make ci` and `make push-gate` both
@@ -4453,7 +4671,7 @@ the first time.
 
 Phase 72 is done; Phases 73-77 of Part XV (non-network endpoints + the full hostile-bastion proof;
 NETCONF/RESTCONF/gNMI; WinRM; `internal/psdiag`; SFTP) are unstarted and out of scope for this
-session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than building its own —
+session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than building its own -
 read this section before assuming any of their own scope from `.SPECIFICATION/IMPLEMENTATION.md`
 alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
 current code first.
@@ -4835,7 +5053,7 @@ since Phase 72's own branch was still unmerged and Phase 73 is a large, independ
 body of work. HEAD is now `cc71f55` ("fix(inventory,archtest): give Docker a real device type, and a
 guard so this class can't hide again"): **the user reviewed and committed Workstream A themselves**,
 with their own live go-ahead, before authorizing Workstream B onward. Every workstream from B through
-H is **uncommitted** — `git status` shows that entire diff as unstaged/untracked on top of `cc71f55`,
+H is **uncommitted** - `git status` shows that entire diff as unstaged/untracked on top of `cc71f55`,
 and this session has not committed anything itself since, matching the standing rule that only the
 user commits. This is a phase-complete handoff, not a mid-task one: all eight workstreams (A through
 H, see the plan at `/root/.claude/plans/jaunty-roaming-lampson.md`) are done, A committed and B-H
@@ -4852,42 +5070,42 @@ across 143 packages; `make gosec` and `make govulncheck` clean.
 
 ### What landed, workstream by workstream
 
-**A — the Docker capability-satisfiability defect and its systemic guard.** `container.docker.run/stop/remove`
+**A - the Docker capability-satisfiability defect and its systemic guard.** `container.docker.run/stop/remove`
 were `StatusImplemented` but zero device types implemented `DockerCapable`, so every real invocation
 was refused; `internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable` now catches this
 class of bug for every `StatusImplemented` method, negative-controlled. Full detail below (this
 section used to be the whole handoff, from when only Workstream A was done).
 
-**B — the port.** `transport.Endpoint` (sealed interface: `NetworkEndpoint`, `SerialEndpoint`,
+**B - the port.** `transport.Endpoint` (sealed interface: `NetworkEndpoint`, `SerialEndpoint`,
 `LocalSocketEndpoint`, a Docker variant), `transport.Result.ExitStatusUnknown` (a byte-stream
 transport has no real exit code, and `transportActionExecutor` now refuses to infer success from a
 zero it never actually observed), and `pkg/serialline` (the leaf package `pkg/capability` and
 `internal/transport` both need without either importing the other).
 
-**C — capabilities.** `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable`, `TelnetCapable`,
+**C - capabilities.** `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable`, `TelnetCapable`,
 each with an opaque or strongly-typed accessor, hydrated from `pkg/inventory.Properties`.
 
-**D — the serial family.** `pkg/serialexec` (local serial, `go.bug.st/serial`, BSD-3) and
+**D - the serial family.** `pkg/serialexec` (local serial, `go.bug.st/serial`, BSD-3) and
 `pkg/serialtcp` (raw TCP passthrough) hold the real logic; `internal/transport/serial` and
 `internal/transport/serialtcp` are thin adapters with `TransportBinding`/`ActionCapability` entries.
 Raw passthrough is gated behind `insecure_raw_passthrough`.
 
-**E — RFC 2217 and Telnet.** `github.com/annetutil/gnetcli/pkg/streamer/rfc2217` evaluated and
+**E - RFC 2217 and Telnet.** `github.com/annetutil/gnetcli/pkg/streamer/rfc2217` evaluated and
 rejected (a second logging vocabulary, a second credentials type, no narrow control-channel surface)
-in favor of a hand-rolled `pkg/rfc2217` — a real, tested Telnet Com Port Control Option client with no
+in favor of a hand-rolled `pkg/rfc2217` - a real, tested Telnet Com Port Control Option client with no
 `TransportBinding` (line control is not a command string). `pkg/telnetexec` +
 `internal/transport/telnet` are Exec-shaped and do get a binding, behind `insecure_telnet`.
 
-**F — Docker exec and TFTP.** `pkg/dockerexec`, exec-only by construction: every request funnels
+**F - Docker exec and TFTP.** `pkg/dockerexec`, exec-only by construction: every request funnels
 through one allowlist of exactly three (method, path) pairs before a byte reaches the daemon socket.
 `container.docker.exec` is a real Collection method (not a `TransportBinding`, since the container id
 is a per-task param a binding's `Target` function cannot see). `pkg/tftpxfer` on
 `github.com/pin/tftp/v3`, no binding, filename traversal refused. Both packages deviated from the
-plan's own `internal/transport/docker`/`internal/transport/tftp` naming — `TestCatalogPackagesImportOnlyPkg`
+plan's own `internal/transport/docker`/`internal/transport/tftp` naming - `TestCatalogPackagesImportOnlyPkg`
 would have blocked every future FQCN importing either, so both live under `pkg/` instead, recorded in
 the spec correction pass (Workstream H) rather than silently.
 
-**G — the bastion proof, chaos, fuzz, stress, adversarial.** `pkg/remoteexec.DialThroughHops`, a new
+**G - the bastion proof, chaos, fuzz, stress, adversarial.** `pkg/remoteexec.DialThroughHops`, a new
 primitive (reusing `Connect`'s own breaker/retry machinery) that closed a real gap: the serial/telnet
 adapters were silently ignoring `Target.Route` before this workstream. The real four-container,
 two-Docker-network bastion proof (`ser2net` + `socat`, license-verified, both mandatory control
@@ -4897,7 +5115,7 @@ and corrected: severing a bastion leg mid-stream is genuinely indistinguishable 
 close (`golang.org/x/crypto/ssh`'s `Channel.Read` returns plain `io.EOF` either way), documented as
 verified drift rather than forced to match the plan's original guess.
 
-**H — hardening, docs, coverage, spec correction.** Two real hardening gaps found and fixed beyond
+**H - hardening, docs, coverage, spec correction.** Two real hardening gaps found and fixed beyond
 the plan's own five named boundaries: `pkg/dockerexec.readDemux` allocated a frame's announced size
 before checking it against the output cap (the same shape `FAILURE_PATTERNS.md` already knew for
 `GzipDecompress`), and `pkg/rfc2217`'s subnegotiation payload accumulator had no bound at all for a
@@ -4909,17 +5127,17 @@ clarification); `PATTERNS.md`'s Interface Segregation count corrected (27 → 31
 predicted, since this phase adds four capabilities, not one). `coverage-floor.json` gained floors for
 12 new/grown packages and dropped the stale `internal/transport/winrm` entry. `.SPECIFICATION/IMPLEMENTATION.md`'s
 Phase 73 checklist is fully annotated (25 of 26 items checked; the 26th, commit message, is
-deliberately unchecked — nothing is committed).
+deliberately unchecked - nothing is committed).
 
-### What landed (Workstream A, in full — kept from the prior handoff)
+### What landed (Workstream A, in full - kept from the prior handoff)
 
 **The live defect**: `container.docker.run/stop/remove` were `StatusImplemented`, fully coded and
-tested, requiring `capability.NameDocker` — but **zero device types anywhere in the module
+tested, requiring `capability.NameDocker` - but **zero device types anywhere in the module
 implemented it**, so `engine.checkMethodCapabilities` would refuse every real invocation. Confirmed
 empirically with a throwaway probe (since removed) against a real `linux.Server`, with a real
 capability it does satisfy as a non-vacuous control. The method's own tests never caught it because
 they build their device as `inventorytest.Stub`, which deliberately skips the structural assertion
-`HasCapability` performs on a real type — RULE 0's exact thesis. Fixed: `DockerCapable.DockerSocketPath()
+`HasCapability` performs on a real type - RULE 0's exact thesis. Fixed: `DockerCapable.DockerSocketPath()
 string` renamed to `DockerEndpoint() capability.SocketAddress` (a new named string type, since the
 value may be a Windows named pipe, never a POSIX path); a real `container.Host` device type
 scaffolded through the actual `pleiades forge new-device` CLI, hand-completed with
@@ -4927,7 +5145,7 @@ scaffolded through the actual `pleiades forge new-device` CLI, hand-completed wi
 
 **The systemic guard**: `internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable`
 fails the build if any `StatusImplemented` Collection method's `RequiredCapabilities` names a
-capability no registered device type structurally implements — proven to catch the exact class of
+capability no registered device type structurally implements - proven to catch the exact class of
 bug above by a real negative control (temporarily un-wiring the device type reproduces the three
 Docker failures verbatim).
 
@@ -4935,14 +5153,14 @@ Docker failures verbatim).
 Four (`PackageManagerCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, covering 15
 methods) turned out to already be honestly disclosed as "settled, intentional architecture" in their
 own implementing package's doc comment (`apt.go`, `dnf.go`, `identity/user/user.go`,
-`identity/group/group.go`) — genuinely per-distro or not-yet-collected classification data. These
+`identity/group/group.go`) - genuinely per-distro or not-yet-collected classification data. These
 were allowlisted in a new `acceptedUnsatisfiableCapabilities` map, matching `gosec-waivers.json`'s
 established per-entry-reason convention, each entry citing the exact disclosure. A companion test,
 `TestAcceptedUnsatisfiableCapabilitiesAreNotStale`, fails if any allowlisted capability ever becomes
 satisfiable for real (also negative-controlled). The fifth and sixth were **not** disclosed anywhere
-— the same undocumented shape Docker had. `FirewalldCapable` (`fw.firewalld.*`, 3 methods) was
+- the same undocumented shape Docker had. `FirewalldCapable` (`fw.firewalld.*`, 3 methods) was
 documented (the same "capability this cannot reach yet" section added to `firewalld.go`, matching
-`apt.go`'s precedent — firewalld really is optional per-distro software) and allowlisted.
+`apt.go`'s precedent - firewalld really is optional per-distro software) and allowlisted.
 `NetworkAddressableCapable` (`pleiades.builtin.wait.port`, 1 method) was **fixed for real**: it is
 trivial, already-known data on every network-reachable device type (an `IPAddress()` accessor
 delegating to each type's existing host field), so there was no honest architectural reason to leave
@@ -4966,16 +5184,16 @@ converting to a narrower wire type with no range check, found by `make gosec`, W
 `satisfiableCapabilities` (the sweep's shared helper) checked `item.HasCapability(name)` against a
 probe `Record` with no classification data. For a capability meant to be classification-only by
 design (all four of the "accepted" ones above), `Declares` would be permanently false regardless of
-whether the structural half was ever fixed — silently defeating
+whether the structural half was ever fixed - silently defeating
 `TestAcceptedUnsatisfiableCapabilitiesAreNotStale` for exactly the four entries it exists to guard.
 Caught by reasoning through what the staleness test would actually need to observe, before running
 anything, and fixed by hydrating every probe with **every** registered capability name as
-classification data, so only the structural half is under test — closer to "could classification
+classification data, so only the structural half is under test - closer to "could classification
 ever make this true" than "did classification run."
 
 **A `git checkout --` used mid-negative-control wiped legitimate work, caught immediately.** While
 negative-controlling the staleness guard, `git checkout -- internal/archtest/registry_sweep_test.go`
-was used to discard a temporary stale-probe edit — but the file had uncommitted legitimate changes
+was used to discard a temporary stale-probe edit - but the file had uncommitted legitimate changes
 (this session's own new tests) with nothing else to fall back to, so the command reverted **all** of
 it back to HEAD, not just the probe. Caught immediately by checking `git diff --stat` after, which
 showed zero diff where substantial new test code should have been. Recovered by re-authoring the
@@ -4988,7 +5206,7 @@ everything back," since a stash pop restores by patch rather than by wholesale r
 **No commit without the user's own live word in the current conversation.** Held throughout.
 
 **Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
-Held throughout — Ultracode was active this session and every exploration, edit and verification was
+Held throughout - Ultracode was active this session and every exploration, edit and verification was
 done directly.
 
 ### Verification state (whole phase, as of the end of Workstream H)
@@ -4999,10 +5217,10 @@ fix). `make gosec` clean (9 findings, all individually waived; the three real, u
 this session's own new code introduced were fixed, not waived). `make govulncheck` clean. `make
 docs-gen-check`'s generator itself is idempotent (running it twice back to back produces zero further
 diff); the target still reports a diff against git HEAD, which is expected and correct given nothing
-is committed — it will pass cleanly once this lands. Both `internal/archtest` guards from Workstream A
+is committed - it will pass cleanly once this lands. Both `internal/archtest` guards from Workstream A
 remain negative-controlled and green. The real four-container two-Docker-network bastion proof passes
 with both mandatory control assertions. `coverage-floor.json` carries a real floor for every new
-package; `go run ./tools/coverage-check` shows zero regressions among this phase's own packages — the
+package; `go run ./tools/coverage-check` shows zero regressions among this phase's own packages - the
 six regressions it does report (`internal/catalog/cloud/aws/ec2`/`s3`, three `internal/inventory/devices/*`
 packages, `internal/launch`) are confirmed, via isolated reruns, to be stable and reproducible but
 **unrelated to this phase**: the `ec2`/`s3` drop is LocalStack test skips (a known pre-existing
@@ -5012,7 +5230,7 @@ the other three were not investigated further since nothing in this phase touche
 ### Next steps
 
 All eight workstreams are done; A is committed (`cc71f55`), B through H are not. The natural next step
-is the user's own review of B-H and an explicit go-ahead to commit — this session will not commit
+is the user's own review of B-H and an explicit go-ahead to commit - this session will not commit
 without one, per the standing rule. `.SPECIFICATION/IMPLEMENTATION.md`'s Phase 73 checklist is fully
 annotated (gitignored, never committable, but real, for the next reader). If a future session picks
 this back up before B-H is committed, start from `git status`/`git diff` against `cc71f55`, not from
@@ -6376,15 +6594,15 @@ matters concretely: `ext.Network()` adds two new overloads to the standard libra
 `"string"` conversion function; a name-level diff would have missed both entirely. Every function name,
 signature, and example on the generated page (`docs/reference/filters/index.md`) comes from the live,
 diffed environment, including `filters.safeInt`/`safeFloat`/`safeBool`'s own `cel.FunctionDocs`/
-`cel.OverloadExamples` — there is no second, hand-maintained table anywhere to drift from the real
+`cel.OverloadExamples` - there is no second, hand-maintained table anywhere to drift from the real
 registration. `docs/reference/index.md` and `docs/reference/task-keys.md`'s `when`/`when_cel` rows now
 link to it. Two internal-spec citations (`` `PLAN.md` Section 36 ``) that leaked into the generated
-page's own hand-written prose were caught by `docs-lint` and rewritten out before this was done — worth
+page's own hand-written prose were caught by `docs-lint` and rewritten out before this was done - worth
 noting since it is exactly the kind of leak this repository's own lint exists to catch, and it did.
 
 **Tests**: `pkg/filters/cast_test.go` (table-driven), `cast_fuzz_test.go` (`FuzzSafeInt`/`FuzzSafeFloat`/
-`FuzzSafeBool`, each asserting the real invariant — fallback or exactly what `strconv` parses, not just
-"no panic" — 15s each, zero failures), `cast_bench_test.go`. `internal/engine/cel_filters_test.go`:
+`FuzzSafeBool`, each asserting the real invariant - fallback or exactly what `strconv` parses, not just
+"no panic" - 15s each, zero failures), `cast_bench_test.go`. `internal/engine/cel_filters_test.go`:
 every cast filter and every inherited cel-go function proven callable through the real, unmodified
 `engine.NewCELEvaluator()`/`Program.Eval` via compiled `when_cel`-shaped expressions, not bare Go calls;
 a collision-freedom test paired with a genuine negative control (see below); a cost-limit stress case
@@ -6405,7 +6623,7 @@ package test.
 
 **A real finding from writing the negative control, worth carrying forward.** The first attempt at the
 collision test registered `filters.safeInt`'s exact overload ID a second time and expected `cel.NewEnv`
-to reject it — it did not. Reading `common/decls.FunctionDecl.AddOverload` directly showed why:
+to reject it - it did not. Reading `common/decls.FunctionDecl.AddOverload` directly showed why:
 re-registering the *identical* overload ID with an *identical* signature is cel-go's own documented
 idempotent redefinition, not a collision, which is exactly what lets a `SingletonLibrary` be composed
 safely. The real collision shape is an *overlapping* signature under a *different* ID, which is what the
@@ -6581,29 +6799,29 @@ clean.
 ## Previous session: windows_server classification rule, svc.windows.*/win.feature.* (7 methods)
 
 **Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `60dae0d`, `cloud.aws.*` plus the `aws`
-sync plugin (committed with the user's own live go-ahead). Everything below — the four Windows
+sync plugin (committed with the user's own live go-ahead). Everything below - the four Windows
 capability accessors on `windows.Server`, `svc.windows.*`/`win.feature.*` (7 methods) and the
-`windows_server` classification rule — is implemented, tested, and verified on top of that commit,
+`windows_server` classification rule - is implemented, tested, and verified on top of that commit,
 but uncommitted: no such word has been given yet this session.**
 
 This session opened with "what's the next batch?" `HANDOFF_DOCUMENT.md`'s own "remainder, in
 order" list named items 3 and 4 (the `windows_server` classification rule, and
 `svc.windows.*`/`win.feature.*`) as next. A plan for both together was written, approved, and
-implemented — one batch rather than two, because the classification rule only matters once
+implemented - one batch rather than two, because the classification rule only matters once
 `windows_server` is a device type real methods can run against, the same reasoning that made
 `cloud.aws.*` and the `aws` plugin one combined commit even though they were planned separately.
 
 ### What landed
 
 **`windows.Server` gained four real accessors**, closing the TODO its own doc comment named since
-the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback — purely
+the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback - purely
 descriptive, nothing gates on it, the same restraint `linux.Server.Distribution` applies to its own
 detected fact), `ServiceManagerName()` (property `service_manager`, defaulting to `"windows_scm"`,
-the exact mirror of `linux.Server.ServiceManagerName`'s shape — this is what makes
+the exact mirror of `linux.Server.ServiceManagerName`'s shape - this is what makes
 `internal/catalog/svc.managerNamespace`'s pre-existing `"windows_scm" -> "svc.windows"` mapping
 resolve for real for the first time), `WindowsServiceStartMode()` (property
 `windows_service_start_mode`, defaulting to `"Automatic"`, informational like
-`SystemdUnitPath` — no method reads it, it satisfies the capability's structural contract) and
+`SystemdUnitPath` - no method reads it, it satisfies the capability's structural contract) and
 `DISMLogPath()` (property `dism_log_path`, defaulting to the real Windows default,
 `C:\Windows\Logs\DISM\dism.log`).
 
@@ -6620,12 +6838,12 @@ shells out to `dism.exe` directly rather than the `ServerManager` PowerShell mod
 to DISM, and `dism.exe /online` works on every Windows SKU while `ServerManager` is Server-only. A
 real, non-obvious gotcha surfaced building it: calling a native executable from a PowerShell script
 does not make the script's own exit code reflect the executable's, so every script this package
-sends ends with an explicit `exit $LASTEXITCODE` line — without it, `Result.ExitCode` would read
+sends ends with an explicit `exit $LASTEXITCODE` line - without it, `Result.ExitCode` would read
 success regardless of what `dism.exe` actually reported. DISM's real exit codes are applied
 directly: `0` success, `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) success-needs-restart (surfaced as
 a new `reboot_required` stat rather than folded into `changed`), `87`
 (`ERROR_INVALID_PARAMETER`) an unrecognized feature name (surfaced as `Exists: false`, not an
-error — the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
+error - the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
 applies to a systemd unit).
 
 **`svc.windows.*` (5 methods: `start`/`stop`/`restart`/`enable`/`disable`)** mirrors
@@ -6635,7 +6853,7 @@ disk" operation to expose. `enable`/`disable`'s inverse is genuinely more carefu
 `svc.systemd`'s own: Windows services have three start types
 (`Automatic`/`Manual`/`Disabled`), and this namespace's `enable`/`disable` only ever set the first
 and third. A service found `Manual` that `enable` moves to `Automatic` has no exact reverse through
-`disable` (which sets `Disabled`, not `Manual`) — that specific transition emits no inverse at all
+`disable` (which sets `Disabled`, not `Manual`) - that specific transition emits no inverse at all
 rather than one that would over-correct a rollback, which is documented on each method's own
 `Reversibility.Notes` and verified directly by driving the real, registered `Enable`/`Disable`
 functions with seams swapped, not a hand-copied stand-in for their inverse logic.
@@ -6649,11 +6867,11 @@ what the Windows GUI's own "Add roles and features" does by default); `remove` d
 not, so removing a feature never silently removes the parents it depended on.
 
 **The `windows_server` classification rule** (`internal/classification/default_ruleset.go`), added
-at its own root — agentless, `configure_polling`, the same four capabilities
-`windows.NewServer`'s baseline already grants — the same pattern `aws_account`/`catalyst_center`
+at its own root - agentless, `configure_polling`, the same four capabilities
+`windows.NewServer`'s baseline already grants - the same pattern `aws_account`/`catalyst_center`
 were each added under when the plugin or batch that needed them was built. The one real, direct
 consumer: the `aws` sync plugin's `Classify` no longer quarantines a discovered Windows EC2
-instance (`Platform: "windows"`) — it resolves to `windows_server` — while a `Platform` value this
+instance (`Platform: "windows"`) - it resolves to `windows_server` - while a `Platform` value this
 tree still has no rule for continues to quarantine honestly. `aws_localstack_test.go`'s own
 `TestClassify_WindowsInstance_Quarantines` (proving the old, now-false behavior) was replaced with
 `TestClassify_WindowsInstance` plus a new `TestClassify_UnrecognizedPlatform_Quarantines`
@@ -6683,7 +6901,7 @@ own package doc already states and accepts that constraint rather than building 
 script construction, quoting and state parsing against canned input; `internal/catalog/svc/windows`
 and `internal/catalog/win/feature`'s full decision logic (converged/refusal/inverse, including every
 downstream failure-wrapping branch) via `statusFunc`/`startFunc`/`stopFunc`/`restartFunc`/
-`enableFunc`/`disableFunc` seams swapped to canned answers — the same role `remoteexectest`'s fake
+`enableFunc`/`disableFunc` seams swapped to canned answers - the same role `remoteexectest`'s fake
 systemctl plays for `pkg/remotesvc`'s own tests, adapted to a transport with no in-process fake
 worth building. `pkg/winrmsvc`/`pkg/winrmdism` themselves sit at 77.5%/73.3% (no recorded floor,
 the same "informational" bucket `pkg/winrmexec` itself already sits in): the remaining gap is the
@@ -6734,10 +6952,10 @@ window.
 
 ### The remainder, in order
 
-1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
-2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ — done, committed at `60dae0d`.
-3. ~~A `windows_server` classification rule~~ — done this session.
-4. ~~`svc.windows.*`/`win.feature.*` (7)~~ — done this session.
+1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ - done, committed at `93a7818`.
+2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ - done, committed at `60dae0d`.
+3. ~~A `windows_server` classification rule~~ - done this session.
+4. ~~`svc.windows.*`/`win.feature.*` (7)~~ - done this session.
 5. **`net.cli`/`ios`/`eos`/`junos`/`netconf` (6)** is blocked on a NETCONF transport that does not
    exist yet. The next natural batch by this list's own ordering, and the last real transport gap
    in the catalog.
@@ -6776,16 +6994,16 @@ the count.
 `TestCatalogDataDocsMatchTheRegistry` after hand-syncing `internal/forge/catalogdata`'s two files,
 and `TestEveryImplementedMethodAnswersReversibility` reporting 70), `make gosec` (the same 9
 pre-existing individually-waived findings, zero new ones), `go run ./tools/docs-lint` (clean),
-`go run ./tools/govulncheck`/`make govulncheck` (clean — 0 vulnerabilities affecting this code, an
+`go run ./tools/govulncheck`/`make govulncheck` (clean - 0 vulnerabilities affecting this code, an
 improvement on the `lib/pq` CVEs prior sessions noted; worth re-confirming next session rather than
 assuming), and `go generate ./internal/forge/catalogdata` plus `go run ./tools/gendocs` (both
 confirmed idempotent, a second run of each produces no further diff).
 
 **Full-repo verification completed cleanly once Docker came back**, and every earlier caveat about
-it is superseded by this: `go test -race ./...` (whole repo, real containers — real LocalStack,
+it is superseded by this: `go test -race ./...` (whole repo, real containers - real LocalStack,
 real sshd, real NATS) ran to completion with **zero failures across 126 packages**. `go run
 ./tools/coverage-check`, run non-tolerant with `LOCALSTACK_AUTH_TOKEN` sourced from
-`.IGNORE/.localstack.env` (needed separately from Docker itself — the first run after Docker came
+`.IGNORE/.localstack.env` (needed separately from Docker itself - the first run after Docker came
 back still showed `cloud.aws.ec2`/`s3` "regressed," and the actual cause was this token not yet
 being exported in the fresh shell, not Docker), reports **173 packages measured, none below their
 recorded floor**. `pkg/awscloud` (95.6%), `internal/inventory/plugins/aws` (99.0%), and every other
@@ -6795,7 +7013,7 @@ The one loose end from the Docker-unavailable window is worth still naming rathe
 `internal/catalog/pleiades/builtin/wait`'s `TestPort_UsesTheBashProber` failed once under
 full-suite load during that earlier pass and passed cleanly in isolation immediately after and
 again during this clean full run; this session touched nothing in or near that package, and it is
-not yet added to `flaky-packages.json` — worth watching for a repeat before deciding whether it
+not yet added to `flaky-packages.json` - worth watching for a repeat before deciding whether it
 belongs there.
 
 `make docs-gen-check` "fails" for the same non-defect reason as every prior session: its own `git
@@ -6888,8 +7106,8 @@ working tree (63 committed, plus these seven).
 ## Previous session: fs.*, archive.*, fw.firewalld.* and container.docker.*, ten more methods
 
 **Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `7d3638a`, the six `identity.*` methods
-(committed with the user's own live go-ahead, after they ran it themselves). Everything below — the
-ten `fs.*`/`archive.*`/`fw.firewalld.*`/`container.docker.*` methods — is implemented, tested, and
+(committed with the user's own live go-ahead, after they ran it themselves). Everything below - the
+ten `fs.*`/`archive.*`/`fw.firewalld.*`/`container.docker.*` methods - is implemented, tested, and
 verified on top of that commit, but uncommitted: the standing rule holds (no commit without the
 user's own live word in the current conversation), and no such word has been given yet this
 session.**
@@ -6903,7 +7121,7 @@ next by the "no new primitive" test `pkg.*` and `identity.*` both matched.
 
 **All ten methods across four new namespaces, implemented and tested**, each built entirely on
 `pkg/remoteexec` (and, where a package edits a text file, `pkg/remotefile`) via `sdk.Connect`, no
-new `pkg/` primitive — the same tier `pkg.*`/`identity.*` shipped at.
+new `pkg/` primitive - the same tier `pkg.*`/`identity.*` shipped at.
 
 - **`fs.mount`/`fs.unmount`** (`internal/catalog/fs`): mount state read via `findmnt`, changed via
   `mount`/`umount`; fstab persistence reuses `pkg/remotefile`'s existing `Read`/`Write`/`Apply`, the
@@ -6920,10 +7138,10 @@ new `pkg/` primitive — the same tier `pkg.*`/`identity.*` shipped at.
   guaranteed present on a target the way tar is). `archive.create` is existence-only idempotent on
   its destination path. `archive.extract`'s forge stub declared `FileTransferCapable`, implying a
   control-node-to-device transfer this codebase cannot do (`file.copy` explicitly refuses `src` for
-  the identical reason) — its capability was changed to `POSIXFileSystemCapable` and it is scoped to
+  the identical reason) - its capability was changed to `POSIXFileSystemCapable` and it is scoped to
   a `src` archive already on the device (Ansible's own `remote_src: true` shape), using `creates`
   (`exec.command`'s own idiom) for opt-in idempotency. `archive.create` is `Reversible: true`
-  (inverse: `file.remove`); `archive.extract` is `Reversible: false` — enumerating everything an
+  (inverse: `file.remove`); `archive.extract` is `Reversible: false` - enumerating everything an
   extract created well enough to safely delete it is out of scope, the same call `pkg.upgrade` made.
 - **`fw.firewalld.allow`/`deny`/`reload`** (`internal/catalog/fw/firewalld`): mirrors `svc.systemd.*`'s
   shape against `firewall-cmd`. The permanent configuration and the runtime one are read and
@@ -6933,29 +7151,29 @@ new `pkg/` primitive — the same tier `pkg.*`/`identity.*` shipped at.
   `Reversible: false` and always reports changed, mirroring `svc.systemd.daemon_reload`'s identical
   reasoning (no way to ask whether a reload would have made a difference).
 - **`container.docker.run`/`stop`/`remove`** (`internal/catalog/container/docker`): state read via
-  `docker inspect`, scoped well below `community.docker.docker_container`'s full surface —
+  `docker inspect`, scoped well below `community.docker.docker_container`'s full surface -
   `run` is idempotent on the container **name** existing only, never a config comparison, and never
   recreates. `run` is `Reversible: true` only when it actually created a fresh container (inverse:
   `container.docker.remove` with `force: true`). `stop` and `remove` are both `Reversible: false`:
   this catalog declares no `container.docker.start`, so recording `container.docker.run` as `stop`'s
   inverse would be dishonest (its own idempotency means it would just no-op rather than restart);
   and `remove`'s inverse would need to reconstruct ports/volumes/env/restart-policy from `docker
-  inspect` output, which is parsing this pass does not take on — a partial inverse would be worse
+  inspect` output, which is parsing this pass does not take on - a partial inverse would be worse
   than an honest refusal, the same call `pkg.upgrade` made.
 
 **Capability reachability split for the first time this batch.** `fs.*` and `archive.*` are
 **already reachable against a real `linux.Server` device today**: `NameLinux` and
 `NamePOSIXFileSystem` are both already in that type's baseline declared-capability set (unlike every
 prior batch's gap). `fw.firewalld.*` (`NameFirewalld`) and `container.docker.*` (`NameDocker`) hit
-the same documented-gap class `identity.*`/`pkg.*` did — no device type implements the accessor
-(`FirewalldZone()`/`DockerSocketPath()`) at all — with a further wrinkle for `fw.firewalld.*`
+the same documented-gap class `identity.*`/`pkg.*` did - no device type implements the accessor
+(`FirewalldZone()`/`DockerSocketPath()`) at all - with a further wrinkle for `fw.firewalld.*`
 specifically: unlike `LinuxCapable`, firewalld isn't universally true of every Linux box, so even
 implementing the accessor would not earn a baseline declare on `linux.Server`; it would need a
 per-instance property the way `service_manager` already works.
 
 **A new `LESSONS_LEARNED` entry, #148**: `fs.mount`/`fs.unmount`'s fstab path is a task parameter
 (`fstab`, defaulting to `/etc/fstab`) rather than a hardcoded constant, discovered as a real
-necessity rather than a nicety — `remoteexectest.Start` runs every test command through a real
+necessity rather than a nicety - `remoteexectest.Start` runs every test command through a real
 `/bin/sh` on the actual test-running machine, so a hardcoded `/etc/fstab` would have meant either
 genuinely rewriting the test runner's own fstab or mocking `remotefile` out from under the method
 (the exact RULE 0 violation this codebase's whole testing discipline exists to prevent). Ansible's
@@ -7015,7 +7233,7 @@ session, since the batch was implemented directly throughout with no delegation 
 
 ### The remainder, in order
 
-1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done this session.
+1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ - done this session.
 2. **`cloud.aws.*` (4)** needs an AWS SDK client, which is a real new dependency decision, not just
    more `remoteexec` commands.
 3. **`svc.windows.*`/`win.feature.*` (7)** is transport-unblocked (WinRM exists) but needs two
@@ -7045,8 +7263,8 @@ in the working tree (49 committed at `7d3638a`, plus these ten), confirmed via `
 ### Verification state
 
 Full `go build ./...`, `go vet ./...`, `make fmt`, `go test -race ./...` (whole repo, not just the
-new packages — this is what caught the two `cmd/pleiades/doc_test.go` tests needing an unrelated
-fixture update), `make gosec` (9 pre-existing individually-waived findings, no new ones —
+new packages - this is what caught the two `cmd/pleiades/doc_test.go` tests needing an unrelated
+fixture update), `make gosec` (9 pre-existing individually-waived findings, no new ones -
 `gosec-waivers.json` itself is untouched), `go run ./tools/coverage-check` (169 packages measured,
 none below their recorded floor), and `go run ./tools/docs-lint` all pass clean on top of `7d3638a`
 plus this session's uncommitted work. `go generate ./internal/forge/catalogdata` and
@@ -7065,7 +7283,7 @@ session, confirmed again, none with a fix available upstream ("Fixed in: N/A" on
 `go.mod`/`go.sum` are untouched by this session.
 
 Nothing about `fs.*`/`archive.*`/`fw.firewalld.*`/`container.docker.*` was exercised against a real
-device either — same honest caveat every implemented-but-not-device-proven batch has carried, and
+device either - same honest caveat every implemented-but-not-device-proven batch has carried, and
 for `fs.*`/`archive.*` specifically the caveat is now purely "not yet run against a real device,"
 not "not yet capability-reachable," which is a genuine step forward from every prior batch.
 
@@ -7174,7 +7392,7 @@ All six `identity.*` methods, implemented and tested. `identity.user.create`/`mo
 `identity.group.create`/`modify`/`remove` are built entirely on `pkg/remoteexec` via `sdk.Connect`,
 no new `pkg/` primitive: account/group state is read with `getent passwd`/`getent group`, and
 changed with `useradd`/`usermod`/`userdel`/`groupadd`/`groupmod`/`groupdel`, quoted through
-`remoteexec.QuoteCommand`. Unlike `pkg.*`, there is no generic-plus-concrete dispatcher here — these
+`remoteexec.QuoteCommand`. Unlike `pkg.*`, there is no generic-plus-concrete dispatcher here - these
 six FQCNs were already the concrete layer with nothing generic above them to resolve to.
 
 `identity.user.create` converges an existing account's `uid`/`group`/`shell`/`home`/`comment` toward
@@ -7192,7 +7410,7 @@ Runner-subprocess-JSON boundary. The three prior private copies (`wait.port`,
 `net.catalyst.device_facts`, `http.request`, `exec.winrm.shell`) were deliberately left alone.
 
 A capability-wiring gap, the same one `pkg.*` found, for a related but distinct reason:
-`capability.PosixAccountCapable` already existed but no device type implements it — not because it
+`capability.PosixAccountCapable` already existed but no device type implements it - not because it
 lacks an honest per-instance default (POSIX accounts genuinely are universal), but because nothing
 had ever wired the accessor at all. See `LESSONS_LEARNED` #146's update.
 
@@ -9705,8 +9923,8 @@ Two were not green when 22c was pushed, and both are now resolved:
 - The one-credential-per-kind rule is application-enforced, not a database constraint.
 - JetStream retention: injected secrets ride the one stream for up to seven days, and this phase
   makes that worse in VOLUME and identical in KIND. The fix is reference passing, which needs a
-  Runner identity story that does not exist. **The other half of that fix — a store the Runner can
-  resolve a reference against — is Phase 78.** Sequencing 78 with whichever phase owns Runner
+  Runner identity story that does not exist. **The other half of that fix - a store the Runner can
+  resolve a reference against - is Phase 78.** Sequencing 78 with whichever phase owns Runner
   identity is what closes the seven-day window; shipping either alone does not.
 - `SavedLaunchConfig.answers` and `Device.properties` remain unbound by AAD. **Phase 78.**
 - No credential-row key rotation: `crypto.RotateDeviceProperties` covers Device only. **Phase 78.**
@@ -9749,16 +9967,16 @@ own "Status: CLOSED" writeup; the summary:
    task from a real two-task play.
 3. **The native adapter.** `engine.Executor` did **not** already have any variable-override or
    per-task-timeout plumbing (confirmed via `gopls references` on its two production call sites, not
-   assumed) — this was new engine work, not just adapter work. `ExtraVars` now reaches a runbook's
+   assumed) - this was new engine work, not just adapter work. `ExtraVars` now reaches a runbook's
    `when_cel` conditions through a new `"vars"` CEL root (`engine.WithVariables`); `timeout` is now
    a genuine **per-task** abort (`engine.WithTaskTimeout`, wrapping each device's own `ctx` inside
-   `runOne`, not the whole `Run` call) — the runbook kind's FieldSpec text says "per task", the
+   `runOne`, not the whole `Run` call) - the runbook kind's FieldSpec text says "per task", the
    opposite of the playbook kind's "per run" reading of the same field name, and both adapters now
    honor their own kind's stated semantics correctly. **`forks`/`limit` are deliberately NOT wired**
    for the native adapter: `singleDeviceResolver` always resolves every task to the one device this
    Runner invocation already got dispatched, and every device-targeting task takes an exclusive
    per-device lock before running, so there is no concurrency dimension within one `Execute` call for
-   `forks` to bound — wiring it into `maxConcurrency` anyway would have been a real parameter set to
+   `forks` to bound - wiring it into `maxConcurrency` anyway would have been a real parameter set to
    a real value with a provably zero effect, forever. This is `LESSONS_LEARNED.md` #106, found and
    documented, not shipped as a bug.
 
@@ -9772,7 +9990,7 @@ each flake was run down individually rather than assumed benign, per standing in
 
 - `test-race` failed twice, on `TestCLI_RunExecutesSSHTransport` (`cmd/pleiades`) and
   `TestAgent_FailedExecutionEventuallyDeadLetters`/`TestAgent_ReleaseGate_
-  PullsFiveDispatchesWithoutDuplicating` (`internal/runner`) across the two attempts — all Docker
+  PullsFiveDispatchesWithoutDuplicating` (`internal/runner`) across the two attempts - all Docker
   port-mapping races (`port "X/tcp" not found`), none in a package this session touched. All three
   passed cleanly in an isolated serial rerun. A full, uninterrupted `go test -race -timeout 20m ./...`
   run (not stopped at the first failing package the way `make`'s own chained targets are) then
@@ -9789,7 +10007,7 @@ each flake was run down individually rather than assumed benign, per standing in
   instruction technically requires: `git stash -u` reverted every uncommitted change from this
   session, the identical isolated test command was run against that clean baseline (pass, 12.91s),
   the stash was restored (`git stash pop`), and the identical command was run again against this
-  session's own code (pass, 14.19s) — proving the hang was not reachable from this session's diff at
+  session's own code (pass, 14.19s) - proving the hang was not reachable from this session's diff at
   all. Both later flakes (a clean full run, then the unrelated leader-election split-brain) were each
   reconfirmed passing in isolation the same way. No fix was needed or made for any of these; they are
   documented here because "make ci is green" should mean something more specific than "it printed
@@ -9797,7 +10015,7 @@ each flake was run down individually rather than assumed benign, per standing in
 
 **Next step.** Nothing blocking. Section 3b.2 (a job's "completed" state describing fan-out, not
 execution) is next in the roadmap's own dependency order, and is explicitly a separate,
-design-then-build phase (PLAN.md Sections 16-17 first) — do not start it assuming this session's
+design-then-build phase (PLAN.md Sections 16-17 first) - do not start it assuming this session's
 work belongs to the same commit. Tranche B's own remaining scope (B2's expandable row summary, the
 real multi-badge activity strip) is still open and was not touched this session either.
 
@@ -9853,16 +10071,16 @@ first hop.** `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b has the full writ
 evidence for both; `FAILURE_PATTERNS.md` #116-117 and `LESSONS_LEARNED.md` #105 record them as
 findings. In short: `launch.Template.Resolve` has always correctly computed `Resolved.Fields` and
 `Resolved.ExtraVars`, and `internal/api/dispatcher.go`'s `LaunchTemplate` read them out of `resolved`
-and never referenced them again — every execution field B1's new UI lets an author set was inert.
+and never referenced them again - every execution field B1's new UI lets an author set was inert.
 Closed this session's first hop: `dispatch.Job` gained `Fields`/`ExtraVars` columns (ent schema +
 migrations `sqlite/0011` and `postgres/0008`), and `LaunchTemplate` now stamps them, tested end to
 end against a real store. **Still open and NOT attempted**: the wire (`pkg/wire.DispatchPayload` has
 no field for this yet) and both adapters (`internal/adapters/legacy/adapter.go`'s argv is still
-hardcoded — no `--limit`/`--tags`/`--forks`/etc; the native adapter's extra-vars injection point was
+hardcoded - no `--limit`/`--tags`/`--forks`/etc; the native adapter's extra-vars injection point was
 not audited). Separately, confirmed but not touched: a job's `state`/tallies describe fan-out
 publish outcomes, not per-device execution outcomes, and the Runner already reliably publishes real
 per-device results (`internal/runner/wal.go`'s `ResultEntry`, via `topology.ResultSubject`) that
-nothing on the Controller side has ever subscribed to — `ResultWAL`'s own doc comment says as much.
+nothing on the Controller side has ever subscribed to - `ResultWAL`'s own doc comment says as much.
 Both were sized and left for a dedicated design-then-build pass rather than rushed: they cross a wire
 contract with a literal shape assertion and a state-machine design question (what happens if a Runner
 never reports back), and attempting either under the time remaining in an already-long session was
@@ -10241,7 +10459,7 @@ compile on more than one GOOS and adds packages whose natural filenames sit dire
 (`serial_linux.go`, `socket_windows.go`). Every phase in the Part forbids GOOS-suffixed filenames and
 says why.
 
-**Platform requirement, recorded because it shapes several decisions.** Pleiades must act on Windows and
+**Platform requirement, recorded because it shapes several decisions.** The Pleiades must act on Windows and
 macOS targets, a hard requirement. It must run on Linux and should run on macOS; running the controller
 on Windows is a stretch goal that may be missed. Windows targets are well served by Phase 72's WinRM.
 **macOS targets are a real gap that Part XV deliberately does not close:** a Mac is reached over SSH,
@@ -10268,18 +10486,18 @@ grew from 36 checklist items to 54, and from 496 lines to 978. It had treated `c
 to bypass with a single global `WINRS_SKIP_CMD_SHELL` switch, which cannot survive an operator who
 legitimately wants cmd builtins. It now names three typed execution modes (`ShellNone`, `ShellCmd`,
 `ShellPowerShell`), pins the WS-Man option to `TRUE` in all three so exactly one parser ever sees the
-bytes and it is always the one Pleiades chose, and reuses the existing `CommandExecCapable` while adding a
+bytes and it is always the one The Pleiades chose, and reuses the existing `CommandExecCapable` while adding a
 `WindowsShellCapable` sibling (`ShellExecCapable` was rejected because its whole contract is a single
 `ShellPath()`, and Windows has two shells whose metacharacter sets are disjoint).
 
 **The load-bearing fact behind the diagnostics work, verified against three primary sources because
 getting it wrong would ship a confident and completely wrong error message: PowerShell Execution Policy
-does not block anything Pleiades sends.** Microsoft's own `about_Execution_Policies` says it "isn't a
+does not block anything The Pleiades sends.** Microsoft's own `about_Execution_Policies` says it "isn't a
 security system that restricts user actions"; `PSAuthorizationManager.ShouldRun` calls `CheckPolicy` in
 exactly one branch, `case CommandTypes.ExternalScript`; and every blocking string in `Authenticode.resx`
-is parameterized on a file path. Since Pleiades sends `-EncodedCommand` and never writes a `.ps1`,
+is parameterized on a file path. Since The Pleiades sends `-EncodedCommand` and never writes a `.ps1`,
 Execution Policy is out of the loop, and an operator's first guess is therefore almost always wrong.
-Exactly three mechanisms can actually refuse what Pleiades sends (Constrained Language Mode, a NoLanguage
+Exactly three mechanisms can actually refuse what The Pleiades sends (Constrained Language Mode, a NoLanguage
 runspace, and AMSI), plus impostors that must never be reported as blocks: WinRM quotas and an audit-mode
 App Control policy.
 
@@ -10289,7 +10507,7 @@ PowerShell blocking is a property of the Windows host, not of how the script arr
 identically over WinRM, from a local subprocess on a Windows controller, or from an agent on the box.
 
 **Two gaps were recorded rather than built, both raised by the product owner:**
-1. **Controller-side execution.** If Pleiades runs on Windows, `cmd.exe` and `powershell.exe` are local
+1. **Controller-side execution.** If The Pleiades runs on Windows, `cmd.exe` and `powershell.exe` are local
    subprocesses, not a transport, and `PLAN.md:806` explicitly refuses to model local as a connection
    ("No `connection: local`. Execution context is first-class"). But `collection.ExecutionContext` is one
    boolean, and no file under `internal/`, `pkg/`, or `cmd/` imports `os/exec` outside tests, which Phase
@@ -10997,7 +11215,7 @@ phase this size: `internal/engine/{dag,tasktree,executor,level_iterator,topology
 lock_acquisition,action,collection_action,import_tasks,task_syntax}.go`, `cmd/pleiades/run.go`, plus
 `PLAN.md` Sections 14/22.1/25/35 and `PATTERNS.md`'s Builder/Composite/Checkpointing/Workflow Definition
 Versioning entries), then one Plan agent pressure-tested the resulting design against the real repo before
-any plan file was written — its findings (a full re-scoping of the typed-edges item, a correction removing
+any plan file was written - its findings (a full re-scoping of the typed-edges item, a correction removing
 Checkpointing from this phase's own Pattern Entry Gate, deferring `DefinitionStore` entirely, and the
 `TaskKind`-as-computed-not-stored/synthetic-fast-path design) were folded in before implementation began,
 and are recorded in full in `IMPLEMENTATION.md`'s own Phase 10 entry and `LESSONS_LEARNED.md` #72.
@@ -11008,7 +11226,7 @@ real `Adjacency` edges and teaching `Executor` to route on outcome was investiga
 built this phase: `LevelIterator` computes static, outcome-independent reachability once up front, and
 `Executor.Run` aborts its whole walk on any failure rather than routing around it, so the "light" version of
 this wiring would have been an active correctness regression (`Rescue` firing on the happy path, never on
-failure), not merely an inert one — a pressure-test finding, not a guess. This reopens Phase W5-sized
+failure), not merely an inert one - a pressure-test finding, not a guess. This reopens Phase W5-sized
 territory and is named as a separate, explicit follow-up rather than folded in silently. `DefinitionStore`
 was deferred for a related but distinct reason: it has no consumer anywhere in the repo and no entry in
 Section 25's Shared Primitives table (the one place a "declare now, build later" carve-out is sanctioned),
@@ -11021,7 +11239,7 @@ Adversarial Pattern Justification line warns against. Both corrections are recor
 1. **`internal/engine/task_kind.go`** (new). `TaskKind` (an iota enum: `TaskKindLeaf`/`TaskKindBlock`/
    `TaskKindParallel`/`TaskKindSynthetic`/`TaskKindInvalid`), computed via `Task.Kind()` from field
    presence (`taskShape`, the one shared derivation `Kind` and `validateTask`'s own precise-conflict
-   diagnosis both build on) rather than stored — a stored field would be a second source of truth that
+   diagnosis both build on) rather than stored - a stored field would be a second source of truth that
    could drift from the fields it describes, the same reasoning `DAG.Version` (below) follows.
 2. **`internal/engine/dag.go`**. `Task.Parallel []Task` (mirrors `Block`'s shape exactly, not `PLAN.md`
    Section 14's stale bare-string example) plus an unexported `synthetic bool` field, set only by
@@ -11032,38 +11250,38 @@ Adversarial Pattern Justification line warns against. Both corrections are recor
    removing its recursion-depth risk entirely rather than capping it.
 3. **`internal/engine/tasktree.go`**. `validateTask` is now a 3-way switch (via `Kind()`/`taskShape`)
    instead of a 2-way boolean check, and gained a real rescue/always-guard rule for `Parallel` (Block-only,
-   deliberately — Ansible has no established parallel-failure-handling vocabulary to mirror).
+   deliberately - Ansible has no established parallel-failure-handling vocabulary to mirror).
    `synthesizeChain` refactored: its per-task splice logic moved into a new `synthesizeOne`, shared by the
    ordinary list-stitching path and the new `synthesizeParallel` (a synthetic fan-out node feeding every
    `Parallel` child's own independently-synthesized chain, each child's own exit feeding a synthetic join
-   node — `id+".fanout"`/`id+".join"`, registered via `registerSyntheticNode`, bypassing `validateTask`
+   node - `id+".fanout"`/`id+".join"`, registered via `registerSyntheticNode`, bypassing `validateTask`
    since a synthetic node is not user input). `LevelIterator`/`TopologicalOrder`/`reachableWithInDegree`
    needed **zero** change: `TestLevelIterator_Diamond` already proved multi-parent/multi-child grouping
    worked; only `Builder` needed to learn to produce that shape.
 4. **`internal/engine/import_tasks.go`**. `maxImportDepth` renamed `maxTaskNestingDepth` (value unchanged,
    32) and now bounds two risks with one shared counter: import-hop-chain length (its original purpose) and
    plain `block`/`rescue`/`always`/`parallel` nesting depth (a second, structurally identical unbounded-
-   recursion site found while researching the named checklist item, not previously called out — fixed in
+   recursion site found while researching the named checklist item, not previously called out - fixed in
    the same pass). Because `resolveImportTasksInList` runs first, unconditionally, on the complete tree
-   before `tasktree.go`'s own recursion ever sees it, this one check transitively bounds both — no second
+   before `tasktree.go`'s own recursion ever sees it, this one check transitively bounds both - no second
    check was added there.
 5. **`internal/engine/executor.go`**. `runNode` gained exactly one addition: a fast path that returns
    immediately for a `TaskKindSynthetic` node, skipping condition-check/lock/action-dispatch/publish. This
-   is the *only* `Executor` change this phase makes — explicitly not the rescue/always-routing change
+   is the *only* `Executor` change this phase makes - explicitly not the rescue/always-routing change
    described in the scope note above.
 6. **`internal/engine/task_syntax.go`**. `parallel` added to `reservedTaskKeys` and both normalizers'
-   recursion lists (YAML and JSON paths) — a real gap caught by the test suite itself: without this, module-
+   recursion lists (YAML and JSON paths) - a real gap caught by the test suite itself: without this, module-
    as-key sugar detection misread a task's `parallel:` list as an unrecognized sugar key and failed with a
    confusing "module must be an object of arguments" error.
 7. **`cmd/pleiades/run.go`**. `printTaskList` now switches on `Kind()` and prints a `parallel:` section,
    mirroring `block:`.
 8. **Tests** (all new unless noted): `task_kind_test.go`, `dag_internal_test.go` (package `engine`, not
-   `engine_test` — the only way to hand-build a genuinely cyclic `*DAG` and prove `hasCycle`'s rewrite both
+   `engine_test` - the only way to hand-build a genuinely cyclic `*DAG` and prove `hasCycle`'s rewrite both
    still detects it and doesn't stack-overflow on a 500,000-node chain), `dag_test.go` (`Parallel`
    structural tests, `Version` stability/change tests, nesting-depth-bound tests, a 20,000-flat-task
    `Build()` stack-safety test), `tasktree_test.go` (parallel ID-scheme test), `executor_test.go`
    (`TestExecutor_Parallel_RunsConcurrently`, a real `Executor.Run`-level high-water-mark proof of genuine
-   concurrency, and that the `ActionExecutor` is called exactly `childCount` times, never `childCount+2` —
+   concurrency, and that the `ActionExecutor` is called exactly `childCount` times, never `childCount+2` -
    proving the synthetic fast path is provably inert, not just present), `task_syntax_test.go` (parallel
    sugar-conflict and nested-sugar tests), `cmd/pleiades/run_test.go` (new file; `printTaskList` had no
    prior test coverage at all). `dag_fuzz_test.go`'s seed corpus extended with `parallel` shapes and a
@@ -11071,7 +11289,7 @@ Adversarial Pattern Justification line warns against. Both corrections are recor
 
 **Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean on every file this session
 touched (one pre-existing, unrelated `gofmt` finding in `executor_fuzz_test.go` confirmed via a disposable
-`git stash -u` to predate this session — left alone, not this phase's to fix). `go test ./internal/engine/...
+`git stash -u` to predate this session - left alone, not this phase's to fix). `go test ./internal/engine/...
 ./cmd/pleiades/... ./internal/validate/... -race -count=1` clean. A full `go test ./... -count=1` was clean
 except `internal/lock`'s `TestNatsLease_ExclusiveKeepAliveAfterRelease` (the established testcontainers
 port-mapping flake category, `FAILURE_PATTERNS.md` #61's own precedent; passed cleanly in isolation,
@@ -11087,16 +11305,16 @@ raised to 61.0). The same four pre-existing `coverage-floor.json` regressions fr
 #60 (`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) recurred
 at the identical percentages, reconfirmed via a fresh `git stash -u` baseline check (this session's own
 new files are untracked, so a plain `git stash` without `-u` is insufficient and was caught mid-check)
-— predate and are unrelated to this phase. Real, end-to-end proof against the actual built `pleiades`
+- predate and are unrelated to this phase. Real, end-to-end proof against the actual built `pleiades`
 binary and real code paths (RULE 0), not only `go test`: `TestExecutor_Parallel_RunsConcurrently` drives
 the real `Executor.Run`/`LevelIterator`/`Builder` chain end to end with a `parallel:` runbook, and a hand-
 built cyclic `*DAG` (`dag_internal_test.go`) proves `hasCycle`'s own correctness survived its rewrite,
 since `Builder` structurally cannot construct a cycle through any authoring surface it exposes.
 
-**Also touched, incidentally, while implementing this phase's real gaps (not scope creep — each is a
+**Also touched, incidentally, while implementing this phase's real gaps (not scope creep - each is a
 correctness bug this phase's own new code would otherwise have silently mismatched with):** `internal/
 validate`'s four rules (`CapabilityRule`, `CollectionRule`, `LifecycleRule`, `blast_radius.go`) were audited
-against `Parallel`'s new synthetic nodes and confirmed already-safe with no code change needed — every one
+against `Parallel`'s new synthetic nodes and confirmed already-safe with no code change needed - every one
 already treats an empty `FQCN`/nil `Params` as "no capability required, no target, skip," the identical
 shape a block task's own ID has always had, so a synthetic node is nothing new to them.
 
@@ -11116,16 +11334,16 @@ describes earlier sessions and is unchanged.
 ### Phase 9: Google CEL Engine session
 
 **This session closed Phase 9: Google CEL Engine** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
-previously-open checklist items plus the Release Gate (three items — cel-go import, `engine.Evaluator`,
-string-to-AST compile logic — were already `[x]` from an earlier session). Research was direct rather than
+previously-open checklist items plus the Release Gate (three items - cel-go import, `engine.Evaluator`,
+string-to-AST compile logic - were already `[x]` from an earlier session). Research was direct rather than
 agent-delegated (small, well-bounded surface: `internal/engine/cel.go`, `conditional.go`, `executor.go`,
 `workflow_context.go`, `trigger.go`, `dag.go`/`tasktree.go`, plus `PLAN.md` Sections 21/27 and every real
 `Program.Eval`/`ConditionProgram.Eval`/`Conditional.Compile`/`Evaluator.Compile`/`NewCELEvaluator` call
 site read directly), then one Plan agent pressure-tested the resulting design against the real repo before
-any plan file was written — its findings (an exact 14-real-call-site inventory versus a much larger but
+any plan file was written - its findings (an exact 14-real-call-site inventory versus a much larger but
 harmless 49-call-site `NewCELEvaluator` count, cel-go v0.30.0's README/source confirming compiled
 `cel.Program` is safe for concurrent `Eval`, cel-go's map-macro key-iteration semantics verified by reading
-`common/types/map.go` directly, and three real gaps — a benchmark whose meaning the new cache would
+`common/types/map.go` directly, and three real gaps - a benchmark whose meaning the new cache would
 silently invalidate, a stale doc comment, and an untested concurrency claim) were folded in before
 implementation began.
 
@@ -11137,7 +11355,7 @@ themselves mutually inconsistent (`nodes.precheck.stats.devices.all(...)` vs.
 (`nodeID -> deviceID -> stats`, a map keyed by device ID, no `.devices` list anywhere). Verified by reading
 cel-go's own source that `all`/`exists` over a CEL map iterate its keys, `nodes.precheck.exists(d,
 nodes.precheck[d].needs_reboot == true)` is real, valid, tested CEL against the actual data shape with no
-`WorkflowContext` restructuring needed — so, per this project's own established practice (Phase 7's
+`WorkflowContext` restructuring needed - so, per this project's own established practice (Phase 7's
 Selector, Phase 32's Registry, Phase 18's role names), `PLAN.md` Sections 21.4/27.3 got a dated correction
 to the real, working spelling rather than the engine being bent to fit illustrative prose that was never
 reachable as written.
@@ -11146,11 +11364,11 @@ reachable as written.
 
 1. **`internal/engine/cel.go`.** `NewCELEvaluator` now declares `nodes` (`cel.MapType(cel.StringType,
    cel.DynType)`) alongside the pre-existing `stat`, both bound by `Executor.runNode` to the identical
-   `WorkflowContext.Read()` snapshot — a deliberate, stated scope choice (every existing
+   `WorkflowContext.Read()` snapshot - a deliberate, stated scope choice (every existing
    `stat.precheck[""].x` runbook/test keeps working unchanged; `nodes.precheck[""].x` becomes newly valid
    too; narrowing `stat` to a genuinely different, current-device-only meaning is left to a future phase).
    `Program.Eval`'s contract changed from "wrap my input under `stat`" to "my input IS the top-level CEL
-   activation" (`celProgram.Eval` no longer wraps anything — a behavioral change with no Go signature
+   activation" (`celProgram.Eval` no longer wraps anything - a behavioral change with no Go signature
    change, so it compiles everywhere but every caller's *values* needed updating). `celEvaluator.Compile`
    is now a Flyweight cache keyed by raw expression string (mutex-guarded map, store-if-absent so
    concurrent first-time compiles of new text converge on one shared winner), safe per cel-go's own
@@ -11163,7 +11381,7 @@ reachable as written.
    already forwarded its map verbatim).
 4. **Tests.** All 14 real `Program.Eval`/`ConditionProgram.Eval` call sites needing the new
    activation-map shape updated (`cel_test.go` x2, `cel_bench_test.go` x1, `conditional_test.go` x10,
-   `executor.go`'s production call site) — the pressure-test's exhaustive grep found this exact count, not
+   `executor.go`'s production call site) - the pressure-test's exhaustive grep found this exact count, not
    the larger set naming whole files would have implied. New: `TestCELEngine_NodesVariable`,
    `TestCELEngine_CompileSharesProgramForIdenticalExpressions`,
    `TestCELEngine_ConcurrentCompileConvergesOnOneSharedProgram` (32-goroutine race, `-race`-clean, Gap C
@@ -11190,7 +11408,7 @@ individually waived, zero new). `make govulncheck` (0 called vulnerabilities). `
 separate `go test ./... -cover -count=1` each flaked on a different, non-overlapping subset of
 `internal/event`/`internal/lock`/`tests/e2e` (real-container tests, zero overlap with this phase's diff,
 confirmed by `git status`); each of the four failing tests passed cleanly in isolation, and `go test ./...
--p 4` (capping package-level parallelism) ran the identical full suite clean twice — a concrete,
+-p 4` (capping package-level parallelism) ran the identical full suite clean twice - a concrete,
 actionable mitigation for this environment's container contention, newly recorded as
 `FAILURE_PATTERNS.md` #61 rather than left as only a narrative mention. The four pre-existing
 `coverage-floor.json` regressions from `FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`,
@@ -11217,10 +11435,10 @@ earlier sessions and is unchanged.
 **This session closed Phase 8: RBAC & Identity Validation** (`.SPECIFICATION/IMPLEMENTATION.md`), all
 twelve checklist items plus the four verification gates. Planning followed this project's established
 ritual: two parallel Explore-agent research passes (the real `internal/auth`/ent code and every real call
-site; the spec corpus — `PLAN.md` Section 18/32, `CODE_SCAFFOLD.md`, `IMPLEMENTATION.md` Part VIII and
+site; the spec corpus - `PLAN.md` Section 18/32, `CODE_SCAFFOLD.md`, `IMPLEMENTATION.md` Part VIII and
 Phase 6/12/14/49's cross-references, `PATTERNS.md`, prior `FAILURE_PATTERNS.md`/`LESSONS_LEARNED.md`
 entries) fed a design, which one Plan agent then pressure-tested against the real repo before any plan
-file was written — its findings (the migration tool's silent `WithDropColumn` default, four missed
+file was written - its findings (the migration tool's silent `WithDropColumn` default, four missed
 `NewJWTEvaluator` call sites inside `internal/auth` itself, the exact `pkg/policy` combine shape, the
 sticky-Deny-vs-plain-Override judgment call, `RoleBinding.scope_id`'s int type) were folded in before
 implementation began.
@@ -11233,22 +11451,22 @@ implementation began.
 2. **`auth.KeyProvider`** (`internal/auth/keyprovider.go`, `jwks.go`): `NewStaticKeyProvider` (a
    development-only symmetric secret, rejecting nil/empty/<32-byte keys at construction) and
    `NewJWKSKeyProvider` (a real RFC 7517 JWKS fetch/cache/rotate client, hand-rolled against the standard
-   library, no new dependency — caches by `kid`, one bounded refetch on an unknown `kid`, never lets a
+   library, no new dependency - caches by `kid`, one bounded refetch on an unknown `kid`, never lets a
    failed/empty refresh discard a good cache).
 3. **`internal/auth/jwt.go` reworked.** `NewJWTEvaluator(provider KeyProvider, issuer, audience string)
    (Evaluator, error)` pins issuer, audience, `jwt.WithExpirationRequired()`, and
    `jwt.WithValidMethods(provider.Algorithms())`. `Evaluator`'s two existing methods keep their
    signatures unchanged, so `internal/api/dispatcher.go`/`middleware.go` needed no edits at all.
 4. **`Team`/`RoleBinding` ent schema** (new `internal/ent/schema/team.go`, `role_binding.go`; edited
-   `user.go`, `organization.go`). `User.role` deleted outright (zero real consumers, confirmed by grep —
+   `user.go`, `organization.go`). `User.role` deleted outright (zero real consumers, confirmed by grep -
    the literal orphaned-permission anti-pattern `PLAN.md` Section 18.2 forbids). Migration
    `0003_add_rbac_teams.sql`, generated via `internal/ent/migrate/gen/main.go` after adding
    `schema.WithDropColumn(true)` to its diff call (its previous zero-option call would have silently kept
-   the dropped column — `FAILURE_PATTERNS.md` #59).
+   the dropped column - `FAILURE_PATTERNS.md` #59).
 5. **`auth.ScopeResolver`** (`internal/auth/scope.go`, `rolebinding_repository.go` (port),
    `ent_role_binding_repository.go` (ent adapter)): PLAN.md Section 18.4's four scopes folded via
-   `pkg/policy.Resolve` — Phase 6's shared resolver, the RBAC-scope call site `PLAN.md` Section 25 itself
-   named, closing the last of its eight named call sites with no consumer — through
+   `pkg/policy.Resolve` - Phase 6's shared resolver, the RBAC-scope call site `PLAN.md` Section 25 itself
+   named, closing the last of its eight named call sites with no consumer - through
    `combineScopeDecision`, a deliberate sticky-first-Deny variant of the `simulate-locked` terminal-lock
    idiom: once any level sets Deny, no later, more specific level (even an explicit Allow) can undo it, a
    stated departure from plain `policy.Override`.
@@ -11256,7 +11474,7 @@ implementation began.
    `ent_team_lookup.go`): a fail-closed Chain of Responsibility (`NewTokenScopeRule` wrapping the
    pre-existing scope-string check, `NewScopeRule` wrapping `ScopeResolver`) composed with a `slog`-backed
    `Recorder` (Audit Trail), built generically enough for Phase 49 to append a Step-Up rule later without
-   rework — Step-Up itself deliberately not built here, matching `IMPLEMENTATION.md`'s own Phase 49
+   rework - Step-Up itself deliberately not built here, matching `IMPLEMENTATION.md`'s own Phase 49
    cross-reference.
 7. **`cmd/controller/main.go`** wired: `loadKeyProvider()` selects `NewJWKSKeyProvider` when `JWKS_URL`
    is set, else `NewStaticKeyProvider` from `JWT_SECRET`; `JWT_ISSUER`/`JWT_AUDIENCE` via the existing
@@ -11269,12 +11487,12 @@ implementation began.
 (`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) were already
 below their `coverage-floor.json` floors before this session started, confirmed via a disposable
 `git worktree add --detach <base-commit>` measuring the identical percentages
-(`FAILURE_PATTERNS.md` #60, `LESSONS_LEARNED.md` #66) — recorded, not fixed (scope creep) and not hidden
+(`FAILURE_PATTERNS.md` #60, `LESSONS_LEARNED.md` #66) - recorded, not fixed (scope creep) and not hidden
 (floors were not lowered).
 
 **Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean. `go test ./... -race`: clean
 on a full run (a second full non-race run hit three different container-infrastructure flakes across three
-separate attempts — `internal/lock`, `internal/event`, `tests/e2e`'s `TestGrandIntegration` — each
+separate attempts - `internal/lock`, `internal/event`, `tests/e2e`'s `TestGrandIntegration` - each
 confirmed to pass in isolation and to be pre-existing/environmental, matching this project's own
 documented flake category, not a regression). `make gosec` (7 pre-existing findings, all individually
 waived, zero new). `make govulncheck` (0 called vulnerabilities). `make coverage`: `internal/auth` 87.5%
@@ -11415,7 +11633,7 @@ Phase 1's own session note recorded explicitly ("`Group`/`Organization` are hone
 schema-only substrate this phase... `Repository` exposes no traversal for either yet"). `Selector`
 (`pkg/inventory/selector.go`, new) is a deliberately narrow, single-field value object, not the full
 AND/OR/NOT predicate tree `CODE_SCAFFOLD.md`'s aspirational storage sketch warns a Selector must not be
-("It is NOT a group name string, which cannot express Section 3 overlapping groups") — that warning is
+("It is NOT a group name string, which cannot express Section 3 overlapping groups") - that warning is
 about `PLAN.md` Section 22.3's future Virtual Groups syntax, a different, later phase's job, addressed
 head-on in `IMPLEMENTATION.md`'s own Pattern Entry Gate note rather than silently sidestepped.
 
@@ -11457,8 +11675,8 @@ detail without re-reading the whole file.
 
 **Research and design, before any code:** three parallel Explore-agent research passes (the real
 `inventory.Iterator`/`Repository`/`entIterator`/`fileRepository` code and every real caller, this
-project's own spec docs — `PLAN.md`, `PATTERNS.md`, `CODE_SCAFFOLD.md`, every other `IMPLEMENTATION.md`
-phase referencing this substrate — and this repo's Postgres/ent test conventions, benchmark style, and
+project's own spec docs - `PLAN.md`, `PATTERNS.md`, `CODE_SCAFFOLD.md`, every other `IMPLEMENTATION.md`
+phase referencing this substrate - and this repo's Postgres/ent test conventions, benchmark style, and
 `runtime/pprof` usage, or lack of it) fed a synthesized design. Every load-bearing claim from that
 synthesis was then re-verified by directly reading the actual files (`iterator.go`, `ent_repository.go`,
 `file_repository.go`, `pkg/inventory/item.go`, `dispatcher.go`, `dispatcher_test.go`, all four existing
@@ -11476,27 +11694,27 @@ plan file was written and approved.
   `groupName string` to `sel inventory.Selector`.
 - **`internal/inventory/ent_repository.go`**: `entRepository.GetGroup` now applies
   `Order(device.ByDeviceID())` once at construction and, when `sel.GroupName != ""`,
-  `Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))` (an `EXISTS` subquery, not a join — no
+  `Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))` (an `EXISTS` subquery, not a join - no
   duplicate-row risk). `entIterator`'s `offset int` field became `cursor string` (last-seen `device_id`);
   `Next` now batches via `Clone().Limit(batchSize)` plus a conditional `Where(device.DeviceIDGT(cursor))`,
-  replacing `Limit(batchSize).Offset(offset)`. No "exhausted" flag added — EOF is still "the batch fetch
+  replacing `Limit(batchSize).Offset(offset)`. No "exhausted" flag added - EOF is still "the batch fetch
   returned zero rows," the same idempotent shape the pre-existing code already had.
 - **`internal/inventory/file_repository.go`**: `fileRepository.GetGroup` signature changed identically;
   behavior did not, since `HostSpec` has no group-membership field at all. Doc comment updated to explain
   why, and `TestFileRepository_Selector_GroupNameIgnored` (`file_repository_test.go`) pins the behavior
   down so a future change cannot silently start erroring on it.
-- **13 call sites updated** (production: `internal/api/dispatcher.go` — new aliased `pkginventory`
+- **13 call sites updated** (production: `internal/api/dispatcher.go` - new aliased `pkginventory`
   import, `cmd/pleiades/load.go`; tests: `dispatcher_test.go`'s two mocks, and 9 call sites across
   `internal/inventory`'s `iterator_test.go`, `iterator_bench_test.go`, `iterator_fuzz_test.go`,
   `repository_conformance_test.go`, `factory_test.go` (its own `baseinventory` alias),
   `file_repository_test.go`, `file_repository_bench_test.go`, `file_repository_errors_test.go`).
 - **New tests**: `internal/inventory/ent_repository_selector_test.go`
-  (`TestEntRepository_GetGroup_FiltersBySelectorGroupName` — a named group returns exactly its members,
+  (`TestEntRepository_GetGroup_FiltersBySelectorGroupName` - a named group returns exactly its members,
   an empty selector returns everything, a nonexistent group fails closed to zero devices, never open to
-  the whole fleet; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` — 1,500 devices with
+  the whole fleet; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` - 1,500 devices with
   explicit sequential `device_id`s, a mid-stream delete of an already-yielded row and an insert ahead of
   the cursor, asserting zero duplicates/skips). `internal/api/dispatcher_selector_test.go`
-  (`TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` — the same proof at the real
+  (`TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` - the same proof at the real
   HTTP-handler level, against a real ent-backed `Repository`, not the package's hand-written mocks).
   `internal/inventory/iterator_pprof_test.go` (`TestIteratorHeapProfileStaysFlat`, detailed above).
   `FuzzIteratorPagination`'s doc comment updated to describe the keyset mechanism it now fuzzes; its
@@ -11506,7 +11724,7 @@ plan file was written and approved.
 - **Docs corrected**, matching this project's own "correct the map before/alongside the code" convention:
   `PLAN.md` Section 25's keyset-pagination row (`Build by: Phase 23` → `Phase 7`, dated
   `Correction (2026-08-05)`, Phase 23 remains a consumer). `PATTERNS.md`'s Specification entry (flipped
-  from "POTENTIALLY" to "YES, narrowly," and its "Why" text corrected — group membership was never
+  from "POTENTIALLY" to "YES, narrowly," and its "Why" text corrected - group membership was never
   actually a JSONB field match, that was only ever a considered-and-rejected approach named in
   `GetGroup`'s own old comment). `PATTERNS.md`'s Repository entry (its quoted `GetGroup() (Iterator,
   error)` signature was already stale before this phase). `CODE_SCAFFOLD.md` Section C, narrowly (a new
@@ -11540,7 +11758,7 @@ by construction; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` is t
 
 **Schema/Injection Hardening:** the one new boundary, `dispatcher.go`'s HTTP `group` query parameter now
 flowing into `device.HasGroupsWith(group.NameEQ(sel.GroupName))`, is fully parameterized by ent's
-generated query builder (no string concatenation; confirmed by reading the generated code) — audited,
+generated query builder (no string concatenation; confirmed by reading the generated code) - audited,
 clean, no `FAILURE_PATTERNS.md` entry needed for the boundary itself.
 
 **Release Gate:** verified against real code paths above, plus `go build ./... && go vet ./...` clean,
@@ -11746,7 +11964,7 @@ pattern in full, the collection registry/`pkg/sdk` pattern and what real consume
 CLI dispatch pattern plus every cross-phase reference to "Phase 33" elsewhere in `IMPLEMENTATION.md`)
 fed a synthesized design, which one Plan agent then pressure-tested against the real repo before any
 plan file was written. The Plan agent's review caught several things worth recording: (1) the
-`ItemFactory.Register` retirement is documented, not just inferred — `HANDOFF_DOCUMENT.md`'s own Phase
+`ItemFactory.Register` retirement is documented, not just inferred - `HANDOFF_DOCUMENT.md`'s own Phase
 6 session notes say it outright; (2) `forge new-collection`'s positional name must accept two segments,
 not require three, since `docs/hephaestus.md`'s own catalog table lists real two-segment names
 (`exec.command`, `pkg.install`) Phase 34 must generate; (3) a segment that becomes a Go identifier needs
@@ -11766,7 +11984,7 @@ detail beyond it.
 - `internal/forge/genutil.ValidateSegment` closes both halves of the checklist's Fuzz/Stress ask in one
   function: `^[a-z][a-z0-9_]*$` (no `.`, `/`, `\`, or leading digit is even expressible) plus
   `go/token.IsKeyword` (not a hand-maintained keyword list). `ToExportedIdent` is a plain
-  underscore-split-and-titlecase helper with no dependency on the validation having already run — its
+  underscore-split-and-titlecase helper with no dependency on the validation having already run - its
   own doc comment says so explicitly, since a caller skipping `ValidateSegment` first would get a
   PascalCase string built from invalid characters, not a panic.
 - Both scaffolds' templates use a `quote` `text/template.FuncMap` entry (`strconv.Quote`) rather than
@@ -11818,7 +12036,7 @@ a third instance, just never corrected because Phase 31 hadn't been picked up ye
 two-type-parameter version as literally specified would have been Section 25's own named defect: "a
 second implementation is a defect, not a variation." Corrected in place, dated the same way, in
 `IMPLEMENTATION.md` (Phase 31's own checklist text), `docs/hephaestus.md` ("Create a Collection"), and
-`.SPECIFICATION/PATTERNS.md` (the Registry entry's consumer list) — see `LESSONS_LEARNED.md`'s new
+`.SPECIFICATION/PATTERNS.md` (the Registry entry's consumer list) - see `LESSONS_LEARNED.md`'s new
 entry for the general lesson.
 
 **What was built:** new package `pkg/collection` (`manifest.go`, `collection.go`), consuming
@@ -11830,7 +12048,7 @@ Phase 42 later embeds as an OCI config layer). `Descriptor{Name string, Manifest
 package-level `Register`/`MustRegister`/`Lookup`, mirroring `pkg/capability`'s naming exactly.
 `Register` structurally enforces `PLAN.md` Section 2 (rejects a bare name, an empty namespace, or an
 empty method segment, citing "Section 2" in the error) and rejects any `RequiredCapabilities` entry
-`pkg/capability` doesn't recognize — safe against init-order races, since any package importing
+`pkg/capability` doesn't recognize - safe against init-order races, since any package importing
 `pkg/collection` transitively imports `pkg/capability` first, per normal Go import-init ordering.
 Duplicate names are always rejected, never resolved by first-write-wins or last-write-wins (inherited
 free from `pkg/registry.Registry`'s own semantics; the decision itself is recorded in `collection.go`'s
@@ -11841,7 +12059,7 @@ Collections can arrive from outside this binary).
 an architecture test proving single-Registry-implementation as something that should exist but didn't.
 New `internal/archtest/registry_test.go` adds `TestKnownRegistryConsumersImportPkgRegistry` and
 `TestRegistryConsumerAllowlistHasNoStaleEntries`, so a future regression back to a hand-rolled map is a
-CI failure, not a silent drift — mirroring the existing `adapterAllowlist` pattern in
+CI failure, not a silent drift - mirroring the existing `adapterAllowlist` pattern in
 `internal/archtest/layering_test.go`.
 
 **Adversarial Pattern Justification:** a grep control (`registry.New\[` across the tree, excluding
@@ -11852,7 +12070,7 @@ three known vocabularies stay wired to the shared `Registry`; it cannot structur
 unrelated fourth hand-rolled map exists anywhere else, which stays a code-review-time convention.
 
 **Schema/Injection Hardening:** not a clean "no new boundary" result, unlike Phase 30. `Manifest`
-gains a real deserialization-shaped boundary (its JSON marshal/unmarshal capability) — recorded
+gains a real deserialization-shaped boundary (its JSON marshal/unmarshal capability) - recorded
 explicitly as inert today (no code path before Part X's Phase 42 feeds it externally-sourced bytes,
 only this phase's own round-trip test does) rather than silently claimed clean. `Register`'s
 namespace/capability validation touches no filesystem, network, SQL, CEL, or NATS subject, the same
@@ -11870,7 +12088,7 @@ so an unknown capability is always the sole possible rejection reason.
 **Release Gate:** `TestManifest_RoundTrip` (a fully populated `Manifest`) and
 `TestManifest_RoundTripZeroValue` (an empty one) both round-trip through JSON to a `reflect.DeepEqual`
 match; `TestRegister_RejectsBareName` asserts the returned error cites "Section 2" literally. These are
-ordinary in-package tests (`package collection_test`), not subprocess/e2e tests — this phase adds no
+ordinary in-package tests (`package collection_test`), not subprocess/e2e tests - this phase adds no
 CLI behavior, so RULE 0's real-binary requirement does not apply the way it did for Phase 30.
 `go test ./... -race -count=1` (whole repository) passed with zero `FAIL` lines; `gofmt -l`,
 `go build ./...`, `go vet ./...`, `make gosec` (7 pre-existing findings, all individually waived, none
@@ -11905,7 +12123,7 @@ implementation began.
 "`pkg/registry` does not exist... Build `pkg/registry` first and make `pkg/collection` its first
 consumer," and a separate item asked to implement `pkg/registry/registry.go` as a generic
 `Registry[K comparable, V any]`. Both were checked against the real repo, not trusted: `pkg/registry`
-already existed (Phase 6), as `Registry[T any]` — one type parameter, string-keyed — with two real
+already existed (Phase 6), as `Registry[T any]` - one type parameter, string-keyed - with two real
 consumers already wired to it. Treating the checklist's stale premise as current would have meant
 building a second Registry implementation with a different signature, which `PLAN.md` Section 25
 itself names as a defect the moment it exists, not a variation worth having. The correction was
@@ -11942,7 +12160,7 @@ checklist premise above, caught by verifying against the actual repo state rathe
 `IMPLEMENTATION.md`'s own prose, the same discipline `.AGENTS/AGENTS.md` asks for before starting any
 phase. `LESSONS_LEARNED.md`'s new entry generalizes this: a roadmap phase's own checklist can go stale
 relative to a shared primitive an earlier-numbered phase already built, when phases execute out of
-their originally-drafted order — verify the primitive's real existence in code before trusting what a
+their originally-drafted order - verify the primitive's real existence in code before trusting what a
 phase's own Pattern Entry Gate says about it.
 
 **Coverage.** `pkg/collection`: 100.0%, new floor recorded at 100.0 in `coverage-floor.json`. `make
@@ -14820,15 +15038,15 @@ adapter to the address it already holds by DHCP leaves it with none.
 
 **Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `93a7818`, the ten
 `fs.*`/`archive.*`/`fw.firewalld.*`/`container.docker.*` methods (committed with the user's own
-live go-ahead, after they ran it themselves). Everything below — `cloud.aws.*` (4 methods) plus a
-follow-on AWS inventory sync plugin neither of which existed at the start of this session — is
+live go-ahead, after they ran it themselves). Everything below - `cloud.aws.*` (4 methods) plus a
+follow-on AWS inventory sync plugin neither of which existed at the start of this session - is
 implemented, tested, and verified on top of that commit, but uncommitted: the standing rule holds
 (no commit without the user's own live word in the current conversation), and no such word has
 been given yet this session.**
 
 This session opened with "plan next batch." A plan for `cloud.aws.*` (the next remainder-list item)
 was written, approved, and implemented. Partway through verifying it, the user asked directly
-whether an AWS inventory sync method had been accounted for — it had not, and was never part of the
+whether an AWS inventory sync method had been accounted for - it had not, and was never part of the
 approved plan. A second plan, for an AWS EC2-discovery sync plugin, was written, approved, and
 implemented as a genuine follow-on, the same way the real Catalyst Center plugin was built in a
 session separate from `net.catalyst.*` itself.
@@ -14840,7 +15058,7 @@ address the AWS HTTP API directly (`SupportedTransports: []string{}`), not a dev
 
 - **`pkg/awscloud`** (new): a minimal wrapper around the real `aws-sdk-go-v2` (core +
   `config`/`credentials` + `service/ec2` + `service/s3`), not a hand-rolled SigV4 client the way
-  `pkg/catalystcenter` hand-rolls its own HTTP auth — reimplementing AWS's request signing was
+  `pkg/catalystcenter` hand-rolls its own HTTP auth - reimplementing AWS's request signing was
   judged the wrong tradeoff, the same class of decision this codebase's own injection-hardening
   discipline argues for. `Client` exposes `FindInstanceByName`, `RunInstance`, `DescribeInstance`,
   `TerminateInstance`, `BucketExists`, `CreateBucket`, `DeleteBucket`, and (added during the sync
@@ -14849,17 +15067,17 @@ address the AWS HTTP API directly (`SupportedTransports: []string{}`), not a dev
   `~/.aws/config` on whatever machine runs `pleiades`, the identical side-channel-credential
   problem this platform's SSH methods already reject.
 - **`inventory/devices/aws.Account`** hand-completed from its pre-existing forge stub: gained
-  `AWSRegion()` (backed by a `region` property, no fallback default — a region is not a convention)
+  `AWSRegion()` (backed by a `region` property, no fallback default - a region is not a convention)
   and `AWSEndpointOverride()` (backed by `endpoint_override`, empty for real AWS, a LocalStack URL
   in a test). The first of these closes the structural gap its own stub TODO named
   (`HasCapability(NameAWSAPI)` now genuinely returns true).
 - **`cloud.aws.ec2.create`/`terminate`, `cloud.aws.s3.create_bucket`/`delete_bucket`**
   (`internal/catalog/cloud/aws/{ec2,s3}`): `ec2.create` is idempotent on the instance's `Name` tag
-  existing among non-terminated instances only, never a config comparison, and never recreates —
+  existing among non-terminated instances only, never a config comparison, and never recreates -
   the same restraint `container.docker.run` already applied against a much larger upstream surface.
   `ec2.terminate` takes an exact `instance_id`, not a name lookup: a destructive action deserves the
   exact resource, not a fuzzy match. `s3.delete_bucket` deliberately does not empty a non-empty
-  bucket first — AWS's own refusal is the safety rail, not an error this method routes around.
+  bucket first - AWS's own refusal is the safety rail, not an error this method routes around.
   `ec2.create`/`s3.create_bucket` are `Reversible: true` (inverses: `ec2.terminate`/
   `s3.delete_bucket`, only when they actually created something); `ec2.terminate` and
   `s3.delete_bucket` are both `Reversible: false` (a terminated instance's storage is gone; bucket
@@ -14869,7 +15087,7 @@ address the AWS HTTP API directly (`SupportedTransports: []string{}`), not a dev
 allowed) is the first non-`golang.org/x`, non-observability third-party module this catalog has
 needed. Scoped to exactly the four submodules used, not the monolithic SDK.
 
-**LocalStack, not a fake, is the real target** for every test in this whole session's work — the
+**LocalStack, not a fake, is the real target** for every test in this whole session's work - the
 first batch in this catalog where a fake shell script or `httptest.Server` genuinely cannot stand in
 (there is no shell command to fake; the target is the wire protocol itself). This surfaced a real,
 unplanned blocker: `localstack/localstack`'s published image now refuses to start at all without a
@@ -14884,10 +15102,10 @@ not a numbering-scheme requirement), following this file's own established image
 discipline. LocalStack's own emulation is looser than real AWS in a few specific, empirically
 confirmed ways (documented below and in `coverage-floor.json`'s new `_exceptions` entries): it
 does not infer `Platform` from a fabricated AMI id, and it does not validate `instance_type`/
-`image_id` the way real `RunInstances` does — each was verified directly (a throwaway diagnostic
+`image_id` the way real `RunInstances` does - each was verified directly (a throwaway diagnostic
 program hitting the real container) before being accepted as a coverage gap rather than guessed at.
 
-**Coverage**: `pkg/awscloud` 95.6%, `cloud.aws.ec2` 96.7%, `cloud.aws.s3` 98.0% — all three
+**Coverage**: `pkg/awscloud` 95.6%, `cloud.aws.ec2` 96.7%, `cloud.aws.s3` 98.0% - all three
 package-specific gaps are documented (in code comments and, for the two with a pre-existing 100.0%
 floor from their old stubs, in `coverage-floor.json`'s `_exceptions` map, a real recorded downward
 adjustment with the same per-package written-reason discipline `gosec-waivers.json` already uses).
@@ -14897,15 +15115,15 @@ adjustment with the same per-package written-reason discipline `gosec-waivers.js
 `.SPECIFICATION/AWX_PARITY.md` names AWS explicitly as a required sync-plugin source, alongside
 NetBox, Nautobot and VMware, matching Ansible's own `amazon.aws.aws_ec2` dynamic inventory plugin.
 Only `catalyst_center` and `static_yaml` existed before this. `aws_account` (part 1, above) is the
-*target* `cloud.aws.*` methods run against; this plugin is the other half — it discovers real EC2
+*target* `cloud.aws.*` methods run against; this plugin is the other half - it discovers real EC2
 instances and lands them in inventory as ordinary `linux_server` devices, so every existing
 SSH-based method (`net.ssh.ping`, `exec.command`, ...) already works against a discovered instance
 with no new transport or method needed.
 
 - **Scaffolded with `pleiades forge new-plugin`**, per this session's own "use the forge" discipline
   (confirmed live, mid-session, when asked directly): a new `internal/forge/catalogdata/plugins.go`
-  entry (`Name: "aws"`, empty default `Endpoint` — AWS has no fixed public sandbox the way DevNet
-  gives `catalyst_center` one — `ReadOnly: true`), then `go generate ./internal/forge/catalogdata`
+  entry (`Name: "aws"`, empty default `Endpoint` - AWS has no fixed public sandbox the way DevNet
+  gives `catalyst_center` one - `ReadOnly: true`), then `go generate ./internal/forge/catalogdata`
   produced the real skeleton, hand-completed exactly like every `cloud.aws.*` stub this session.
 - **`Connect`/`Discover`/`Classify`/`Sync`/`Close`** mirror `catalystcenter.go` point-for-point:
   eager real authentication (a cheap `ListInstancesPage` call, EC2's own documented `MaxResults`
@@ -14922,11 +15140,11 @@ with no new transport or method needed.
   without a separate manual `add-host` step. This needed one new classification rule
   (`internal/classification/default_ruleset.go`'s `"aws_account"` entry, granting
   `capability.NameAWSAPI`) added the same way `"network_device.cisco.catalyst_center"` was added
-  when *that* plugin was built — the device type already existed, unwired, exactly the
+  when *that* plugin was built - the device type already existed, unwired, exactly the
   registered-but-unreachable pattern this whole catalog effort keeps closing.
 - **Classification scope: Linux instances only.** EC2's `Platform` field is the one reliable signal
   (empty for Linux, `"Windows"` for Windows), and a Windows instance quarantines with an explicit
-  reason rather than being guessed at — no `windows_server` classification rule exists yet, even
+  reason rather than being guessed at - no `windows_server` classification rule exists yet, even
   though the device type does (a real, documented follow-on gap, item 3 below). Confirmed
   empirically that LocalStack cannot be made to report a Windows platform for a fabricated AMI id,
   which is why the plugin's own conformance-suite entry documents (rather than works around) being
@@ -14934,11 +15152,11 @@ with no new transport or method needed.
   itself is proven directly by `TestClassify_WindowsInstance_Quarantines` against a hand-built
   record, which needs no live upstream since `Classify` is pure Go over an already-discovered value.
 - **Joined the existing conformance suite** (`internal/inventory/plugins/conformance_test.go`) by
-  adding one `pluginBackends` entry, per that file's own "never by editing a test function" rule —
+  adding one `pluginBackends` entry, per that file's own "never by editing a test function" rule -
   except two shared assertions genuinely could not hold for a backend whose upstream assigns its
   own addressing autonomously: the suite's hardcoded `ip == "10.0.0.1"` check (generalized to a
   `checkIP` hook, defaulting to the prior exact-match behavior, with the `aws` backend's own hook
-  checking only non-empty, since LocalStack — confirmed empirically — always assigns its own public
+  checking only non-empty, since LocalStack - confirmed empirically - always assigns its own public
   IP on top of any requested private one) and the shared "unclassifiable host" fixture (a new
   `unclassifiableUnsupported` reason field skips that one subtest for `aws`, rather than the suite
   quietly failing or `aws` faking a fixture it cannot honestly produce). Both existing backends'
@@ -14946,18 +15164,18 @@ with no new transport or method needed.
 - **A real correctness gap caught by writing the conformance backend, not by review**: `Discover`
   ignored `syncplugin.Config.PageSize` entirely (a hardcoded `500`), unlike `catalystcenter`'s own
   honoring of `cfg.EffectivePageSize()`. Fixed, and clamped into `[5, 1000]` (EC2's own documented
-  `MaxResults` bounds) rather than forwarded raw — `gosec` caught the unclamped upper bound as a
+  `MaxResults` bounds) rather than forwarded raw - `gosec` caught the unclamped upper bound as a
   real `int`-to-`int32` overflow risk (`G115`), not a style complaint, since a config-supplied
   `PageSize` has no caller-side upper bound today.
 - **A real test-isolation bug, caught by the conformance suite's own shared LocalStack container**:
   the first backend `newPlugin` call to launch a "sw1" instance left it running, so a *later*
   subtest's own "sw1" launch produced two instances answering to the same name, and `Discover`
-  correctly reported both — exactly the real behavior a leftover, never-cleaned-up EC2 instance
+  correctly reported both - exactly the real behavior a leftover, never-cleaned-up EC2 instance
   would produce in production. Fixed with `t.Cleanup` terminating what each call launched, not by
   loosening any assertion.
 
 **Coverage**: 99.0% on the new `internal/inventory/plugins/aws` package (only `Next`'s empty-page
-branch — a real page returning zero instances while also reporting no further token — is
+branch - a real page returning zero instances while also reporting no further token - is
 unexercised; no package in this repo can force that shape without inventing an artificial
 signal an upstream never actually sends). No pre-existing floor to regress against, since the
 package is new.
@@ -14974,14 +15192,14 @@ asked for yet.
 Unchanged (`pleiades_no_unrequested_delegation`). Held again this session, including through the
 plan-mode transitions for both `cloud.aws.*` and the sync plugin follow-on.
 
-**Real credentials belong in the environment, read at test time, never hardcoded — and gitignored
+**Real credentials belong in the environment, read at test time, never hardcoded - and gitignored
 files still deserve care.** `.IGNORE/.localstack.env` holds a real LocalStack auth token the user
 provided mid-session; it is read only via `os.Getenv("LOCALSTACK_AUTH_TOKEN")` inside test harnesses
 and was never written into any tracked file, HANDOFF entry, or committed test fixture. New this
 session, worth carrying forward explicitly rather than assuming it is obvious.
 
 **When a real dependency's behavior contradicts a plan's premise (LocalStack's license change),
-verify empirically before either working around it or asking** — a throwaway diagnostic program
+verify empirically before either working around it or asking** - a throwaway diagnostic program
 against the real target answers faster and more honestly than reasoning from what used to be true.
 Used repeatedly this session (the LocalStack token requirement itself, `Platform` not being
 inferrable from a fake AMI id, `PrivateIpAddress` being honored while `PublicIpAddress` is still
@@ -14989,8 +15207,8 @@ auto-assigned regardless, `MaxResults` validation being looser than real AWS).
 
 ### The remainder, in order
 
-1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
-2. ~~`cloud.aws.*` (4)~~ — done this session, plus the AWS inventory sync plugin as an unplanned
+1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ - done, committed at `93a7818`.
+2. ~~`cloud.aws.*` (4)~~ - done this session, plus the AWS inventory sync plugin as an unplanned
    but confirmed-necessary follow-on.
 3. **A `windows_server` classification rule**, so the `aws` sync plugin (and any future Windows-
    discovering plugin) can classify a Windows instance instead of quarantining it. The device type
@@ -15016,7 +15234,7 @@ auto-assigned regardless, `MaxResults` validation being looser than real AWS).
     `service_manager`) rather than a baseline declare, since firewalld isn't universal the way
     `LinuxCapable`/`SystemdCapable` are.
 12. **An S3 object-level primitive** (`PutObject` at minimum) was deliberately not added to
-    `pkg/awscloud` this session — `cloud.aws.s3.delete_bucket`'s own scope stops at what
+    `pkg/awscloud` this session - `cloud.aws.s3.delete_bucket`'s own scope stops at what
     `DeleteBucket` does, and `coverage-floor.json`'s new `cloud/aws/s3` exception names this
     explicitly as why its one remaining gap (deleting a non-empty bucket) cannot be fixture-tested
     without it. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
@@ -15030,12 +15248,12 @@ count above.
 
 ### Verification state
 
-Full `go build ./...`, `go vet ./...`, `make fmt`, `go test -race ./...` (whole repo, twice — once
+Full `go build ./...`, `go vet ./...`, `make fmt`, `go test -race ./...` (whole repo, twice - once
 mid-session catching the same `cmd/pleiades/doc_test.go` regression class as every prior batch
-that implements a method those tests hardcoded as "still declared" — this time fixed by moving the
-fixture to `svc.windows.start`, confirmed still genuinely declared — and once clean after the AWS
+that implements a method those tests hardcoded as "still declared" - this time fixed by moving the
+fixture to `svc.windows.start`, confirmed still genuinely declared - and once clean after the AWS
 sync plugin's own changes landed), `make gosec` (9 pre-existing individually-waived findings after
-fixing the one real new finding this session surfaced — the `PageSize` overflow above — no other
+fixing the one real new finding this session surfaced - the `PageSize` overflow above - no other
 new findings, `gosec-waivers.json` itself untouched), `go run ./tools/coverage-check` (171 packages
 measured, none below their recorded floor, after the two documented `cloud/aws/{ec2,s3}` floor
 adjustments), and `go run ./tools/docs-lint` all pass clean on top of `93a7818` plus this session's
@@ -15049,13 +15267,13 @@ diff --exit-code` compares the regenerated tree against `93a7818`, and this sess
 intentional, uncommitted content in `docs/reference`, `internal/api/wellknown`, and
 `docs/reference/plugins.md` (new this session). Resolves on its own the moment this is committed.
 
-**`govulncheck` still fails, still not this session's doing** — the same five real, unrelated CVEs
+**`govulncheck` still fails, still not this session's doing** - the same five real, unrelated CVEs
 in `github.com/lib/pq@v1.10.9` that blocked `make ci` every prior session, confirmed again, none
 with a fix available upstream. Also worth checking explicitly given the new `aws-sdk-go-v2`
 dependency tree this session added: no new finding attributable to it.
 
-Both `cloud.aws.*` and the `aws` sync plugin are proven against a real (if emulated) AWS backend —
-LocalStack — through the full real request/response wire protocol via the actual `aws-sdk-go-v2`
+Both `cloud.aws.*` and the `aws` sync plugin are proven against a real (if emulated) AWS backend -
+LocalStack - through the full real request/response wire protocol via the actual `aws-sdk-go-v2`
 client, which is a genuine step up from every prior batch's "not yet run against a real device"
 caveat: there is no fake shell script standing in for anything here. The honest remaining caveat is
 the emulator itself: nothing in this session ran against a real AWS account, and LocalStack's own
@@ -15065,10 +15283,10 @@ not of this code's correctness against real AWS's stricter API contract.
 ### Commit messages
 
 Drafted, not run; nothing is committed except `93a7818`. Two separable units of work, offered as
-two commits matching this repository's one-topic-per-commit convention — combine them if you'd
+two commits matching this repository's one-topic-per-commit convention - combine them if you'd
 rather have one.
 
-**Commit 1 — `cloud.aws.*`:**
+**Commit 1 - `cloud.aws.*`:**
 
 ```
 feat(catalog): cloud.aws.ec2.* and cloud.aws.s3.*, the first API-addressed methods
@@ -15153,7 +15371,7 @@ The module catalog now has 63 of 77 methods implemented in the
 working tree (59 committed, plus these four).
 ```
 
-**Commit 2 — the `aws` inventory sync plugin:**
+**Commit 2 - the `aws` inventory sync plugin:**
 
 ```
 feat(inventory): the "aws" sync plugin, EC2 discovery into linux_server
@@ -15247,24 +15465,24 @@ matching the standing rule): `835431b` (Workstream A, the `pkg/retry.Do` consoli
 matrix, and chaos/fuzz/adversarial/hardening/docs). The only thing left uncommitted at the moment
 this section was written is this session's own documentation bookkeeping: two new
 `FAILURE_PATTERNS.md`/`FAILURE_PATTERNS_ARCHIVE.md` entries (#168, #169, below) and this
-handoff rotation itself. No commit message is needed for the code — it is already in history: see
+handoff rotation itself. No commit message is needed for the code - it is already in history: see
 `git show dc8e2df` for the full message.**
 
 This session implemented **Phase 72: Transport Foundation (the Circuit Breaker, `retry.Do`, and the
-Hop Chain)** end to end — the foundational phase of Part XV (the Transport Layer) that Phases 73-77
+Hop Chain)** end to end - the foundational phase of Part XV (the Transport Layer) that Phases 73-77
 depend on.
 
 ### What landed
 
-**Workstream A — `pkg/retry.Do[T]`/`Sleep`.** One generic, context-aware retry loop replacing three
+**Workstream A - `pkg/retry.Do[T]`/`Sleep`.** One generic, context-aware retry loop replacing three
 independent hand-rolled ones (`internal/lock/queue.go`'s `acquireWithContention`,
 `internal/lock/nats.go`'s timer half, `pkg/remoteexec/dial.go`'s `dialWithRetry`). Circuit-breaker
 `Allow`/`RecordFailure` calls stayed at the SSH-dial call site, deliberately, since they are
-dial-specific, not generic retry behavior. All three migrations were behavior-preserving — existing
+dial-specific, not generic retry behavior. All three migrations were behavior-preserving - existing
 tests passed unmodified, which is the actual proof. A new `internal/archtest` rule now asserts no
 second retry loop or second breaker exists anywhere in the module.
 
-**Workstream B — the N-hop SSH tunnel (`pkg/remoteexec`, `internal/transport`).**
+**Workstream B - the N-hop SSH tunnel (`pkg/remoteexec`, `internal/transport`).**
 `transport.Target` gained `Route []Hop` (`Host`, `Port`, `DeviceName`, a resolved
 `credential.Credential`); an empty `Route` is exactly today's behavior, so every existing caller is
 unedited. `pkg/remoteexec` gained the matching hop-chain shape and does the real tunneling: hop 1
@@ -15274,33 +15492,33 @@ the previous hop's already-authenticated `*ssh.Client` via `DialContext`, then a
 verification and `InsecureSkipHostKeyVerify` are both per-hop, not global. `internal/transport/ssh`
 stayed a thin translator, looping the same single-target conversion it already did.
 
-**Workstream C — hierarchical bastion configuration (new storage + resolver).** `Group` and
+**Workstream C - hierarchical bastion configuration (new storage + resolver).** `Group` and
 `Inventory` both gained a `properties` field (`field.JSON`, matching `Device`'s existing shape),
 with real migrations for both dialects
 (`internal/ent/migrate/migrations/{sqlite/0017,postgres/0014}_add_group_inventory_properties.sql`).
 `internal/inventory.Repository.GroupAncestry` (`internal/inventory/ent_group_ancestry.go`) is the
-first real BFS walk of Group's parent/child DAG this codebase has ever needed — group nesting is a
+first real BFS walk of Group's parent/child DAG this codebase has ever needed - group nesting is a
 graph, not a tree, so it needed a deterministic tiebreak (ascending name) for siblings at equal
 distance. `engine.ResolveRoute` (`internal/engine/hop_resolve.go`) feeds the ancestry chain through
 the existing `policy.Resolve`, most-specific-wins, capped at 16 hops
 (`maxRouteHops`), rejected at resolve time before any per-hop lookup happens.
 
-**Workstream D — engine wiring.** `NewTransportActionExecutor` gained a fourth constructor
+**Workstream D - engine wiring.** `NewTransportActionExecutor` gained a fourth constructor
 parameter, an inventory-lookup dependency (`hopChainInventory`), needed because resolving hop *N*
 requires looking up hop *N*'s own device (for `SSHHost()`/`SSHPort()`) and hop *N*'s own credential
 independently of the primary target's. Every composition root that builds one was updated
 (`cmd/pleiades/run.go` and others). The secret-masking union at
 `internal/engine/action_ssh.go` was extended to cover every hop's `Password`/`PrivateKeyPEM`/
-`Passphrase`, not just the target's — the same class of gap `FAILURE_PATTERNS.md` #22 already
+`Passphrase`, not just the target's - the same class of gap `FAILURE_PATTERNS.md` #22 already
 recorded for `MarshalJSON`, recurring in a new shape. `internal/adapters/native`'s per-task
 subprocess path deliberately skips route resolution rather than half-implementing it (no live
-inventory connection there, a credential store scoped to one device) — recorded as a named gap, not
+inventory connection there, a credential store scoped to one device) - recorded as a named gap, not
 silently worked around.
 
-**Workstream E — the CI matrix.** `.github/workflows/ci.yml` went from one `ubuntu-latest` job to
+**Workstream E - the CI matrix.** `.github/workflows/ci.yml` went from one `ubuntu-latest` job to
 three: ubuntu (blocking, unchanged, still the only leg with Docker and therefore the only one
 running the container-backed conformance tests) and macOS (blocking: build, vet, and every
-non-Docker-dependent unit test, verified concretely — `pkg/remoteexec`'s own suite uses an
+non-Docker-dependent unit test, verified concretely - `pkg/remoteexec`'s own suite uses an
 in-process fake SSH server, no Docker, so it genuinely runs for real on macOS) both required;
 Windows is advisory/non-blocking (`remoteexectest` shells out to `/bin/sh`, which doesn't exist
 there). A new Makefile target names the non-Docker package set explicitly rather than by a fragile
@@ -15308,10 +15526,10 @@ glob, so a future container-backed test doesn't silently join or leave a leg it 
 comment next to the matrix records the `_windows`/`_linux`/`_darwin` implicit-build-constraint trap
 (`FAILURE_PATTERNS.md` #51) for whoever reaches for a platform-suffixed file in Phase 73/75.
 
-**Workstream F — chaos, fuzz, stress, adversarial, hardening, docs.** A real Toxiproxy-fronted SSH
+**Workstream F - chaos, fuzz, stress, adversarial, hardening, docs.** A real Toxiproxy-fronted SSH
 container severed at three moments (mid-dial: retry then breaker trip; after session establishment:
 error, no retry, per the existing no-retry-after-send rule; mid-tunneled-command on the bastion hop:
-error naming the failed hop, never a silent zero-value `Result`) — all under `-race` and `goleak`.
+error naming the failed hop, never a silent zero-value `Result`) - all under `-race` and `goleak`.
 Route parsing is fuzzed against deeply nested/self-referential/absurdly long chains: never panics,
 fails closed naming the offending hop, and fails at parse time rather than dial time. 300 concurrent
 hop-chained sessions ran clean under `-race`, with a per-hop cost benchmark. An adversarial pair
@@ -15319,7 +15537,7 @@ proves per-hop key confusion (bastion's key known, tunneled endpoint's deliberat
 `known_hosts`) fails closed and is attributable to the right hop, then proves the same chain
 succeeds once the real key is added. `PATTERNS.md`'s Circuit Breaker entry moved from `POTENTIALLY`
 to **YES**, correctly naming `pkg/remoteexec` (not the stale spec's assumed
-`internal/transport/resilience`) as where it actually lives — see the "stale spec" note below.
+`internal/transport/resilience`) as where it actually lives - see the "stale spec" note below.
 `docs/10-running-in-production.md` and a changelog fragment
 (`changelog/ssh-bastion-hop-chains.added.md`) cover the bastion/hop-chain configuration, the
 per-hop credential rule, and the per-hop host-key requirement.
@@ -15328,11 +15546,11 @@ per-hop credential rule, and the per-hop host-key requirement.
 
 See `FAILURE_PATTERNS.md` #168 and #169 (full detail in `FAILURE_PATTERNS_ARCHIVE.md`):
 
-1. **#168 — `Connect`'s per-hop loop only kept the last `*ssh.Client`, leaking every earlier hop's
+1. **#168 - `Connect`'s per-hop loop only kept the last `*ssh.Client`, leaking every earlier hop's
    connection.** Found by a real `goleak`-based container test failure, not by inspection. `Conn`
    gained a `chain []*ssh.Client`; `Close()` walks it in reverse; `Connect` also gained a `defer`
    cleanup for the partial-failure case (a later hop fails after earlier ones succeeded).
-2. **#169 — a `goleak` check in the new Toxiproxy chaos test depended on a `sync.Once`-populated
+2. **#169 - a `goleak` check in the new Toxiproxy chaos test depended on a `sync.Once`-populated
    package-level baseline an unrelated test happened to populate first**, so the check passed only
    when run as part of the full suite and failed when run in isolation. Fixed with a local
    `goleak.IgnoreCurrent()` snapshot taken after the test's own setup completed, independent of
@@ -15340,7 +15558,7 @@ See `FAILURE_PATTERNS.md` #168 and #169 (full detail in `FAILURE_PATTERNS_ARCHIV
 
 ### Read this first
 
-**A stale spec section is a starting hypothesis, not an instruction to follow literally — verify
+**A stale spec section is a starting hypothesis, not an instruction to follow literally - verify
 against the real code first.** Phase 72's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` said
 to extract the circuit breaker out of `internal/transport/ssh` into a new
 `internal/transport/resilience` package. Reading the actual code first showed the breaker already
@@ -15348,30 +15566,30 @@ lived in `pkg/remoteexec` (built after the checklist was written) and was alread
 encapsulated, so the concern the checklist was guarding against was already handled. Relocating
 working, already-encapsulated code to satisfy a stale doc's literal file path would have been pure
 churn. Decision, made explicit in the plan before any code was written: leave it where it is. This
-matches the Architecture Mismatch/Map Verification protocol in `.AGENTS/AGENTS.md` — it existed for
+matches the Architecture Mismatch/Map Verification protocol in `.AGENTS/AGENTS.md` - it existed for
 exactly this situation.
 
 **`AllowTcpForwarding no` is the default in the SSH test image** (`lscr.io/linuxserver/openssh-server`),
 which silently breaks any hop-chain test relying on `direct-tcpip` tunneling until it's overridden.
 Found by starting a real probe container and reading its `sshd_config` directly, not by guessing.
 Fixed by mounting a `.conf` snippet at `/config/sshd/sshd_config.d/allow-tcp-forwarding.conf` via
-testcontainers' `Files` field — verify this with a real throwaway `ssh -L` test before trusting it,
+testcontainers' `Files` field - verify this with a real throwaway `ssh -L` test before trusting it,
 the same way this session did, if a future phase (73/75/77) touches this container setup again.
 
 **`command | tee file` reports `tee`'s exit code, not the piped command's.** Cost real time this
 session: a `make ci 2>&1 | tee log` was assumed to have succeeded because the harness reported exit
 code 0, when the real failure was buried in the log body (a known-flaky `cmd/runner` container
-test — confirmed via `flaky-packages.json` and five clean isolated reruns, not a regression). Always
+test - confirmed via `flaky-packages.json` and five clean isolated reruns, not a regression). Always
 read the log tail directly, or use `PIPESTATUS`/`set -o pipefail`, never trust a piped command's
 reported exit code.
 
 **`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run, or unrelated
 AWS-backed packages report false regressions.** Unchanged gotcha from prior sessions:
-`.IGNORE/.localstack.env`'s key is `token=`, not `LOCALSTACK_AUTH_TOKEN=` — it must be manually
+`.IGNORE/.localstack.env`'s key is `token=`, not `LOCALSTACK_AUTH_TOKEN=` - it must be manually
 translated before export, or LocalStack-backed tests silently skip rather than fail, and coverage
 reads as a regression that isn't one.
 
-**No commit without the user's own live word in the current conversation.** Held throughout — both
+**No commit without the user's own live word in the current conversation.** Held throughout - both
 of this session's commits (`835431b`, `dc8e2df`) were made by the user, not the assistant, even
 after the assistant offered drafted commit message text both times.
 
@@ -15381,7 +15599,7 @@ Held throughout this session.
 ### Verification state
 
 `go build ./...`, `go vet ./...`, `gofmt -l` all clean. `go test ./internal/transport/...
-./pkg/remoteexec/... ./pkg/retry/... ./internal/lock/... ./internal/engine/... -race` clean —
+./pkg/remoteexec/... ./pkg/retry/... ./internal/lock/... ./internal/engine/... -race` clean -
 proves the `retry.Do` migration is behavior-preserving. `internal/ent/migrate/parity_test.go`
 clean (both dialects have the new `properties` field). `go test ./internal/archtest/...` clean,
 including the new no-second-breaker/no-second-retry-loop rule. `make ci` and `make push-gate` both
@@ -15395,7 +15613,7 @@ the first time.
 
 Phase 72 is done; Phases 73-77 of Part XV (non-network endpoints + the full hostile-bastion proof;
 NETCONF/RESTCONF/gNMI; WinRM; `internal/psdiag`; SFTP) are unstarted and out of scope for this
-session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than building its own —
+session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than building its own -
 read this section before assuming any of their own scope from `.SPECIFICATION/IMPLEMENTATION.md`
 alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
 current code first.

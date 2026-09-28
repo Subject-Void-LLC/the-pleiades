@@ -1382,7 +1382,7 @@ The fix is `*[]int` with `omitempty`: a nil pointer is omitted, and a pointer to
 marshals as `[]`. The extra indirection is the point. It gives the type three states where the value
 has two, and the third is the one the API contract needs.
 
-**The rule.** `omitempty` collapses nil and empty for every length-having type — slices, maps, strings,
+**The rule.** `omitempty` collapses nil and empty for every length-having type - slices, maps, strings,
 arrays. Whenever a field's absence carries meaning distinct from its emptiness, the type has to carry
 that distinction itself, and a comment insisting on the difference is not a mechanism. Assert on the
 serialized bytes, not on the struct, or the tag and the code can disagree indefinitely.
@@ -1410,7 +1410,7 @@ was entirely in what was never put in.
 
 **The rule.** When a test asserts that two things agree, ask where each side gets its expectation. If
 both trace back to one expression in the code under test, the test proves internal consistency and
-nothing about completeness — and completeness is exactly what a registry-driven design needs proved,
+nothing about completeness - and completeness is exactly what a registry-driven design needs proved,
 because its failure mode is a category silently absent rather than a value wrongly computed. Anchor at
 least one side outside the implementation: assert on the rendered output, on a hand-written list of
 what should exist, or on a count that a human chose.
@@ -1427,7 +1427,7 @@ Ran the full gate as `make ci 2>&1 | tail -50`, to keep a very long log readable
 exit code 0 and I told the user CI had passed.
 
 It had not. `make` had failed at `docs-gen-check`, and the failure was visible in the very output I was
-reading — `make: *** [Makefile:198: docs-gen-check] Error 1` was the last line on screen. The shell
+reading - `make: *** [Makefile:198: docs-gen-check] Error 1` was the last line on screen. The shell
 reports the exit status of the **last** command in a pipeline, and `tail` always succeeds. The 0 came
 from `tail`, and said nothing whatsoever about `make`.
 
@@ -1519,19 +1519,19 @@ Two practical rules fall out. When a corpus-driven check classifies a field as n
 
 ## 105. A struct returned by a resolver is a checklist, not a report
 
-**What happened.** `launch.Template.Resolve` correctly folds a template's defaults, a saved launch configuration, survey answers and a launch's own overrides into `Resolved.Fields` and `Resolved.ExtraVars`, and every test this package owns for `Resolve` passes. `internal/api/dispatcher.go`'s `LaunchTemplate` calls it, receives `resolved`, and builds a `dispatch.Job` from four of its seven fields. The other three — `Fields`, `ExtraVars`, `AllowSimultaneous` — were read out of the return value and never referenced again, anywhere. Every execution field a template's edit form let an author set (forks, limit, verbosity, tags, extra variables) was, until found this session, resolved correctly and then silently discarded before it reached a job record, the wire, or either execution adapter. `FAILURE_PATTERNS.md` #116 has the full incident.
+**What happened.** `launch.Template.Resolve` correctly folds a template's defaults, a saved launch configuration, survey answers and a launch's own overrides into `Resolved.Fields` and `Resolved.ExtraVars`, and every test this package owns for `Resolve` passes. `internal/api/dispatcher.go`'s `LaunchTemplate` calls it, receives `resolved`, and builds a `dispatch.Job` from four of its seven fields. The other three - `Fields`, `ExtraVars`, `AllowSimultaneous` - were read out of the return value and never referenced again, anywhere. Every execution field a template's edit form let an author set (forks, limit, verbosity, tags, extra variables) was, until found this session, resolved correctly and then silently discarded before it reached a job record, the wire, or either execution adapter. `FAILURE_PATTERNS.md` #116 has the full incident.
 
-**Why it generalises.** A resolver and its caller are usually reviewed as one unit while they are being built, and by the time the caller ages away from that context — a later refactor adds a field, a later phase adds a consumer, or simply enough time passes — nobody re-reads the caller's body against the resolver's own type declaration. Every existing test still passes, because the resolver's tests assert against its return value directly (which was always correct) and the caller's tests assert against whatever subset of the return value the caller happens to use (which was also always correct, for that subset). The untested territory is the difference between the two, and no unit test of either half can ever see it, because neither half is wrong on its own.
+**Why it generalises.** A resolver and its caller are usually reviewed as one unit while they are being built, and by the time the caller ages away from that context - a later refactor adds a field, a later phase adds a consumer, or simply enough time passes - nobody re-reads the caller's body against the resolver's own type declaration. Every existing test still passes, because the resolver's tests assert against its return value directly (which was always correct) and the caller's tests assert against whatever subset of the return value the caller happens to use (which was also always correct, for that subset). The untested territory is the difference between the two, and no unit test of either half can ever see it, because neither half is wrong on its own.
 
-The generalizable check: when a resolve-and-persist path is declared complete, list every field the resolver's return type declares, and grep for a second reference to each one somewhere downstream of the call site that received it — not "does this code compile and pass its tests," but "does every value this function promised to have computed actually get read by something." A field referenced exactly once, at the point it comes out of the function that computed it, is either genuinely unused (in which case the resolver should not compute it) or silently dropped (in which case this is the bug). The distinguishing question — is anything downstream of here supposed to want this — is not answerable by any test of the resolver, because the resolver was never asked to know who its caller was.
+The generalizable check: when a resolve-and-persist path is declared complete, list every field the resolver's return type declares, and grep for a second reference to each one somewhere downstream of the call site that received it - not "does this code compile and pass its tests," but "does every value this function promised to have computed actually get read by something." A field referenced exactly once, at the point it comes out of the function that computed it, is either genuinely unused (in which case the resolver should not compute it) or silently dropped (in which case this is the bug). The distinguishing question - is anything downstream of here supposed to want this - is not answerable by any test of the resolver, because the resolver was never asked to know who its caller was.
 
 ## 106. A concurrency parameter's name matching a field's name does not mean the field controls that concurrency
 
 **What happened.** Closing the rest of AWX_PARITY_ROADMAP.md Section 3b.1 (the wire hop and both adapters for launch fields never reaching execution), the roadmap named "forks" and "limit" among the fields that should reach `internal/adapters/native/adapter.go`'s `Execute`, describing the target as "the engine's own fan-out and per-task controls." `engine.NewExecutor`'s `maxConcurrency` parameter is the only concurrency-shaped knob `Execute` could pass a "forks" value into, and doing so would have compiled, type-checked, and looked identical to the `ExtraVars`/`timeout` wiring that shipped alongside it in the same session.
 
-It would also have had zero observable effect, on every real dispatch, forever. `internal/adapters/native`'s `singleDeviceResolver.Resolve` ignores whatever target string a task names and always returns the one device this Runner invocation was dispatched against, by design: a `wire.DispatchPayload` already names one already-admitted device, and the per-device fan-out that would give "forks" something real to bound happens one layer up, in `internal/dispatch`'s own `Worker` loop, over NATS, never inside one `Execute` call. Every device-targeting task also acquires an exclusive per-device lock before running (`executor.go`'s `runOne`), unconditionally. So even two independent tasks in the same DAG level, both resolving to that one device, would serialize on the lock regardless of `maxConcurrency`'s value. There is no path through this call, for any real dispatch, where more than one action targeting that device is ever in flight at once — the parameter would have been read, stored, and never once made a scheduling difference.
+It would also have had zero observable effect, on every real dispatch, forever. `internal/adapters/native`'s `singleDeviceResolver.Resolve` ignores whatever target string a task names and always returns the one device this Runner invocation was dispatched against, by design: a `wire.DispatchPayload` already names one already-admitted device, and the per-device fan-out that would give "forks" something real to bound happens one layer up, in `internal/dispatch`'s own `Worker` loop, over NATS, never inside one `Execute` call. Every device-targeting task also acquires an exclusive per-device lock before running (`executor.go`'s `runOne`), unconditionally. So even two independent tasks in the same DAG level, both resolving to that one device, would serialize on the lock regardless of `maxConcurrency`'s value. There is no path through this call, for any real dispatch, where more than one action targeting that device is ever in flight at once - the parameter would have been read, stored, and never once made a scheduling difference.
 
-**Why it generalises.** A roadmap or a spec naming a target parameter ("wire X into the engine's own concurrency control") is telling you where a mechanism with that shape already lives in the codebase, not asserting that connecting a new field to it will do anything — the mechanism's own arity at the *specific call site* being changed still has to be checked. The tell here was available without reading a line of `internal/dispatch`: `NewAdapter`'s own doc comment already states this Adapter is scoped to "the one device this payload names," and a resolver with exactly one possible return value can never make a bound on the size of that return value observable, no matter what the bound is set to. Before wiring a resolved field into a parameter that merely shares its name and domain concept with the field (forks ~ concurrency, limit ~ target-set size), trace what that parameter actually bounds at *this* call site, not what it bounds in general or at a different call site in the same codebase — `internal/engine/executor_test.go`'s own `TestExecutor_ConcurrencyBound` proves `maxConcurrency` genuinely works, over eight *devices* one call resolves to; it says nothing about a resolver that can only ever resolve to one. Wiring a real value into a real parameter with a provably absent effect is worse than leaving the field unread and documenting it as inert: on inspection, it reads as fixed.
+**Why it generalises.** A roadmap or a spec naming a target parameter ("wire X into the engine's own concurrency control") is telling you where a mechanism with that shape already lives in the codebase, not asserting that connecting a new field to it will do anything - the mechanism's own arity at the *specific call site* being changed still has to be checked. The tell here was available without reading a line of `internal/dispatch`: `NewAdapter`'s own doc comment already states this Adapter is scoped to "the one device this payload names," and a resolver with exactly one possible return value can never make a bound on the size of that return value observable, no matter what the bound is set to. Before wiring a resolved field into a parameter that merely shares its name and domain concept with the field (forks ~ concurrency, limit ~ target-set size), trace what that parameter actually bounds at *this* call site, not what it bounds in general or at a different call site in the same codebase - `internal/engine/executor_test.go`'s own `TestExecutor_ConcurrencyBound` proves `maxConcurrency` genuinely works, over eight *devices* one call resolves to; it says nothing about a resolver that can only ever resolve to one. Wiring a real value into a real parameter with a provably absent effect is worse than leaving the field unread and documenting it as inert: on inspection, it reads as fixed.
 
 ## 107. A shared-primitive table's "Build by" column is a claim about ordering that its own call sites can falsify, and the first consumer is the one that finds out
 
@@ -1632,7 +1632,7 @@ different questions, and the answer to the first was allowed to settle the secon
 own comment above `GOVULNCHECK_VERSION` says the scanner is pinned but the database is
 not: it is fetched from `vuln.go.dev` at run time, by design, "so a newly published
 advisory against a dependency still fails CI the day it lands." That cuts in both
-directions. It is what makes a red `govulncheck` genuinely not the diff's fault — the
+directions. It is what makes a red `govulncheck` genuinely not the diff's fault - the
 advisory can appear against a tree nobody touched. It is also what makes deferring one
 unsafe, because the finding does not age out; the next CI run inherits it, and so does
 the next contributor, who now cannot tell their own regression from the carried-over
@@ -1640,12 +1640,12 @@ one. The whole class is cheap to clear: this one was a single character in `go.m
 `toolchain go1.26.5` to `go1.26.6`, which took all six findings to zero.
 
 **The part that cost the most information.** `make ci` is a sequential prerequisite
-list — `build vet fmt test-race test-integration gosec govulncheck coverage docs-lint
-docs-gen-check templ-gen-check` — and stops at the first failure. `govulncheck` sits
+list - `build vet fmt test-race test-integration gosec govulncheck coverage docs-lint
+docs-gen-check templ-gen-check` - and stops at the first failure. `govulncheck` sits
 ahead of four other checks. The same handoff recorded a *second* known-red item,
 `docs-gen-check`, which lives behind it. The CI log therefore reported one problem, not
 two, and said nothing whatsoever about `coverage`, `docs-lint`, `docs-gen-check` or
-`templ-gen-check` — they never executed. Deferring an early gate does not leave the
+`templ-gen-check` - they never executed. Deferring an early gate does not leave the
 later ones passing, it leaves them unobserved, and it converts one red build into a
 sequence of them, each revealing the next failure only after the previous is fixed.
 (Here the four behind it turned out to be green, which is luck, not evidence: it was
@@ -1653,7 +1653,7 @@ unknowable until `govulncheck` was cleared.)
 
 **The rule.** Do not push with a gate red, whatever the diff's relationship to the
 failure. "Pre-existing", "flaky", "unrelated", and "someone else's" are explanations
-for a failure, never authorizations to ship past one — the only sanctioned tolerance in
+for a failure, never authorizations to ship past one - the only sanctioned tolerance in
 this repository is the explicit, named, written-reason kind (`flaky-packages.json`,
 `gosec-waivers.json`), and a finding that fits none of those categories is work, not
 context. When a gate is red for a genuinely external reason, fix the external thing or
@@ -2619,7 +2619,7 @@ to satisfy it, and prove that channel reaches the code doing the enforcing in th
 product ships. If the only channel is the developer's own environment, the control is off in
 production and on in the tests.
 
-**The incident.** Every SSH connection Pleiades makes verifies the device's host key against a
+**The incident.** Every SSH connection The Pleiades makes verifies the device's host key against a
 known_hosts file and fails closed. That was written carefully, tested thoroughly, and completely
 unusable in the shipped runner image, because the only way to name the file was
 `$HOME/.ssh/known_hosts` and a distroless container has no home directory. `os.UserHomeDir`
@@ -2843,7 +2843,7 @@ as `pkg.*` for a different reason. `useradd`/`groupadd` being POSIX-universal tu
 the relevant fact: the gap `capability.AptCapable` has is that no device type implements its
 accessor method (`AptSourcesList`) at all, not that the accessor's *answer* varies by instance.
 `capability.PosixAccountCapable`'s own accessor, `PasswdPath() string`, has exactly the same
-problem — nothing in this repository implements it either, regardless of how universal POSIX
+problem - nothing in this repository implements it either, regardless of how universal POSIX
 accounts are. A capability interface needs a real accessor on a real device type before
 `HasCapability` can ever return true for it, independent of whether the underlying concept has an
 honest default; `identity.user.*`/`identity.group.*` shipped at the same tier `pkg.apt.*` did,
@@ -2854,15 +2854,15 @@ genuinely unreachable against a real inventory device until some device type add
 
 **The rule.** When a method converges an existing resource's attributes (as opposed to creating or
 removing it outright) and needs to record a real, restorable inverse, capture each attribute's old
-value at the moment the method decides to change it — from the same query that drove the decision
-— rather than by diffing a "before" snapshot against an "after" snapshot taken by re-querying the
+value at the moment the method decides to change it - from the same query that drove the decision
+- rather than by diffing a "before" snapshot against an "after" snapshot taken by re-querying the
 resource once the mutating command has run.
 
 **Why.** `identity.user.create`'s and `identity.user.modify`'s first implementation built their
 inverse this second way: converge whichever attributes differed from what `getent passwd` reported,
 run `usermod`, re-query the account, and diff the fresh "after" against the original "before" to
 find which fields to restore. Every test written against a synthetic fake `getent` (the same
-technique `pkg.apt.*`'s own tests use — a shell script controlled by fixed environment variables)
+technique `pkg.apt.*`'s own tests use - a shell script controlled by fixed environment variables)
 failed with the inverse missing the very attribute the test had just changed, because the fake
 script's output does not depend on what `usermod` was told to do: it is a canned response, not a
 stateful simulation of the account database. The requery after a converge, in the test harness,
@@ -2894,14 +2894,14 @@ convenience API surface; it is what makes the method testable at all without eit
 real host's file during a test run or falling back to a mock that would fail RULE 0.
 
 **Why.** `pkg/remoteexec/remoteexectest.Start` runs every command a test sends through a real
-`exec.Command("/bin/sh", "-c", command)` on the actual machine running the test — there is no
+`exec.Command("/bin/sh", "-c", command)` on the actual machine running the test - there is no
 sandboxed filesystem underneath it, no chroot, no fake `/etc`. `fs.mount`/`fs.unmount` need to read
 and rewrite an fstab file (via `pkg/remotefile`'s real `Read`/`Write`/`Stat`/`Apply`, the same
 primitive `internal/catalog/file/line` already established for "read the whole file, decide in Go,
 write the whole file back" rather than trusting `sed`). Had the fstab path been hardcoded to
 `/etc/fstab` the way a first draft assumed, every test exercising the persistence half of these
-methods would have had to either genuinely rewrite the test-runner's own `/etc/fstab` — unacceptable
-in any environment, let alone a sandboxed one — or abandon RULE 0 and mock `remotefile` out from
+methods would have had to either genuinely rewrite the test-runner's own `/etc/fstab` - unacceptable
+in any environment, let alone a sandboxed one - or abandon RULE 0 and mock `remotefile` out from
 under the method, which is exactly the failure mode RULE 0 exists to catch (a test that mocks the
 layer being tested proves nothing about it). Making `fstab` a parameter, defaulting to `/etc/fstab`,
 let every test point it at a `t.TempDir()` path instead, so the tests run the method's real read-
@@ -2910,14 +2910,14 @@ modify-write logic against a real file without touching anything outside the tes
 **The tell that this is available, not invented.** Ansible's own `ansible.builtin.mount` module
 already exposes an `fstab:` parameter for the identical reason (its own test suite needs to point
 at a fixture file, not the control node's real one). This platform's own vocabulary-reuse
-philosophy — a runbook migrating from Ansible should rename nothing it does not have to — means the
+philosophy - a runbook migrating from Ansible should rename nothing it does not have to - means the
 same parameter existing for the same underlying reason is confirmation the design is right, not a
 coincidence to double check. When a method's own test-safety need and an existing Ansible module's
 parameter surface point at the same missing parameter, that is the parameter to add.
 
-**How to apply it.** Before hardcoding any path a method's real command executor will touch —
+**How to apply it.** Before hardcoding any path a method's real command executor will touch -
 especially one central enough that a real environment guarantees its existence (`/etc/fstab`,
-`/etc/hosts`, `/etc/resolv.conf`) — check whether the Ansible module this method mirrors already
+`/etc/hosts`, `/etc/resolv.conf`) - check whether the Ansible module this method mirrors already
 parameterizes it, and if this method's own tests will need to run real commands against it (per
 RULE 0), add the parameter regardless of whether Ansible does. A method that never needs a real
 command executor in its own tests (an HTTP-API-backed method, for instance) does not have this
@@ -2945,25 +2945,25 @@ running into: whether a fabricated instance ID would produce a real `InvalidInst
 API error or a quiet empty success (both actually happen, depending on whether the ID merely looks
 well-formed); whether `RunInstances` would reject an invalid `instance_type` the way real AWS does
 (it does not, against LocalStack); whether requesting a specific `PrivateIpAddress` would suppress
-the automatic `PublicIpAddress` assignment (it does not — both are set, confirmed by one throwaway
+the automatic `PublicIpAddress` assignment (it does not - both are set, confirmed by one throwaway
 `main.go` hitting the real container and printing the result). Every one of these was a case where
 the *plausible* assumption (derived from how real AWS is documented to behave, or from how the
 previous SSH-based batches' fake shell scripts behaved) was either right or wrong in a way that
 could only be told apart by asking the real target directly, in under a minute, with a disposable
 Go program deleted immediately after. Guessing wrong and writing a test around the guess would have
-produced a test that passively verified a fiction — passing today, telling nothing about tomorrow —
+produced a test that passively verified a fiction - passing today, telling nothing about tomorrow -
 which is exactly the failure RULE 0 exists to rule out, applied one level up: not just "does this
 test touch a real system," but "is what I believe about that real system's current behavior itself
 verified, or inherited."
 
 **How to apply it.** When a plan's chosen verification strategy depends on a live dependency's
-current behavior, terms, or state — an image's licensing, an API's validation strictness, a
-service's default configuration — verify it by running the real thing before committing code or
+current behavior, terms, or state - an image's licensing, an API's validation strictness, a
+service's default configuration - verify it by running the real thing before committing code or
 tests to the assumption, even (especially) when the assumption was true in an earlier session or
 reads as obviously true from documentation. A disposable diagnostic program (or command) against
 the real target, run once and deleted, is cheap; a test suite built on a stale or merely-plausible
 belief about that target is not. When the real behavior contradicts the plan, stop and revise with
-whoever approved the plan rather than quietly substituting a workaround — the same "re-derive
+whoever approved the plan rather than quietly substituting a workaround - the same "re-derive
 before carrying across a stale judgement" instinct LESSONS_LEARNED #143 already names for a removed
 safeguard, applied here to a changed dependency instead.
 
@@ -2977,12 +2977,12 @@ test kept compiling and kept passing its own assertions' *shape* right up until 
 test` actually ran it: `svc.windows.start` was now `StatusImplemented`, so `dispatch` sailed past
 the branch under test entirely and invoked the real `windows.Start`, which failed for a completely
 different reason (the test harness's fake device implements `SSHHost`/`SSHPort`, not
-`WinRMHost`/`WinRMPort`) that happened to still produce a non-nil error — meaning a naively
+`WinRMHost`/`WinRMPort`) that happened to still produce a non-nil error - meaning a naively
 observed "err != nil, test still red for basically the right shape" run could have read as passing
 if the assertion checked less precisely. `internal/catalog/svc.managerNamespace` maps exactly two
 service-manager names to exactly two namespaces (`systemd`, `windows_scm`), and once both are fully
 implemented there is no longer any real device/verb combination reachable from outside the package
-that exercises the "found in the registry, but `Status != StatusImplemented`" branch — every legal
+that exercises the "found in the registry, but `Status != StatusImplemented`" branch - every legal
 input now either resolves to a real implementation or refuses earlier (unknown manager, missing
 capability). The branch is still live, load-bearing code (it is what makes a partially-implemented
 service-manager namespace fail cleanly rather than nil-pointer-panic), but the public API can no
@@ -2991,7 +2991,7 @@ longer reach it.
 **How to apply it.** Before extending a batch that flips the last `StatusDeclared` entry a generic
 dispatcher can resolve to, check whether any of that dispatcher's own tests depend on a *specific
 concrete FQCN* remaining declared rather than on the *mechanism* of refusing a declared target in
-the abstract — grep the dispatcher's test file for the FQCN literal, not just for the word
+the abstract - grep the dispatcher's test file for the FQCN literal, not just for the word
 "declared". When the last real example is about to disappear, do not delete the test or leave it
 silently asserting a now-false premise: add a whitebox (same-package) test file that registers one
 throwaway, uniquely-named `StatusDeclared` descriptor purely as a fixture (a `pleiades forge`-style
@@ -2999,8 +2999,8 @@ name that cannot collide with anything real, e.g. `svc.systemd.dispatchtestonly`
 unexported dispatch function directly with a verb that resolves to it. This proves the branch
 itself, honestly, using a fixture that is clearly a fixture, rather than either deleting real test
 coverage or letting a test's premise quietly go stale while its assertions happen to still compile.
-Replace what the retired test *was* actually reachable to prove — here, that dispatch really does
-resolve and invoke the correct concrete method for a device — with a black-box test pointed at an
+Replace what the retired test *was* actually reachable to prove - here, that dispatch really does
+resolve and invoke the correct concrete method for a device - with a black-box test pointed at an
 address nothing answers, asserting on the failure having reached the network with the right FQCN
 named in it, the same "assert on the failure mode, not a live host" pattern
 `pkg/winrmexec`'s own tests already use for the identical missing-real-backend constraint.
@@ -3099,20 +3099,20 @@ Nothing about the underlying design was wrong. Section 7's axis is ascending set
 capability unlocked, Binding Rule 1 makes each tier a strict subset of the one above it, and
 every table in the tree listed its rows in the correct ascending order. Only the two labels were
 swapped, and they were swapped *consistently*, in all 262 occurrences across tracked files and
-54 across the specification — user-facing docs (`docs/01-start-here.md`'s own section heading,
+54 across the specification - user-facing docs (`docs/01-start-here.md`'s own section heading,
 `README.md`, `docs/02-get-started.md`, `docs/03-migrating-from-ansible.md`), the `pleiades`
 CLI's own `--help` tagline, Go doc comments, generated reference pages, and the archives.
 
 **Nothing caught it, and nothing could have.** `make ci` was green throughout. There is no test
 to write: every gate this repository runs measures internal consistency, and the naming was
-perfectly internally consistent — a lint that knew "Walk means the cheap tier" would have to be
+perfectly internally consistent - a lint that knew "Walk means the cheap tier" would have to be
 told the very fact that was wrong. `docs-lint` checks for leaked internal citations, not
 semantics. The only detector for this class of defect is a reader's expectation, and the
 authors had long since adapted to their own vocabulary.
 
 **What surfaced it.** A completion-percentage question. A per-tier breakdown reported "Walk
 100% (60 items), Crawl 83% (330 items)", and the project owner read it twice as a contradiction
-— first "shouldn't crawl have less to do than walk?", then "isn't crawl a prerequisite to
+- first "shouldn't crawl have less to do than walk?", then "isn't crawl a prerequisite to
 walk?" Both readings were correct about the idiom and wrong about this codebase, which is
 exactly the signature. The confusion arrived from the person who chose the names, on his own
 project, roughly three weeks in. Anyone reading it cold would have hit it sooner and said
@@ -3122,7 +3122,7 @@ nothing.
 files: the offline CLI tier is now **Crawl**, the Controller/Runner tier is now **Walk**, Run is
 unchanged. Structure, row order, phase boundaries and every semantic claim stayed exactly as
 they were; only the two words moved. Historical documents were rewritten along with everything
-else, deliberately — `HANDOFF_ARCHIVE.md`, `FAILURE_PATTERNS_ARCHIVE.md`, this file and
+else, deliberately - `HANDOFF_ARCHIVE.md`, `FAILURE_PATTERNS_ARCHIVE.md`, this file and
 `CHANGELOG.md` all now use the corrected vocabulary. **The consequence worth knowing: an
 archive entry written before 2026-08-22 uses names that did not exist on the day it was
 written.** Read "Crawl tier" in a 2026-08-05 handoff entry as the offline CLI, which that
@@ -3132,8 +3132,8 @@ Crawl. The lettered phase identifiers `W1`–`W6` in `IMPLEMENTATION.md` also ke
 because renaming them to `C1`–`C6` would invalidate every cross-reference in the roadmap and
 the archives for no semantic gain; the `W` there is now a historical artifact, not a mnemonic.
 
-**The rule.** When domain vocabulary borrows an ordered idiom that readers already know —
-crawl/walk/run, alpha/beta/GA, bronze/silver/gold, S/M/L — the idiom's canonical order is part
+**The rule.** When domain vocabulary borrows an ordered idiom that readers already know -
+crawl/walk/run, alpha/beta/GA, bronze/silver/gold, S/M/L - the idiom's canonical order is part
 of the contract, not decoration. Check it at the moment of naming, out loud, against the phrase
 as people actually say it. It is the cheapest possible check and there is no later one: no
 compiler, no test, no linter and no CI job can see the mismatch, and every day it survives it
@@ -3146,7 +3146,7 @@ non-tier uses of the word (`filepath.Walk` became `filepathCrawl`); and `\bWalk\
 match inside the Go string literal `"\nWalk tier: ..."`, because the `n` of the escape sequence
 is a word character, leaving the CLI's own tagline contradicting the two sibling strings in
 `internal/clispec` and `internal/inventory` that had flipped correctly. Both were caught only by
-verifying afterwards — by grepping the protected sites back out by name, and by diffing three
+verifying afterwards - by grepping the protected sites back out by name, and by diffing three
 strings that should agree against each other. Swap under sentinels that cannot interpolate,
 regenerate rather than hand-edit anything under `docs/reference/` or `internal/api/wellknown/`,
 and verify the before and after occurrence counts are exact mirrors of one another rather than
@@ -3248,7 +3248,7 @@ whether the rule still matches anything.
 ## 156. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
 
 **The incident.** `internal/topology`'s package doc calls it "the single owner of every NATS
-JetStream subject, stream, consumer, and retention/replica setting used by Pleiades," and
+JetStream subject, stream, consumer, and retention/replica setting used by The Pleiades," and
 `internal/archtest/layering_test.go`'s own comment repeats it more specifically: topology "is
 the one place jetstream.StreamConfig/ConsumerConfig/KeyValueConfig shapes are declared, so
 every other adapter can depend on topology instead of the driver directly." Both were false
@@ -5185,4 +5185,69 @@ calling the helper.
 ended, with a comment explaining why the handshake needed it. The tunneled dial, a few dozen lines
 away, did the same handshake without the guard, and a silent target behind a bastion could hold a run
 forever. The fix put the guard in `closeOnDone`, which both paths now call.
+
+
+## 245. A value is data only if the parser reads it after parsing: check when a shell expands a variable before trusting the variable
+
+**Rule.** Passing a value to a script as an environment variable keeps it out of the script text, and
+that only helps if the shell expands the variable after it has parsed the line. Measure it for each
+shell before relying on it, and when a shell has an early form and a late form, allow only the late
+one.
+
+**Why.** Phase 75's plan said environment variables "survive every language mode" and that a cmd
+parameter containing `& calc.exe` would spawn nothing. Measured on 2026-09-25, cmd.exe expands
+`%NAME%` before it parses special characters, so a value `a & echo INJECTED` read that way ran the
+echo. Its delayed form, `!NAME!` under `/v:on`, printed the value as text, and PowerShell's `$env:NAME`
+was inert bare and inside a double-quoted string. `cmd` mode now turns on delayed expansion and refuses
+a script that reads one of its own values as `%NAME%` (`checkCmdEnvReads`).
+
+## 246. A capability's parent is a promise to every method requiring the parent: check what they need before choosing one
+
+**Rule.** Declaring a child capability declares its parent (`capability.Resolves`), so before giving a
+capability a parent, list the methods that require the parent and check each one can actually run on
+every device that will declare the child. When one cannot, and nothing else gates it, leave the parent
+off and say why in the capability's doc comment.
+
+**Why.** Phase 75 planned `WindowsShellCapable` under `CommandExecCapable`, which is semantically true:
+a Windows shell device can run a command outside a shell. But `exec.command` and `exec.shell` require
+`CommandExecCapable` and speak SSH only, and no code checks a method's `SupportedTransports` against a
+device, so every Windows server would have passed `pleiades validate` for them and failed at run time.
+The parent waits for transport validation (Phase 75's new item).
+
+## 247. A captured request proves what was asked, not what happened: assert the effect on the far side
+
+**Rule.** When behavior depends on the far side honoring something the client sends (a protocol
+option, a header, a flag), a test that inspects the outgoing request proves only that it was sent.
+Prove the effect with an observation the far side cannot fake: what the program actually received,
+what the file actually contains. Until then, call the option unproven.
+
+**Why.** FAILURE_PATTERNS 356. Phase 75 pinned `WINRS_SKIP_CMD_SHELL=TRUE` and its gate asserted the
+option on twelve captured envelopes, all passing, while Windows ignored the option on every one of
+them. `%CMDCMDLINE%` inside the command, one line of cmd.exe, showed the wrapper at once.
+
+## 248. When a guest ignores what it was given, read its own logs before a second guess
+
+**Rule.** When a machine does not act on its seed, answer file or configuration, get inside and read
+the log of the program that should have read it before changing anything a second time. Guessing
+costs a rebuild and a boot per guess, and each guess changes one thing when the log names the cause.
+
+**Why.** FAILURE_PATTERNS 361. The first Windows clone ignored its answer file. The first fix moved the
+DVD from IDE to SATA on a theory about driver timing, cost a base rebuild and a boot, and changed
+nothing. Finishing OOBE by keyboard on the throwaway clone and reading `Panther\setupact.log` and
+`UnattendGC\setupact.log` settled it in two reads: the DVD was fine, and Setup had searched before the
+image had set it up. The tooling that got inside became real methods
+(`virt.vbox.vm.screenshot`, `send_keys`, `log`, `addresses`), so the next person does not need raw
+commands to look.
+
+## 249. Call a method once with `adhoc --json`, and assert on structure rather than on printed text
+
+**Rule.** To run one method once, use `pleiades adhoc <hosts> <method> key=value --json` rather than
+writing a runbook for it, and read the result as JSON. A test or gate that checks what a run did
+decodes the report and reads fields, never searches the text view for a formatted value.
+
+**Why.** FAILURE_PATTERNS 367. The Phase 112 session wrote about ten single-task runbooks only to call a
+method once, and the WinRM service gate's text assertions went stale the day stats became YAML; the
+fix needed a hand-written parser for a diff that the JSON report now carries as data. Phase 113 made
+both unnecessary: `adhoc` runs through the same pipeline as `run`, and `--json` prints the same report
+the text view renders.
 

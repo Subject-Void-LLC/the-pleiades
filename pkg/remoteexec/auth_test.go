@@ -40,12 +40,20 @@ func TestAuthFrom(t *testing.T) {
 			passphrase: "correct-horse",
 		},
 		{
-			// A password wins even when a key is also present, so the
-			// preference order is asserted rather than assumed.
-			name:     "password preferred over a private key",
+			// Both are offered, the key first; TestAuthFrom_KeyAndPassword
+			// proves the order against a real server.
+			name:     "a private key and a password",
 			user:     "u",
 			password: "p",
 			keyPEM:   plainKeyPEM,
+		},
+		{
+			// A broken key beside a password is refused, not skipped.
+			name:     "an unparsable key beside a password",
+			user:     "u",
+			password: "p",
+			keyPEM:   []byte("garbage"),
+			wantErr:  true,
 		},
 		{
 			name:       "passphrase-encrypted private key with wrong passphrase",

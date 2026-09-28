@@ -31,12 +31,12 @@ It is also the example that broke this lab machine twice, and the comments in
 
 ## What actually goes wrong, in the order you will hit it
 
-**`shell: powershell` is required, not decorative.** The WinRM transport refuses
-`shell: none`. That mode means running a program directly with an argument vector
-nothing parses, and the WS-Man option deciding between direct execution and `cmd.exe`
-is pinned to `cmd.exe` by the underlying library, so the transport will not claim a
-command runs verbatim when it would actually be parsed by a shell. `shell: cmd` is the
-other supported value.
+**Name the shell.** These runbooks use `shell: powershell`, because what they read and
+change is PowerShell's to do. The other two modes exist too: `shell: cmd` runs one line
+through `cmd.exe` for its builtins, and `shell: none` runs a program with its arguments
+reaching it exactly as written. The WinRM service starts every command through `cmd.exe`
+whatever it is asked, so The Pleiades escapes each line until that `cmd.exe` passes it through
+unchanged, and the parser a task names is the only one that acts on it.
 
 **Run these with `--verbose`.** `pleiades run` prints only whether each task changed
 something unless you ask for more, and every runbook here exists to read state back off
@@ -65,6 +65,71 @@ IPv6. That is why `inventory.yaml` carries the same machine twice and why
 `win_revert.yaml` targets the IPv6 entry. It is the difference between a runbook fix and
 a trip to the console. Note the square brackets around the address, which the URL the
 transport builds requires.
+
+## The certificate lab account
+
+`winrm-cert-setup.ps1` sets this host up for certificate authentication on 5986, for one
+account that can do only what a lab run needs. It is a standard user with a random
+password that is used once, to map the certificate, and never shown; it reaches WinRM
+through its own RootSDDL entry, not a group; it cannot log on at the console, over
+Remote Desktop, or as a batch job or service; and on every fixed drive except the
+system drive it is denied everything but the folders named with `-ReadPath` and
+`-WritePath`. With `-AllowVirtualBox` it may also start VirtualBox's two COM servers,
+VBoxSVC and VBoxSDS, which `VBoxManage` needs: Windows' default launch permission admits
+only administrators, SYSTEM and interactive logons, and a WinRM logon is a network one, so
+without the grant `VBoxManage list vms` fails with `E_ACCESSDENIED`. The grant is local
+launch and local activation, on those two AppIDs only, for this account's SID only; an
+AppID with no launch permission of its own keeps the machine default's entries beside it.
+The same switch sets the machine-wide policy "do not forcefully unload the user registry at
+user logoff" (`DisableForceUnload`): the account's registry is unloaded when its last WinRM
+shell closes, and the VBoxSVC a running VM keeps alive would then fail every later call
+with `REGDB_E_READREGDB`. The teardown restores the policy's earlier value.
+
+**A VM does not start from this account's WinRM logon.** VirtualBox's hardening verifies Windows'
+own DLLs, and Windows' catalog signature check fails for a non-interactive, non-admin
+logon (`VERR_LDRVI_NOT_SIGNED` for `WinHvPlatform.dll`; VirtualBox ticket 20341). Query
+access on Cryptographic Services was tried and does not help.
+`-VirtualBoxAutostart` is the one way VirtualBox offers around that, and it works: its own autostart
+service (`VBoxAutostartSvc`), installed for this account so a VM starts under a service
+logon rather than a network one. It lifts only the account's service-logon denial, lets the
+service manager keep the account's password for that service, sets the machine variable
+`VBOXAUTOSTART_CONFIG` to an allow policy (VirtualBox's policy file cannot name an account:
+its parser takes no `\`, `@` or `-` in a key), and lets the account start
+and query that one service. The teardown removes all of it. Measured on the lab host, a VM
+marked `--autostart-enabled` starts when the account starts that service, and from then on,
+while any of the account's VMs runs, a plain `VBoxManage startvm` over WinRM works too: every
+WinRM client is handed the VirtualBox server the service started, and VirtualBox launches a
+VM as that server. `virt.vbox.vm.start` does all of this for you, and
+`examples/virtualbox_lab` uses it to make, boot and manage Ubuntu VMs on this host.
+The certificate authority's private key is deleted once the server and
+client certificates exist, and the client's once it is exported, so nothing on the host
+can issue a certificate the host trusts. What it granted is recorded in
+`lab-state.json`, which `winrm-cert-teardown.ps1` reads to revoke exactly that.
+
+```powershell
+# elevated; the deny on the other drives writes into every file there, once
+powershell -ExecutionPolicy Bypass -File .\winrm-cert-setup.ps1 -ReadPath G:\iso -WritePath G:\PleiadesLab -AllowVirtualBox
+powershell -ExecutionPolicy Bypass -File .\winrm-cert-teardown.ps1
+```
+
+What The Pleiades needs lands in `%USERPROFILE%\pleiades-gate`, readable only by you: the
+authority as `ca.pem`, and the client identity as `client.pfx` and
+`client.pfx.passphrase`. From that directory, add the host with its authority pinned, so it
+is verified without adding the lab's CA to anything else's trust, then import the identity
+and delete both of its files:
+
+```bash
+pleiades add-host win-lab --type windows_server --set host=<address> --set port=5986 \
+  --set "tls_ca_pem=$(cat ca.pem)"
+pleiades add-credential win-lab --pfx client.pfx --passphrase-stdin < client.pfx.passphrase
+```
+
+Each run issues a new authority and client certificate, so after a re-run, pin the new
+authority with `pleiades set-host win-lab --set "tls_ca_pem=$(cat ca.pem)"` and import the
+new bundle with the same `add-credential` line, which replaces the stored one.
+
+A setup run from before `ca.pem` existed wrote only `ca.cer`; `certutil -encode ca.cer ca.pem`
+converts it.
 
 ## Running it
 

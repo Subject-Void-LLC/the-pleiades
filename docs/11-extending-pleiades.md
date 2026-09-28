@@ -2,7 +2,12 @@
 status: beta
 ---
 
-# Extending Pleiades
+# Extending The Pleiades
+
+Pleiades is the execution engine. Its extension surface (the SDK, the code
+generators, and the `pleiades forge` CLI namespace) is collectively called
+Hephaestus. The full catalog convention and naming rationale are in
+[The Forge](hephaestus.md).
 
 This book covers how the catalog, device types, and sync plugins grow. There are
 two ways to add a Collection method, and only one way to add anything else:
@@ -10,8 +15,8 @@ two ways to add a Collection method, and only one way to add anything else:
 - **Contribute it** (every kind of extension): write it in this repository, or a
   fork, and build your own binary.
 - **Ship it as an external Collection** (Collection methods only): build a separate
-  program with the public `pkg/` SDK and point Pleiades at the directory it lives in.
-  No fork and no rebuild of Pleiades. See [External Collections](#external-collections).
+  program with the public `pkg/` SDK and point The Pleiades at the directory it lives in.
+  No fork and no rebuild of The Pleiades. See [External Collections](#external-collections).
 
 ## The extension surface today
 
@@ -20,7 +25,7 @@ Go's own visibility rule makes an `internal/` package reachable only from code i
 this module or a fork of it, so device types and sync plugins can still only be added
 by contributing to this repository. That means:
 
-- "Extending Pleiades" with a device type or a sync plugin means contributing to this
+- "Extending The Pleiades" with a device type or a sync plugin means contributing to this
   repository (or a fork), building, and shipping your own binary.
 - A Collection method is the exception. An external Collection imports only `pkg/`
   (`pkg/external`, `pkg/collection`, `pkg/sdk` and the other shared primitives there),
@@ -57,7 +62,7 @@ it) and grants a package manager only when both its tools answer; the NETCONF pr
 server's `<hello>`; the HTTP probe makes one verified, authenticated request to the base URL,
 and reads the OpenAPI document when `openapi_path` names one; the gRPC probe asks the standard
 health and reflection services. Nothing else grants a discovered capability: `add-host --set`,
-a hand-written `hosts.yaml` and a sync plugin are each refused if they name the `discovered`
+`set-host`, a hand-written `hosts.yaml` and a sync plugin are each refused if they name the `discovered`
 property, and a classification rule cannot add to a generic type. A generic device starts
 `discovered`, which runs nothing, and is `active` once onboarding succeeds.
 
@@ -88,7 +93,7 @@ afterward.
 `main.go`, the method with a working read-only body (it runs `uname -a` on the target and
 records the output), a test that runs the program's own `describe`, a README with the
 build and install steps, and a `go.mod` holding only a `module` line and a `go` line. It
-names no version of Pleiades, because the right one is a version the `go` command works
+names no version of The Pleiades, because the right one is a version the `go` command works
 out itself: `go mod tidy` resolves it through the module proxy and records its checksum.
 The README also gives the offline route, a `replace` pointing at a local checkout, as a
 step you take on purpose, since a `replace` is not checked against anything. The
@@ -427,7 +432,7 @@ if params["creates"] == nil {
 That task is then reported as "could not check" with your reason, exactly like a method
 with no check support, while the calls your `Check` can answer are checked. Return it
 only from `Check`: from `Invoke` it is an ordinary failure. It works the same from an
-external Collection, where it crosses to Pleiades as the response's `cannot_check` flag,
+external Collection, where it crosses to The Pleiades as the response's `cannot_check` flag,
 and a Pleiades build that predates the flag reports such a task as failed rather than
 unchecked.
 
@@ -525,15 +530,24 @@ undo.
 **A command: `transport.Transport`.** If one operation sends a command string
 and gets back standard output, standard error and an exit status, the protocol
 is command-shaped. The engine's built-in task types (`ssh_exec`, `serial_exec`,
-`serialtcp_exec`, `telnet_exec`) reach devices through `transport.Transport` in
-`internal/transport`, each named by a `TransportBinding`. Reuse that interface
-unchanged.
+`serialtcp_exec`, `telnet_exec`, `winrm_exec`) reach devices through
+`transport.Transport` in `internal/transport`, each named by a
+`TransportBinding`. Reuse that interface unchanged.
+
+A command-shaped protocol that can also run a command through a named shell
+implements `transport.ShellTransport` beside it, rather than widening `Exec`.
+WinRM is the one that does: `Exec` runs a Windows command line that no shell
+parses, and `ExecShell` runs a script through cmd.exe or PowerShell when a task
+sets `params.shell`. The executor asks for `ShellTransport` only when a task
+names a shell, and refuses a task that names one its device's transport cannot
+offer. See [the three Windows execution modes](#the-three-windows-execution-modes).
 
 **A primitive a Collection calls: a `pkg/` package.** A Collection method may
 import only `pkg/`, so anything a method calls lives there, whatever its shape:
-`pkg/remoteexec` for SSH commands, `pkg/winrmexec` for WinRM. WinRM moved to
-`pkg/` because of that layering rule, not because of its shape. It does not
-implement `transport.Transport`, and it never needed to.
+`pkg/remoteexec` for SSH commands, `pkg/winrmexec` for WinRM. The engine's own
+adapter over each (`internal/transport/ssh`, `internal/transport/winrm`) is a
+thin translation onto the same primitive, so a Collection method and a
+`winrm_exec` task send exactly the same WS-Man messages.
 
 **Anything that is not a command: a narrow port of its own.** Some protocols
 have no command string, no standard output and no exit status. NETCONF is
@@ -606,10 +620,68 @@ One gap to know about first: `sdk.Connect` dials the device directly. It does
 not yet follow the device's bastion route, so a method that has to reach a
 device behind a bastion needs that closed before it can ship.
 
+## The three Windows execution modes
+
+A Windows host can run a command three genuinely different ways, and a task
+names which one. The WinRM service starts every command through `cmd.exe /C`,
+whatever the client asks: the WS-Man option `WINRS_SKIP_CMD_SHELL` exists to ask
+it not to, and Windows does not honor it (measured, and refused outright when
+marked as required). So The Pleiades escapes every command line until that
+`cmd.exe` passes it through unchanged, the same technique the Rust standard
+library adopted for this problem after CVE-2024-24576, and the only parser
+that acts on a command is the one the task chose.
+
+| Mode | What reads the command | Use it for | What it costs |
+|---|---|---|---|
+| `none` | only the program the command line names | running a program with arguments | no builtins, no variables, no pipes; the program parses its own arguments |
+| `cmd` | `cmd.exe /d /v:on /s /c` | a cmd builtin (`dir`, `set`, `%ERRORLEVEL%`) | one line only |
+| `powershell` | `powershell.exe -NoProfile -NonInteractive -EncodedCommand` | cmdlets, the pipeline, the language | a PowerShell start per task; the script travels base64 encoded, which more than doubles its length |
+
+Every mode shares one ceiling: the service's `cmd.exe` accepts at most 8191
+characters, counted after escaping, so a script or value too large for that
+belongs on standard input. The service's `cmd.exe` also runs any AutoRun command
+the host's registry configures, before the task's own command; that is the
+host's configuration, and nothing a client can switch off.
+
+`winrm_exec` takes the mode as `params.shell` (default `none`), and
+`exec.winrm.shell` takes it as `shell` (required).
+
+**Values travel as data, never as script text.** `cmd.exe` and PowerShell have
+disjoint metacharacter sets, so no one escape is safe for both, and a runbook
+value spliced into a script is code. Put values in `env` instead: each name
+arrives as an environment variable called `PLEIADES_` plus the name, read as
+`$env:PLEIADES_NAME` in PowerShell or `!PLEIADES_NAME!` in cmd. Not
+`%PLEIADES_NAME%`: cmd.exe expands that form before it parses the line, so a
+value containing `&` would run as a command, and a cmd script that reads one of
+its own values that way is refused. `cmd` mode turns on delayed expansion
+(`/v:on`) for exactly this, which means a pair of literal `!` characters in a
+cmd script needs escaping as `^^!`. An environment is visible to other
+processes on the device, so it is for data, never a secret. A secret belongs on
+standard input, which `pkg/winrmexec.RunWithStdin` provides for a method that
+needs one.
+
+**Exit codes are real.** PowerShell's `-EncodedCommand` normally reports only 0
+or 1. The Pleiades adds one line after the script so a failing native program's own
+exit code survives, a failed cmdlet reports 1, and a script that recovers from
+an earlier failure reports 0.
+
+**The interpreters are named by absolute path.** With no shell in front of it,
+Windows looks for a bare program name in the working directory before the
+system directory, so a file called `powershell.exe` planted there would run
+instead. A Windows device's `cmd_path` and `powershell_path` properties say
+where its interpreters live (a device that should use PowerShell 7 names
+`pwsh.exe`), and `working_directory` says where commands start.
+
+**Building a Windows command line by hand is the one hard part.** For `none`,
+use `winrmexec.CommandLine(program, args...)`, which quotes each argument the
+way the standard Windows argument parser expects: a program that uses it
+receives exactly the arguments given. `cmd.exe` does not use that parser, which
+is why `cmd` mode builds its own line.
+
 ## External Collections
 
 An external Collection is a Collection method (or several) built as a separate program,
-outside this repository, and run by Pleiades as a child process once per task. It
+outside this repository, and run by The Pleiades as a child process once per task. It
 imports only `pkg/`, so it builds against a stock release, and a runbook calls its
 methods exactly as it calls a built-in one. [`examples/external_collection`](../examples/external_collection/)
 is a complete, working one.
@@ -672,7 +744,7 @@ Pleiades runs the program with one argument:
   stdout. This happens once, when the directory is loaded.
 - `invoke`: the program reads one request from stdin (the method, the mode, the
   task's params, the target device's name, address and capabilities, and the
-  credential Pleiades resolved for the task), runs the method, and writes one response
+  credential The Pleiades resolved for the task), runs the method, and writes one response
   to file descriptor 3: whether anything changed, the stats it recorded, or an error.
 
 The credential is not a new mechanism. It is exactly what a built-in method receives
@@ -685,7 +757,7 @@ The request and response are the same JSON messages the Runner already exchanges
 its own per-task child process, served by the same code (`external.ServeChild`), so a
 method's result is the same to the engine whichever kind of process produced it.
 
-The program never runs on a managed device. It runs beside Pleiades and reaches the
+The program never runs on a managed device. It runs beside The Pleiades and reaches the
 device the way a built-in method does, through `sdk.Connect` and the credential in the
 request.
 
@@ -715,7 +787,7 @@ directory, and checked every time:
   that any built-in method uses (`file`, `svc`, `net` and the rest, read from the
   running build, so a namespace the catalog adds later is reserved too), nor
   `pleiades` or `ansible`. A name in one of them can only mean code that ships with
-  Pleiades, so name your methods under your organization's name. `pleiades run
+  The Pleiades, so name your methods under your organization's name. `pleiades run
   --verbose` also prints, beside every result from an external program, the program
   and digest that produced it.
 - **Nothing is replaced.** A method name that is already registered, whether by a
@@ -734,15 +806,15 @@ directory, and checked every time:
   its results, and everything `pleiades collection approve` shows are printed with
   such characters escaped, so a program cannot draw fake output, such as a fake
   "approved" line, over the real output.
-- **Every run is confined.** A program runs as the user running Pleiades (on a Runner,
+- **Every run is confined.** A program runs as the user running The Pleiades (on a Runner,
   the Runner's user), so on its own it could read whatever that user can: the project's
-  credential store and its key under `.pleiades/`, your SSH keys, and the Pleiades
+  credential store and its key under `.pleiades/`, your SSH keys, and The Pleiades
   process's own starting environment under `/proc`. Instead, every run is confined with
   Linux's Landlock to its own directory, the system's libraries, certificates, resolver
   files and time zone database, your `known_hosts` file, `/dev/null`, and a private
   temporary directory (its `TMPDIR`, removed when it exits). On a kernel with Landlock
-  ABI 6 or later it also cannot signal Pleiades. Pleiades marks itself non-dumpable
-  before starting a program, so the program can't read Pleiades's memory or
+  ABI 6 or later it also cannot signal The Pleiades. The Pleiades marks itself non-dumpable
+  before starting a program, so the program can't read The Pleiades's memory or
   environment. Network access is not confined, since a method must reach devices on
   their own ports.
 - **Checks stay off locked devices.** A method's `Check` from an external program is

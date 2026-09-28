@@ -26,7 +26,13 @@ var Devices = []devicescaffold.Config{
 			capability.NameWinRM,
 			capability.NameWindowsService,
 			capability.NameWindowsFeature,
+			capability.NameWindowsShell,
 			capability.NameNetworkAddressable,
+			// Declared only when the record sets virtualbox: true, the
+			// record-conditional pattern console.Device uses: a Windows
+			// server with VirtualBox is still a Windows server, not a
+			// separate type registered a second time.
+			capability.NameVirtualBox,
 		},
 	},
 	{

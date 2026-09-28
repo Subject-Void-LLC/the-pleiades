@@ -1,0 +1,1 @@
+Fixed `pleiades validate` ignoring `--dir`, `--tags` and `--skip-tags` when no runbook was named. Fixed a file of tasks meant for `import_tasks` being reported as an Ansible playbook to convert; the error now says it is a list of tasks and to name the runbook that imports it.

@@ -284,7 +284,7 @@ func (c *Client) DescribeInstance(ctx context.Context, instanceID string) (*Inst
 
 // TerminateInstance terminates instanceID and returns its state
 // immediately after the call (ordinarily "shutting-down", not yet
-// "terminated" — termination is asynchronous on AWS's side).
+// "terminated" - termination is asynchronous on AWS's side).
 func (c *Client) TerminateInstance(ctx context.Context, instanceID string) (*Instance, error) {
 	out, err := c.ec2.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
 	if err != nil {
@@ -373,7 +373,7 @@ func AccessDenied(err error) bool {
 // errorCode extracts the AWS API error code (e.g. "NoSuchBucket",
 // "InvalidInstanceID.NotFound") from err, or "" if err is not an AWS API
 // error at all (a connection failure, a context cancellation, and so
-// on) — those are real errors this package never mistakes for "the
+// on) - those are real errors this package never mistakes for "the
 // resource is absent".
 func errorCode(err error) string {
 	var apiErr smithy.APIError

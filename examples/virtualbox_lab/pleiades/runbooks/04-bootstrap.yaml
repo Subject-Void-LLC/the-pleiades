@@ -1,0 +1,12 @@
+# The first run against the VM itself, over SSH, with the key the vault
+# holds and the host keys trust-host wrote. Run it with --verbose.
+id: vbox-lab-bootstrap
+hosts: ubuntu-lab
+tasks:
+  - name: reach the new VM over the host-only network
+    net.ssh.ping:
+  - name: who we are and what it runs
+    exec.command:
+      argv: [sh, -c, 'id; hostname; . /etc/os-release; echo "$PRETTY_NAME"; ip -4 -brief addr show; cloud-init status']
+  - name: its facts
+    facts.gather:

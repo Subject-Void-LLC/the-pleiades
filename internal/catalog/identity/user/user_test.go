@@ -82,7 +82,7 @@ type userState struct {
 	groupExitOverride int // 0 means success; set to reach not-found (2) or a real failure (1)
 
 	mutateExit       int    // exit code useradd/usermod/userdel themselves return
-	mutateFailStream string // "" (stderr, default), "stdout", or "none" — which stream a mutate failure writes to
+	mutateFailStream string // "" (stderr, default), "stdout", or "none" - which stream a mutate failure writes to
 
 	// passwdRawLine and groupRawLine, when set, replace the computed
 	// getent output verbatim, reaching queryUser's and resolveGroupGID's

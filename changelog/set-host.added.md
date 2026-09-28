@@ -1,0 +1,1 @@
+`pleiades set-host <name>` changes an existing host's properties: `--set key=value` adds or replaces one and `--unset key` removes one, each change a revision in the host's history. The device is built as its type before anything is written, and `add-host` now does the same, so a property the type refuses is refused when it is written rather than on the next run.

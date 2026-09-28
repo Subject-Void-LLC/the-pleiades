@@ -12,11 +12,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -36,7 +35,7 @@ type catalogEntry struct {
 	// Origin names the external Collection program that provides this
 	// method and the digest it was pinned to, or is empty for a built-in
 	// method. It is printed because an operator reading a method's
-	// reference needs to know whether it ships with Pleiades or came from
+	// reference needs to know whether it ships with The Pleiades or came from
 	// a program somebody installed.
 	Origin string
 }
@@ -341,14 +340,11 @@ func printDocJSON(entries []catalogEntry, fqcn string) error {
 		v = e.Manifest
 	}
 
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false) // a version constraint like ">=1.0.0" should read as itself, not >=1.0.0
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		return fmt.Errorf("pleiades doc: marshaling JSON: %w", err)
+	// An external program's descriptions are third-party text, so this
+	// goes through writeJSON like every other --json document.
+	if err := writeJSON(os.Stdout, v); err != nil {
+		return fmt.Errorf("pleiades doc: %w", err)
 	}
-	fmt.Print(buf.String())
 	return nil
 }
 

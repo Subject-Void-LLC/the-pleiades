@@ -1,0 +1,12 @@
+# Throw the lab VM away: its disk, its seed and its console log go with it.
+# The base and its snapshot stay, so 03-create.yaml makes it again.
+id: vbox-lab-teardown
+hosts: vengeance
+tasks:
+  - name: cut the lab VM's power
+    virt.vbox.vm.stop:
+      name: ubuntu-lab
+      mode: poweroff
+  - name: delete it
+    virt.vbox.vm.delete:
+      name: ubuntu-lab

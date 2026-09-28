@@ -1,0 +1,15 @@
+# Import the image as a base VM that is never booted, and snapshot it.
+# Every lab VM is a linked clone of this snapshot: a few megabytes of its
+# own disk on top of the base's, made in seconds.
+id: vbox-lab-base
+hosts: vengeance
+tasks:
+  - name: import the Ubuntu 24.04 cloud image as a base VM
+    virt.vbox.vm.import_ova:
+      name: ubuntu-2404-base
+      path: G:\PleiadesLab\ubuntu-24.04-server-cloudimg-amd64.ova
+  - name: keep the never-booted base as a snapshot to clone from
+    virt.vbox.snapshot.take:
+      vm: ubuntu-2404-base
+      name: base
+      description: Ubuntu 24.04 cloud image 20260926, never booted

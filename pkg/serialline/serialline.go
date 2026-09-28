@@ -10,7 +10,7 @@
 // package's own doc comment states it "knows nothing about inventory
 // devices, capabilities, or any specific wire protocol," and that
 // decoupling is what lets Phase 16's runner mesh reuse it. This leaf
-// package, importable from both sides, is the resolution — the same
+// package, importable from both sides, is the resolution - the same
 // role pkg/credential-shaped leaf packages already play elsewhere in
 // this module.
 //

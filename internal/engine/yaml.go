@@ -1,6 +1,10 @@
+// Package engine: the YAML front door, which parses a runbook file into
+// the WorkflowDef the builder compiles, and names the shapes a file can
+// take that are not a runbook.
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,36 +50,40 @@ func (b *Builder) BuildFromYAMLFile(path string) (*DAG, error) {
 	return b.buildFromDef(def, filepath.Dir(path))
 }
 
+// ErrTaskList is the error a build returns for a file that is a top-level
+// list of tasks, the shape an import_tasks file takes, rather than a
+// runbook. Such a file has no id or hosts of its own and is checked
+// through the runbook that imports it, so a caller given many files at
+// once (pleiades validate runbooks/*) can tell it apart with errors.Is
+// and pass over it, where any other build error is a real failure.
+var ErrTaskList = errors.New("this file is a list of tasks, the shape an import_tasks file takes, not a runbook (a YAML map with id/tasks); name the runbook that imports it instead")
+
+// playKeys are the keys that mark a top-level list item as an Ansible
+// play rather than a task. Ansible requires every play to name its
+// hosts unless it is an import_playbook entry, and only a play holds task
+// sections or roles, so no task carries any of them.
+var playKeys = []string{"hosts", "import_playbook", "ansible.builtin.import_playbook", "tasks", "pre_tasks", "post_tasks", "roles", "handlers"}
+
 // parseWorkflowYAML is BuildFromYAML and BuildFromYAMLFile's shared
-// decode step, factored out so the two never drift: an Ansible-shape sniff
-// (see below), then the real WorkflowDef unmarshal.
+// decode step, factored out so the two never drift: a shape sniff for a
+// top-level list (see below), then the real WorkflowDef unmarshal.
 func parseWorkflowYAML(payload []byte) (WorkflowDef, error) {
-	// Cheap pre-parse sniff: a real Ansible playbook is structurally a
-	// top-level YAML list of plays (maps), never a top-level map. Detect
-	// that shape up front and reject it with a clear, actionable error
-	// instead of letting the WorkflowDef unmarshal below fail with a raw
-	// type-mismatch error. A bare top-level list is not automatically
-	// Ansible-shaped, though: an empty list or a list of scalars has no
-	// plays either, so only claim the specific Ansible diagnosis when at
-	// least one element actually looks like a play (a map); otherwise use
-	// generic wording that doesn't overclaim what the file is. If the
+	// Cheap pre-parse sniff: a runbook is a top-level map, so a top-level
+	// list is refused here with an error that says what the file actually
+	// is, instead of the raw type-mismatch error the WorkflowDef unmarshal
+	// below would give. Two lists of maps are common enough to name. An
+	// Ansible playbook is a list of plays, and at least one item carries
+	// a play key (playKeys). An import_tasks file is a list of tasks, and
+	// none does; it gets ErrTaskList, which callers can test for. A list
+	// with no map in it at all (empty, or scalars) is neither, so it gets
+	// generic wording that does not overclaim what the file is. If the
 	// probe unmarshal itself fails (genuinely malformed YAML) or the
 	// document is empty (nil) or a map, fall through unchanged to the
-	// existing full parse path below.
+	// full parse path below.
 	var probe any
 	if err := yaml.Unmarshal(payload, &probe); err == nil {
 		if list, isList := probe.([]any); isList {
-			looksLikeAnsible := false
-			for _, item := range list {
-				if _, isMap := item.(map[string]any); isMap {
-					looksLikeAnsible = true
-					break
-				}
-			}
-			if looksLikeAnsible {
-				return WorkflowDef{}, fmt.Errorf("this file is shaped like an Ansible playbook (a top-level YAML list of plays), not a native Pleiades runbook (a YAML map with id/tasks); this engine cannot execute Ansible playbooks directly; convert it with '%s <file>', and see %s", migrateCommand, migrationGuide)
-			}
-			return WorkflowDef{}, fmt.Errorf("this file is a top-level YAML list, not a native Pleiades runbook (a YAML map with id/tasks)")
+			return WorkflowDef{}, topLevelListError(list)
 		}
 	}
 
@@ -84,4 +92,28 @@ func parseWorkflowYAML(payload []byte) (WorkflowDef, error) {
 		return WorkflowDef{}, err
 	}
 	return def, nil
+}
+
+// topLevelListError says why list, a file's whole top-level document, is
+// not a runbook: an Ansible playbook, a list of tasks, or neither.
+func topLevelListError(list []any) error {
+	sawMap := false
+	for _, item := range list {
+		fields, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+		sawMap = true
+		for _, key := range playKeys {
+			// One play anywhere makes the whole file a playbook: a
+			// playbook's plays are its only top-level items.
+			if _, isPlay := fields[key]; isPlay {
+				return fmt.Errorf("this file is shaped like an Ansible playbook (a top-level YAML list of plays), not a native Pleiades runbook (a YAML map with id/tasks); this engine cannot execute Ansible playbooks directly; convert it with '%s <file>', and see %s", migrateCommand, migrationGuide)
+			}
+		}
+	}
+	if sawMap {
+		return ErrTaskList
+	}
+	return fmt.Errorf("this file is a top-level YAML list, not a native Pleiades runbook (a YAML map with id/tasks)")
 }

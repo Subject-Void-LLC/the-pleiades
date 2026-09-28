@@ -1,4 +1,4 @@
-# Container image for the Pleiades runner: the stateless worker that
+# Container image for The Pleiades runner: the stateless worker that
 # pulls jobs off a durable NATS consumer group and executes them
 # (cmd/runner).
 #

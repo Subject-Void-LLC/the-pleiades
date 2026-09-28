@@ -28,7 +28,7 @@ func TestNatsJetStreamBus(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	// Initialize our NATS adapter (which ensures the Pleiades stream via
+	// Initialize our NATS adapter (which ensures The Pleiades stream via
 	// topology.EnsureStream).
 	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {

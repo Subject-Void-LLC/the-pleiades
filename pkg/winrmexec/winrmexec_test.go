@@ -100,16 +100,20 @@ func TestRun_RejectsBeforeTouchingCredentials(t *testing.T) {
 		name     string
 		shell    Shell
 		script   string
+		env      map[string]string
 		wantText string
 	}{
 		{name: "empty script", shell: ShellPowerShell, script: "", wantText: "empty script"},
-		{name: "shell none is refused", shell: ShellNone, script: "ipconfig", wantText: "WINRS_SKIP_CMD_SHELL"},
 		{name: "unknown shell", shell: Shell(99), script: "ipconfig", wantText: "unknown shell"},
-		{name: "cmd script closing the CDATA section", shell: ShellCmd, script: "echo ]]> hi", wantText: "CDATA"},
+		{name: "multi-line cmd script", shell: ShellCmd, script: "echo a\necho b", wantText: "one line"},
+		{name: "script XML cannot carry", shell: ShellPowerShell, script: "Write-Output a\x00b", wantText: "cannot carry"},
+		{name: "invalid UTF-8", shell: ShellNone, script: "ipconfig \xff", wantText: "UTF-8"},
+		{name: "cmd line over cmd.exe's ceiling", shell: ShellCmd, script: "echo " + strings.Repeat("x", MaxCmdLine), wantText: "8191"},
+		{name: "environment variable name", shell: ShellCmd, script: "echo %A%", env: map[string]string{"1BAD": "x"}, wantText: "letters, digits"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Run(context.Background(), Target{Host: "192.0.2.1"}, Auth{}, tt.shell, tt.script, Options{})
+			_, err := Execute(context.Background(), Target{Host: "192.0.2.1"}, Auth{}, Command{Shell: tt.shell, Script: tt.script, Env: tt.env}, Options{})
 			if err == nil {
 				t.Fatal("expected a refusal")
 			}

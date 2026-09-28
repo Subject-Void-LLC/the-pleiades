@@ -45,7 +45,7 @@ func TestGoMod_IsAModuleAndAGoLineAndNothingElse(t *testing.T) {
 }
 
 // TestGoMod_TheGoLineIsThisModules keeps the generated go line equal to
-// the one in Pleiades's own go.mod: a program importing Pleiades needs at
+// the one in The Pleiades's own go.mod: a program importing The Pleiades needs at
 // least that Go, and a hand-kept copy drifts.
 func TestGoMod_TheGoLineIsThisModules(t *testing.T) {
 	ours, err := os.ReadFile(filepath.Join(repoRoot(t), "go.mod"))
@@ -60,7 +60,7 @@ func TestGoMod_TheGoLineIsThisModules(t *testing.T) {
 	}
 	got, _ := goModOf(t, externalscaffold.Config{Name: "acme.motd.read"})
 	if !strings.Contains(got, "\ngo "+directive+"\n") || directive == "" {
-		t.Errorf("the generated go.mod says %q; Pleiades's own go line is %q", got, directive)
+		t.Errorf("the generated go.mod says %q; The Pleiades's own go line is %q", got, directive)
 	}
 }
 

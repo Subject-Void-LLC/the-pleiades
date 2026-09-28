@@ -27,7 +27,7 @@ type LogStreamer struct {
 }
 
 // NewLogStreamer constructs a LogStreamer against js, the shared JetStream
-// handle topology.EnsureStream has already provisioned the Pleiades stream
+// handle topology.EnsureStream has already provisioned The Pleiades stream
 // on.
 //
 // This used to take one already-built jetstream.Consumer instead: a real
