@@ -380,6 +380,19 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 375. On BSD a file's mode was read without its setuid, setgid and sticky digit
 376. `adhoc` read `mode=0755` as a number, and the method refused it with advice about runbooks
 377. A dead port's open circuit reached a later test's live server on the same port
+378. A parameter a method declared was also the engine's device selector
+379. Any Runner could write any job's journal rows, first writer wins
+380. A harness Runner published no results, so a Controller-side gate waited forever
+381. An older Runner drops a payload key it does not know, so a rollback it received would re-run the undone runbook
+382. A rollback: list written after the run was ignored
+383. `--leave` left only a change that could not be undone
+384. A run rolled back on a second attempt still counted as a later change
+385. virt.vbox.vm.delete's check failed on a running VM where resize reported it uncheckable
+386. The journal projection's benchmark timed a projection over nothing
+387. The run lock became the first writer of .pleiades, and a read-only project stopped saying the journal was why
+388. Rolling back a stop, then at once the start before it, asked a still-booting FreeBSD guest to shut down
+389. The forks window's first design was a contract migration
+390. A chaos test cut its link after a fixed delay, and a longer migration history moved the cut out of the step it meant to break
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

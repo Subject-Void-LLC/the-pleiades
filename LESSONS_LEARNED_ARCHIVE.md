@@ -5316,3 +5316,51 @@ predicted, but the 2-minute window, which the arithmetic put at less than half t
 3 MiB of it and saw-toothed near it for ten minutes, because NATS purges expired ids periodically and Go
 with no GOMEMLIMIT lets the heap reach about twice the live set. The no-id control, flat at 37 MiB with
 2.3 million messages stored, is what made the cause certain rather than likely.
+
+## 254. When an old consumer would misread a new kind of message, give the message its own subject
+
+**Rule.** A new field cannot make a message safe for consumers that predate it: they drop what they do
+not know and act on the rest. When dropping the new field would make an old consumer do the wrong thing
+rather than nothing, publish the new kind of message on a subject only new consumers read, and have
+that consumer refuse a message there that lacks what makes it that kind.
+
+**Why.** A Walk rollback is a dispatch payload plus its steps. On the dispatch subject, a Runner built
+before rollback would drop the steps and run the dispatched runbook: the one being undone
+(FAILURE_PATTERNS 381). Check mode had met the same shape (a Runner that did not know `mode` would run
+a check for real) and answered it with `pleiades.jobs.check.`; rollback now has
+`pleiades.jobs.rollback.` and `routing.RollbackOnly`. The pattern is cheap (a prefix, a consumer, grant
+lines) and it turns a rolling upgrade's worst case from "the opposite happened" into "it waited".
+
+## 255. A check predicts each task against the device as it is now; answer "could not check" for what an earlier task may change
+
+**Rule.** When a method's check finds state that would make a real run fail, and an earlier task in
+the same run could plausibly change that state, the check reports the call as not checkable with the
+reason, never as a predicted failure. Hold every method to this, since a rollback is a run whose tasks
+depend on each other by construction.
+
+**Why.** The lab's first rollback check of a VM create predicted the stop and then failed the delete,
+because the VM was running when the check read it (FAILURE_PATTERNS 385). The real rollback stops it
+first and deletes fine. `resize` and the S3 bucket delete already followed the rule; `delete` did not,
+and nothing had exercised a check of a stop followed by a delete until rollback generated one.
+
+## 256. A history read to decide "is this done" must let a later attempt supersede an earlier one
+
+**Rule.** Where retries are normal, and resume makes them normal, decide each step by its latest
+attempt. "Any attempt failed" poisons every retry; "any attempt succeeded" hides a later undo of the
+success.
+
+**Why.** The later-run guard skipped a run only when it was fully undone, and `fullyUndone` counted a
+step as failed if any attempt failed. A rollback that stopped partway and was resumed to success still
+blocked every rollback of an earlier run on the same host, which the lab found when rolling back the
+stop of ubuntu-lab (FAILURE_PATTERNS 384).
+
+## 257. Run a recovery feature end to end on real infrastructure before calling it done
+
+**Rule.** Undo, resume and refusal paths get a real-hardware walk-through as a user would run them,
+including the awkward orders (undo the later run, then the earlier; undo right after a start), not
+only container gates.
+
+**Why.** The container gates for rollback passed first time. The lab walk-through then found two
+planner defects and one method inconsistency in under an hour (FAILURE_PATTERNS 384, 385, and the
+timing of 388), each of which the gates could not have hit: a guest that ignores the power button while
+booting, and a rollback retried after a real failure.

@@ -10507,3 +10507,231 @@ each test so a future caller cannot forget it. `go test -count=5` passes for the
 **Lesson.** Process-wide state keyed by a network address outlives the listener that owned the
 address, and ephemeral ports are reused, so a test that poisons an address must clean up the state
 itself: the next owner of the port is an unrelated test.
+
+## 378. A parameter a method declared was also the engine's device selector
+
+**Symptom.** Reasoned from code during Phase 40's planning, not executed: `net.netconf.config`
+declared `target` as the datastore to configure (running, candidate or startup), and
+`engine.TaskTarget` reads `params.target` as the device or tag a task runs on. A task written
+`target: candidate` ran against whatever device or tag was named `candidate`, usually nothing at
+all, and anyone able to name a device or tag `running`, `candidate` or `startup` received that
+configuration push.
+
+**Root cause.** Nothing kept a method's declared parameter names apart from the keys the engine reads
+out of the same map. The translator even mapped Ansible's `netconf_config` `target:` straight onto it.
+
+**Fix.** `collection.Register`, the external loader's mirror (`validateMethod`) and `forge
+new-collection` refuse a declared parameter named after a key the engine reads
+(`pkg/collection/reserved.go`, today only `target`). The method's parameter is now `datastore`, and
+the translator maps `netconf_config`'s `target:` to it. Tests: TestRegister_RefusesAReservedParam,
+TestHardening_AReservedParamIsRefusedBeforeAnythingLoads, FuzzRegistrationParity (mutation-checked:
+without the loader's mirror both fail), TestGenerate_RefusesAReservedParam, three translator cases.
+
+**Lesson.** A map shared between a framework and its plugins needs its reserved keys declared and
+enforced at registration, or a plugin will one day give one of them its own meaning.
+
+## 379. Any Runner could write any job's journal rows, first writer wins
+
+**Symptom.** Reasoned from code: `FleetRunnerGrant` lets every Runner publish on
+`topology.JournalSubjectAll()`, and the Controller's journal subscriber stored each batch it received
+with no check that the job ever dispatched that device. A compromised Runner could falsify or
+suppress another job's audit rows, and once rows carry undo values (Phase 40), steer a rollback.
+
+**Root cause.** The subscriber trusted the subject: a batch naming a job and a device was taken as
+coming from the Runner that ran it.
+
+**Fix, narrowing rather than closing.** `journal.WithAdmission` over `dispatch.JobStore.DispatchState`:
+a batch is stored only for a (job, device) the Controller recorded dispatching, dropped for one it
+never sent, and redelivered while the dispatch is not recorded yet; a batch whose entries name another
+job or device than the batch is dropped first. A Walk rollback additionally holds every row to the
+runbook the job ran, on the Controller and again on the Runner. The plan's per-dispatch MAC key was
+rejected: it would be a new secret on the stream, readable by any Runner that pulls the dispatch. The
+residual (a compromised Runner forging identifier values for a dispatch it pulled) is recorded in
+Phase 105, with results (`ResultSubjectAll`) noted as the same class in Phase 103b. Tests:
+TestSubscriberStoresOnlyWhatTheControllerDispatched, TestSubscriberRetriesWhenAdmissionCannotBeAnswered.
+
+**Lesson.** A subject a whole fleet may publish on authenticates nobody; admit a message against the
+state that says it should exist.
+
+## 380. A harness Runner published no results, so a Controller-side gate waited forever
+
+**Symptom.** The forks window's release gate hung: the windowed job never completed, because the
+Controller never heard any device finish.
+
+**Root cause.** `cmd/runner`'s release-gate harness built its Agent without
+`runner.WithResultReporting`, which the real Runner (`cmd/runner/main.go`) always sets. Every earlier
+gate read the job's log events, not its results, so the harness differed from the binary it stands
+for in exactly the way nothing had looked at.
+
+**Fix.** The harness Agent (and its check Agent) report results as the real Runner does; the other
+harness gates still pass.
+
+**Lesson.** A harness standing in for a binary must be composed with the binary's options, not with
+the minimum its first test needed.
+
+## 381. An older Runner drops a payload key it does not know, so a rollback it received would re-run the undone runbook
+
+**Symptom.** Caught in design while building the Walk rollback (Phase 40), not observed: a rollback
+dispatch is an ordinary dispatch payload plus a `rollback` field of steps. A Runner built before that
+field decodes the payload with a plain `json.Unmarshal`, drops the field, and runs `RunbookID`, which
+names the runbook being undone.
+
+**Root cause.** Additive JSON is only safe when ignoring the new field is harmless. Here ignoring it
+inverts the operation.
+
+**Fix.** Rollback dispatches go on their own subject, `pleiades.jobs.rollback.<device>`
+(`topology.RollbackSubject`), pulled by a third consumer (`runner-rollback`) through
+`routing.RollbackOnly`, which refuses a dispatch there without steps as unroutable. An older Runner
+never creates that consumer, so a rollback waits for one that understands it, as a check does.
+Grants on both sides; TestRollbackConsumerIsDisjointFromTheOthers; the dispatch test asserts the
+subject for every rollback dispatch, windowed or not.
+
+**Lesson.** When an old consumer would silently misread a new kind of message, change where the
+message goes, not what it carries (LESSONS 254).
+
+## 382. A rollback: list written after the run was ignored
+
+**Symptom.** G3 of the Crawl rollback gate: a task with no recorded undo was given a `rollback:` list
+after the run, as the design intends (`DAG.Version` ignores `rollback:` for exactly this), and the
+rollback still refused it as having no undo.
+
+**Root cause.** The planner asked for the runbook's list only when the journal said the task had one
+when it ran (`authored_rollback`), which a list written afterwards can never satisfy.
+
+**Fix.** The planner asks for every change; a list, when there is one, wins over a recorded undo. A
+runbook not found (`rollback.ErrNoRunbook`) falls back to the recorded undo, and its absence is named
+in the refusal of a change that has none. TestBuild_UsesARollbackListWrittenAfterTheRun; G3 through
+the real binary, mutation-checked.
+
+**Lesson.** When a design makes something editable after the fact, test the after-the-fact edit; the
+before-the-fact path passing proves nothing about it.
+
+## 383. `--leave` left only a change that could not be undone
+
+**Symptom.** Found while building the Walk gate: naming a change that could be undone in `--leave`
+(or the API's `leave`) did nothing, and it was undone anyway. With the rest already undone, the second
+rollback then reported "every change is left in place as named", which was false.
+
+**Root cause.** The planner applied `Leave` only on the error path, as an acceptance of a problem,
+never as the operator's own decision about a change.
+
+**Fix.** A change named in `Leave` is left in place whether or not it could be undone, and a rollback
+with nothing left but already undone and left changes is refused as already undone.
+TestBuild_ResumesAndThenHasNothingLeft covers both.
+
+**Lesson.** An acceptance flag that names a thing should act on that thing, not only on the error
+that thing produced.
+
+## 384. A run rolled back on a second attempt still counted as a later change
+
+**Symptom.** In the lab: rolling back the run that stopped ubuntu-lab was refused, naming a scratch
+run that had been rolled back in full, and that rollback itself.
+
+**Root cause.** The scratch run's first rollback failed at its stop (FAILURE_PATTERNS 388) and its
+second succeeded. `fullyUndone` treated any failed attempt of an undo step as final, so a step failed
+once and then done still read as not undone, and the later-run guard counted the run and its
+rollback as changes made since.
+
+**Fix.** Each undo step's latest attempt decides. TestBuild_RefusesUndoingBeneathALaterRun covers a
+failure then a success (cancels out) and a success then a failure (counts). The lab's rollback of the
+stop then ran and started ubuntu-lab again.
+
+**Lesson.** A history read for "is this done" must let a later attempt supersede an earlier one;
+resume makes retries normal (LESSONS 256).
+
+## 385. virt.vbox.vm.delete's check failed on a running VM where resize reported it uncheckable
+
+**Symptom.** In the lab, `pleiades rollback <run> --mode check` of a VM create predicted the stop,
+then failed the delete: "is running; stop it first". The real rollback, which stops first, then
+deleted it fine.
+
+**Root cause.** A check predicts each task against the device as it is now. `virt.vbox.vm.resize` and
+`cloud.aws.s3.delete_bucket` already answer "could not check" for state an earlier task in the same
+run may change; `virt.vbox.vm.delete` predicted the failure instead.
+
+**Fix.** A check of a running or paused VM's delete is not checkable, with the reason; a real run
+still refuses it. The rollback check now ends incomplete (exit 3), naming the delete.
+TestDelete_Refusals; catalogdata's description updated with it.
+
+**Lesson.** A check's refusal for a state an earlier task can change is a guess about ordering; answer
+"could not check", as the documented rule says.
+
+## 386. The journal projection's benchmark timed a projection over nothing
+
+**Symptom.** Adding a benchmark with recorded values, its own assertion (five values recorded) failed
+at once.
+
+**Root cause.** `BenchmarkProjectLevel` set `NodeResult.Stats`, but the projection reads
+`journalStats` (Stats is nil on the failure paths by design), so the benchmark had measured the
+projection of empty stats since it was written.
+
+**Fix.** Both benchmarks set `journalStats` and `journalChanged`, and the new one asserts the values
+it expects inside the loop, so a mis-wired benchmark fails instead of timing nothing.
+
+**Lesson.** A benchmark asserts the effect it measures; one that cannot fail can measure the wrong
+path for as long as nobody reads its numbers.
+
+## 387. The run lock became the first writer of .pleiades, and a read-only project stopped saying the journal was why
+
+**Symptom.** TestCLI_RunFailsBeforeAnyOutputWhenTheJournalCannotBeOpened: a run in a read-only project
+failed with "failed to create .pleiades: permission denied" and no mention of the journal.
+
+**Root cause.** `journal.LockRuns` now runs before the journal opens and is the first thing to create
+`.pleiades`, so its error arrived first, in its own words.
+
+**Fix.** A lock failure other than "busy" is reported as "failed to open the run journal: ...", which
+is what it is.
+
+**Lesson.** Moving a step earlier moves its errors earlier; they must still name what the user asked
+for.
+
+## 388. Rolling back a stop, then at once the start before it, asked a still-booting FreeBSD guest to shut down
+
+**Symptom.** In the lab: after rolling back a stop (which started `bsd-scratch`), rolling back the run
+that made it failed at its first step: the guest "was asked to shut down and is still running after
+2m0s".
+
+**Root cause.** Not a code defect. A FreeBSD guest started moments earlier did not act on the ACPI
+power button within the stop's two minutes; after the same VM had finished booting, the same stop
+worked. The recorded undo of a start is a clean stop, deliberately not a power cut.
+
+**Fix.** None in code. Running the same rollback again once the VM had booted continued from the stop
+and finished, which is what resume is for. Recorded in the lab README.
+
+**Lesson.** A graceful undo can be refused by timing on real hardware; the recovery is a resumable
+rollback, not a harsher undo.
+
+## 389. The forks window's first design was a contract migration
+
+**Symptom.** Phase 110's windowed fan-out first added a `queued` value to `job_task.outcome` and a
+unique index over `(job, device_id)`. The migration compatibility classifier
+(`internal/ent/migrate/compat.go`) refused both.
+
+**Root cause.** An old Controller reading a new enum value, or a unique index over rows that existing
+data may already duplicate, breaks a rolling upgrade.
+
+**Fix.** Expand-only: a `waiting` flag and a nullable `slot` column with a unique `(slot, job)` index
+over the new column, and `OutcomeQueued` as a Go-level reading of `waiting`.
+
+**Lesson.** Design schema changes as expand-only first; the classifier is right that a new enum value
+is a contract change.
+
+## 390. A chaos test cut its link after a fixed delay, and a longer migration history moved the cut out of the step it meant to break
+
+**Symptom.** `internal/backup`'s TestTake_ACutConnectionLeavesNoBackup failed every time on this
+branch, alone as well as under `make ci`: Take failed "counting what the database holds", not in
+pg_dump as the test requires. The same test passed on the base commit.
+
+**Root cause.** The test throttles the link to 4 KB/s and cuts it 1.5 s later, with a comment that the
+cut was measured to land inside pg_dump. Before pg_dump, Take reads the migration history and counts
+what keys open, through the same throttled link, and this branch added three PostgreSQL migrations.
+The reads before the dump grew past 1.5 s, so the cut landed in them.
+
+**Fix.** The test cuts once PostgreSQL shows the dump's session (`application_name` is
+`pleiades-backup`, which only the client programs carry, and pg_dump is the first Take runs), polled
+over the direct connection. It passes in about 4.5 s, three times running. A first attempt polled for
+`pg_dump`, never matched, and passed only because the poll gave up at a minute: a pass at the timeout
+is not a pass.
+
+**Lesson.** A fault injected after a fixed delay is placed by the speed of everything before it; place
+it by an observable event of the step under test instead.
