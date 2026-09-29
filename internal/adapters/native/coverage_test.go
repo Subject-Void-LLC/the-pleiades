@@ -166,24 +166,6 @@ func TestIPCCollectionExecutor_Invoke_RefusesADeviceItWasNotDispatchedFor(t *tes
 	}
 }
 
-// TestSecretValues_ExtractsEveryValue pins the helper redact.Text is fed
-// from: a secret missing from this slice is a secret that will not be
-// masked out of captured subprocess output.
-func TestSecretValues_ExtractsEveryValue(t *testing.T) {
-	got := secretValues(map[string]string{"username": "admin", "password": "hunter2"})
-	if len(got) != 2 {
-		t.Fatalf("secretValues() returned %d values, want 2", len(got))
-	}
-
-	seen := map[string]bool{}
-	for _, v := range got {
-		seen[v] = true
-	}
-	if !seen["admin"] || !seen["hunter2"] {
-		t.Errorf("secretValues() = %v, want both secret values present", got)
-	}
-}
-
 // TestCollectionInvokerSeamIsSatisfied is a compile-time-shaped assertion
 // with a runtime home: it proves the parent-side invoke method still
 // matches engine.CollectionInvoker exactly, which is what lets the adapter

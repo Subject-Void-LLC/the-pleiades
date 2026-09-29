@@ -224,7 +224,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// the Controller attached as this device's identity, plus exactly what
 	// the injection said was secret. A module's own JSON result can echo
 	// either one straight back.
-	secrets := secretValues(payload.Secrets)
+	secrets := redact.MapValues(payload.Secrets)
 	if injected != nil {
 		secrets = append(secrets, injected.Mask...)
 	}
@@ -260,20 +260,6 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
 	}
 	return wire.Outcome{}, nil
-}
-
-// secretValues flattens payload.Secrets' own values into the []string
-// redact.Text expects, mirroring
-// internal/adapters/native.Adapter.Execute's own identical collection
-// (adapter.go): every secret worth masking out of captured Ansible
-// output is exactly what the Controller attached to this dispatch, since
-// a module's own JSON result can echo any of them straight back.
-func secretValues(secrets map[string]string) []string {
-	values := make([]string, 0, len(secrets))
-	for _, v := range secrets {
-		values = append(values, v)
-	}
-	return values
 }
 
 // publish wraps evt and publishes it to topology.LogSubject(jobID),
