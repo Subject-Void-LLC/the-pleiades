@@ -5,6 +5,7 @@ package backup_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
@@ -97,6 +98,40 @@ func slowThenCut(t *testing.T, p proxied, stream string, delay time.Duration) <-
 	return cut
 }
 
+// cutOnceDumping limits the link to a trickle, then cuts it as soon as
+// PostgreSQL shows pg_dump's session, read over the direct connection: the
+// one named pleiades-backup, which only the client programs are
+// (target.conninfo), and pg_dump is the first Take runs. A
+// fixed delay stopped landing inside the dump when the checks Take makes
+// before it (the migration history among them, read through the same
+// trickle) grew past it; waiting for pg_dump itself holds however long
+// those checks take. The returned channel closes once the cut is made, or
+// after a minute with no pg_dump seen, which the caller's assertion then
+// reports.
+func cutOnceDumping(t *testing.T, p proxied, stream string) <-chan struct{} {
+	t.Helper()
+	if _, err := p.proxy.AddToxic("trickle", "bandwidth", stream, 1, toxiproxyclient.Attributes{"rate": 4}); err != nil {
+		t.Fatalf("adding the bandwidth toxic: %v", err)
+	}
+	conn, err := sql.Open("postgres", p.direct.dsn)
+	if err != nil {
+		t.Fatalf("opening the direct connection: %v", err)
+	}
+	cut := make(chan struct{})
+	go func() {
+		defer close(cut)
+		defer func() { _ = conn.Close() }()
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			var n int
+			if err := conn.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE application_name = 'pleiades-backup'").Scan(&n); err == nil && n > 0 {
+				break
+			}
+		}
+		_ = p.proxy.Disable()
+	}()
+	return cut
+}
+
 // heal waits for the cut, removes the toxic and reopens the link.
 func heal(t *testing.T, p proxied, cut <-chan struct{}) {
 	t.Helper()
@@ -118,13 +153,13 @@ func TestTake_ACutConnectionLeavesNoBackup(t *testing.T) {
 	p.direct.seed(t, key, crypto.DefaultKeyVersion)
 	d := newDirs(t, envKey(key))
 
-	cut := slowThenCut(t, p, "downstream", 1500*time.Millisecond)
+	cut := cutOnceDumping(t, p, "downstream")
 	_, err := backup.Take(context.Background(), backup.Options{DSN: p.through.dsn, SetupDir: d.setup, BackupDir: d.backups}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Take() over a link cut partway through succeeded")
 	}
-	// Measured: the cut lands inside pg_dump, not before it, so this is the
-	// failure a dump stopped partway produces.
+	// The cut waits for pg_dump's session, so this is the failure a dump
+	// stopped partway produces.
 	if !strings.Contains(err.Error(), "pg_dump failed") || !strings.Contains(err.Error(), "no backup was written") {
 		t.Errorf("Take() error = %v, want pg_dump's failure and that no backup was written", err)
 	}
