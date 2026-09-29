@@ -8,8 +8,9 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 work), 2026-09-29. The user's order: a runbook started by a ServiceNow (or other ticket system) event that
 reads the ticket, triages, collects from Cisco/Arista/other devices, decides and writes back is a gap; plan
 it, fix the two tracker release inconsistencies, make it the next worked phase, then "branch and start".**
-Committed 2026-09-29 as eight commits at the user's word ("commit and push all"); the push waits on a
-`make push-gate` receipt for the tip, and that run's outcome is recorded in 117a's Release Gate item. Rules unchanged
+Committed 2026-09-29 at the user's word ("commit and push all"): eight commits, then two more after the first
+`make push-gate` failed on five coverage floors the strict run had never measured (FAILURE_PATTERNS 397).
+The push waits on a `make push-gate` receipt for the tip; each run's outcome is in 117a's Release Gate item. Rules unchanged
 (method-as-key runbooks, two agents at most, heavy commands under `~/.local/bin/capped`, the lab
 provisioned by The Pleiades only).
 
@@ -76,5 +77,5 @@ stale discovery, method secret mask, device-less call, shell injection). Changed
 (execution context), catalogdata, the scaffold and `forge new-collection`, `internal/render`
 (`Value`, `Expressions`, two filters), the engine's executor, target and journal stage lists, the generic
 device types and onboarding, `http.request`, the native adapter and `cmd/runner`, the converter, generated
-references, docs 01, 03 and 11, CLAUDE.md, changelog fragments, FAILURE_PATTERNS 392 to 396, LESSONS 258
+references, docs 01, 03 and 11, CLAUDE.md, changelog fragments, FAILURE_PATTERNS 392 to 397, LESSONS 258
 to 260, the generic Walk gate's per-dispatch device. Local only: the roadmap, the specification and the attestation.

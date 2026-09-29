@@ -399,6 +399,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 394. `pleiades run` printed a device credential a Collection method echoed back
 395. `http.request` read a response body into memory with no bound
 396. A release gate lost a dispatch to lock contention with the retries of the failure it had just asserted
+397. A strict coverage run that lost one test to Docker never compared coverage to the floors
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

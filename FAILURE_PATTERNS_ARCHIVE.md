@@ -10875,3 +10875,27 @@ the lock to record its owner.
 policy too, whether it means to or not: a failure on a queue with redelivery is not over when its result
 arrives. When a gate times out only under load, read the Runner's own log for the resource's lock before
 blaming the machine; "passes alone" was true here and still hid a real stranding.
+
+## 397. A strict coverage run that lost one test to Docker never compared coverage to the floors
+
+**Symptom.** 2026-09-29: the Phase 117a `make -k ci` reported its coverage step as failed because
+`TestTicketRunbookReleaseGate` lost its sshd container, and every failed test passed alone, so the branch
+looked ready. The `make push-gate` on the committed tip then ran 1h 28m and failed on something that run had
+never shown: five packages below their recorded floors (the native adapter at 92.5% against 92.9%, and
+`internal/catalog/http`, `internal/validate`, `pkg/collection` and `pkg/inventory` under 100%).
+
+**Root cause.** The strict `tools/coverage-check` stops at the first test failure ("a test failure, not a
+coverage question, must be fixed first") and compares nothing against `coverage-floor.json`. That is
+deliberate, but on this machine some container test fails in almost every full run, so a strict run that
+fails for Docker reports no coverage at all. Reading "failed only on Docker" as "passed everything else"
+skipped the one check that had not run.
+
+**Fix.** Tests for each uncovered branch, each driven through the path it guards: the Runner's renderer
+option through a real dispatch (and the render refusal without one), the withheld-variable warning's publish
+failure, a repointed device's refusal, the json stat's recording failure, `http.request`'s `DeviceCall`, an
+unnamed task's finding, `Register`'s execution-context refusal, and a binding over a value JSON cannot
+encode. All four packages are back at 100%, and the native adapter is at 94.1%.
+
+**Lesson.** When a gate step fails, ask whether it failed before or after it measured anything. A coverage
+step that failed on a test has said nothing about coverage, so measure the touched packages
+(`go test -cover`) against their floors before paying for the next full gate.
