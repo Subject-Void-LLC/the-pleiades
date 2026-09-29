@@ -32,7 +32,6 @@ var codes = map[Code]CodeDoc{
 	"args.value":         {OutcomeBlocked, "A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take.", "Quote the value in the playbook so its meaning is plain."},
 	"args.ignored":       {OutcomeInfo, "An argument with no effect on the native call was dropped: Ansible ignores it for this state, or the native method has nothing for it to choose.", ""},
 	"args.list_unrolled": {OutcomeReview, "A list of names became one task per name, so the items no longer succeed or fail together.", ""},
-	"netconf.target":     {OutcomeBlocked, "net.netconf.config's datastore parameter is named target, which the engine reads as the device to run against.", "Leave target out (running is the default) until the device selector moves out of params."},
 	// Templates and variables.
 	"template.resolved":    {OutcomeInfo, "A template read a variable with exactly one literal value in the playbook, and was replaced by that value.", ""},
 	"template.unresolved":  {OutcomeBlocked, "A template reads a variable with no single literal value here: set at run time, defined more than once, a fact, or undefined.", "Write the value, or wait for templated params."},

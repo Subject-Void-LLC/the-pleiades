@@ -28,11 +28,14 @@ import (
 // Parameter names come from ansible.netcommon.netconf_config rather than
 // being coined here, matching this project's standing rule that a
 // runbook feature reuses Ansible's vocabulary instead of inventing a new
-// one. content, target, default_operation, error_option, lock, commit
-// and backup are all that module's own names, with the same meanings.
+// one. content, default_operation, error_option, lock, commit and backup
+// are all that module's own names, with the same meanings. datastore is
+// that module's own alias for its target parameter: target itself is the
+// engine's device selector (collection.TargetParam), which no method may
+// declare, so the alias is the name used here.
 const (
 	paramContent          = "content"
-	paramTarget           = "target"
+	paramDatastore        = "datastore"
 	paramDefaultOperation = "default_operation"
 	paramErrorOption      = "error_option"
 	paramLock             = "lock"
@@ -91,19 +94,19 @@ func init() {
 func configDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
-		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the target datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
+		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
 		Params: []collection.Param{
 			{Name: paramContent, Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."},
-			{Name: paramTarget, Type: "string", Default: "running", Description: "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."},
+			{Name: paramDatastore, Type: "string", Default: "running", Description: "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."},
 			{Name: paramDefaultOperation, Type: "string", Default: "merge", Description: "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."},
 			{Name: paramErrorOption, Type: "string", Default: "rollback-on-error when the device supports it, otherwise the device's own stop-on-error default", Description: "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, because stop-on-error leaves a rejected document half applied."},
-			{Name: paramLock, Type: "string", Default: "never", Description: "Whether to lock the target datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."},
-			{Name: paramCommit, Type: "bool", Default: "true", Description: "Commit after a successful edit. Only meaningful when target is candidate, since a running-datastore edit is already live; ignored otherwise."},
-			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the target datastore's full contents with get-config before applying anything, recorded under the backup stat."},
+			{Name: paramLock, Type: "string", Default: "never", Description: "Whether to lock the datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."},
+			{Name: paramCommit, Type: "bool", Default: "true", Description: "Commit after a successful edit. Only meaningful when datastore is candidate, since a running-datastore edit is already live; ignored otherwise."},
+			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
-			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The target datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
+			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
 		},
 		Examples: []collection.Example{
 			{
@@ -131,7 +134,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: %s is required and must not be empty", fqcn, paramContent)
 	}
 
-	target, err := targetParam(params)
+	target, err := datastoreParam(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -199,17 +202,17 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	return collection.Result{Changed: true}, nil
 }
 
-// targetParam resolves the target datastore, refusing an unrecognized
-// name here rather than letting it reach the device as an element name
-// nobody defined.
-func targetParam(params map[string]any) (netconf.Datastore, error) {
-	switch v := strings.ToLower(strings.TrimSpace(sdk.StringParam(params, paramTarget))); v {
+// datastoreParam resolves the datastore to configure, refusing an
+// unrecognized name here rather than letting it reach the device as an
+// element name nobody defined.
+func datastoreParam(params map[string]any) (netconf.Datastore, error) {
+	switch v := strings.ToLower(strings.TrimSpace(sdk.StringParam(params, paramDatastore))); v {
 	case "":
 		return netconf.Running, nil
 	case string(netconf.Running), string(netconf.Candidate), string(netconf.Startup):
 		return netconf.Datastore(v), nil
 	default:
-		return "", fmt.Errorf("%s: unknown datastore %q: valid values are running, candidate and startup", paramTarget, v)
+		return "", fmt.Errorf("%s: unknown datastore %q: valid values are running, candidate and startup", paramDatastore, v)
 	}
 }
 

@@ -84,7 +84,7 @@ func sessionParams(extra map[string]any) map[string]any {
 func TestOpenSession_ConfiguresADeviceOverARealSubsystem(t *testing.T) {
 	srv, device, rc := scriptedServer(t, []string{netconf.CapabilityCandidate}, nil)
 
-	result, err := Config(context.Background(), rc, device, sessionParams(map[string]any{"target": "candidate", "lock": "if_supported"}))
+	result, err := Config(context.Background(), rc, device, sessionParams(map[string]any{paramDatastore: "candidate", "lock": "if_supported"}))
 	if err != nil {
 		t.Fatalf("config over a real session: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestOpenSession_CapturesABackupThroughTheSession(t *testing.T) {
 func TestOpenSession_RefusesADatastoreTheDeviceDoesNotHave(t *testing.T) {
 	srv, device, rc := scriptedServer(t, nil, nil) // base:1.0 only, so running alone
 
-	_, err := Config(context.Background(), rc, device, sessionParams(map[string]any{"target": "candidate"}))
+	_, err := Config(context.Background(), rc, device, sessionParams(map[string]any{paramDatastore: "candidate"}))
 	if err == nil || !strings.Contains(err.Error(), "candidate") {
 		t.Fatalf("err = %v, want the missing datastore named", err)
 	}

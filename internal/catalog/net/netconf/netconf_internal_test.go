@@ -236,7 +236,7 @@ func TestConfig_RefusesUnknownParameterValues(t *testing.T) {
 		params map[string]any
 		want   string
 	}{
-		{"an unknown target", map[string]any{paramContent: "<a/>", paramTarget: "operational"}, "running, candidate and startup"},
+		{"an unknown datastore", map[string]any{paramContent: "<a/>", paramDatastore: "operational"}, "running, candidate and startup"},
 		{"an unknown lock policy", map[string]any{paramContent: "<a/>", paramLock: "maybe"}, "never, always and if_supported"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,7 +372,7 @@ func TestConfig_CommitsOnlyForTheCandidateDatastore(t *testing.T) {
 			f := &fakeSession{}
 			useSession(t, f)
 
-			params := map[string]any{paramContent: "<native/>", paramTarget: tc.target}
+			params := map[string]any{paramContent: "<native/>", paramDatastore: tc.target}
 			if tc.commit != nil {
 				params[paramCommit] = tc.commit
 			}
@@ -394,8 +394,8 @@ func TestConfig_AnUncommittedCandidateEditIsNotChanged(t *testing.T) {
 	useSession(t, f)
 
 	res, err := Config(context.Background(), newStubContext(), nil, map[string]any{
-		paramContent: "<native/>",
-		paramTarget:  "candidate",
+		paramContent:   "<native/>",
+		paramDatastore: "candidate",
 	})
 	if err == nil {
 		t.Fatal("Config() error = nil, want the commit failure")

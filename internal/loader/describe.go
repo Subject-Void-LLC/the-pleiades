@@ -117,6 +117,13 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	if !m.Manifest.Reversibility.Reversible && m.Manifest.Reversibility.Notes == "" {
 		return false, fmt.Errorf("method %q declares itself not reversible with no notes saying why", m.Name)
 	}
+	for _, p := range m.Manifest.Doc.Params {
+		// Register refuses the same thing (checkReservedParams); saying so
+		// here keeps a whole directory from loading halfway.
+		if collection.IsReservedParam(p.Name) {
+			return false, fmt.Errorf("method %q declares a parameter named %q, which the engine reads as the device or tag a task runs on; give it another name", m.Name, p.Name)
+		}
+	}
 	for _, name := range m.Manifest.RequiredCapabilities {
 		if _, known := capability.Lookup(name); !known {
 			return false, fmt.Errorf("method %q requires capability %q, which this build does not define", m.Name, truncateForMessage(string(name)))

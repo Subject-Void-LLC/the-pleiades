@@ -112,7 +112,6 @@
             "module.manual",
             "module.semantics",
             "module.unmapped",
-            "netconf.target",
             "play.facts",
             "play.hosts_all",
             "play.hosts_local",

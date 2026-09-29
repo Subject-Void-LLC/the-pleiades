@@ -24,12 +24,20 @@ func copyMode(params map[string]any) string {
 	return "a file this task creates gets mode 0600, where Ansible leaves it to the device's umask (usually 0644); give mode to keep the old result"
 }
 
-// netconfLock writes Ansible's spelling of lock's if-supported as the
-// native if_supported. Ansible's default, always, is the call's fixed
-// parameter.
-func netconfLock(params map[string]any) string {
+// netconfAdjust writes Ansible's spellings for netconf_config as the
+// native ones. lock's if-supported becomes if_supported (Ansible's
+// default, always, is the call's fixed parameter). target, which arrives
+// here renamed datastore because target is the engine's device selector,
+// keeps candidate and running; Ansible's auto (candidate when the device
+// offers one) has no native equivalent, so it is dropped for the native
+// default, running, and the change is noted for review.
+func netconfAdjust(params map[string]any) string {
 	if params["lock"] == "if-supported" {
 		params["lock"] = "if_supported"
+	}
+	if params["datastore"] == "auto" {
+		delete(params, "datastore")
+		return "target: auto edits the candidate datastore and commits when the device offers one; this task edits running instead, so write datastore: candidate to keep a staged, committed change"
 	}
 	return ""
 }

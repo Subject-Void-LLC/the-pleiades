@@ -5,6 +5,8 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // validateTarget refuses a params.target that is present but is not a
@@ -16,7 +18,7 @@ import (
 // (FAILURE_PATTERNS 11). The error names the value's kind, never the
 // value itself.
 func validateTarget(task *Task, id string) error {
-	raw, present := task.Params["target"]
+	raw, present := task.Params[collection.TargetParam]
 	if !present {
 		return nil
 	}
