@@ -364,9 +364,39 @@ sdk.RecordInverse(rc, sdk.Inverse{
 })
 ```
 
-Nothing performs a rollback yet. The recording exists because only the forward
-run can capture the values an undo would need, so a run that does not record
-them destroys the information permanently.
+Only the forward run can capture the values an undo needs, so a run that does
+not record them destroys the information permanently. What a rollback can
+replay is what the method declares, on `Reversibility.Inverses`, one entry per
+method its undo may call:
+
+```go
+Reversibility: collection.Reversibility{
+    Reversible: true,
+    Inverses: []sdk.InverseSpec{
+        // Undoing a create: the path is an identifier, safe to keep.
+        {FQCN: "file.remove", Record: []string{"path"}},
+        // Undoing an overwrite: the earlier content is withheld, so the
+        // undo cannot be replayed from the journal, and it is partial.
+        {FQCN: "file.copy", Record: []string{"dest", "mode"}, Withhold: []string{"content"}, MayBePartial: true},
+    },
+},
+```
+
+`Record` names the undo's parameters whose values are identifiers the run journal may
+keep: a path, a name, a UUID. Anything else the undo takes, such as a file's earlier
+content or a mount's options, belongs in `Withhold` or is simply left out, and never
+reaches the journal. An undo missing a value cannot be replayed, so its task needs a
+`rollback:` list in its runbook, or is left in place. Set `sdk.Inverse.Partial` on an
+undo that does not put back everything the task overwrote, which `MayBePartial` must
+allow. A method that only reads sets `ReadOnly: true` instead, and the engine fails its
+task if it ever reports a change. `collection.Register` refuses a declaration naming an
+unregistered method, a parameter the target does not declare, or a parameter in both
+lists, and `internal/archtest` requires every reversible built-in to declare its undo.
+
+One name is reserved for the engine and refused as a parameter name: `target`, which
+picks the device or tag a task runs on. An external Collection
+program may declare its reversibility too, but its recorded undos are never replayed: a
+third party would be deciding what enters the journal. Give its tasks a `rollback:` list.
 
 **The status.** Flip `Status` to `collection.StatusImplemented`. Until you do,
 the dispatcher short-circuits with "declared but not implemented" and your body

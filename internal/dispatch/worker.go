@@ -97,6 +97,19 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return fmt.Errorf("failed to load job %s after claiming fan-out: %w", payload.JobID, err)
 	}
 
+	// A rollback dispatches only the devices its plan names; one whose
+	// plan cannot be read is failed, never run as an ordinary job.
+	undo, err := newRollbackFanOut(job)
+	if err != nil {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, err.Error()); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
 	// alreadyRecorded names every device an attempt this claim might be
 	// superseding already recorded (see BeginFanOut's own doc comment on
 	// why this guard lives here rather than inside JobStore.RecordTask).
@@ -110,6 +123,7 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	var dispatched, skipped, failed, queued int
 	for _, t := range priorTasks {
 		alreadyRecorded[t.DeviceID] = struct{}{}
+		undo.admits(t.DeviceID)
 		switch t.Outcome {
 		case OutcomeQueued:
 			queued++
@@ -268,6 +282,10 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	for iter.Next(ctx) {
 		device := iter.Item()
 
+		if !undo.admits(string(device.ID())) {
+			continue
+		}
+
 		if _, done := alreadyRecorded[string(device.ID())]; done {
 			// This exact device was already admitted-or-skipped and
 			// recorded (its outcome already folded into
@@ -351,6 +369,15 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
 		}
 		return nil
+	}
+
+	missing, err := w.recordMissing(ctx, job, fence, undo)
+	failed += missing
+	if err != nil {
+		if fenced(job.JobID, err) || canceled(job.JobID, err) {
+			return nil
+		}
+		return err
 	}
 
 	// Which of the two endings this fan-out gets turns on one question:

@@ -84,6 +84,7 @@ func taskSchema() map[string]any {
 			"rescue":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"always":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"parallel": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+			"rollback": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}, "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. Only on a method call; each step is a method and its params, with no target, register, conditions or tags."},
 			"tags":     tagsSchema("Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside."),
 		},
 	}
@@ -118,24 +119,33 @@ func generateRunbookSchema(outDir string) error {
 		"required":    []any{"id", "tasks"},
 		// The parser refuses any other top-level key (engine.RunbookKeys).
 		"additionalProperties": false,
-		"properties": map[string]any{
-			"id":         map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
-			"name":       map[string]any{"type": "string", "description": "The runbook's human title."},
-			"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
-			"tags":       tagsSchema("Tags every task in the runbook carries, as a play's tags do in Ansible."),
-			"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
-			"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
-			"metadata":   metadataSchema(),
-			"pretasks":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-			"tasks":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-			"posttasks":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-		},
+		"properties":           runbookProperties(),
 		"$defs": map[string]any{
 			"task": taskSchema(),
 		},
 	}
 
 	return writeSchema(outDir, "runbook.schema.json", schema)
+}
+
+// runbookProperties is the runbook schema's top-level properties, one per
+// key the parser accepts; checkRunbookSchemaComplete holds them to
+// engine.RunbookKeys, so a key the parser gains cannot be one the schema
+// refuses (the schema sets additionalProperties false).
+func runbookProperties() map[string]any {
+	return map[string]any{
+		"id":         map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
+		"name":       map[string]any{"type": "string", "description": "The runbook's human title."},
+		"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
+		"tags":       tagsSchema("Tags every task in the runbook carries, as a play's tags do in Ansible."),
+		"reversible": map[string]any{"type": "boolean", "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise."},
+		"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
+		"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
+		"metadata":   metadataSchema(),
+		"pretasks":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"tasks":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"posttasks":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+	}
 }
 
 // metadataSchema is the JSON Schema for engine.Metadata. The parser
@@ -191,6 +201,18 @@ func checkRunbookSchemaComplete() error {
 	}
 	if len(extra) > 0 {
 		return fmt.Errorf("gendocs: runbook schema has task key(s) the parser does not accept: %v", extra)
+	}
+
+	// The top level: the schema refuses any property it does not list, so
+	// a key the parser accepts and the schema omits makes the schema refuse
+	// a runbook the platform runs. That gap existed until reversible was
+	// added; it is closed here rather than by remembering.
+	top := slices.Collect(maps.Keys(runbookProperties()))
+	accepted := slices.Collect(maps.Keys(engine.RunbookKeys))
+	slices.Sort(top)
+	slices.Sort(accepted)
+	if !slices.Equal(top, accepted) {
+		return fmt.Errorf("gendocs: runbook schema's top-level properties %v differ from engine.RunbookKeys %v", top, accepted)
 	}
 
 	// metadata: the parser refuses any key Metadata's struct tags do not

@@ -205,10 +205,13 @@ func TestJournalMintsANewRunIDPerRun(t *testing.T) {
 	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(),
 		event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, engine.WithJournal(sink))
 
+	var returned []string
 	for i := 0; i < 2; i++ {
-		if _, err := x.Run(context.Background(), dag); err != nil {
+		result, err := x.Run(context.Background(), dag)
+		if err != nil {
 			t.Fatalf("run %d failed: %v", i, err)
 		}
+		returned = append(returned, result.RunID)
 	}
 
 	entries := sink.flat()
@@ -217,6 +220,14 @@ func TestJournalMintsANewRunIDPerRun(t *testing.T) {
 	}
 	if entries[0].RunID == entries[1].RunID {
 		t.Errorf("both runs recorded RunID %q; a reused Executor must still mint one per Run call", entries[0].RunID)
+	}
+	// RunResult.RunID is how a caller names the run afterward (the Crawl
+	// tier's journal file, a rollback), so it has to be the id each run
+	// stamped on its own entries, not merely some id.
+	for i := range entries {
+		if returned[i] != entries[i].RunID {
+			t.Errorf("run %d returned RunID %q but journaled %q", i, returned[i], entries[i].RunID)
+		}
 	}
 	// Sequence restarts with the run, because it orders entries inside one
 	// run and nothing else.

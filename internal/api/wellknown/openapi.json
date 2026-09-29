@@ -6245,6 +6245,10 @@
                       "description": "The tenant it belongs to, inherited from that inventory.",
                       "type": "integer"
                     },
+                    "rollback_of": {
+                      "description": "On a rollback job, the job it undoes. Absent on every other job.",
+                      "type": "string"
+                    },
                     "runbook_id": {
                       "type": "string"
                     },
@@ -6437,6 +6441,10 @@
                     "organization": {
                       "description": "The tenant it belongs to, inherited from that inventory.",
                       "type": "integer"
+                    },
+                    "rollback_of": {
+                      "description": "On a rollback job, the job it undoes. Absent on every other job.",
+                      "type": "string"
                     },
                     "runbook_id": {
                       "type": "string"
@@ -6828,6 +6836,249 @@
         ],
         "summary": "Relaunch a job",
         "x-link-relation": "execute"
+      }
+    },
+    "/jobs/{id}/rollback": {
+      "post": {
+        "description": "Undoes what a finished runbook job changed, device by device, newest change first. Each change is undone by its task's own rollback: list when the runbook has one, and otherwise by the undo its method recorded in the job's journal. The Controller plans the whole rollback when it is asked, from the journal, what other jobs have done on the same devices since, and the runbook the job ran, and holds every step to that runbook. When any change cannot be undone exactly, a later job has changed the same device since, or an effect cannot be known, nothing is created and the answer lists every problem, each with the request field that accepts it. Otherwise a new job runs the plan, dispatching only the devices it names, and a second rollback of the same job continues where one that stopped partway left off. The runbook must still be the version the job ran; adding or editing a rollback: list does not change its version.",
+        "operationId": "rollback_job",
+        "parameters": [
+          {
+            "description": "The job id, a UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "allow_partial": {
+                    "description": "Node ids whose partial undo to run, knowing it does not put back everything the task overwrote.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "allow_unknown": {
+                    "description": "Node ids whose unknown effect to accept, and \"unsealed\" for a job some device never reported back from.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "despite_job": {
+                    "description": "Ids of later jobs whose changes to the same devices to undo this one beneath.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "leave": {
+                    "description": "Node ids whose changes to leave in place.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "mode": {
+                    "description": "execute (the default), or check to see what the rollback would change without changing it.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "ignored_fields": {
+                      "description": "Every value the caller supplied that was not applied. Always present, empty when everything was applied: a key that vanished when the list was empty would make \"nothing was refused\" indistinguishable from \"this server does not report refusals\".",
+                      "items": {
+                        "properties": {
+                          "layer": {
+                            "description": "Where it was supplied: the saved configuration, or this launch.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "The field the caller supplied.",
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Why it was not applied, in words a caller can act on.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "job_id": {
+                      "description": "The server-generated job id. Poll GET /jobs/{job_id} with it.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "Always \"accepted\".",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A rollback job was persisted and will fan out asynchronously."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a UUID, the body is malformed, or mode is neither execute nor check."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No identity on the request context."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No job with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "Why.",
+                      "type": "string"
+                    },
+                    "problems": {
+                      "items": {
+                        "properties": {
+                          "device": {
+                            "description": "The device, by name.",
+                            "type": "string"
+                          },
+                          "field": {
+                            "description": "The request field that accepts it; absent when nothing can.",
+                            "type": "string"
+                          },
+                          "node": {
+                            "description": "The node of the job's runbook the problem is about.",
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "What is wrong.",
+                            "type": "string"
+                          },
+                          "value": {
+                            "description": "What to put in that field.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "status": {
+                      "description": "\"refused\", when the plan has problems.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), with an error saying why, or the plan has problems, each listed with the field and value that accept it."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job could not be persisted or published."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:execute"
+            ]
+          }
+        ],
+        "summary": "Roll a job back",
+        "x-link-relation": "rollback"
       }
     },
     "/organizations": {

@@ -135,6 +135,15 @@ func (_u *JournalEntryUpdate) sqlSave(ctx context.Context) (_node int, err error
 	if _u.mutation.InverseParamKeysCleared() {
 		_spec.ClearField(journalentry.FieldInverseParamKeys, field.TypeJSON)
 	}
+	if _u.mutation.InverseParamsCleared() {
+		_spec.ClearField(journalentry.FieldInverseParams, field.TypeJSON)
+	}
+	if _u.mutation.RollbackOfCleared() {
+		_spec.ClearField(journalentry.FieldRollbackOf, field.TypeString)
+	}
+	if _u.mutation.UndoesNodeCleared() {
+		_spec.ClearField(journalentry.FieldUndoesNode, field.TypeString)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{journalentry.Label}
@@ -291,6 +300,15 @@ func (_u *JournalEntryUpdateOne) sqlSave(ctx context.Context) (_node *JournalEnt
 	}
 	if _u.mutation.InverseParamKeysCleared() {
 		_spec.ClearField(journalentry.FieldInverseParamKeys, field.TypeJSON)
+	}
+	if _u.mutation.InverseParamsCleared() {
+		_spec.ClearField(journalentry.FieldInverseParams, field.TypeJSON)
+	}
+	if _u.mutation.RollbackOfCleared() {
+		_spec.ClearField(journalentry.FieldRollbackOf, field.TypeString)
+	}
+	if _u.mutation.UndoesNodeCleared() {
+		_spec.ClearField(journalentry.FieldUndoesNode, field.TypeString)
 	}
 	_node = &JournalEntry{config: _u.config}
 	_spec.Assign = _node.assignValues

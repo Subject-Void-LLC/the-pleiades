@@ -99,8 +99,19 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the same primitive). Every implemented method declares `collection.Reversibility` (a bool plus
   a required reason when false, enforced at registration), and a run that changes something emits
   the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
-  and resolved params. Nothing performs a rollback yet; the recording exists because only the
-  forward run can capture the values an undo needs.
+  and resolved params. The method declares on `Reversibility.Inverses` (`sdk.InverseSpec`) which
+  of its undo's params are identifiers the journal may keep (`Record`); only those reach the
+  journal's `inverse_params`, and everything else is withheld. **Rollback is real (Phase 40) on
+  both tiers**, planned by one pure planner (`internal/rollback`): `pleiades rollback <run-id>`
+  (plus `pleiades journal list|show`, a strict journal reader, and `.pleiades/run.lock`) and
+  `POST /jobs/{id}/rollback`, whose job dispatches on its own subject
+  (`topology.RollbackSubject`, durable `runner-rollback`) so a Runner that predates it never
+  runs the undone runbook in its place. It refuses as a whole before contact unless each gap is
+  accepted by name (`--leave`, `--allow-partial`, `--allow-unknown`, `--despite-run`), resumes a
+  rollback that stopped partway, and holds each recorded undo to the method's declaration (and,
+  on the Walk tier, to the runbook the job ran, on the Controller and again on the Runner). A
+  task's `rollback:` list (not hashed into `DAG.Version`, so it can be written after a failure)
+  wins over a recorded undo. External Collections' recorded undos are never replayed.
 - **The scheduler is real (Phase 23), and since Phase 21's C1 seam it schedules more than
   templates.** A schedule is an RFC 5545 recurrence attached to a `launchable.Target`: one row
   in the `launchables` table standing for a job template or for a project whose run is a sync,

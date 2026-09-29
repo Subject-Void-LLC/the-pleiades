@@ -81,5 +81,5 @@ func validateTask(task *Task, id string) error {
 		}
 	}
 
-	return nil
+	return validateRollback(task, id)
 }

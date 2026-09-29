@@ -1,0 +1,1 @@
+A task can carry a `rollback:` list, the tasks that undo it, which a rollback prefers to the undo its method recorded; adding or editing one does not change the runbook's version, so a list written after a failed run still applies to it. A runbook can say `reversible: true` to have validation flag every changing task that could not be undone.

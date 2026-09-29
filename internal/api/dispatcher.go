@@ -68,6 +68,11 @@ type Dispatcher struct {
 	// package ever imports the package that could hand it one.
 	credentials CredentialReader
 
+	// rollbackJournal and deviceNames are what a rollback plans from
+	// (dispatcher_rollback.go); nil refuses every rollback.
+	rollbackJournal RollbackJournal
+	deviceNames     DeviceNamer
+
 	// filePolicy is the deployment's half of the survey file rule, read
 	// from the environment at the composition root and held as a value.
 	//

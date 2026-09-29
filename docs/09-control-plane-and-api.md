@@ -99,7 +99,8 @@ holding only a narrow scope has no business reading.
 A successful response embeds a `_links` array: every affordance the calling identity
 is actually authorized to take against that resource right now, computed once by a
 single builder shared between the `_links` array and the `Allow` header an `OPTIONS`
-request returns, so the two can never disagree. Seven relation names exist today:
+request returns, so the two can never disagree. A relation is unique per resource. The
+common ones:
 
 | Relation | Meaning |
 |---|---|
@@ -110,6 +111,9 @@ request returns, so the two can never disagree. Seven relation names exist today
 | `delete` | Retire this resource. |
 | `copy` | Duplicate this resource. Its own relation rather than `create`, because a relation is unique per resource and the two would otherwise be indistinguishable on a page that offers both. |
 | `execute` | Run this resource: launch a template, relaunch a job. |
+| `check` | Run this resource as a check, changing nothing. |
+| `cancel` | Stop work already in flight. |
+| `rollback` | Undo what a finished job changed. |
 | `logs` | Stream this resource's live progress. |
 
 ## Pagination
@@ -127,7 +131,8 @@ entire fleet in memory.
 
 Every way of starting work ends in one path: `POST /templates/{id}/launch`,
 `POST /templates/{id}/check` (the same launch, forced to a check), `POST /jobs/{id}/relaunch`,
-a schedule firing, and the web UI's launch form. This section follows a job along it.
+`POST /jobs/{id}/rollback`, a schedule firing, and the web UI's launch form. This section
+follows a job along it.
 
 ### The launch answers before anything runs
 
@@ -232,9 +237,47 @@ for up to its retention (seven days with the default outage budget) and the job 
 `running` until one appears. A check job, once finished, also reports `check_complete`: true
 only if every device was dispatched, succeeded, and left no task unchecked.
 
+### Rolling a job back
+
+`POST /jobs/{id}/rollback` (`runbook:execute`) undoes what a finished `runbook` job
+changed. The body is optional: `mode` (`execute`, the default, or `check`), and four lists
+that accept problems by name, `leave`, `allow_partial`, `allow_unknown` and `despite_job`.
+The Controller plans the rollback when it is asked, from the job's journal, what other jobs
+have done on the same devices since, and the runbook the job ran, which must still be the
+version it ran (adding or editing a `rollback:` list does not change it). When the plan has
+problems nothing is created, and the answer is `422` with every problem listed:
+
+```json
+{
+  "status": "refused",
+  "error": "the rollback was refused, before any device was contacted, for 1 reason(s)",
+  "problems": [
+    {
+      "node": "tasks[2]",
+      "device": "web1",
+      "reason": "file.line.set's undo through file.copy was not recorded in full (content kept out of the journal), so it cannot be replayed; give the task a rollback: list, or leave the change in place",
+      "field": "leave",
+      "value": "tasks[2]"
+    }
+  ]
+}
+```
+
+Adding `"leave": ["tasks[2]"]` to the request accepts that one. A problem with no `field`
+cannot be accepted: the journal does not agree with the runbook, or the runbook has changed.
+A job still running, a check, a playbook job, a rollback, or one that journaled nothing is
+answered `422` with the reason. Otherwise the answer is `202` naming a new job, whose
+`rollback_of` names the job it undoes. It dispatches only the devices with changes to undo,
+each carrying its own steps, and each Runner holds every step to its own copy of the runbook
+before running any. A second rollback of the same job continues where one that stopped
+partway left off, and one of a job already undone in full is refused. See
+[Rolling a run back](10-running-in-production.md#rolling-a-run-back) for what is undone
+and what is trusted.
+
 ### Watching a job
 
-`GET /jobs/{id}` (`job:read`) returns the job's `state`, `mode` (`execute` or `check`), the
+`GET /jobs/{id}` (`job:read`) returns the job's `state`, `mode` (`execute` or `check`),
+`rollback_of` on a rollback job, the
 `dispatched`, `skipped` and `failed` counts, `failure_reason`, and one entry per device
 with its `outcome`, `reason`, `result`, `result_reason`, `unchecked` and `finished_at`.
 `GET /jobs` pages through jobs without their devices. The live log stream is below.

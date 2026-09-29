@@ -361,6 +361,57 @@ type DispatchPayload struct {
 	// is no in-band mechanism that makes that safe, which is why it is a
 	// deployment ordering requirement rather than a comment about one.
 	Injected *Injected `json:"injected,omitempty"`
+
+	// Rollback, when set, makes this dispatch a rollback (Phase 40): the
+	// Runner runs these steps, which undo what job Rollback.Of did on this
+	// device, instead of RunbookID's tasks. RunbookID still names the
+	// runbook that job ran, which the Runner holds every step to before
+	// it runs any. A rollback is published only on its own subject
+	// (internal/topology's RollbackSubject), which a Runner that predates
+	// this field never reads, so no Runner runs the runbook being undone
+	// in its place.
+	Rollback *Rollback `json:"rollback,omitempty"`
+}
+
+// Rollback is one device's part of a rollback job.
+type Rollback struct {
+	// Of is the job being undone.
+	Of string `json:"of"`
+
+	// DAGVersion is the version of the runbook the job being undone ran.
+	// The Runner refuses the dispatch when its own copy of the runbook is
+	// not that version, since it could not then hold a step to what ran.
+	DAGVersion string `json:"dag_version"`
+
+	// Steps are the undo's tasks on this device, in the order they run.
+	Steps []RollbackStep `json:"steps"`
+}
+
+// RollbackStep is one task of a rollback: a method call that undoes one
+// node's change, or one step of that node's own rollback: list.
+type RollbackStep struct {
+	// Node is the node, in the runbook the undone job ran, this undoes.
+	Node string `json:"node"`
+
+	// Index is the step's place in the node's undo: 0 for a recorded
+	// undo, its position in the rollback: list for an authored one.
+	Index int `json:"index"`
+
+	// Emitter is the method the node ran, which the Runner checks its
+	// runbook agrees with.
+	Emitter string `json:"emitter"`
+
+	// Method and Params are the task to run.
+	Method string         `json:"method"`
+	Params map[string]any `json:"params,omitempty"`
+
+	// Name is the task's name in the rollback.
+	Name string `json:"name"`
+
+	// Source is where the step came from: "recorded", an undo the method
+	// recorded in the journal, or "authored", the runbook's rollback:
+	// list.
+	Source string `json:"source"`
 }
 
 // Injected is the rendered output of a dispatch's bound credentials.

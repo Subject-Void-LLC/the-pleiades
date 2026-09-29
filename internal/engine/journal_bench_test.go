@@ -128,8 +128,8 @@ func benchStats() map[string]interface{} {
 			"after":  map[string]interface{}{"content": benchRunningConfig},
 		},
 		sdk.StatInverse: map[string]interface{}{
-			inverseRecordFQCN: "net.ios.config",
-			inverseRecordParams: map[string]interface{}{
+			sdk.InverseFQCNKey: "net.ios.config",
+			sdk.InverseParamsKey: map[string]interface{}{
 				"path":    "/tmp/backup.cfg",
 				"content": benchRunningConfig,
 			},
@@ -173,11 +173,16 @@ func BenchmarkProjectLevel(b *testing.B) {
 			stats := benchStats()
 			out := make([]NodeResult, devices)
 			for i := range out {
+				// journalStats is what the projection reads (Stats is nil on
+				// the failure paths by design); setting only Stats timed a
+				// projection over nothing.
 				out[i] = NodeResult{
-					NodeID:  "tasks[0]",
-					Device:  fmt.Sprintf("device-%d", i),
-					Changed: true,
-					Stats:   stats,
+					NodeID:         "tasks[0]",
+					Device:         fmt.Sprintf("device-%d", i),
+					Changed:        true,
+					Stats:          stats,
+					journalStats:   stats,
+					journalChanged: true,
 				}
 			}
 			level := [][]NodeResult{out}

@@ -155,6 +155,11 @@ func ExternalChecks(v bool) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldExternalChecks, v))
 }
 
+// RollbackOf applies equality check predicate on the "rollback_of" field. It's identical to RollbackOfEQ.
+func RollbackOf(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldRollbackOf, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldCreatedAt, v))
@@ -1263,6 +1268,91 @@ func ExternalChecksEQ(v bool) predicate.Job {
 // ExternalChecksNEQ applies the NEQ predicate on the "external_checks" field.
 func ExternalChecksNEQ(v bool) predicate.Job {
 	return predicate.Job(sql.FieldNEQ(FieldExternalChecks, v))
+}
+
+// RollbackOfEQ applies the EQ predicate on the "rollback_of" field.
+func RollbackOfEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldRollbackOf, v))
+}
+
+// RollbackOfNEQ applies the NEQ predicate on the "rollback_of" field.
+func RollbackOfNEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldRollbackOf, v))
+}
+
+// RollbackOfIn applies the In predicate on the "rollback_of" field.
+func RollbackOfIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldRollbackOf, vs...))
+}
+
+// RollbackOfNotIn applies the NotIn predicate on the "rollback_of" field.
+func RollbackOfNotIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldRollbackOf, vs...))
+}
+
+// RollbackOfGT applies the GT predicate on the "rollback_of" field.
+func RollbackOfGT(v string) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldRollbackOf, v))
+}
+
+// RollbackOfGTE applies the GTE predicate on the "rollback_of" field.
+func RollbackOfGTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldRollbackOf, v))
+}
+
+// RollbackOfLT applies the LT predicate on the "rollback_of" field.
+func RollbackOfLT(v string) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldRollbackOf, v))
+}
+
+// RollbackOfLTE applies the LTE predicate on the "rollback_of" field.
+func RollbackOfLTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldRollbackOf, v))
+}
+
+// RollbackOfContains applies the Contains predicate on the "rollback_of" field.
+func RollbackOfContains(v string) predicate.Job {
+	return predicate.Job(sql.FieldContains(FieldRollbackOf, v))
+}
+
+// RollbackOfHasPrefix applies the HasPrefix predicate on the "rollback_of" field.
+func RollbackOfHasPrefix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasPrefix(FieldRollbackOf, v))
+}
+
+// RollbackOfHasSuffix applies the HasSuffix predicate on the "rollback_of" field.
+func RollbackOfHasSuffix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasSuffix(FieldRollbackOf, v))
+}
+
+// RollbackOfIsNil applies the IsNil predicate on the "rollback_of" field.
+func RollbackOfIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldRollbackOf))
+}
+
+// RollbackOfNotNil applies the NotNil predicate on the "rollback_of" field.
+func RollbackOfNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldRollbackOf))
+}
+
+// RollbackOfEqualFold applies the EqualFold predicate on the "rollback_of" field.
+func RollbackOfEqualFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldEqualFold(FieldRollbackOf, v))
+}
+
+// RollbackOfContainsFold applies the ContainsFold predicate on the "rollback_of" field.
+func RollbackOfContainsFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldContainsFold(FieldRollbackOf, v))
+}
+
+// RollbackIsNil applies the IsNil predicate on the "rollback" field.
+func RollbackIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldRollback))
+}
+
+// RollbackNotNil applies the NotNil predicate on the "rollback" field.
+func RollbackNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldRollback))
 }
 
 // HasTasks applies the HasEdge predicate on the "tasks" edge.

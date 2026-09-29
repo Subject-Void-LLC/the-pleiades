@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"encoding/json"
+
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
@@ -301,6 +303,18 @@ func (Job) Fields() []ent.Field {
 		// because fan-out happens later and holds no identity, and false
 		// unless the launch said so, so a path that forgets fails closed.
 		field.Bool("external_checks").Default(false).Immutable(),
+		// rollback_of is the job this one undoes (Phase 40), and empty for
+		// every other job. Indexed, because a rollback's own journal is
+		// found through it: a second rollback of the same job resumes where
+		// the first one stopped.
+		field.String("rollback_of").Optional().Immutable(),
+		// rollback is the plan a rollback job runs, planned and checked by
+		// the Controller when the rollback was asked for: per device, the
+		// steps that undo that device's changes. It holds method names,
+		// node ids, parameter names and the identifier values the journal
+		// already holds, never a credential. Raw JSON because its type
+		// lives in internal/dispatch, which this package may not import.
+		field.JSON("rollback", json.RawMessage{}).Optional().Immutable(),
 	}
 }
 
@@ -320,5 +334,7 @@ func (Job) Indexes() []ent.Index {
 		// phase adds. Indexed rather than scanned, because the jobs table
 		// is the one that grows fastest here.
 		index.Fields("template_id"),
+		// "what has undone this job" is how a rollback resumes.
+		index.Fields("rollback_of"),
 	}
 }

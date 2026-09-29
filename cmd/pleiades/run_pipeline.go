@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -50,6 +51,22 @@ type runOptions struct {
 	verbose bool
 	// asJSON prints the report as one JSON document instead of text.
 	asJSON bool
+
+	// rollbackOf, set only by `pleiades rollback`, names the run this run
+	// undoes; undoes says which node and step of it each of this run's
+	// nodes undoes (engine.WithRollback). Empty for an ordinary run.
+	rollbackOf string
+	undoes     map[string]engine.Undo
+
+	// holdsRunLock says the caller already holds the project's run lock,
+	// exclusive, as a rollback does; carryOut then takes none itself,
+	// since a second lock on the same file from one process would wait on
+	// itself.
+	holdsRunLock bool
+
+	// rollback is a rollback's plan, reported with the run, and whose
+	// unaccepted unknowns make a run that otherwise completed incomplete.
+	rollback *rollbackReport
 }
 
 // runSource is the runbook a run carries out.
@@ -121,6 +138,25 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		return rep, errors.New(rep.Outcome.Message)
 	}
 
+	// The project's run lock, shared: runs do not exclude each other, but
+	// a rollback, which reads every journal to decide what to undo, is
+	// excluded while any run is changing devices (internal/journal's
+	// runlock.go). A check changes nothing and writes no journal, so it
+	// takes none, and still works in a project directory this user cannot
+	// write.
+	if !checking && !opts.holdsRunLock {
+		release, err := journal.LockRuns(opts.dir, false)
+		switch {
+		case errors.Is(err, journal.ErrRunsBusy):
+			return rep, err
+		case err != nil:
+			// The lock lives beside the journal, so a project the run
+			// cannot journal into fails here first; say so.
+			return rep, fmt.Errorf("failed to open the run journal: %w", err)
+		}
+		defer func() { _ = release() }()
+	}
+
 	// The run journal, one JSON Lines file per run under
 	// <dir>/.pleiades/journal. It records what ran, against what, in what
 	// order and with what outcome, and it holds no value that came back
@@ -145,8 +181,9 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// also works in a project directory this user cannot write, which is
 	// a reasonable place to ask "what would this do" from.
 	var sink engine.Journal
+	var store *journal.FileStore
 	if !checking {
-		store, err := journal.NewFileStore(opts.dir)
+		store, err = journal.NewFileStore(opts.dir)
 		if err != nil {
 			return rep, fmt.Errorf("failed to open the run journal: %w", err)
 		}
@@ -168,6 +205,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// through every subcommand's flag parsing, mirroring loadWorld's own
 	// precedent (load.go).
 	result, err := executor.Run(context.Background(), dag)
+	sealRun(store, rep, result.RunID)
 	if err != nil {
 		rep.Outcome = runOutcome{Status: "error", Message: "execution aborted: " + redact.Text(result.Secrets, err.Error()), ExitCode: 1}
 		return rep, fmt.Errorf("execution aborted: %w", err)
@@ -178,10 +216,42 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		rep.Metadata, _ = redact.Value(result.Secrets, result.Metadata).(map[string]any)
 	}
 	rep.Outcome = outcomeOf(rep, result.HasErrors())
+	if opts.rollback != nil {
+		rep.Rollback = opts.rollback
+		rep.Outcome = rollbackOutcome(rep.Outcome, opts.rollback)
+	}
 	if !opts.asJSON {
 		printResults(rep, opts.verbose)
 	}
 	return rep, outcomeError(rep.Outcome)
+}
+
+// sealRun marks runID's journal complete and records where it is on rep.
+// It runs as soon as Executor.Run returns, on the aborted path too, since
+// an aborted run still journaled every level it ran; only a process that
+// died mid-level leaves no seal, which is what a rollback needs to tell
+// the two apart (internal/journal's seal.go).
+//
+// A seal that cannot be written does not change the run's outcome: the
+// devices were already changed, and saying the run failed would be false.
+// It is printed on stderr instead, and the run then reads as cut off to a
+// later rollback, which is the safe direction to be wrong in.
+func sealRun(store *journal.FileStore, rep *runReport, runID string) {
+	if store == nil || runID == "" {
+		return
+	}
+	rep.RunID = runID
+	if path, err := store.PathFor(runID); err == nil {
+		// Absolute, so a path in a --json report still names the file
+		// wherever the reader runs from; --dir is usually ".".
+		if abs, absErr := filepath.Abs(path); absErr == nil {
+			path = abs
+		}
+		rep.Journal = path
+	}
+	if err := store.Seal(runID, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v; a rollback will treat this run as cut off\n", err)
+	}
 }
 
 // loadSource loads the inventory and compiles src's runbook.
@@ -335,6 +405,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		opts.forks,
 		engine.WithJournal(sink),
 		engine.WithMode(mode),
+		// Marks each entry of a rollback with what it undoes; a no-op for an
+		// ordinary run, whose rollbackOf is empty.
+		engine.WithRollback(opts.rollbackOf, opts.undoes),
 		// This command's user may run every loaded program for real, so a
 		// check may run their checks too (the simulate-lock rule still
 		// keeps them off a device being onboarded).

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Job is the domain view of one asynchronous dispatch request: a runbook
@@ -191,6 +192,48 @@ type Job struct {
 	// Check (wire.DispatchPayload.ExternalChecks). False unless the launch
 	// set it.
 	ExternalChecks bool
+
+	// RollbackOf is the job this one undoes, and empty for any other job.
+	// It, not Rollback, is what makes a job a rollback: a rollback job
+	// whose plan cannot be read must fail, never run as the ordinary job
+	// its runbook id names.
+	RollbackOf string
+
+	// Rollback is the plan a rollback job runs, as the Controller planned
+	// and checked it when the rollback was asked for. Nil for any other
+	// job, and for a rollback job whose stored plan cannot be read.
+	Rollback *RollbackPlan
+}
+
+// RollbackPlan is what a rollback job runs: per device, the steps that
+// undo that device's changes, in the order they run.
+type RollbackPlan struct {
+	// DAGVersion is the version of the runbook the undone job ran, which
+	// every Runner holds its own copy to.
+	DAGVersion string `json:"dag_version"`
+
+	// Devices are the devices the rollback runs on, each with its steps.
+	Devices []RollbackDevice `json:"devices"`
+}
+
+// RollbackDevice is one device's part of a rollback plan.
+type RollbackDevice struct {
+	DeviceID   string              `json:"device_id"`
+	DeviceName string              `json:"device_name"`
+	Steps      []wire.RollbackStep `json:"steps"`
+}
+
+// StepsFor returns device's steps, and whether the plan names it.
+func (p *RollbackPlan) StepsFor(deviceID string) ([]wire.RollbackStep, bool) {
+	if p == nil {
+		return nil, false
+	}
+	for _, d := range p.Devices {
+		if d.DeviceID == deviceID {
+			return d.Steps, true
+		}
+	}
+	return nil, false
 }
 
 // JobTask is the domain view of one device's outcome within a Job's

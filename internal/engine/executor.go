@@ -172,6 +172,14 @@ type NodeResult struct {
 	// value that deliberately bypasses the print path's own guard.
 	journalStats map[string]interface{}
 
+	// journalChanged is the action's own Changed, set beside journalStats
+	// and for the same reason: a node that changed the device and then
+	// failed at register_mask or record reports Changed false, and the
+	// journal still has to say the device was changed
+	// (JournalEntry.ActionChanged), since that is the undo a rollback
+	// most needs.
+	journalChanged bool
+
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
 	// runNode for a result runNode produces itself, and once per device
@@ -282,6 +290,13 @@ func finish(n NodeResult) NodeResult {
 type RunResult struct {
 	Nodes []NodeResult
 
+	// RunID is the id this Run call minted and stamped on every journal
+	// entry it wrote (JournalEntry.RunID). It is how an operator names the
+	// run afterward: the Crawl tier's journal file is <RunID>.jsonl, and
+	// a rollback is asked for by it. It is set on every exit path, so an
+	// aborted run can still be found.
+	RunID string
+
 	// Mode is the mode this run executed in (WithMode). It travels with
 	// the result so a caller printing NodeResult.Changed can say "changed"
 	// for an execute run and "would change" for a check, rather than
@@ -357,6 +372,10 @@ type Executor struct {
 	extraVars      map[string]interface{}
 	taskTimeout    time.Duration
 	journal        Journal
+
+	// rollback, when its of is set, marks every entry this Executor
+	// journals as part of a rollback (WithRollback).
+	rollback rollbackLink
 
 	// mode is collection.ModeExecute unless WithMode set it. See check.go
 	// for what check mode does and refuses to do.
@@ -564,6 +583,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		mode: TaskMode(x.mode, dag, nil),
 	}
 	result.Mode = r.mode
+	result.RunID = r.runID
 
 	defer func() {
 		result.Secrets = r.secrets.Snapshot()
@@ -978,6 +998,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	// journal exists to record. See NodeResult.journalStats for why this
 	// is a separate field from Stats rather than a widening of it.
 	result.journalStats = actionResult.Stats
+	result.journalChanged = actionResult.Changed
 
 	// register_mask marks fields of this task's own just-computed result as
 	// secret, before Register/Merge below records it anywhere: this way a

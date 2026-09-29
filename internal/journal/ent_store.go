@@ -15,6 +15,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -122,7 +123,22 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetInverseFqcnUnresolved(entry.InverseFQCNUnresolved).
 		SetInverseParamKeys(entry.InverseParamKeys).
 		SetUndeclaredInverseParamCount(entry.UndeclaredInverseParamCount).
-		SetDiffRecorded(entry.DiffRecorded)
+		SetDiffRecorded(entry.DiffRecorded).
+		SetInverseComplete(entry.InverseComplete).
+		SetInversePartial(entry.InversePartial).
+		SetActionChanged(entry.ActionChanged).
+		SetAuthoredRollback(entry.AuthoredRollback).
+		SetRollbackOf(entry.RollbackOf).
+		SetUndoesNode(entry.UndoesNode).
+		SetUndoesStep(entry.UndoesStep)
+	// Marshalled from the entry's own typed slice, so the column holds
+	// exactly what the file sink writes and nothing untyped; always set,
+	// normalized to [], for the reason normalize gives.
+	params, err := json.Marshal(entry.InverseParams)
+	if err != nil {
+		return false, fmt.Errorf("encoding the recorded undo parameters of %s: %w", entry.NodeID, err)
+	}
+	create = create.SetInverseParams(params)
 
 	// The zero time is what a node that executed nothing carries, and
 	// writing it would record 0001-01-01 as if it were an instant. The
@@ -281,5 +297,29 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		InverseParamKeys:            row.InverseParamKeys,
 		UndeclaredInverseParamCount: row.UndeclaredInverseParamCount,
 		DiffRecorded:                row.DiffRecorded,
+		InverseParams:               hydrateInverseParams(row.InverseParams),
+		InverseComplete:             row.InverseComplete,
+		InversePartial:              row.InversePartial,
+		ActionChanged:               row.ActionChanged,
+		AuthoredRollback:            row.AuthoredRollback,
+		RollbackOf:                  row.RollbackOf,
+		UndoesNode:                  row.UndoesNode,
+		UndoesStep:                  row.UndoesStep,
 	}
+}
+
+// hydrateInverseParams decodes the recorded undo parameters. A column this
+// store wrote always decodes; one that does not reads as holding none,
+// which a rollback then treats as an undo it cannot replay rather than as
+// one with nothing to replay, since InverseComplete was stored beside it
+// and the planner checks the two agree.
+func hydrateInverseParams(raw json.RawMessage) []engine.InverseParam {
+	if len(raw) == 0 {
+		return nil
+	}
+	var params []engine.InverseParam
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil
+	}
+	return params
 }

@@ -132,8 +132,14 @@ tasks:
 executing:
   tasks[0]: ok
 
+run 3f2a9c1e-7b4d-4e8a-9c6f-2d1b8e5a7c30, journal /home/you/my-project/.pleiades/journal/3f2a9c1e-7b4d-4e8a-9c6f-2d1b8e5a7c30.jsonl
+
 run complete
 ```
+
+Every run that is not a check ends by naming itself and its journal: the record of
+what ran, on which device, and how each change can be undone. The run id is what
+`pleiades rollback` takes (step 10).
 
 ### 7. Run something real
 
@@ -377,6 +383,82 @@ as `\u` escapes, so the document is safe to print.
 
 `adhoc` is a Crawl-tier command only. The Controller has no ad-hoc path: everything it
 runs goes through a saved template.
+
+### 10. Undo a run
+
+`pleiades journal list` lists the project's runs, and `pleiades journal show <run-id>`
+shows one: each task, the device, how it ended, and the undo it recorded.
+
+```console
+$ pleiades journal list
+9dbb7e3d-1779-44dd-941e-efee18dc824d  2026-09-28 16:54:33  g2  2 task(s), 2 changed, 0 failed
+
+$ pleiades journal show 9dbb7e3d-1779-44dd-941e-efee18dc824d
+run 9dbb7e3d-1779-44dd-941e-efee18dc824d
+    1 tasks[0]                 container1       changed  file.directory
+        undo: file.remove path=/tmp/rb-g2
+    2 tasks[1]                 container1       changed  file.line.set
+        undo: file.copy dest=/tmp/rb-g2.conf group=users mode=0644 owner=testuser (not recorded in full; a rollback needs a rollback: list or --leave)
+```
+
+`pleiades rollback <run-id>` undoes every change, newest first. It refuses as a whole,
+before it contacts any device, when a change cannot be undone exactly, and says which
+flag accepts each problem. Here the file edit's undo would need the file's earlier
+content, which the journal never keeps:
+
+```console
+$ pleiades rollback 9dbb7e3d-1779-44dd-941e-efee18dc824d
+rollback of run 9dbb7e3d-1779-44dd-941e-efee18dc824d refused, before any device was contacted:
+  tasks[1] on container1: file.line.set's undo through file.copy was not recorded in full (content kept out of the journal), so it cannot be replayed; give the task a rollback: list, or leave the change in place
+    accept it with --leave tasks[1]
+pleiades: rollback of 9dbb7e3d-1779-44dd-941e-efee18dc824d refused: 1 problem(s)
+```
+
+Either leave that change in place, or give the task a `rollback:` list in its runbook,
+which applies even though it was written after the run:
+
+```yaml
+  - name: edit a file in place
+    file.line.set:
+      path: /tmp/rb-g2.conf
+      regexp: "^setting"
+      line: "setting = new"
+    rollback:
+      - name: put the old line back
+        file.line.set:
+          path: /tmp/rb-g2.conf
+          regexp: "^setting"
+          line: "setting = old"
+```
+
+`--mode check` shows what the rollback would change and changes nothing, and the real
+rollback is itself a run, with its own journal:
+
+```console
+$ pleiades rollback 9dbb7e3d-1779-44dd-941e-efee18dc824d --leave 'tasks[1]'
+left in place: tasks[1] on container1: file.line.set's undo through file.copy was not recorded in full (content kept out of the journal), so it cannot be replayed; give the task a rollback: list, or leave the change in place
+plan for rollback of 9dbb7e3d-1779-44dd-941e-efee18dc824d (1 nodes, 1 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  undo tasks[0] (make a directory) on container1
+
+executing:
+  tasks[0] [8b7356a0-e457-4462-b9d3-1ec30363c886]: changed
+
+run 934c99b3-2af9-4806-a667-b5e8f3a6a66b, journal /home/you/my-project/.pleiades/journal/934c99b3-2af9-4806-a667-b5e8f3a6a66b.jsonl
+
+run complete
+```
+
+A rollback that stops partway, because an undo failed, can be run again, and it
+continues where it stopped. A run changed since by a later run is refused until you
+roll the later one back first or name it with `--despite-run`, and a task that failed
+partway ends the rollback incomplete (exit 3) unless you accept it with
+`--allow-unknown`. `--json` prints the plan, or the refusal and every problem, as one
+document. See [Rolling a run back](10-running-in-production.md#rolling-a-run-back) for
+what is undone and what is trusted.
 
 ## Quickstart: Walk tier
 

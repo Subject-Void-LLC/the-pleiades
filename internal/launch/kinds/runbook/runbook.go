@@ -30,6 +30,8 @@ func init() {
 		BadgeClass: "badge-ok",
 		Summary:    "This platform's own typed automation format, executed natively against the device.",
 		Adapter:    Adapter,
+		// The native engine journals every task it runs.
+		Journals: true,
 		Fields: []launch.FieldSpec{
 			{
 				Name: launch.ModeField, Type: launch.TypeChoice,

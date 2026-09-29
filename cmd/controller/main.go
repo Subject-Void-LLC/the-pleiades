@@ -1189,7 +1189,10 @@ func main() {
 	// store the subscriber writes. One value, so a deployment cannot end
 	// up recording into one database and reading from another.
 	journalStore := journal.NewEntStore(client)
-	journalSubscriber := journal.NewSubscriber(journalStore, logger)
+	// A batch is stored only for a device this Controller dispatched: any
+	// Runner may publish on any job's journal subject (internal/journal's
+	// admission.go says what that does and does not close).
+	journalSubscriber := journal.NewSubscriber(journalStore, logger, journal.WithAdmission(journalAdmission(jobStore)))
 	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
@@ -1310,7 +1313,10 @@ func main() {
 		// The deployment's half of the survey file rule, threaded as a
 		// value so the Controller judges every launch against what it was
 		// started with.
-		api.WithSurveyFilePolicy(launch.FilePolicy{AllowProgramContent: allowProgramContent}))
+		api.WithSurveyFilePolicy(launch.FilePolicy{AllowProgramContent: allowProgramContent}),
+		// What a rollback plans from: the stored journal, and the devices
+		// it names as the inventory holds them now.
+		api.WithRollback(journalStore, deviceNamesByID(client)))
 	templates := api.NewTemplateHandler(templateStore, logger)
 
 	// Schedules: the administration surface and the store the scanner
@@ -1505,6 +1511,7 @@ func main() {
 		apispec.StreamJobLogs.Name: streamer.StreamLogs,
 		apispec.CancelJob.Name:     jobs.Cancel,
 		apispec.RelaunchJob.Name:   dispatcher.RelaunchJob,
+		apispec.RollbackJob.Name:   dispatcher.RollbackJob,
 
 		// Templates split across two handlers on purpose, along the same
 		// line the scopes split on: administering one is the TemplateHandler

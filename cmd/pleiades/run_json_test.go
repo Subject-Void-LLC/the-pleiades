@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,11 @@ type jsonReport struct {
 		FinishedAt       *time.Time     `json:"finished_at"`
 	} `json:"tasks"`
 	Metadata map[string]any `json:"metadata"`
+	RunID    string         `json:"run_id"`
+	Journal  string         `json:"journal"`
+	// Rollback is a rollback's own part of the report, kept raw: the
+	// rollback gates decode what they read from it themselves.
+	Rollback json.RawMessage `json:"rollback"`
 	Outcome  struct {
 		Status           string   `json:"status"`
 		Message          string   `json:"message"`
@@ -172,10 +178,31 @@ func TestCLI_AdhocRunsOneMethodOnATag(t *testing.T) {
 		t.Errorf("the journal does not name the ad-hoc run: %v\n%s", err, data)
 	}
 
+	// The report names the run and its journal, and the journal it names
+	// is the one on disk, sealed: the run returned, so every level it ran
+	// was recorded.
+	if rep.RunID == "" || rep.Journal != filepath.Join(dir, ".pleiades", "journal", rep.RunID+".jsonl") {
+		t.Errorf("report names run %q journal %q, want the run's own file under %s", rep.RunID, rep.Journal, dir)
+	}
+	if _, err := os.Stat(rep.Journal); err != nil {
+		t.Errorf("the journal the report names: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".pleiades", "journal", rep.RunID+".end")); err != nil {
+		t.Errorf("the finished run left no seal: %v", err)
+	}
+	// The text view prints the same, for the run it made.
+	textRun := regexp.MustCompile(`run ([0-9a-f-]{36}), journal (\S+)`).FindStringSubmatch(out)
+	if textRun == nil || textRun[2] != filepath.Join(dir, ".pleiades", "journal", textRun[1]+".jsonl") {
+		t.Errorf("text view does not name its run and journal:\n%s", out)
+	}
+
 	// A check changes nothing and journals nothing.
 	rep, _, code = runPleiadesJSON(t, dir, "adhoc", "web", "noop", "--mode", "check")
 	if code != 0 || rep.Mode != "check" || rep.Outcome.Message != "check complete: nothing was changed" {
 		t.Errorf("check: exit %d, %+v", code, rep.Outcome)
+	}
+	if rep.RunID != "" || rep.Journal != "" {
+		t.Errorf("a check named run %q journal %q, but it writes no journal", rep.RunID, rep.Journal)
 	}
 	if again, _ := filepath.Glob(filepath.Join(dir, ".pleiades", "journal", "*.jsonl")); len(again) != 2 {
 		t.Errorf("a check wrote a journal")

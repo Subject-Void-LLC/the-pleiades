@@ -267,8 +267,12 @@ method with a shell, so a pipe or a redirect behaves as typed. The `file.*` meth
 the device's state before acting, so a second run against a converged device reports no
 change. Every implemented method also answers whether it can be undone, and a run that
 changes something records the concrete instruction that would reverse it, resolved from
-what that run actually found. Nothing performs a rollback yet; see the
-[module catalog](reference/modules/index.md) for that per method. See the
+what that run actually found. `pleiades rollback <run-id>` replays those, newest first, and
+a Controller job rolls back the same way (`POST /jobs/{id}/rollback`); a task whose undo
+cannot be recorded in full, such as a file edit whose earlier content the journal never
+keeps, needs a `rollback:` list in its runbook or is left in place by name. See
+[Rolling a run back](10-running-in-production.md#rolling-a-run-back), and the
+[module catalog](reference/modules/index.md) for each method's undo. See the
 [module catalog](reference/modules/index.md) for every method, by namespace.
 
 **Check mode is real, for the methods that declare it.** `pleiades run --mode check`

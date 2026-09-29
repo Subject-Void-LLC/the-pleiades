@@ -3,6 +3,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -81,6 +82,16 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 		create = create.SetCredentialIds(j.CredentialIDs)
 	}
 	create = create.SetExternalChecks(j.ExternalChecks)
+	if j.RollbackOf != "" {
+		if j.Rollback == nil {
+			return fmt.Errorf("job %s undoes job %s and carries no plan", j.JobID, j.RollbackOf)
+		}
+		plan, err := json.Marshal(j.Rollback)
+		if err != nil {
+			return fmt.Errorf("failed to encode the rollback plan of job %s: %w", j.JobID, err)
+		}
+		create = create.SetRollbackOf(j.RollbackOf).SetRollback(plan)
+	}
 	// job_id has a DefaultFunc (newJobID, internal/ent/schema/job.go), but
 	// a caller-supplied JobID is honored when present, mirroring
 	// device.go's own optional-override-of-a-generated-default pattern:
@@ -335,6 +346,15 @@ func toJob(row *ent.Job) *Job {
 		job.CredentialIDs = row.CredentialIds
 	}
 	job.ExternalChecks = row.ExternalChecks
+	// A plan that does not decode leaves Rollback nil beside a set
+	// RollbackOf, which the fan-out fails rather than runs.
+	if row.RollbackOf != "" {
+		job.RollbackOf = row.RollbackOf
+		var plan RollbackPlan
+		if err := json.Unmarshal(row.Rollback, &plan); err == nil {
+			job.Rollback = &plan
+		}
+	}
 	return job
 }
 

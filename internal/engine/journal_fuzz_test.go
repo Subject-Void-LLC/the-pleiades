@@ -108,8 +108,8 @@ func journalFuzzProject(in journalFuzzInput) ([]JournalEntry, error) {
 				"after":  map[string]interface{}{"content": in.StatValue},
 			},
 			sdk.StatInverse: map[string]interface{}{
-				inverseRecordFQCN: in.InverseFQCN,
-				inverseRecordParams: map[string]interface{}{
+				sdk.InverseFQCNKey: in.InverseFQCN,
+				sdk.InverseParamsKey: map[string]interface{}{
 					in.StatKey: in.StatValue,
 					"content":  string(in.Blob),
 				},

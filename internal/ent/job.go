@@ -66,6 +66,10 @@ type Job struct {
 	CredentialIds []int `json:"credential_ids,omitempty"`
 	// ExternalChecks holds the value of the "external_checks" field.
 	ExternalChecks bool `json:"external_checks,omitempty"`
+	// RollbackOf holds the value of the "rollback_of" field.
+	RollbackOf string `json:"rollback_of,omitempty"`
+	// Rollback holds the value of the "rollback" field.
+	Rollback json.RawMessage `json:"rollback,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -95,13 +99,13 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds:
+		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds, job.FieldRollback:
 			values[i] = new([]byte)
 		case job.FieldExternalChecks:
 			values[i] = new(sql.NullBool)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
-		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy:
+		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy, job.FieldRollbackOf:
 			values[i] = new(sql.NullString)
 		case job.FieldCreatedAt, job.FieldUpdatedAt, job.FieldCanceledAt:
 			values[i] = new(sql.NullTime)
@@ -280,6 +284,20 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ExternalChecks = value.Bool
 			}
+		case job.FieldRollbackOf:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field rollback_of", values[i])
+			} else if value.Valid {
+				_m.RollbackOf = value.String
+			}
+		case job.FieldRollback:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field rollback", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Rollback); err != nil {
+					return fmt.Errorf("unmarshal field rollback: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -400,6 +418,12 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("external_checks=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ExternalChecks))
+	builder.WriteString(", ")
+	builder.WriteString("rollback_of=")
+	builder.WriteString(_m.RollbackOf)
+	builder.WriteString(", ")
+	builder.WriteString("rollback=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Rollback))
 	builder.WriteByte(')')
 	return builder.String()
 }

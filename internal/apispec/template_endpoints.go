@@ -519,3 +519,69 @@ var RelaunchJob = Endpoint{
 		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
 	},
 }
+
+// namesSchema is a list of names a rollback request accepts.
+func namesSchema(description string) map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": description}
+}
+
+// RollbackJob is POST /jobs/{id}/rollback.
+var RollbackJob = Endpoint{
+	Name:    "rollback_job",
+	Method:  http.MethodPost,
+	Pattern: "/jobs/{id}/rollback",
+	Scope:   auth.ScopeRunbookExecute,
+	Rel:     auth.RelRollback,
+	Summary: "Roll a job back",
+	Description: "Undoes what a finished runbook job changed, device by device, newest change first. Each change is " +
+		"undone by its task's own rollback: list when the runbook has one, and otherwise by the undo its method " +
+		"recorded in the job's journal. The Controller plans the whole rollback when it is asked, from the journal, " +
+		"what other jobs have done on the same devices since, and the runbook the job ran, and holds every step to " +
+		"that runbook. When any change cannot be undone exactly, a later job has changed the same device since, or " +
+		"an effect cannot be known, nothing is created and the answer lists every problem, each with the request " +
+		"field that accepts it. Otherwise a new job runs the plan, dispatching only the devices it names, and a " +
+		"second rollback of the same job continues where one that stopped partway left off. The runbook must still " +
+		"be the version the job ran; adding or editing a rollback: list does not change its version.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "string", Description: "The job id, a UUID."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"mode":          stringSchema("execute (the default), or check to see what the rollback would change without changing it."),
+			"leave":         namesSchema("Node ids whose changes to leave in place."),
+			"allow_partial": namesSchema("Node ids whose partial undo to run, knowing it does not put back everything the task overwrote."),
+			"allow_unknown": namesSchema("Node ids whose unknown effect to accept, and \"unsealed\" for a job some device never reported back from."),
+			"despite_job":   namesSchema("Ids of later jobs whose changes to the same devices to undo this one beneath."),
+		},
+	},
+	Responses: []Response{
+		{Status: http.StatusAccepted, Description: "A rollback job was persisted and will fan out asynchronously.", Schema: launchAcceptedSchema},
+		{Status: http.StatusBadRequest, Description: "id is not a UUID, the body is malformed, or mode is neither execute nor check.", Schema: errorSchema("")},
+		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No job with that id.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), " +
+			"with an error saying why, or the plan has problems, each listed with the field and value that accept it.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status": stringSchema("\"refused\", when the plan has problems."),
+				"error":  stringSchema("Why."),
+				"problems": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"node":   stringSchema("The node of the job's runbook the problem is about."),
+							"device": stringSchema("The device, by name."),
+							"reason": stringSchema("What is wrong."),
+							"field":  stringSchema("The request field that accepts it; absent when nothing can."),
+							"value":  stringSchema("What to put in that field."),
+						},
+					},
+				},
+			},
+		}},
+		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
+	},
+}

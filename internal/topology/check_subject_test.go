@@ -47,3 +47,42 @@ func TestCheckSubject_AHostileDeviceIDIsOneToken(t *testing.T) {
 		}
 	}
 }
+
+// TestRollbackConsumerIsDisjointFromTheOthers proves a rollback dispatch
+// reaches only the rollback consumer: a Runner that predates rollback
+// (which creates the dispatch and check consumers only) never receives
+// one, and so never runs the runbook being undone in its place.
+func TestRollbackConsumerIsDisjointFromTheOthers(t *testing.T) {
+	under := func(subject, filter string) bool {
+		return strings.HasPrefix(subject, strings.TrimSuffix(filter, ">"))
+	}
+	rollback := RollbackConsumerConfig()
+	for _, other := range []struct {
+		name    string
+		durable string
+		filter  string
+		subject func(string) string
+	}{
+		{"dispatch", DispatchConsumerConfig().Durable, DispatchConsumerConfig().FilterSubject, DispatchSubject},
+		{"check", CheckConsumerConfig().Durable, CheckConsumerConfig().FilterSubject, CheckSubject},
+	} {
+		if other.durable == rollback.Durable {
+			t.Fatalf("the rollback and %s consumers are both named %q", other.name, rollback.Durable)
+		}
+		for _, device := range []string{"dev-1", "router.with.dots", "*", ">", ""} {
+			if under(RollbackSubject(device), other.filter) {
+				t.Errorf("the %s consumer (%s) would receive the rollback %s", other.name, other.filter, RollbackSubject(device))
+			}
+			if under(other.subject(device), rollback.FilterSubject) {
+				t.Errorf("the rollback consumer would receive %s", other.subject(device))
+			}
+			if !under(RollbackSubject(device), rollback.FilterSubject) {
+				t.Errorf("the rollback consumer would not receive %s", RollbackSubject(device))
+			}
+			token, _ := strings.CutPrefix(RollbackSubject(device), rollbackSubjectPrefix)
+			if token == "" || strings.ContainsAny(token, ".*> ") {
+				t.Errorf("RollbackSubject(%q) = %q, want the prefix and one plain token", device, RollbackSubject(device))
+			}
+		}
+	}
+}

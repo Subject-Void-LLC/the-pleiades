@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -10786,6 +10787,9 @@ type JobMutation struct {
 	credential_ids       *[]int
 	appendcredential_ids []int
 	external_checks      *bool
+	rollback_of          *string
+	rollback             *json.RawMessage
+	appendrollback       json.RawMessage
 	clearedFields        map[string]struct{}
 	tasks                map[int]struct{}
 	removedtasks         map[int]struct{}
@@ -12093,6 +12097,120 @@ func (m *JobMutation) ResetExternalChecks() {
 	m.external_checks = nil
 }
 
+// SetRollbackOf sets the "rollback_of" field.
+func (m *JobMutation) SetRollbackOf(s string) {
+	m.rollback_of = &s
+}
+
+// RollbackOf returns the value of the "rollback_of" field in the mutation.
+func (m *JobMutation) RollbackOf() (r string, exists bool) {
+	v := m.rollback_of
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRollbackOf returns the old "rollback_of" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldRollbackOf(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRollbackOf is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRollbackOf requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRollbackOf: %w", err)
+	}
+	return oldValue.RollbackOf, nil
+}
+
+// ClearRollbackOf clears the value of the "rollback_of" field.
+func (m *JobMutation) ClearRollbackOf() {
+	m.rollback_of = nil
+	m.clearedFields[job.FieldRollbackOf] = struct{}{}
+}
+
+// RollbackOfCleared returns if the "rollback_of" field was cleared in this mutation.
+func (m *JobMutation) RollbackOfCleared() bool {
+	_, ok := m.clearedFields[job.FieldRollbackOf]
+	return ok
+}
+
+// ResetRollbackOf resets all changes to the "rollback_of" field.
+func (m *JobMutation) ResetRollbackOf() {
+	m.rollback_of = nil
+	delete(m.clearedFields, job.FieldRollbackOf)
+}
+
+// SetRollback sets the "rollback" field.
+func (m *JobMutation) SetRollback(jm json.RawMessage) {
+	m.rollback = &jm
+	m.appendrollback = nil
+}
+
+// Rollback returns the value of the "rollback" field in the mutation.
+func (m *JobMutation) Rollback() (r json.RawMessage, exists bool) {
+	v := m.rollback
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRollback returns the old "rollback" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldRollback(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRollback is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRollback requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRollback: %w", err)
+	}
+	return oldValue.Rollback, nil
+}
+
+// AppendRollback adds jm to the "rollback" field.
+func (m *JobMutation) AppendRollback(jm json.RawMessage) {
+	m.appendrollback = append(m.appendrollback, jm...)
+}
+
+// AppendedRollback returns the list of values that were appended to the "rollback" field in this mutation.
+func (m *JobMutation) AppendedRollback() (json.RawMessage, bool) {
+	if len(m.appendrollback) == 0 {
+		return nil, false
+	}
+	return m.appendrollback, true
+}
+
+// ClearRollback clears the value of the "rollback" field.
+func (m *JobMutation) ClearRollback() {
+	m.rollback = nil
+	m.appendrollback = nil
+	m.clearedFields[job.FieldRollback] = struct{}{}
+}
+
+// RollbackCleared returns if the "rollback" field was cleared in this mutation.
+func (m *JobMutation) RollbackCleared() bool {
+	_, ok := m.clearedFields[job.FieldRollback]
+	return ok
+}
+
+// ResetRollback resets all changes to the "rollback" field.
+func (m *JobMutation) ResetRollback() {
+	m.rollback = nil
+	m.appendrollback = nil
+	delete(m.clearedFields, job.FieldRollback)
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by ids.
 func (m *JobMutation) AddTaskIDs(ids ...int) {
 	if m.tasks == nil {
@@ -12181,7 +12299,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -12254,6 +12372,12 @@ func (m *JobMutation) Fields() []string {
 	if m.external_checks != nil {
 		fields = append(fields, job.FieldExternalChecks)
 	}
+	if m.rollback_of != nil {
+		fields = append(fields, job.FieldRollbackOf)
+	}
+	if m.rollback != nil {
+		fields = append(fields, job.FieldRollback)
+	}
 	return fields
 }
 
@@ -12310,6 +12434,10 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.CredentialIds()
 	case job.FieldExternalChecks:
 		return m.ExternalChecks()
+	case job.FieldRollbackOf:
+		return m.RollbackOf()
+	case job.FieldRollback:
+		return m.Rollback()
 	}
 	return nil, false
 }
@@ -12367,6 +12495,10 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldCredentialIds(ctx)
 	case job.FieldExternalChecks:
 		return m.OldExternalChecks(ctx)
+	case job.FieldRollbackOf:
+		return m.OldRollbackOf(ctx)
+	case job.FieldRollback:
+		return m.OldRollback(ctx)
 	}
 	return nil, fmt.Errorf("unknown Job field %s", name)
 }
@@ -12544,6 +12676,20 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetExternalChecks(v)
 		return nil
+	case job.FieldRollbackOf:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRollbackOf(v)
+		return nil
+	case job.FieldRollback:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRollback(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
 }
@@ -12709,6 +12855,12 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldCredentialIds) {
 		fields = append(fields, job.FieldCredentialIds)
 	}
+	if m.FieldCleared(job.FieldRollbackOf) {
+		fields = append(fields, job.FieldRollbackOf)
+	}
+	if m.FieldCleared(job.FieldRollback) {
+		fields = append(fields, job.FieldRollback)
+	}
 	return fields
 }
 
@@ -12758,6 +12910,12 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldCredentialIds:
 		m.ClearCredentialIds()
+		return nil
+	case job.FieldRollbackOf:
+		m.ClearRollbackOf()
+		return nil
+	case job.FieldRollback:
+		m.ClearRollback()
 		return nil
 	}
 	return fmt.Errorf("unknown Job nullable field %s", name)
@@ -12838,6 +12996,12 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldExternalChecks:
 		m.ResetExternalChecks()
+		return nil
+	case job.FieldRollbackOf:
+		m.ResetRollbackOf()
+		return nil
+	case job.FieldRollback:
+		m.ResetRollback()
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
@@ -14130,6 +14294,16 @@ type JournalEntryMutation struct {
 	undeclared_inverse_param_count    *int
 	addundeclared_inverse_param_count *int
 	diff_recorded                     *bool
+	inverse_params                    *json.RawMessage
+	appendinverse_params              json.RawMessage
+	inverse_complete                  *bool
+	inverse_partial                   *bool
+	action_changed                    *bool
+	authored_rollback                 *bool
+	rollback_of                       *string
+	undoes_node                       *string
+	undoes_step                       *int
+	addundoes_step                    *int
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -15782,6 +15956,369 @@ func (m *JournalEntryMutation) ResetDiffRecorded() {
 	m.diff_recorded = nil
 }
 
+// SetInverseParams sets the "inverse_params" field.
+func (m *JournalEntryMutation) SetInverseParams(jm json.RawMessage) {
+	m.inverse_params = &jm
+	m.appendinverse_params = nil
+}
+
+// InverseParams returns the value of the "inverse_params" field in the mutation.
+func (m *JournalEntryMutation) InverseParams() (r json.RawMessage, exists bool) {
+	v := m.inverse_params
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInverseParams returns the old "inverse_params" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldInverseParams(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInverseParams is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInverseParams requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInverseParams: %w", err)
+	}
+	return oldValue.InverseParams, nil
+}
+
+// AppendInverseParams adds jm to the "inverse_params" field.
+func (m *JournalEntryMutation) AppendInverseParams(jm json.RawMessage) {
+	m.appendinverse_params = append(m.appendinverse_params, jm...)
+}
+
+// AppendedInverseParams returns the list of values that were appended to the "inverse_params" field in this mutation.
+func (m *JournalEntryMutation) AppendedInverseParams() (json.RawMessage, bool) {
+	if len(m.appendinverse_params) == 0 {
+		return nil, false
+	}
+	return m.appendinverse_params, true
+}
+
+// ClearInverseParams clears the value of the "inverse_params" field.
+func (m *JournalEntryMutation) ClearInverseParams() {
+	m.inverse_params = nil
+	m.appendinverse_params = nil
+	m.clearedFields[journalentry.FieldInverseParams] = struct{}{}
+}
+
+// InverseParamsCleared returns if the "inverse_params" field was cleared in this mutation.
+func (m *JournalEntryMutation) InverseParamsCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldInverseParams]
+	return ok
+}
+
+// ResetInverseParams resets all changes to the "inverse_params" field.
+func (m *JournalEntryMutation) ResetInverseParams() {
+	m.inverse_params = nil
+	m.appendinverse_params = nil
+	delete(m.clearedFields, journalentry.FieldInverseParams)
+}
+
+// SetInverseComplete sets the "inverse_complete" field.
+func (m *JournalEntryMutation) SetInverseComplete(b bool) {
+	m.inverse_complete = &b
+}
+
+// InverseComplete returns the value of the "inverse_complete" field in the mutation.
+func (m *JournalEntryMutation) InverseComplete() (r bool, exists bool) {
+	v := m.inverse_complete
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInverseComplete returns the old "inverse_complete" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldInverseComplete(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInverseComplete is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInverseComplete requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInverseComplete: %w", err)
+	}
+	return oldValue.InverseComplete, nil
+}
+
+// ResetInverseComplete resets all changes to the "inverse_complete" field.
+func (m *JournalEntryMutation) ResetInverseComplete() {
+	m.inverse_complete = nil
+}
+
+// SetInversePartial sets the "inverse_partial" field.
+func (m *JournalEntryMutation) SetInversePartial(b bool) {
+	m.inverse_partial = &b
+}
+
+// InversePartial returns the value of the "inverse_partial" field in the mutation.
+func (m *JournalEntryMutation) InversePartial() (r bool, exists bool) {
+	v := m.inverse_partial
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInversePartial returns the old "inverse_partial" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldInversePartial(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInversePartial is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInversePartial requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInversePartial: %w", err)
+	}
+	return oldValue.InversePartial, nil
+}
+
+// ResetInversePartial resets all changes to the "inverse_partial" field.
+func (m *JournalEntryMutation) ResetInversePartial() {
+	m.inverse_partial = nil
+}
+
+// SetActionChanged sets the "action_changed" field.
+func (m *JournalEntryMutation) SetActionChanged(b bool) {
+	m.action_changed = &b
+}
+
+// ActionChanged returns the value of the "action_changed" field in the mutation.
+func (m *JournalEntryMutation) ActionChanged() (r bool, exists bool) {
+	v := m.action_changed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldActionChanged returns the old "action_changed" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldActionChanged(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldActionChanged is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldActionChanged requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldActionChanged: %w", err)
+	}
+	return oldValue.ActionChanged, nil
+}
+
+// ResetActionChanged resets all changes to the "action_changed" field.
+func (m *JournalEntryMutation) ResetActionChanged() {
+	m.action_changed = nil
+}
+
+// SetAuthoredRollback sets the "authored_rollback" field.
+func (m *JournalEntryMutation) SetAuthoredRollback(b bool) {
+	m.authored_rollback = &b
+}
+
+// AuthoredRollback returns the value of the "authored_rollback" field in the mutation.
+func (m *JournalEntryMutation) AuthoredRollback() (r bool, exists bool) {
+	v := m.authored_rollback
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthoredRollback returns the old "authored_rollback" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldAuthoredRollback(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthoredRollback is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthoredRollback requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthoredRollback: %w", err)
+	}
+	return oldValue.AuthoredRollback, nil
+}
+
+// ResetAuthoredRollback resets all changes to the "authored_rollback" field.
+func (m *JournalEntryMutation) ResetAuthoredRollback() {
+	m.authored_rollback = nil
+}
+
+// SetRollbackOf sets the "rollback_of" field.
+func (m *JournalEntryMutation) SetRollbackOf(s string) {
+	m.rollback_of = &s
+}
+
+// RollbackOf returns the value of the "rollback_of" field in the mutation.
+func (m *JournalEntryMutation) RollbackOf() (r string, exists bool) {
+	v := m.rollback_of
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRollbackOf returns the old "rollback_of" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldRollbackOf(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRollbackOf is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRollbackOf requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRollbackOf: %w", err)
+	}
+	return oldValue.RollbackOf, nil
+}
+
+// ClearRollbackOf clears the value of the "rollback_of" field.
+func (m *JournalEntryMutation) ClearRollbackOf() {
+	m.rollback_of = nil
+	m.clearedFields[journalentry.FieldRollbackOf] = struct{}{}
+}
+
+// RollbackOfCleared returns if the "rollback_of" field was cleared in this mutation.
+func (m *JournalEntryMutation) RollbackOfCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldRollbackOf]
+	return ok
+}
+
+// ResetRollbackOf resets all changes to the "rollback_of" field.
+func (m *JournalEntryMutation) ResetRollbackOf() {
+	m.rollback_of = nil
+	delete(m.clearedFields, journalentry.FieldRollbackOf)
+}
+
+// SetUndoesNode sets the "undoes_node" field.
+func (m *JournalEntryMutation) SetUndoesNode(s string) {
+	m.undoes_node = &s
+}
+
+// UndoesNode returns the value of the "undoes_node" field in the mutation.
+func (m *JournalEntryMutation) UndoesNode() (r string, exists bool) {
+	v := m.undoes_node
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUndoesNode returns the old "undoes_node" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldUndoesNode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUndoesNode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUndoesNode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUndoesNode: %w", err)
+	}
+	return oldValue.UndoesNode, nil
+}
+
+// ClearUndoesNode clears the value of the "undoes_node" field.
+func (m *JournalEntryMutation) ClearUndoesNode() {
+	m.undoes_node = nil
+	m.clearedFields[journalentry.FieldUndoesNode] = struct{}{}
+}
+
+// UndoesNodeCleared returns if the "undoes_node" field was cleared in this mutation.
+func (m *JournalEntryMutation) UndoesNodeCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldUndoesNode]
+	return ok
+}
+
+// ResetUndoesNode resets all changes to the "undoes_node" field.
+func (m *JournalEntryMutation) ResetUndoesNode() {
+	m.undoes_node = nil
+	delete(m.clearedFields, journalentry.FieldUndoesNode)
+}
+
+// SetUndoesStep sets the "undoes_step" field.
+func (m *JournalEntryMutation) SetUndoesStep(i int) {
+	m.undoes_step = &i
+	m.addundoes_step = nil
+}
+
+// UndoesStep returns the value of the "undoes_step" field in the mutation.
+func (m *JournalEntryMutation) UndoesStep() (r int, exists bool) {
+	v := m.undoes_step
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUndoesStep returns the old "undoes_step" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldUndoesStep(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUndoesStep is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUndoesStep requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUndoesStep: %w", err)
+	}
+	return oldValue.UndoesStep, nil
+}
+
+// AddUndoesStep adds i to the "undoes_step" field.
+func (m *JournalEntryMutation) AddUndoesStep(i int) {
+	if m.addundoes_step != nil {
+		*m.addundoes_step += i
+	} else {
+		m.addundoes_step = &i
+	}
+}
+
+// AddedUndoesStep returns the value that was added to the "undoes_step" field in this mutation.
+func (m *JournalEntryMutation) AddedUndoesStep() (r int, exists bool) {
+	v := m.addundoes_step
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUndoesStep resets all changes to the "undoes_step" field.
+func (m *JournalEntryMutation) ResetUndoesStep() {
+	m.undoes_step = nil
+	m.addundoes_step = nil
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -15816,7 +16353,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 40)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -15913,6 +16450,30 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.diff_recorded != nil {
 		fields = append(fields, journalentry.FieldDiffRecorded)
 	}
+	if m.inverse_params != nil {
+		fields = append(fields, journalentry.FieldInverseParams)
+	}
+	if m.inverse_complete != nil {
+		fields = append(fields, journalentry.FieldInverseComplete)
+	}
+	if m.inverse_partial != nil {
+		fields = append(fields, journalentry.FieldInversePartial)
+	}
+	if m.action_changed != nil {
+		fields = append(fields, journalentry.FieldActionChanged)
+	}
+	if m.authored_rollback != nil {
+		fields = append(fields, journalentry.FieldAuthoredRollback)
+	}
+	if m.rollback_of != nil {
+		fields = append(fields, journalentry.FieldRollbackOf)
+	}
+	if m.undoes_node != nil {
+		fields = append(fields, journalentry.FieldUndoesNode)
+	}
+	if m.undoes_step != nil {
+		fields = append(fields, journalentry.FieldUndoesStep)
+	}
 	return fields
 }
 
@@ -15985,6 +16546,22 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.UndeclaredInverseParamCount()
 	case journalentry.FieldDiffRecorded:
 		return m.DiffRecorded()
+	case journalentry.FieldInverseParams:
+		return m.InverseParams()
+	case journalentry.FieldInverseComplete:
+		return m.InverseComplete()
+	case journalentry.FieldInversePartial:
+		return m.InversePartial()
+	case journalentry.FieldActionChanged:
+		return m.ActionChanged()
+	case journalentry.FieldAuthoredRollback:
+		return m.AuthoredRollback()
+	case journalentry.FieldRollbackOf:
+		return m.RollbackOf()
+	case journalentry.FieldUndoesNode:
+		return m.UndoesNode()
+	case journalentry.FieldUndoesStep:
+		return m.UndoesStep()
 	}
 	return nil, false
 }
@@ -16058,6 +16635,22 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldUndeclaredInverseParamCount(ctx)
 	case journalentry.FieldDiffRecorded:
 		return m.OldDiffRecorded(ctx)
+	case journalentry.FieldInverseParams:
+		return m.OldInverseParams(ctx)
+	case journalentry.FieldInverseComplete:
+		return m.OldInverseComplete(ctx)
+	case journalentry.FieldInversePartial:
+		return m.OldInversePartial(ctx)
+	case journalentry.FieldActionChanged:
+		return m.OldActionChanged(ctx)
+	case journalentry.FieldAuthoredRollback:
+		return m.OldAuthoredRollback(ctx)
+	case journalentry.FieldRollbackOf:
+		return m.OldRollbackOf(ctx)
+	case journalentry.FieldUndoesNode:
+		return m.OldUndoesNode(ctx)
+	case journalentry.FieldUndoesStep:
+		return m.OldUndoesStep(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -16291,6 +16884,62 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetDiffRecorded(v)
 		return nil
+	case journalentry.FieldInverseParams:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInverseParams(v)
+		return nil
+	case journalentry.FieldInverseComplete:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInverseComplete(v)
+		return nil
+	case journalentry.FieldInversePartial:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInversePartial(v)
+		return nil
+	case journalentry.FieldActionChanged:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetActionChanged(v)
+		return nil
+	case journalentry.FieldAuthoredRollback:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthoredRollback(v)
+		return nil
+	case journalentry.FieldRollbackOf:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRollbackOf(v)
+		return nil
+	case journalentry.FieldUndoesNode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUndoesNode(v)
+		return nil
+	case journalentry.FieldUndoesStep:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUndoesStep(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -16320,6 +16969,9 @@ func (m *JournalEntryMutation) AddedFields() []string {
 	if m.addundeclared_inverse_param_count != nil {
 		fields = append(fields, journalentry.FieldUndeclaredInverseParamCount)
 	}
+	if m.addundoes_step != nil {
+		fields = append(fields, journalentry.FieldUndoesStep)
+	}
 	return fields
 }
 
@@ -16342,6 +16994,8 @@ func (m *JournalEntryMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUndeclaredParamCount()
 	case journalentry.FieldUndeclaredInverseParamCount:
 		return m.AddedUndeclaredInverseParamCount()
+	case journalentry.FieldUndoesStep:
+		return m.AddedUndoesStep()
 	}
 	return nil, false
 }
@@ -16400,6 +17054,13 @@ func (m *JournalEntryMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddUndeclaredInverseParamCount(v)
 		return nil
+	case journalentry.FieldUndoesStep:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUndoesStep(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry numeric field %s", name)
 }
@@ -16455,6 +17116,15 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(journalentry.FieldInverseParamKeys) {
 		fields = append(fields, journalentry.FieldInverseParamKeys)
+	}
+	if m.FieldCleared(journalentry.FieldInverseParams) {
+		fields = append(fields, journalentry.FieldInverseParams)
+	}
+	if m.FieldCleared(journalentry.FieldRollbackOf) {
+		fields = append(fields, journalentry.FieldRollbackOf)
+	}
+	if m.FieldCleared(journalentry.FieldUndoesNode) {
+		fields = append(fields, journalentry.FieldUndoesNode)
 	}
 	return fields
 }
@@ -16517,6 +17187,15 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldInverseParamKeys:
 		m.ClearInverseParamKeys()
+		return nil
+	case journalentry.FieldInverseParams:
+		m.ClearInverseParams()
+		return nil
+	case journalentry.FieldRollbackOf:
+		m.ClearRollbackOf()
+		return nil
+	case journalentry.FieldUndoesNode:
+		m.ClearUndoesNode()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry nullable field %s", name)
@@ -16621,6 +17300,30 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldDiffRecorded:
 		m.ResetDiffRecorded()
+		return nil
+	case journalentry.FieldInverseParams:
+		m.ResetInverseParams()
+		return nil
+	case journalentry.FieldInverseComplete:
+		m.ResetInverseComplete()
+		return nil
+	case journalentry.FieldInversePartial:
+		m.ResetInversePartial()
+		return nil
+	case journalentry.FieldActionChanged:
+		m.ResetActionChanged()
+		return nil
+	case journalentry.FieldAuthoredRollback:
+		m.ResetAuthoredRollback()
+		return nil
+	case journalentry.FieldRollbackOf:
+		m.ResetRollbackOf()
+		return nil
+	case journalentry.FieldUndoesNode:
+		m.ResetUndoesNode()
+		return nil
+	case journalentry.FieldUndoesStep:
+		m.ResetUndoesStep()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

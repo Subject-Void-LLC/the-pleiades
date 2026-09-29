@@ -499,13 +499,18 @@ subject and the Controller stores it in the `journal_entries` table, keyed by th
 job, the device, the delivery attempt and the graph node, so a redelivered dispatch
 reads as a retry rather than as two unrelated runs.
 
-**The journal stores no value that came back from a device.** It is not masked,
-because there is nothing in it to mask: it holds identifiers the platform generated,
-method names resolved through the collection registry at write time, the parameter
-and return key NAMES a method's own documentation declares, closed status values,
-a content hash of the compiled runbook, the labels the runbook author wrote, and
-counts. It records that a task produced a `stdout`; it does not record what the
-device wrote there. Two consequences follow and both matter in practice:
+**The journal stores no value that came back from a device, with one declared
+exception.** It is not masked, because there is nothing in it to mask: it holds
+identifiers the platform generated, method names resolved through the collection
+registry at write time, the parameter and return key NAMES a method's own
+documentation declares, closed status values, a content hash of the compiled
+runbook, the labels the runbook author wrote, and counts. It records that a task
+produced a `stdout`; it does not record what the device wrote there. The exception
+is what a rollback needs: the values of the undo's parameters that the method
+itself declares are identifiers, such as the path of a directory it made or the
+UUID of a VM it cloned. Each method's declaration names which parameters those are,
+and anything else an undo would need, such as a file's earlier content, is left
+out. Two consequences follow and both matter in practice:
 
 - It is an audit and control-flow artifact, not a diagnostic one. It cannot answer
   what the device actually said. `--verbose` still can.
@@ -513,8 +518,10 @@ device wrote there. Two consequences follow and both matter in practice:
 
 The one channel that does carry human-written text is the labels: a task's `name:`,
 its `register:` and the runbook's `id:` are stored as written. So the honest
-guarantee is "no value the platform obtained", not "no secret a person could type
-into a task name".
+guarantee is "no value the platform obtained, except the identifiers a method
+declares recordable for its undo", not "no secret a person could type into a task
+name". A recorded value is at most 256 bytes of text, a number or a true/false,
+and text a terminal would act on is never recorded.
 
 ### What one journal record contains
 
@@ -578,19 +585,67 @@ These record which keys a task produced or consumed, never their values.
 | `stat_keys` | Return key names the method's own documentation declares, plus the two platform keys `inverse` and `diff`. |
 | `param_keys` | Parameter names the method declares. |
 | `undeclared_stat_count`, `undeclared_param_count` | How many keys were rejected because the registry does not declare them. Counted rather than named, so an undeclared key cannot smuggle text in through its own name. |
-| `inverse_fqcn`, `inverse_param_keys` | The method that would reverse this task, and the names of the parameters such a call takes. Not their values, which is why nothing replays automatically. |
+| `inverse_fqcn`, `inverse_param_keys` | The method that would reverse this task, and the names of the parameters such a call takes. |
 | `inverse_fqcn_unresolved` | True when that reversing method is not in the registry. |
 | `undeclared_inverse_param_count` | The same counter, for the reversing call. |
 | `diff_recorded` | Whether the task recorded a before and after. Not the before or the after. |
 
-### Rollback is authored, not inferred
+**What undoes it**
 
-The journal records the concrete instruction that would reverse a task that changed
-something: the method to call and the names of the parameters such a call takes. It
-does not record their values, so nothing can replay it automatically, and nothing
-in The Pleiades performs a rollback today. Undoing a partial run is an authored
-runbook you write and run deliberately, with the journal as the record of what
-actually happened and therefore of what needs undoing.
+These are what `pleiades rollback` and a Controller rollback are planned from.
+
+| Field | Meaning |
+|---|---|
+| `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false. Only those: a value the method withholds, or one too long or holding control characters, leaves its key out, and the undo is then incomplete. |
+| `inverse_complete` | True when every parameter the undo takes has its value here, so it can be replayed exactly. |
+| `inverse_partial` | True when the undo does not put back everything the task overwrote, such as a file copied over another, whose earlier content is not kept. A rollback runs one only when told to. |
+| `action_changed` | True when the task changed the device, even if a later step of the same task failed. |
+| `authored_rollback` | True when the task had its own `rollback:` list when it ran. |
+| `rollback_of` | On a rollback's own records, the run (or job) it undoes. Empty otherwise. |
+| `undoes_node`, `undoes_step` | On a rollback's own records, the node of that run this record undoes, and which step of its undo. This is how a second rollback continues where one that stopped partway left off. |
+
+### Rolling a run back
+
+A run can be undone from its journal, on either tier: `pleiades rollback <run-id>`
+for a run of the CLI, and `POST /jobs/{id}/rollback` (or **Roll back** on a finished
+job's page) for a Controller job. Both are planned by the same code, and both are an
+ordinary run of ordinary tasks, journaled like any other.
+
+- **What undoes a change.** The task's own `rollback:` list, when its runbook has
+  one, which can be written after the run: adding or editing a `rollback:` list does
+  not change the runbook's version, so the list still applies to the run that
+  failed. Otherwise the undo the method recorded, when it recorded one in full.
+- **The order.** Every change a run made is undone, newest first, and nothing it
+  did not change: a task that only read, or was skipped, has nothing to undo.
+- **It refuses as a whole, before it touches any device.** When a change cannot be
+  undone exactly (no undo was recorded, part of it was withheld, the device has left
+  the inventory), when a later run has changed the same device since, or when the
+  journal is not one a run could have written, the rollback does nothing and lists
+  every problem, each with the flag or field that accepts it: leave a change in
+  place, run a partial undo anyway, accept an unknown effect, or undo beneath a
+  later run. You accept exactly what you read.
+- **What it cannot know.** A task that failed partway may have changed part of what
+  it meant to, and a run whose process was killed has no seal on its journal, so its
+  last level may be missing. Neither is guessed at. The CLI runs everything else and
+  ends incomplete (exit 3); the Controller refuses until each is accepted.
+- **Resuming.** A rollback that stops partway, because an undo failed, can be run
+  again, and it continues from where it stopped. A run already undone in full is
+  refused, and a rollback is never itself rolled back: run the runbook again instead.
+- **What it trusts.** The journal is a file your account can write, or rows a Runner
+  published. So each recorded undo is held to what its method declares: only a
+  built-in method's undo, only through a method it declares, and only values it
+  declares recordable. On the Controller, every step is also held to the runbook the
+  job ran, by the Controller when it plans and by the Runner before it runs, and the
+  runbook must still be the version the job ran. A method from an external
+  Collection program records no undo the rollback will replay; give its task a
+  `rollback:` list.
+
+On the Controller, a rollback job dispatches only the devices it undoes changes on,
+each with its own steps, and each device's steps run in order on that device. A job
+launched on the same devices after the rollback was planned is not detected, since
+the Controller has no lock across jobs; the CLI holds `.pleiades/run.lock` so no run
+starts while a rollback plans and runs. The job's extra variables go to the rollback
+without any answer the template's survey marks as a password.
 
 ### The message bus survives a link outage of any length
 
@@ -1133,6 +1188,12 @@ being run for real by an older one. It waits as long as the stream keeps message
 [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)),
 exactly as a real run waits when no Runner is up at all. Nothing needs configuring; if
 checks sit waiting, look for Runners that have not been upgraded.
+
+**Upgrading Runners for rollback.** A rollback job travels to Runners on a third
+subject, `pleiades.jobs.rollback.<device>`, through its own durable consumer,
+`runner-rollback`. A Runner built before rollback existed never reads it, so it can
+never run the runbook being undone in a rollback's place; a rollback waits for an
+upgraded Runner, as a check does.
 
 ## Security and credentials
 

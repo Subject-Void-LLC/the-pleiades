@@ -51,7 +51,7 @@ func registrars() []Registrar {
 		func(Deps) error { return instancegroups.Register() },
 		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
 		func(d Deps) error {
-			return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d), jobJournal(d), jobLogArchive(d))
+			return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d), jobRollbacker(d), jobJournal(d), jobLogArchive(d))
 		},
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
@@ -116,6 +116,15 @@ func jobCanceller(d Deps) jobs.Canceler {
 // (the conformance harness is one), so this converts explicitly rather than
 // relying on every callee to know the difference.
 func jobRelauncher(d Deps) jobs.Relauncher {
+	if d.Dispatcher == nil {
+		return nil
+	}
+	return d.Dispatcher
+}
+
+// jobRollbacker hands the Jobs view a rollbacker, or an untyped nil, by
+// the conversion jobRelauncher makes and for its reason.
+func jobRollbacker(d Deps) jobs.Rollbacker {
 	if d.Dispatcher == nil {
 		return nil
 	}

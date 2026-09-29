@@ -1,0 +1,1 @@
+`pleiades run` and `pleiades adhoc` now end by naming the run and its journal file (`run_id` and `journal` in `--json`), and a run that returns writes a `<run-id>.end` seal beside its journal, so a journal cut off by a killed process can be told apart from one that finished.

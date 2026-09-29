@@ -149,13 +149,17 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 
 	device, err := dispatchedDevice(payload)
 	if err != nil {
-		refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
-		refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		refused.EventData.Message = err.Error()
-		if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
-			return wire.Outcome{}, fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
+	}
+
+	// A rollback runs its own steps in place of the runbook's tasks, each
+	// held to this Runner's copy of the runbook first (rollback.go).
+	var rollbackOption engine.ExecutorOption = func(*engine.Executor) {}
+	if payload.Rollback != nil {
+		dag, rollbackOption, err = rollbackDAG(dag, payload)
+		if err != nil {
+			return wire.Outcome{}, a.refuse(ctx, payload, err)
 		}
-		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
 	}
 
 	// The same plan-time checks `pleiades validate` and `pleiades run`
@@ -170,13 +174,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// reader sees why nothing ran rather than a run that started and
 		// never finished. The findings name tasks, methods, parameter
 		// names and this device, never a value.
-		refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
-		refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		refused.EventData.Message = err.Error()
-		if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
-			return wire.Outcome{}, fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
-		}
-		return wire.Outcome{}, fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, err)
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
 	}
 	credentials := credential.NewStaticStore(payload.Secrets)
 
@@ -271,6 +269,10 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// An external program's check runs only for a job whose launcher
 		// could run it for real, which the Controller says on the payload.
 		engine.WithExternalChecks(payload.ExternalChecks),
+		// A rollback journals as one: each entry names the job it undoes
+		// and the node it undoes, which is what a later rollback of that
+		// job resumes from.
+		rollbackOption,
 	)
 
 	result, runErr := executor.Run(ctx, dag)
@@ -327,6 +329,19 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
 	}
 	return wire.Outcome{Unchecked: uncheckedCount(result)}, nil
+}
+
+// refuse ends a dispatch that runs nothing: it reports why in the job's
+// own log, like any other finished run, and returns the error the Agent
+// reports as the device's result.
+func (a *Adapter) refuse(ctx context.Context, payload wire.DispatchPayload, why error) error {
+	refused := wire.JobEvent{Status: "failed", Host: payload.DeviceHost, Task: "task.completed"}
+	refused.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	refused.EventData.Message = why.Error()
+	if pubErr := a.publish(ctx, payload.JobID, refused); pubErr != nil {
+		return fmt.Errorf("failed to publish the refusal of runbook %q: %w", payload.RunbookID, pubErr)
+	}
+	return fmt.Errorf("refusing dispatch of runbook %q: %w", payload.RunbookID, why)
 }
 
 // summarize derives the one status word and message Execute's final

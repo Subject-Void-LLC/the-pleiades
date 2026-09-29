@@ -97,6 +97,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/prompt": 45.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/redact": 95.7,
     "github.com/Subject-Void-LLC/the-pleiades/internal/render": 97.2,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/rollback": 92.6,
     "github.com/Subject-Void-LLC/the-pleiades/internal/runbook": 84.3,
     "github.com/Subject-Void-LLC/the-pleiades/internal/runner": 86.8,
     "github.com/Subject-Void-LLC/the-pleiades/internal/schedule": 86.0,

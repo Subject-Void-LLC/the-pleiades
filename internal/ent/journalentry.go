@@ -82,6 +82,22 @@ type JournalEntry struct {
 	UndeclaredInverseParamCount int `json:"undeclared_inverse_param_count,omitempty"`
 	// DiffRecorded holds the value of the "diff_recorded" field.
 	DiffRecorded bool `json:"diff_recorded,omitempty"`
+	// InverseParams holds the value of the "inverse_params" field.
+	InverseParams json.RawMessage `json:"inverse_params,omitempty"`
+	// InverseComplete holds the value of the "inverse_complete" field.
+	InverseComplete bool `json:"inverse_complete,omitempty"`
+	// InversePartial holds the value of the "inverse_partial" field.
+	InversePartial bool `json:"inverse_partial,omitempty"`
+	// ActionChanged holds the value of the "action_changed" field.
+	ActionChanged bool `json:"action_changed,omitempty"`
+	// AuthoredRollback holds the value of the "authored_rollback" field.
+	AuthoredRollback bool `json:"authored_rollback,omitempty"`
+	// RollbackOf holds the value of the "rollback_of" field.
+	RollbackOf string `json:"rollback_of,omitempty"`
+	// UndoesNode holds the value of the "undoes_node" field.
+	UndoesNode string `json:"undoes_node,omitempty"`
+	// UndoesStep holds the value of the "undoes_step" field.
+	UndoesStep   int `json:"undoes_step,omitempty"`
 	selectValues sql.SelectValues
 }
 
@@ -90,13 +106,13 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case journalentry.FieldStatKeys, journalentry.FieldParamKeys, journalentry.FieldInverseParamKeys:
+		case journalentry.FieldStatKeys, journalentry.FieldParamKeys, journalentry.FieldInverseParamKeys, journalentry.FieldInverseParams:
 			values[i] = new([]byte)
-		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded:
+		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded, journalentry.FieldInverseComplete, journalentry.FieldInversePartial, journalentry.FieldActionChanged, journalentry.FieldAuthoredRollback:
 			values[i] = new(sql.NullBool)
-		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount:
+		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -319,6 +335,56 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.DiffRecorded = value.Bool
 			}
+		case journalentry.FieldInverseParams:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field inverse_params", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.InverseParams); err != nil {
+					return fmt.Errorf("unmarshal field inverse_params: %w", err)
+				}
+			}
+		case journalentry.FieldInverseComplete:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field inverse_complete", values[i])
+			} else if value.Valid {
+				_m.InverseComplete = value.Bool
+			}
+		case journalentry.FieldInversePartial:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field inverse_partial", values[i])
+			} else if value.Valid {
+				_m.InversePartial = value.Bool
+			}
+		case journalentry.FieldActionChanged:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field action_changed", values[i])
+			} else if value.Valid {
+				_m.ActionChanged = value.Bool
+			}
+		case journalentry.FieldAuthoredRollback:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field authored_rollback", values[i])
+			} else if value.Valid {
+				_m.AuthoredRollback = value.Bool
+			}
+		case journalentry.FieldRollbackOf:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field rollback_of", values[i])
+			} else if value.Valid {
+				_m.RollbackOf = value.String
+			}
+		case journalentry.FieldUndoesNode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field undoes_node", values[i])
+			} else if value.Valid {
+				_m.UndoesNode = value.String
+			}
+		case journalentry.FieldUndoesStep:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field undoes_step", values[i])
+			} else if value.Valid {
+				_m.UndoesStep = int(value.Int64)
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -450,6 +516,30 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("diff_recorded=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DiffRecorded))
+	builder.WriteString(", ")
+	builder.WriteString("inverse_params=")
+	builder.WriteString(fmt.Sprintf("%v", _m.InverseParams))
+	builder.WriteString(", ")
+	builder.WriteString("inverse_complete=")
+	builder.WriteString(fmt.Sprintf("%v", _m.InverseComplete))
+	builder.WriteString(", ")
+	builder.WriteString("inverse_partial=")
+	builder.WriteString(fmt.Sprintf("%v", _m.InversePartial))
+	builder.WriteString(", ")
+	builder.WriteString("action_changed=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ActionChanged))
+	builder.WriteString(", ")
+	builder.WriteString("authored_rollback=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AuthoredRollback))
+	builder.WriteString(", ")
+	builder.WriteString("rollback_of=")
+	builder.WriteString(_m.RollbackOf)
+	builder.WriteString(", ")
+	builder.WriteString("undoes_node=")
+	builder.WriteString(_m.UndoesNode)
+	builder.WriteString(", ")
+	builder.WriteString("undoes_step=")
+	builder.WriteString(fmt.Sprintf("%v", _m.UndoesStep))
 	builder.WriteByte(')')
 	return builder.String()
 }

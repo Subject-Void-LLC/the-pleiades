@@ -84,7 +84,7 @@ func TestSubscriberDropsABatchTheStoreCanNeverAccept(t *testing.T) {
 
 	bad := walkEntry("job-1", "device-1", 0, 1, "tasks[0]")
 	bad.Outcome = engine.Outcome("teleported")
-	batch := journal.Batch{JobID: "job-1", Entries: []engine.JournalEntry{bad}}
+	batch := journal.Batch{JobID: "job-1", DeviceID: "device-1", Entries: []engine.JournalEntry{bad}}
 
 	if err := sub.Handle(batchEvent(t, batch)); err != nil {
 		t.Errorf("Handle asked for redelivery of a batch that can never be stored: %v", err)
@@ -101,8 +101,9 @@ func TestSubscriberAsksForRedeliveryWhenTheStoreFailsTransiently(t *testing.T) {
 	closeIt()
 
 	batch := journal.Batch{
-		JobID:   "job-1",
-		Entries: []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")},
+		JobID:    "job-1",
+		DeviceID: "device-1",
+		Entries:  []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")},
 	}
 	err := sub.Handle(batchEvent(t, batch))
 	if err == nil {
@@ -218,5 +219,73 @@ func TestSubscriberReportsAFailedSubscription(t *testing.T) {
 	}
 	if !errors.Is(err, errSubscribeRefused) {
 		t.Errorf("the error lost its cause: %v", err)
+	}
+}
+
+// TestSubscriberStoresOnlyWhatTheControllerDispatched is B7: any Runner
+// may publish on any job's subject, so the consumer asks the Controller's
+// record first. A dispatched device's batch is stored; one for a device no
+// Runner was handed is dropped; one the record has not caught up to is
+// asked for again; and a batch whose entries name another job or device
+// than the batch itself is dropped before the record is even asked.
+func TestSubscriberStoresOnlyWhatTheControllerDispatched(t *testing.T) {
+	batchFor := func(job, device string) journal.Batch {
+		return journal.Batch{JobID: job, DeviceID: device, Attempt: 1,
+			Entries: []engine.JournalEntry{walkEntry(job, device, 1, 1, "tasks[0]")}}
+	}
+	for _, tc := range []struct {
+		name      string
+		admission journal.Admission
+		batch     journal.Batch
+		wantErr   bool
+		wantRows  string
+		wantAsked bool
+	}{
+		{"dispatched", journal.AdmitDispatched, batchFor("job-1", "device-1"), false, "1", true},
+		{"never dispatched", journal.AdmitNotDispatched, batchFor("job-1", "device-1"), false, "0", true},
+		{"not recorded yet", journal.AdmitUnrecorded, batchFor("job-1", "device-1"), true, "0", true},
+		{"an entry under another device", journal.AdmitDispatched, journal.Batch{JobID: "job-1", DeviceID: "device-1", Attempt: 1,
+			Entries: []engine.JournalEntry{walkEntry("job-1", "device-2", 1, 1, "tasks[0]")}}, false, "0", false},
+		{"an entry under another job", journal.AdmitDispatched, journal.Batch{JobID: "job-1", DeviceID: "device-1", Attempt: 1,
+			Entries: []engine.JournalEntry{walkEntry("job-2", "device-1", 1, 1, "tasks[0]")}}, false, "0", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, path := newEntStore(t)
+			var asked bool
+			sub := journal.NewSubscriber(store, discardLogger(), journal.WithAdmission(func(_ context.Context, job, device string) (journal.Admission, error) {
+				asked = true
+				if job != tc.batch.JobID || device != tc.batch.DeviceID {
+					t.Errorf("asked about %s/%s, want the batch's own %s/%s", job, device, tc.batch.JobID, tc.batch.DeviceID)
+				}
+				return tc.admission, nil
+			}))
+			err := sub.Handle(batchEvent(t, tc.batch))
+			if (err != nil) != tc.wantErr {
+				t.Errorf("Handle = %v, want an error %v", err, tc.wantErr)
+			}
+			if asked != tc.wantAsked {
+				t.Errorf("admission asked %v, want %v", asked, tc.wantAsked)
+			}
+			if rows := rawQuery(t, path, "SELECT COUNT(*) FROM journal_entries"); rows[0] != tc.wantRows {
+				t.Errorf("the table holds %v rows, want %s", rows, tc.wantRows)
+			}
+		})
+	}
+}
+
+// TestSubscriberRetriesWhenAdmissionCannotBeAnswered proves a failed
+// lookup is a redelivery, never a silent drop or a store.
+func TestSubscriberRetriesWhenAdmissionCannotBeAnswered(t *testing.T) {
+	store, path := newEntStore(t)
+	sub := journal.NewSubscriber(store, discardLogger(), journal.WithAdmission(func(context.Context, string, string) (journal.Admission, error) {
+		return journal.AdmitDispatched, errors.New("the database is unreachable")
+	}))
+	batch := journal.Batch{JobID: "job-1", DeviceID: "device-1", Attempt: 1,
+		Entries: []engine.JournalEntry{walkEntry("job-1", "device-1", 1, 1, "tasks[0]")}}
+	if err := sub.Handle(batchEvent(t, batch)); err == nil {
+		t.Error("Handle = nil when admission could not be answered, want a redelivery")
+	}
+	if rows := rawQuery(t, path, "SELECT COUNT(*) FROM journal_entries"); rows[0] != "0" {
+		t.Errorf("stored %v rows without an answer", rows)
 	}
 }

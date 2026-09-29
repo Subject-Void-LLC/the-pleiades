@@ -418,6 +418,8 @@ var (
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 		{Name: "credential_ids", Type: field.TypeJSON, Nullable: true},
 		{Name: "external_checks", Type: field.TypeBool, Default: false},
+		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
+		{Name: "rollback", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{
@@ -429,6 +431,11 @@ var (
 				Name:    "job_template_id",
 				Unique:  false,
 				Columns: []*schema.Column{JobsColumns[7]},
+			},
+			{
+				Name:    "job_rollback_of",
+				Unique:  false,
+				Columns: []*schema.Column{JobsColumns[25]},
 			},
 		},
 	}
@@ -510,6 +517,14 @@ var (
 		{Name: "inverse_param_keys", Type: field.TypeJSON, Nullable: true},
 		{Name: "undeclared_inverse_param_count", Type: field.TypeInt, Default: 0},
 		{Name: "diff_recorded", Type: field.TypeBool, Default: false},
+		{Name: "inverse_params", Type: field.TypeJSON, Nullable: true},
+		{Name: "inverse_complete", Type: field.TypeBool, Default: false},
+		{Name: "inverse_partial", Type: field.TypeBool, Default: false},
+		{Name: "action_changed", Type: field.TypeBool, Default: false},
+		{Name: "authored_rollback", Type: field.TypeBool, Default: false},
+		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
+		{Name: "undoes_node", Type: field.TypeString, Nullable: true},
+		{Name: "undoes_step", Type: field.TypeInt, Default: 0},
 	}
 	// JournalEntriesTable holds the schema information for the "journal_entries" table.
 	JournalEntriesTable = &schema.Table{
@@ -526,6 +541,11 @@ var (
 				Name:    "journalentry_job_id_device_id_attempt_sequence",
 				Unique:  false,
 				Columns: []*schema.Column{JournalEntriesColumns[3], JournalEntriesColumns[4], JournalEntriesColumns[5], JournalEntriesColumns[8]},
+			},
+			{
+				Name:    "journalentry_rollback_of",
+				Unique:  false,
+				Columns: []*schema.Column{JournalEntriesColumns[38]},
 			},
 		},
 	}

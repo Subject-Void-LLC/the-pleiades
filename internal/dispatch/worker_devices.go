@@ -201,6 +201,13 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// through the same resolution the CLI uses. Off at either is off.
 	payload.PersistConnections = launch.PersistConnections(job.Fields) && engine.PersistFor(w.repo)(ctx, device)
 
+	// A rollback job's device carries its own steps, which its Runner runs
+	// in place of the runbook's tasks (rollback.go).
+	if job.RollbackOf != "" {
+		steps, _ := job.Rollback.StepsFor(string(device.ID()))
+		payload.Rollback = &wire.Rollback{Of: job.RollbackOf, DAGVersion: job.Rollback.DAGVersion, Steps: steps}
+	}
+
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them
 	// supplies authentication for EVERY device in this dispatch, which is
@@ -292,8 +299,16 @@ func (w *Worker) publishDispatch(ctx context.Context, job *Job, traceID string, 
 	//
 	// A check goes to its own subject (topology.CheckSubject), which only a
 	// Runner that knows what a check is ever consumes.
+	//
+	// A rollback, checked or not, goes to the rollback subject: a Runner
+	// that predates rollback would drop its steps and run the runbook
+	// being undone, and one that predates it only on the check side would
+	// check that runbook instead of its undo.
 	subject := topology.DispatchSubject(string(device.ID()))
-	if mode == collection.ModeCheck {
+	switch {
+	case payload.Rollback != nil:
+		subject = topology.RollbackSubject(string(device.ID()))
+	case mode == collection.ModeCheck:
 		subject = topology.CheckSubject(string(device.ID()))
 	}
 	if err := w.bus.Publish(pubCtx, subject, *dispatchEvt); err != nil {

@@ -31,14 +31,22 @@ type Subscriber struct {
 	// accept. Both are acknowledged, so the log line is the only record
 	// that either happened.
 	logger *slog.Logger
+
+	// admit, when set, decides whether a batch's job and device are ones
+	// the Controller dispatched (admission.go).
+	admit AdmissionCheck
 }
 
 // NewSubscriber builds the consumer-side handler over store.
-func NewSubscriber(store *EntStore, logger *slog.Logger) *Subscriber {
+func NewSubscriber(store *EntStore, logger *slog.Logger, opts ...SubscriberOption) *Subscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Subscriber{store: store, logger: logger}
+	s := &Subscriber{store: store, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Subscribe attaches s to the journal subject on bus.
@@ -95,9 +103,39 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		return nil
 	}
 
+	// Every entry describes the batch's own job and device: a batch is one
+	// dispatch's level (native.Adapter's publisher stamps both). Anything
+	// else is a hand-made message trying to write rows under another job
+	// or device than the one it will be admitted as.
+	for _, entry := range batch.Entries {
+		if entry.JobID != batch.JobID || entry.DeviceID != batch.DeviceID {
+			s.logger.Warn("dropping a run journal batch whose entries name another job or device than the batch",
+				slog.String("job", batch.JobID),
+				slog.String("device", batch.DeviceID))
+			return nil
+		}
+	}
+
 	// A fresh context rather than one carried from the handler's caller:
 	// event.Bus.Subscribe hands a decoded Event and no context, and the
 	// write must not inherit a deadline nobody set for it.
+	if s.admit != nil {
+		admission, err := s.admit(context.Background(), batch.JobID, batch.DeviceID)
+		if err != nil {
+			return fmt.Errorf("failed to check the run journal batch for job %s: %w", batch.JobID, err)
+		}
+		switch admission {
+		case AdmitDispatched:
+		case AdmitNotDispatched:
+			s.logger.Warn("dropping a run journal batch for a device this controller never dispatched",
+				slog.String("job", batch.JobID),
+				slog.String("device", batch.DeviceID))
+			return nil
+		default:
+			return fmt.Errorf("the run journal batch names job %s device %s, which this controller has not recorded dispatching yet", batch.JobID, batch.DeviceID)
+		}
+	}
+
 	written, err := s.store.Save(context.Background(), batch.Entries)
 	if err != nil && errors.Is(err, ErrUnstorable) {
 		s.logger.Error("dropping a run journal batch the store can never accept",

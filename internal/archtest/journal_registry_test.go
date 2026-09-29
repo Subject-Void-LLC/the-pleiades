@@ -530,6 +530,27 @@ func journalAssertCount(t *testing.T, fqcn, field string, got int) {
 func journalAssertNoValueSurvived(t *testing.T, fqcn string, entry engine.JournalEntry) {
 	t.Helper()
 
+	// Kind 7, the one declared exception: a value may survive, but only as
+	// an InverseParams element whose key the emitting method's own
+	// manifest declares recordable for this undo's method. Each is checked
+	// against that declaration, then set aside, and the rest of the entry
+	// is held to the full rule.
+	var record []string
+	if desc, ok := collection.Lookup(fqcn); ok {
+		for _, spec := range desc.Manifest.Reversibility.Inverses {
+			if spec.FQCN == entry.InverseFQCN {
+				record = spec.Record
+			}
+		}
+	}
+	for _, p := range entry.InverseParams {
+		if !slices.Contains(record, p.Key) {
+			t.Errorf("%s's journal entry records the value of undo parameter %q, which %s does not declare recordable for %s",
+				fqcn, p.Key, fqcn, entry.InverseFQCN)
+		}
+	}
+	entry.InverseParams = nil
+
 	encoded, err := json.Marshal(entry)
 	if err != nil {
 		t.Fatalf("marshaling %s's journal entry: %v", fqcn, err)

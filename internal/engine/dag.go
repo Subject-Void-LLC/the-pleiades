@@ -177,6 +177,13 @@ type WorkflowDef struct {
 	// Ansible: each task inherits them (propagateTags, tags.go).
 	Tags TagList `json:"tags,omitempty" yaml:"tags,omitempty"`
 
+	// Reversible asks that every task that can change a device be one a
+	// rollback can undo: a method whose recorded undo replays whole, a
+	// read-only method, or a task with an authored rollback: list.
+	// Validation refuses the runbook otherwise (ReversibleRule), before
+	// anything runs. False, the default, asks nothing.
+	Reversible bool `json:"reversible,omitempty" yaml:"reversible,omitempty"`
+
 	// PreTasks runs before Tasks, in order. It is the runbook's setup
 	// phase, mirroring an Ansible play's pre_tasks:.
 	PreTasks []Task `json:"pretasks,omitempty" yaml:"pretasks,omitempty"`
@@ -313,6 +320,13 @@ type Task struct {
 	// carrying either is rejected rather than given invented semantics.
 	Parallel []Task `json:"parallel,omitempty" yaml:"parallel,omitempty"`
 
+	// Rollback is this task's authored undo: plain method tasks that run,
+	// on each device this task changed, when a rollback of the run undoes
+	// it, in place of the undo the method recorded (Phase 40). They never
+	// run in the forward run and are not nodes of its DAG; validateTask
+	// holds them to a plain method call each (validateRollback).
+	Rollback []Task `json:"rollback,omitempty" yaml:"rollback,omitempty"`
+
 	// synthetic marks a structural fan-out/join marker node the Builder
 	// constructs itself (synthesizeParallel), never one a runbook author
 	// writes. It is unexported so it is unreachable from encoding/json or
@@ -330,6 +344,10 @@ type DAG struct {
 	// check, whatever mode the Executor was given (WithMode). The builder
 	// has also copied it onto every task.
 	CheckMode bool
+
+	// Reversible is the runbook's own reversible: key (WorkflowDef),
+	// which validation's ReversibleRule holds every task to.
+	Reversible bool
 
 	// Name is def.Name, carried through unchanged so a compiled runbook
 	// keeps the title its file gave it. The catalog reads it from here
@@ -588,8 +606,10 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	// fully-resolved definition (see DAG.Version's own doc comment for
 	// why that matters). encoding/json is already deterministic here:
 	// struct fields marshal in fixed declaration order and map keys sort,
-	// so no separate canonicalization step is needed.
-	resolvedJSON, err := json.Marshal(def)
+	// so no separate canonicalization step is needed. The rollback keys
+	// are left out (forwardDefinition): the version names what the forward
+	// run does.
+	resolvedJSON, err := json.Marshal(forwardDefinition(def))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute content-hash version: %w", err)
 	}
@@ -603,6 +623,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Metadata:   def.Metadata,
 		Hosts:      def.Hosts,
 		CheckMode:  bool(def.CheckMode),
+		Reversible: def.Reversible,
 		PreTasks:   def.PreTasks,
 		Tasks:      def.Tasks,
 		PostTasks:  def.PostTasks,

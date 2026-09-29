@@ -76,6 +76,15 @@ func CheckConsumerConfig() jetstream.ConsumerConfig {
 	return SubscribeConsumerConfig(CheckDurableName, CheckSubjectAll())
 }
 
+// RollbackConsumerConfig returns the durable consumer every
+// rollback-capable Runner replica shares for rollback dispatches. Its
+// filter shares no subject with the dispatch or check consumer, so a
+// Runner that predates rollback, which creates only those, never receives
+// one: a rollback waits for a Runner that knows what one is.
+func RollbackConsumerConfig() jetstream.ConsumerConfig {
+	return SubscribeConsumerConfig(RollbackDurableName, RollbackSubjectAll())
+}
+
 // LogViewerConsumerConfig returns an ephemeral, non-acknowledging consumer
 // scoped to one job's log subject. It is deliberately not a durable,
 // shared-group consumer: PLAN.md Section 26.4 names live log viewing as the
