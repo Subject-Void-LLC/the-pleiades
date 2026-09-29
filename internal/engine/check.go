@@ -131,10 +131,11 @@ func (r *run) checkAction(ctx context.Context, cmd nodeExecution) (ActionResult,
 
 	result, err := checker.Check(ctx, cmd.Task, cmd.Device)
 	if err != nil {
-		return ActionResult{}, err
+		// The credential the check was handed is masked even when it failed.
+		return ActionResult{Secrets: result.Secrets}, err
 	}
 	if _, recorded := result.Stats[sdk.StatInverse]; recorded {
-		return ActionResult{}, fmt.Errorf("%s: its check recorded an undo instruction (the %q stat), which a check must never do: nothing was changed, so there is nothing to undo",
+		return ActionResult{Secrets: result.Secrets}, fmt.Errorf("%s: its check recorded an undo instruction (the %q stat), which a check must never do: nothing was changed, so there is nothing to undo",
 			cmd.Task.FQCN, sdk.StatInverse)
 	}
 	result.Stats = stampPrediction(result.Stats)

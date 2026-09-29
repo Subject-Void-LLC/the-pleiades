@@ -234,6 +234,15 @@ type Task struct {
 	// later tasks to reference, mirroring Ansible's register:.
 	Register string `json:"register,omitempty" yaml:"register,omitempty"`
 
+	// Within bounds a target chosen from data (Phase 117a): a device name or
+	// inventory tag, written literally, naming the only devices a rendered
+	// params.target may resolve to. The builder requires it beside a target
+	// holding a template and refuses it anywhere else; plan-time checks run
+	// against every device it names (TaskTarget), and at dispatch the
+	// rendered target must name devices inside it, by name, never by tag
+	// (resolveBounded).
+	Within string `json:"within,omitempty" yaml:"within,omitempty"`
+
 	// CheckMode, Ansible's check_mode, runs this task (and, on a block,
 	// its block, rescue and always tasks) in check mode even in a real
 	// run: its method's Check runs instead of its Invoke, and nothing it

@@ -127,6 +127,11 @@ func CELVariableOptions() []cel.EnvOption {
 		cel.Variable("stat", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("nodes", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
+		// result is each register one device (or one device-less task)
+		// wrote, by name alone (Phase 117a, render_params.go's
+		// singleWriters), so a condition reads result.ticket.json rather
+		// than indexing stat by a device id it cannot know.
+		cel.Variable("result", cel.MapType(cel.StringType, cel.DynType)),
 	}
 }
 
@@ -251,7 +256,10 @@ func (p *celProgram) EvalPartial(vars map[string]interface{}, unknown []UnknownR
 	for _, u := range unknown {
 		for variable := range registerVariables {
 			pattern := cel.AttributePattern(variable).QualString(u.Name)
-			if !u.Whole {
+			// result holds a register's stats directly, with no device
+			// level, so any unknown device of a register leaves its whole
+			// entry there unknown.
+			if !u.Whole && variable != "result" {
 				pattern = pattern.QualString(u.Device)
 			}
 			patterns = append(patterns, pattern)

@@ -15,7 +15,8 @@ import (
 // plain-language message").
 //
 // Every legacy built-in fqcn (noop, ssh_exec, ios_backup) and every
-// engine keyword (set_fact, debug, import_tasks) is, and by
+// engine keyword (import_tasks today; set_fact and debug are Ansible
+// keywords with no engine equivalent yet, Phases 87 and 88) is, and by
 // docs/hephaestus.md's own design will remain, a bare, undotted word:
 // pkg/collection.Register itself refuses to register any name without a
 // dot (PLAN.md Section 2's <namespace>.<method> requirement), so no

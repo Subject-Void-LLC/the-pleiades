@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // collectionActionExecutor runs a task whose FQCN names a registered
@@ -235,11 +236,16 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		seeded.addSecrets(seed)
 	}
 
+	// The credential the method is handed joins the run's masking set, even
+	// when it fails, so an error or a stat echoing it back is masked at the
+	// output boundary like a register_mask'd value is.
+	secrets := credentialSecrets(rc.InjectSecrets())
+
 	e.lendPool(ctx, rc, device)
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
 	if err != nil {
-		return ActionResult{}, methodError(task.FQCN, mode, err)
+		return ActionResult{Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}
 
 	stats := map[string]interface{}{}
@@ -247,10 +253,10 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		stats = collector.Facts()
 	}
 	if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
-		return ActionResult{}, err
+		return ActionResult{Secrets: secrets}, err
 	}
 
-	return ActionResult{Changed: result.Changed, Stats: stats}, nil
+	return ActionResult{Changed: result.Changed, Stats: stats, Secrets: secrets}, nil
 }
 
 // holdReadOnly fails a built-in method that declares it only reads
@@ -302,4 +308,25 @@ func methodError(fqcn string, mode collection.Mode, err error) error {
 		return &UncheckedError{FQCN: fqcn, Reason: cannot.Reason}
 	}
 	return fmt.Errorf("collection method %q: %w", fqcn, err)
+}
+
+// credentialSecrets returns the values of a method's credential that output
+// must never show: every value except the ones a credential names as
+// identifiers (its username, a certificate's public half, a seeded login's
+// username and public key). The SSH transport's own masking leaves the same
+// identifiers readable (action_ssh.go), and for the same reason: masking is
+// a substring scrub, so a short username such as root would scrub every
+// path under /root out of a run's report. Everything else is masked,
+// including a key this list has never heard of, so a secret field added to
+// a credential later is masked by default.
+func credentialSecrets(secrets map[string]string) []string {
+	out := make([]string, 0, len(secrets))
+	for key, value := range secrets {
+		switch key {
+		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey:
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }

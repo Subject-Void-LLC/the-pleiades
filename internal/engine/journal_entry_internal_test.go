@@ -34,7 +34,7 @@ func buildInternalDAG(t *testing.T, payload string) *DAG {
 	return dag
 }
 
-// TestValidFailureStageAcceptsEveryDeclaredStage pins the nine stages
+// TestValidFailureStageAcceptsEveryDeclaredStage pins the ten stages
 // against the check, and pins the two shapes that must be refused: the
 // zero value, which is a failure site that never tagged itself, and a
 // constant nobody added to the check.
@@ -43,6 +43,7 @@ func TestValidFailureStageAcceptsEveryDeclaredStage(t *testing.T) {
 		FailureStageWorkflowRead,
 		FailureStageConditionEval,
 		FailureStageSecretMask,
+		FailureStageRender,
 		FailureStageResolveTarget,
 		FailureStageLockAll,
 		FailureStageLockDevice,
@@ -50,8 +51,8 @@ func TestValidFailureStageAcceptsEveryDeclaredStage(t *testing.T) {
 		FailureStageRegisterMask,
 		FailureStageRecord,
 	}
-	if len(declared) != 9 {
-		t.Fatalf("this table lists %d stages; journal.go declares nine, one per failure call site", len(declared))
+	if len(declared) != 10 {
+		t.Fatalf("this table lists %d stages; journal.go declares ten, one per failure call site", len(declared))
 	}
 	for _, stage := range declared {
 		if !validFailureStage(stage) {

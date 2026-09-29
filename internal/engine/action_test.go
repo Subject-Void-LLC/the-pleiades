@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestBuiltinActionExecutor_Noop confirms the default "noop" action never
@@ -153,6 +154,51 @@ func TestTaskTarget(t *testing.T) {
 			dag := &engine.DAG{Hosts: tc.hosts}
 			task := &engine.Task{Params: tc.params}
 			if got := engine.TaskTarget(dag, task); got != tc.want {
+				t.Errorf("TaskTarget() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTaskTarget_ACallThatNeedsNoDeviceSkipsHosts is Phase 117a's
+// execution context at the one place targets are decided: a call whose
+// method acts on no device, or on one only for some calls and not this one,
+// does not take the runbook's hosts:, while every other call keeps today's
+// fallback and a task's own target still wins.
+func TestTaskTarget_ACallThatNeedsNoDeviceSkipsHosts(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	isPath := func(p map[string]any) bool {
+		s, _ := p["url"].(string)
+		return strings.HasPrefix(s, "/")
+	}
+	for _, d := range []collection.Descriptor{
+		{Name: "test117a.optional", Manifest: collection.Manifest{Status: collection.StatusDeclared,
+			ExecutionContext: collection.ExecutionContext{Site: collection.SiteController, Device: collection.DeviceOptional}}, DeviceCall: isPath},
+		{Name: "test117a.none", Manifest: collection.Manifest{Status: collection.StatusDeclared,
+			ExecutionContext: collection.ExecutionContext{Site: collection.SiteController, Device: collection.DeviceNone}}},
+		{Name: "test117a.target", Manifest: collection.Manifest{Status: collection.StatusDeclared,
+			ExecutionContext: collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired}}},
+	} {
+		if err := collection.Register(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dag := &engine.DAG{Hosts: "switches"}
+	for _, tc := range []struct {
+		name   string
+		fqcn   string
+		params map[string]any
+		want   string
+	}{
+		{"an optional device's call that needs none", "test117a.optional", map[string]any{"url": "https://api.example.com/x"}, ""},
+		{"an optional device's call that needs one", "test117a.optional", map[string]any{"url": "/x"}, "switches"},
+		{"a method using no device", "test117a.none", nil, ""},
+		{"a method using no device, with a target of its own", "test117a.none", map[string]any{"target": "api1"}, "api1"},
+		{"a target-side method", "test117a.target", nil, "switches"},
+		{"an engine builtin", "noop", nil, "switches"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := engine.TaskTarget(dag, &engine.Task{FQCN: tc.fqcn, Params: tc.params}); got != tc.want {
 				t.Errorf("TaskTarget() = %q, want %q", got, tc.want)
 			}
 		})

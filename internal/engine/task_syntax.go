@@ -29,6 +29,7 @@ var ReservedTaskKeys = map[string]bool{
 	"fqcn":             true,
 	"params":           true,
 	"register":         true,
+	"within":           true,
 	"check_mode":       true,
 	"when":             true,
 	"when_or":          true,

@@ -110,6 +110,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 		{"Capabilities", quoteList(capNames)},
 		{"Transports", quoteList(m.SupportedTransports)},
 		{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
+		{"Runs", runsWhere(m.ExecutionContext)},
 		{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)},
 		{"Engine version", code(m.EngineVersion)},
 	}))
@@ -301,4 +302,26 @@ func writeModulesIndex(modulesDir string, byNamespace map[string][]string) error
 	b.WriteString(table([]string{"FQCN", "Status", "Summary"}, allRows))
 
 	return os.WriteFile(filepath.Join(modulesDir, "index.md"), []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
+}
+
+// runsWhere says, for a reference page, where a method's code runs and
+// whether it acts on a device (PLAN.md Section 14's execution context). An
+// unstated field reads as target-side with a device required, as the engine
+// reads it.
+func runsWhere(ec collection.ExecutionContext) string {
+	site := "on or against the target device"
+	switch ec.Site {
+	case collection.SiteController:
+		site = "in the host process (the CLI or a Runner)"
+	case collection.SiteHybrid:
+		site = "partly in the host process and partly on the target device"
+	}
+	switch ec.Device {
+	case collection.DeviceOptional:
+		return site + "; acts on a device only for some calls, and a call that needs none skips the runbook's hosts: and runs once"
+	case collection.DeviceNone:
+		return site + "; acts on no device, so a task skips the runbook's hosts: and runs once"
+	default:
+		return site + "; acts on its target device"
+	}
 }

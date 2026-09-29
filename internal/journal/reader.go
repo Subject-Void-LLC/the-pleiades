@@ -182,7 +182,7 @@ var (
 	}
 	knownStage = map[engine.FailureStage]bool{
 		engine.FailureStageNone: true, engine.FailureStageWorkflowRead: true, engine.FailureStageConditionEval: true,
-		engine.FailureStageSecretMask: true, engine.FailureStageResolveTarget: true, engine.FailureStageLockAll: true,
+		engine.FailureStageSecretMask: true, engine.FailureStageRender: true, engine.FailureStageResolveTarget: true, engine.FailureStageLockAll: true,
 		engine.FailureStageLockDevice: true, engine.FailureStageAction: true, engine.FailureStageRegisterMask: true,
 		engine.FailureStageRecord: true,
 	}

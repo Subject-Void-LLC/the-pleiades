@@ -1,0 +1,1 @@
+On the Controller's native path, an extra variable a bound credential injects is no longer readable by a runbook condition when it holds a secret, so a runbook cannot branch on a secret's value; the job's log names each variable withheld, never its value. A native method still receives its credential directly, and the Ansible path is unchanged.

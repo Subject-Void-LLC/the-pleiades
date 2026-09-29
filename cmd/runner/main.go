@@ -50,6 +50,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	// Blank-imported so every generated Collection method registers itself
 	// into pkg/collection before native.Adapter's own
 	// engine.NewCollectionActionExecutor ever looks one up, mirroring
@@ -419,7 +420,7 @@ func main() {
 		log.Fatalf("failed to init runbook source: %v", err)
 	}
 
-	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger)
+	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger, native.WithRenderer(render.New()))
 	if err != nil {
 		log.Fatalf("failed to init native adapter: %v", err)
 	}

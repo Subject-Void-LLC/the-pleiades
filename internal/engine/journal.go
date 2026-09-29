@@ -504,6 +504,12 @@ const (
 	// resolution (executor_secrets.go).
 	FailureStageSecretMask FailureStage = "secret_mask"
 
+	// FailureStageRender is "failed to render the parameters of"
+	// (executor.go, runNode): a parameter holding a template read an
+	// undefined name, failed a filter, or had no renderer to render it. It
+	// runs before any device is touched.
+	FailureStageRender FailureStage = "render"
+
 	// FailureStageResolveTarget is "failed to resolve target"
 	// (executor.go:636), including the case of a named target that
 	// matches no inventory host or tag.

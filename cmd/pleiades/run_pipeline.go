@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
@@ -51,6 +52,9 @@ type runOptions struct {
 	verbose bool
 	// asJSON prints the report as one JSON document instead of text.
 	asJSON bool
+	// variables are run's --extra-vars, the vars root a runbook's
+	// conditions and rendered parameters read; nil when none were given.
+	variables map[string]any
 
 	// rollbackOf, set only by `pleiades rollback`, names the run this run
 	// undoes; undoes says which node and step of it each of this run's
@@ -405,6 +409,12 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		opts.forks,
 		engine.WithJournal(sink),
 		engine.WithMode(mode),
+		// run's --extra-vars; the Controller's Runner passes a launch's own
+		// the same way (internal/adapters/native).
+		engine.WithVariables(opts.variables),
+		// Task params that hold a template render through this one engine
+		// (internal/engine's render_params.go).
+		engine.WithRenderer(render.New()),
 		// Marks each entry of a rollback with what it undoes; a no-op for an
 		// ordinary run, whose rollbackOf is empty.
 		engine.WithRollback(opts.rollbackOf, opts.undoes),

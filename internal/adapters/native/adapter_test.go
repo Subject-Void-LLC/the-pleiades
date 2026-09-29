@@ -203,6 +203,49 @@ func TestAdapter_Execute_ExtraVarsReachWhenCEL(t *testing.T) {
 	}
 }
 
+// TestAdapter_Execute_AnInjectedSecretIsNotReadableByWhenCEL is Phase
+// 117a's S3 through the real adapter and engine: before the fix a runbook
+// could branch on a bound credential's secret variable, one bit per task,
+// which masking cannot hide because it scrubs text and not control flow.
+// The secret variable is absent from vars, a non-secret one is still there,
+// and the job's log names the withheld variable without its value.
+func TestAdapter_Execute_AnInjectedSecretIsNotReadableByWhenCEL(t *testing.T) {
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: reads the secret\n    noop:\n      changed: true\n    when_cel: \"has(vars.token)\"\n  - name: reads the region\n    noop:\n      changed: false\n    when_cel: \"has(vars.region)\"\n    register: region\n")
+	bus := &mockBus{}
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	payload := wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
+		Injected: &wire.Injected{
+			ExtraVars: map[string]any{"token": "a-real-bearer-token", "region": "us-east-1"},
+			Mask:      []string{"a-real-bearer-token"},
+		},
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
+		t.Fatalf("Execute() returned unexpected error: %v", err)
+	}
+	// Only the task reading the secret would report changed, so an ok run
+	// is the proof that has(vars.token) read false.
+	if got := bus.lastJobEvent(t); got.Status != "ok" {
+		t.Errorf("final status = %q, want ok: a condition read the injected secret", got.Status)
+	}
+	var warned bool
+	for _, evt := range bus.logEvents("job-1") {
+		body := string(evt.Data)
+		if strings.Contains(body, "a-real-bearer-token") {
+			t.Fatalf("the job's log carries the secret: %s", body)
+		}
+		if strings.Contains(body, "task.warning") && strings.Contains(body, `\"token\"`) {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("the job's log does not name the withheld variable")
+	}
+}
+
 func TestAdapter_Execute_UnregisteredFQCNFails(t *testing.T) {
 	bus := &mockBus{}
 	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    fqcn: pkg.apt.install\n")

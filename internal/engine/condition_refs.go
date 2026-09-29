@@ -14,9 +14,10 @@ import (
 )
 
 // registerVariables are the CEL variables a condition reaches registered
-// results through. Both are bound to the same WorkflowContext tree
-// (runNode), keyed by register name.
-var registerVariables = map[string]bool{"stat": true, "nodes": true}
+// results through, each keyed by register name: stat and nodes are the same
+// WorkflowContext tree (runNode), and result holds the registers one device
+// wrote (singleWriters).
+var registerVariables = map[string]bool{"stat": true, "nodes": true, "result": true}
 
 // parseEnv is the CEL environment conditions are parsed in. Parsing needs
 // no declarations, only the standard macros, so one environment serves
