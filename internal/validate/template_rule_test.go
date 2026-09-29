@@ -75,4 +75,11 @@ func TestTemplateRule(t *testing.T) {
 	if f := validate.TemplateRule(validate.WorldView{DAG: self}); len(f) != 1 || !strings.Contains(f[0].Message, "own register") {
 		t.Errorf("a task reading its own register: findings %v", f)
 	}
+
+	// A task with no name is named by its id alone, never by an empty
+	// name in quotes.
+	unnamed := yamlDAG(t, "id: u\ntasks:\n  - t117.api:\n      url: /api/x\n      body: \"{{ nodes.nothing }}\"\n")
+	if f := validate.TemplateRule(validate.WorldView{DAG: unnamed}); len(f) != 1 || !strings.HasPrefix(f[0].Message, "task tasks[0], parameter body:") {
+		t.Errorf("an unnamed task: findings %v", f)
+	}
 }

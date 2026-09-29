@@ -4,6 +4,7 @@
 package inventory_test
 
 import (
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -99,6 +100,25 @@ func TestBindingDigest_ChangesWithEveryBoundProperty(t *testing.T) {
 	unbound["other"] = "y"
 	if inventory.BindingDigest(inventory.NewProperties(unbound), keys) != digest {
 		t.Error("a key outside the bound set changed the digest")
+	}
+}
+
+// TestBindingDigest_BindsAValueJSONCannotEncode: a bound value JSON refuses
+// (a NaN, an infinity) is still bound, by its Go form, so the digest is
+// stable for it, differs from the key being absent, and changes when the
+// value does.
+func TestBindingDigest_BindsAValueJSONCannotEncode(t *testing.T) {
+	keys := []string{"weight"}
+	digest := func(v inventory.PropertyValue) string {
+		return inventory.BindingDigest(inventory.NewProperties(map[string]inventory.PropertyValue{"weight": v}), keys)
+	}
+	nan := digest(math.NaN())
+	if nan != digest(math.NaN()) {
+		t.Error("the digest of an unencodable value is not stable")
+	}
+	absent := inventory.BindingDigest(inventory.NewProperties(nil), keys)
+	if nan == absent || nan == digest(math.Inf(1)) || digest(math.Inf(1)) == digest(math.Inf(-1)) {
+		t.Error("an unencodable value collided with another value or with its absence")
 	}
 }
 

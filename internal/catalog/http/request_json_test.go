@@ -1,12 +1,15 @@
-// Tests for http.request's json stat (Phase 117a), against real HTTP
-// servers in this process, as the rest of this package's tests are.
+// Tests for http.request's json stat and its DeviceCall (Phase 117a), against
+// real HTTP servers in this process, as the rest of this package's tests are.
 package http_test
 
 import (
+	"errors"
 	"io"
 	nethttp "net/http"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestRequest_RecordsAJSONBodyDecoded: a body the server says is JSON is
@@ -93,5 +96,39 @@ func TestRequest_RefusesABodyOverTheBound(t *testing.T) {
 		if err != nil || len(rc.stats["content"].(string)) != size {
 			t.Errorf("a %d-byte body: error = %v, content %d bytes", size, err, len(rc.stats["content"].(string)))
 		}
+	}
+}
+
+// TestRequest_JSONRecordFailureIsReported: a failure to record the decoded
+// body fails the task, as a failure to record any other stat does, rather
+// than leaving a later task to read a json stat that is not there.
+func TestRequest_JSONRecordFailureIsReported(t *testing.T) {
+	server := requestServer(t, func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"a":1}`)
+	})
+	rc := newRequestContext()
+	rc.failOn = "json"
+	if _, err := requestRun(rc, map[string]any{"url": server.URL}); !errors.Is(err, errRequestStat) {
+		t.Fatalf("err = %v, want the recording failure", err)
+	}
+}
+
+// TestRequest_DeviceCallFollowsTheURL: http.request needs a device exactly
+// when its url is a path on the device's API; a full URL needs none, and a
+// url that is not text keeps needing one, so hosts: still applies to a call
+// validation refuses anyway.
+func TestRequest_DeviceCallFollowsTheURL(t *testing.T) {
+	d, ok := collection.Lookup("http.request")
+	if !ok || d.DeviceCall == nil {
+		t.Fatal("http.request has no DeviceCall")
+	}
+	for url, want := range map[any]bool{"/api/items": true, "https://itsm.example.com/api": false, 42: true} {
+		if got := d.DeviceCall(map[string]any{"url": url}); got != want {
+			t.Errorf("url %v: DeviceCall = %v, want %v", url, got, want)
+		}
+	}
+	if !d.DeviceCall(map[string]any{}) {
+		t.Error("a call with no url needs no device")
 	}
 }

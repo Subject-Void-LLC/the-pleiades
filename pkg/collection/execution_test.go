@@ -44,6 +44,20 @@ func TestCheckExecutionContext(t *testing.T) {
 	}
 }
 
+// TestRegister_RefusesAnIncoherentExecutionContext: Register itself runs
+// the execution-context check, so a method that claims to run on its
+// target with no device is refused and never becomes reachable.
+func TestRegister_RefusesAnIncoherentExecutionContext(t *testing.T) {
+	const name = "test.exec_incoherent"
+	err := Register(Descriptor{Name: name, Manifest: Manifest{ExecutionContext: ExecutionContext{Site: SiteTarget, Device: DeviceNone}}})
+	if err == nil || !strings.Contains(err.Error(), "runs on its target") {
+		t.Fatalf("Register = %v, want the execution-context refusal", err)
+	}
+	if _, ok := Lookup(name); ok {
+		t.Error("a refused method was registered anyway")
+	}
+}
+
 // TestNeedsDevice: none never needs a device, optional asks DeviceCall
 // with the call's params, and anything else, unstated included, does.
 func TestNeedsDevice(t *testing.T) {

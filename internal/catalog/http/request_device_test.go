@@ -140,6 +140,23 @@ func requestAPIDevice(t *testing.T, base, auth string, onboarded bool) inventory
 	return item
 }
 
+// requestRepointedDevice builds a generic_http device onboarded against
+// another base URL and since pointed at base, as an inventory write that
+// needs no onboarding leaves it: its discovery grants nothing.
+func requestRepointedDevice(t *testing.T, base string) inventory.InventoryItem {
+	t.Helper()
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://onboarded.invalid", generic.HTTPAuthProperty: httpapi.AuthBasic}
+	d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = d.Property()
+	props[generic.BaseURLProperty] = base
+	item, err := generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
 // requestSecretsContext is a requestContext holding the device's
 // credential, as the engine's context does.
 type requestSecretsContext struct {
@@ -219,6 +236,7 @@ func TestRequestDevice_Refusals(t *testing.T) {
 		{"own host", onboarded, map[string]any{"url": "/items", "headers": map[string]any{"Host": "evil.invalid"}}, creds, "Host"},
 		{"certificates off with a credential", onboarded, map[string]any{"url": "/items", "validate_certs": false}, creds, "validate_certs"},
 		{"credential missing", onboarded, map[string]any{"url": "/items"}, nil, "stored username and password"},
+		{"repointed since onboarding", requestRepointedDevice(t, srv.URL), map[string]any{"url": "/items"}, creds, "run `pleiades onboard api1` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := srv.hits.Load()
