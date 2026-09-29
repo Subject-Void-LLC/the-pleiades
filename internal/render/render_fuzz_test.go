@@ -69,6 +69,18 @@ func FuzzCompileAndRender(f *testing.F) {
 		"{{ a }}\x00{{ b }}",
 		"{{ \xff\xfe }}",
 		"{{ a | " + strings.Repeat("upper | ", 50) + "upper }}",
+
+		// Phase 117a's rendered task parameters: the new filters, a URL
+		// built around an expression, a value that is one expression and
+		// nothing else, and a path with an index.
+		"{{ ticket | urlencode }}",
+		"{{ ci | cli_token }}",
+		"/api/now/table/incident/{{ result.ticket.json.sys_id | urlencode }}",
+		"{{ result.collect.stdout | to_json }}",
+		`{"body": {{ result.collect.stdout | to_json }}}`,
+		"{{ nodes.x.y[0].z }}",
+		"{{ a | urlencode | cli_token }}",
+		"show interface {{ ci | cli_token }}",
 	}
 	for _, s := range seeds {
 		f.Add(s)
@@ -128,6 +140,41 @@ func FuzzCompileAndRender(f *testing.F) {
 			t.Fatalf("recompiling changed the output: %q then %q", out, outAgain)
 		}
 
+		// Property 6 (Phase 117a): Expressions agrees with Names about which
+		// roots a template reads, every path starts with its root, and every
+		// filter an expression names is one Compile accepted.
+		roots := map[string]bool{}
+		for _, e := range tmpl.Expressions() {
+			if len(e.Path) == 0 {
+				t.Fatalf("Expressions() reported an empty path for %q", source)
+			}
+			roots[e.Path[0]] = true
+		}
+		if len(roots) != len(names) {
+			t.Fatalf("Expressions() reads roots %v and Names() reports %v", roots, names)
+		}
+		for _, n := range names {
+			if !roots[n] {
+				t.Fatalf("Names() reports %q, which no expression reads", n)
+			}
+		}
+
+		// Property 7 (Phase 117a): Value evaluates exactly the templates that
+		// are one expression and nothing else, and for those it agrees with
+		// Render, since every sentinel and every filter's output is text.
+		value, single, err := tmpl.Value(full)
+		if single && !valueIsWhole(source) {
+			t.Fatalf("Value(%q) evaluated a template that is not one action and nothing else", source)
+		}
+		if single {
+			if err != nil {
+				t.Fatalf("Value(%q) failed where Render succeeded: %v", source, err)
+			}
+			if text, isText := value.(string); isText && text != out {
+				t.Fatalf("Value(%q) = %q and Render gave %q", source, text, out)
+			}
+		}
+
 		// Property 3, the security property, and the reason this package
 		// exists.
 		//
@@ -172,4 +219,22 @@ func FuzzCompileAndRender(f *testing.F) {
 			}
 		}
 	})
+}
+
+// valueIsWhole reports whether source could be one action and nothing
+// else, the only shape Value may evaluate. It is a necessary condition, not
+// a sufficient one ("{{ a }}}}" passes it and ends in text), so the fuzz
+// target asserts only that Value never evaluates a source failing it.
+//
+// A trim marker ("{{-" or "-}}") removes the whitespace beside it, so that
+// whitespace is not text the template holds: " {{- a }}" is one action and
+// nothing else.
+func valueIsWhole(source string) bool {
+	if strings.HasPrefix(strings.TrimLeft(source, " \t\r\n"), "{{-") {
+		source = strings.TrimLeft(source, " \t\r\n")
+	}
+	if strings.HasSuffix(strings.TrimRight(source, " \t\r\n"), "-}}") {
+		source = strings.TrimRight(source, " \t\r\n")
+	}
+	return strings.Count(source, "{{") == 1 && strings.HasPrefix(source, "{{") && strings.HasSuffix(source, "}}")
 }

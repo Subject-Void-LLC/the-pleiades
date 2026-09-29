@@ -20,7 +20,7 @@
 // This is not Jinja2. It is a strict, closed subset of Jinja2's expression
 // syntax, chosen so that the whole grammar can be fuzzed and reasoned
 // about. Statement blocks, comments, and every filter outside a closed set
-// of seven are refused loudly at compile time rather than passed through as
+// of nine are refused loudly at compile time rather than passed through as
 // literal text, because silent passthrough is how an author comes to
 // believe a loop ran.
 //
@@ -142,4 +142,30 @@ type Template interface {
 	// Source is the template text this was compiled from, returned
 	// unchanged so an error message or an audit record can quote it.
 	Source() string
+
+	// Value evaluates a template that is exactly one expression, with no
+	// text around it, to the value its filters leave, keeping its type: a
+	// list stays a list and a number a number, so a task parameter written
+	// as "{{ nodes.x }}" hands a method the data rather than its text. It
+	// reports false, and evaluates nothing, for any other template, whose
+	// caller renders text instead. Strict undefined applies as in Render,
+	// and so does the output bound, to a value that is text.
+	Value(vars map[string]any) (any, bool, error)
+
+	// Expressions describes each expression the template holds, in order:
+	// the path it reads and the filters it applies. It is what lets a
+	// caller check at save time what a template reads (a register written
+	// by an earlier task) and how it ends (quote on a command line).
+	Expressions() []ExpressionInfo
+}
+
+// ExpressionInfo describes one {{ ... }} expression in a template.
+type ExpressionInfo struct {
+	// Path is the reference it reads, root first, then each key or index
+	// as the author wrote it: "nodes", "ticket", "json" for
+	// {{ nodes.ticket.json }}, and "hosts", "0" for {{ hosts[0] }}.
+	Path []string
+
+	// Filters are the filter names it applies, left to right.
+	Filters []string
 }
