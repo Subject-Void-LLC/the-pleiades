@@ -11,7 +11,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent archive emits a file.remove naming it, which is a real, restorable inverse for the archive itself. A run that found the archive already present emits nothing. What no inverse here can restore is whatever remove=true deleted once the archive was written: those source paths are gone, and the archive holding their bytes is exactly what the inverse would just have deleted."
+      "notes": "A run that created an absent archive emits a file.remove naming it, which is a real, restorable inverse for the archive itself. A run that found the archive already present emits nothing. What no inverse here can restore is whatever remove=true deleted once the archive was written: those source paths are gone, and the archive holding their bytes is exactly what the inverse would just have deleted.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ],
+          "mayBePartial": true
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -170,7 +179,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that launched a fresh instance (name did not already exist among non-terminated instances) emits a cloud.aws.ec2.terminate naming the launched instance_id. A run that found an existing match emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing instance's image or type against what was requested."
+      "notes": "A run that launched a fresh instance (name did not already exist among non-terminated instances) emits a cloud.aws.ec2.terminate naming the launched instance_id. A run that found an existing match emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing instance's image or type against what was requested.",
+      "inverses": [
+        {
+          "fqcn": "cloud.aws.ec2.terminate",
+          "record": [
+            "instance_id"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -284,7 +301,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog."
+      "notes": "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog.",
+      "inverses": [
+        {
+          "fqcn": "cloud.aws.s3.delete_bucket",
+          "record": [
+            "bucket"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -484,6 +509,11 @@
           "description": "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."
         },
         {
+          "name": "id",
+          "type": "string",
+          "description": "When set, the container named name must be this one, by its full id, or the task is refused and nothing is removed. A rollback sets it, so undoing the task that created a container never removes a different container run later under the same name."
+        },
+        {
           "name": "insecure_skip_host_key_verify",
           "type": "bool",
           "default": "false",
@@ -534,7 +564,17 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested."
+      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
+      "inverses": [
+        {
+          "fqcn": "container.docker.remove",
+          "record": [
+            "name",
+            "force",
+            "id"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1017,7 +1057,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing on the device, and so has nothing an undo could restore."
+      "notes": "Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing on the device, and so has nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -1114,7 +1155,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "Deleting text is usually the least reversible thing a method can do, and the markers are what make this the exception: they say exactly which lines belonged to the block, so the run that removes them captures the body and emits a file.block.set that writes it back. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so it cannot be sure which of several matching lines it took away. What this still does not restore: a block that was in the MIDDLE of a file comes back at the END, because file.block.set appends, and the emitted inverse says so in its own description when that applies. Nor does it restore a final newline added to a file that had none. A run that found no block emits nothing, because undoing a run that changed nothing means doing nothing."
+      "notes": "Deleting text is usually the least reversible thing a method can do, and the markers are what make this the exception: they say exactly which lines belonged to the block, so the run that removes them captures the body and emits a file.block.set that writes it back. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so it cannot be sure which of several matching lines it took away. What this still does not restore: a block that was in the MIDDLE of a file comes back at the END, because file.block.set appends, and the emitted inverse says so in its own description when that applies. Nor does it restore a final newline added to a file that had none. A run that found no block emits nothing, because undoing a run that changed nothing means doing nothing.",
+      "inverses": [
+        {
+          "fqcn": "file.block.set",
+          "record": [
+            "path",
+            "marker",
+            "marker_begin",
+            "marker_end"
+          ],
+          "withhold": [
+            "block"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1213,7 +1268,30 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The strongest undo in the file namespace, and the markers are why: they delimit on the device the exact region this run replaced, so a run that changed a block emits an instruction restoring the previous body verbatim, and a run that added one emits a file.block.remove. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so a later edit can make that pattern match a different line and its undo cannot promise the text lands where it came from. What this still does not restore: anything outside the markers, the file's mode and owner (which this method never changes, and puts back after each rewrite), and a final newline added to a file that had none, which the emitted inverse says in its own description. A converged run emits nothing, because undoing a run that changed nothing means doing nothing."
+      "notes": "The strongest undo in the file namespace, and the markers are why: they delimit on the device the exact region this run replaced, so a run that changed a block emits an instruction restoring the previous body verbatim, and a run that added one emits a file.block.remove. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so a later edit can make that pattern match a different line and its undo cannot promise the text lands where it came from. What this still does not restore: anything outside the markers, the file's mode and owner (which this method never changes, and puts back after each rewrite), and a final newline added to a file that had none, which the emitted inverse says in its own description. A converged run emits nothing, because undoing a run that changed nothing means doing nothing.",
+      "inverses": [
+        {
+          "fqcn": "file.block.set",
+          "record": [
+            "path",
+            "marker",
+            "marker_begin",
+            "marker_end"
+          ],
+          "withhold": [
+            "block"
+          ]
+        },
+        {
+          "fqcn": "file.block.remove",
+          "record": [
+            "path",
+            "marker",
+            "marker_begin",
+            "marker_end"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1323,7 +1401,25 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the file emits a file.remove that deletes it again, which is a complete undo. A run that OVERWROTE an existing file emits a file.permissions restoring the mode, owner and group it found, and the previous CONTENT is not restored by it: those bytes are not read before the write and are not journaled anywhere, so once the new content lands the old content is gone. The emitted instruction says so in its own description rather than leaving a rollback to discover it. A run that changed nothing emits nothing."
+      "notes": "A run that created the file emits a file.remove that deletes it again, which is a complete undo. A run that OVERWROTE an existing file emits a file.permissions restoring the mode, owner and group it found, and the previous CONTENT is not restored by it: those bytes are not read before the write and are not journaled anywhere, so once the new content lands the old content is gone. The emitted instruction says so in its own description rather than leaving a rollback to discover it. A run that changed nothing emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        },
+        {
+          "fqcn": "file.permissions",
+          "record": [
+            "path",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "mayBePartial": true
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1453,7 +1549,24 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo."
+      "notes": "A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        },
+        {
+          "fqcn": "file.permissions",
+          "record": [
+            "path",
+            "mode",
+            "owner",
+            "group"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1534,7 +1647,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed something emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because this can take several lines from several places and putting them back with file.line.set would pile them all at the end instead. That makes the record as large as the file. A run that found nothing to remove emits nothing, and so does a run against a file that was not there. The modification time is not restored, and file.copy itself is declared rather than implemented today."
+      "notes": "A run that removed something emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because this can take several lines from several places and putting them back with file.line.set would pile them all at the end instead. That makes the record as large as the file. A run that found nothing to remove emits nothing, and so does a run against a file that was not there. The modification time is not restored, and file.copy itself is declared rather than implemented today.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1623,7 +1750,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that changed the file emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because a line edit is not reliably undone by another line edit: a replacement has already thrown the old line away, and an anchored insert cannot be located again. That makes the record as large as the file. A converged run emits nothing, since undoing a change that was never made means doing nothing, and a run that fails partway emits nothing either. The modification time is not restored, and file.copy itself is declared rather than implemented today."
+      "notes": "A run that changed the file emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because a line edit is not reliably undone by another line edit: a replacement has already thrown the old line away, and an anchored insert cannot be located again. That makes the record as large as the file. A converged run emits nothing, since undoing a change that was never made means doing nothing, and a run that fails partway emits nothing either. The modification time is not restored, and file.copy itself is declared rather than implemented today.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1717,7 +1858,18 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that changed something emits a file.permissions carrying the mode, owner and group the path had before, which restores it exactly. A converged run emits nothing, because undoing a change that was never made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before failing stays applied and has to be re-run rather than undone."
+      "notes": "A run that changed something emits a file.permissions carrying the mode, owner and group the path had before, which restores it exactly. A converged run emits nothing, because undoing a change that was never made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before failing stays applied and has to be re-run rather than undone.",
+      "inverses": [
+        {
+          "fqcn": "file.permissions",
+          "record": [
+            "path",
+            "mode",
+            "owner",
+            "group"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1883,7 +2035,24 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the link emits a file.remove naming it, which deletes the link and never what it points at. A run that found a link already there and repointed it emits a file.symlink pointing back at the target it had, because removing that link would delete something the run never created. A converged run emits nothing, since it sent no command at all."
+      "notes": "A run that created the link emits a file.remove naming it, which deletes the link and never what it points at. A run that found a link already there and repointed it emits a file.symlink pointing back at the target it had, because removing that link would delete something the run never created. A converged run emits nothing, since it sent no command at all.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        },
+        {
+          "fqcn": "file.symlink",
+          "record": [
+            "path"
+          ],
+          "withhold": [
+            "src"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -1972,7 +2141,25 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the file emits a file.remove naming it. A run that found the file already there and also changed its mode, owner or group emits a file.permissions carrying the old ones, which is a partial undo: the modification time this method moves on every run is NOT restored, because no method in this catalog can set one. A run that found the file already there and only re-stamped it emits nothing at all, since the modification time is then the single thing that moved and nothing here can put it back."
+      "notes": "A run that created the file emits a file.remove naming it. A run that found the file already there and also changed its mode, owner or group emits a file.permissions carrying the old ones, which is a partial undo: the modification time this method moves on every run is NOT restored, because no method in this catalog can set one. A run that found the file already there and only re-stamped it emits nothing at all, since the modification time is then the single thing that moved and nothing here can put it back.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        },
+        {
+          "fqcn": "file.permissions",
+          "record": [
+            "path",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "mayBePartial": true
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -2062,7 +2249,17 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that mounted an absent path emits an fs.unmount naming it, which also strips the fstab entry this run added, if any. A run that found the path already mounted and only added or updated its fstab entry emits no inverse: undoing that without also unmounting a mount this task did not create needs a capability this namespace does not expose. A run that found everything already as requested emits nothing."
+      "notes": "A run that mounted an absent path emits an fs.unmount naming it, which also strips the fstab entry this run added, if any. A run that found the path already mounted and only added or updated its fstab entry emits no inverse: undoing that without also unmounting a mount this task did not create needs a capability this namespace does not expose. A run that found everything already as requested emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "fs.unmount",
+          "record": [
+            "path",
+            "persist",
+            "fstab"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -2154,7 +2351,22 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that unmounted a mounted path emits an fs.mount pinned to the exact src, fstype and opts this run captured before unmounting, which is a real, restorable inverse. If this run also removed the path's fstab entry, the inverse asks fs.mount to persist it again. A run that found the path already unmounted and only removed a stale fstab entry emits no inverse: undoing that without also mounting something this task did not mount needs a capability this namespace does not expose. A run that found everything already absent emits nothing."
+      "notes": "A run that unmounted a mounted path emits an fs.mount pinned to the exact src, fstype and opts this run captured before unmounting, which is a real, restorable inverse. If this run also removed the path's fstab entry, the inverse asks fs.mount to persist it again. A run that found the path already unmounted and only removed a stale fstab entry emits no inverse: undoing that without also mounting something this task did not mount needs a capability this namespace does not expose. A run that found everything already absent emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "fs.mount",
+          "record": [
+            "path",
+            "fstype",
+            "persist",
+            "fstab"
+          ],
+          "withhold": [
+            "src",
+            "opts"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -2229,7 +2441,20 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that allowed the permanent configuration, the runtime one, or both emits an fw.firewalld.deny naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already allowed emits nothing."
+      "notes": "A run that allowed the permanent configuration, the runtime one, or both emits an fw.firewalld.deny naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already allowed emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "fw.firewalld.deny",
+          "record": [
+            "port",
+            "protocol",
+            "service",
+            "zone",
+            "permanent",
+            "immediate"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -2321,7 +2546,20 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed the rule from the permanent configuration, the runtime one, or both emits an fw.firewalld.allow naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already denied emits nothing."
+      "notes": "A run that removed the rule from the permanent configuration, the runtime one, or both emits an fw.firewalld.allow naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already denied emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "fw.firewalld.allow",
+          "record": [
+            "port",
+            "protocol",
+            "service",
+            "zone",
+            "permanent",
+            "immediate"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -2561,7 +2799,22 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent group emits an identity.group.remove naming it. A run that found the group already present but converged its gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the group already at the requested gid emits nothing."
+      "notes": "A run that created an absent group emits an identity.group.remove naming it. A run that found the group already present but converged its gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the group already at the requested gid emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "identity.group.remove",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "identity.group.modify",
+          "record": [
+            "name",
+            "gid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -2638,7 +2891,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that converged the gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the gid already matching emits nothing."
+      "notes": "A run that converged the gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the gid already matching emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "identity.group.modify",
+          "record": [
+            "name",
+            "gid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -2705,7 +2967,17 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a present group emits an identity.group.create pinned to the exact gid this run captured before removing it, which is a real, restorable inverse. A run that found the group already absent emits nothing. What the inverse cannot restore is any user's primary or supplementary membership in the group at the moment it was removed."
+      "notes": "A run that removed a present group emits an identity.group.create pinned to the exact gid this run captured before removing it, which is a real, restorable inverse. A run that found the group already absent emits nothing. What the inverse cannot restore is any user's primary or supplementary membership in the group at the moment it was removed.",
+      "inverses": [
+        {
+          "fqcn": "identity.group.create",
+          "record": [
+            "name",
+            "gid"
+          ],
+          "mayBePartial": true
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -2766,7 +3038,28 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent account emits an identity.user.remove naming it. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed."
+      "notes": "A run that created an absent account emits an identity.user.remove naming it. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed.",
+      "inverses": [
+        {
+          "fqcn": "identity.user.remove",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "identity.user.modify",
+          "record": [
+            "name",
+            "uid",
+            "group",
+            "shell",
+            "home"
+          ],
+          "withhold": [
+            "comment"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -2869,7 +3162,22 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that converged one or more attributes emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found every requested attribute already matching emits nothing."
+      "notes": "A run that converged one or more attributes emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found every requested attribute already matching emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "identity.user.modify",
+          "record": [
+            "name",
+            "uid",
+            "group",
+            "shell",
+            "home"
+          ],
+          "withhold": [
+            "comment"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -2955,7 +3263,23 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a present account emits an identity.user.create pinned to the exact uid, group, shell, home and comment this run captured before removing it, which is a real, restorable inverse for the account's identity attributes. A run that found the account already absent emits nothing. What the inverse cannot restore is the account's password (never captured by this platform), or the home directory's contents once remove=true has asked userdel to delete them."
+      "notes": "A run that removed a present account emits an identity.user.create pinned to the exact uid, group, shell, home and comment this run captured before removing it, which is a real, restorable inverse for the account's identity attributes. A run that found the account already absent emits nothing. What the inverse cannot restore is the account's password (never captured by this platform), or the home directory's contents once remove=true has asked userdel to delete them.",
+      "inverses": [
+        {
+          "fqcn": "identity.user.create",
+          "record": [
+            "name",
+            "uid",
+            "group",
+            "shell",
+            "home"
+          ],
+          "withhold": [
+            "comment"
+          ],
+          "mayBePartial": true
+        }
+      ]
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -3024,7 +3348,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3072,7 +3397,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A read-only reachability check changes nothing on the device, so there is nothing to undo."
+      "notes": "A read-only reachability check changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3131,7 +3457,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3177,7 +3504,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3395,7 +3723,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo."
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3494,7 +3823,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo."
+      "notes": "A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3660,7 +3990,7 @@
     "noCheckReason": "only applying the document says what the device makes of it: the running datastore has no staging area, and a check through the candidate datastore would stage the document on the device, which a check promises not to do",
     "doc": {
       "summary": "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
-      "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the target datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
+      "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
       "params": [
         {
           "name": "content",
@@ -3669,7 +3999,7 @@
           "description": "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."
         },
         {
-          "name": "target",
+          "name": "datastore",
           "type": "string",
           "default": "running",
           "description": "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."
@@ -3690,19 +4020,19 @@
           "name": "lock",
           "type": "string",
           "default": "never",
-          "description": "Whether to lock the target datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."
+          "description": "Whether to lock the datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."
         },
         {
           "name": "commit",
           "type": "bool",
           "default": "true",
-          "description": "Commit after a successful edit. Only meaningful when target is candidate, since a running-datastore edit is already live; ignored otherwise."
+          "description": "Commit after a successful edit. Only meaningful when datastore is candidate, since a running-datastore edit is already live; ignored otherwise."
         },
         {
           "name": "backup",
           "type": "bool",
           "default": "false",
-          "description": "Capture the target datastore's full contents with get-config before applying anything, recorded under the backup stat."
+          "description": "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -3716,7 +4046,7 @@
           "name": "backup",
           "type": "string",
           "returned": "when backup is true",
-          "description": "The target datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."
+          "description": "The datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."
         }
       ],
       "examples": [
@@ -3748,7 +4078,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false."
+      "notes": "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -3784,7 +4115,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking."
+      "notes": "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking.",
+      "inverses": [
+        {
+          "fqcn": "pkg.apt.remove",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -3861,7 +4200,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files."
+      "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.",
+      "inverses": [
+        {
+          "fqcn": "pkg.apt.install",
+          "record": [
+            "name",
+            "version"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -3997,7 +4345,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it already present, even at a different version than requested, emits nothing, for the same reason pkg.apt.install's inverse does not fire on a version change: the version already there before this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. What the inverse cannot restore is anything the package's scriptlets did beyond placing its own files."
+      "notes": "A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it already present, even at a different version than requested, emits nothing, for the same reason pkg.apt.install's inverse does not fire on a version change: the version already there before this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. What the inverse cannot restore is anything the package's scriptlets did beyond placing its own files.",
+      "inverses": [
+        {
+          "fqcn": "pkg.dnf.remove",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4074,7 +4430,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a present package emits a pkg.dnf.install pinned to the exact version-release this run captured before removing it, which is a real, restorable inverse: reinstalling that build undoes exactly what this run did to the rpm database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own scriptlets did beyond deleting the package's files."
+      "notes": "A run that removed a present package emits a pkg.dnf.install pinned to the exact version-release this run captured before removing it, which is a real, restorable inverse: reinstalling that build undoes exactly what this run did to the rpm database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own scriptlets did beyond deleting the package's files.",
+      "inverses": [
+        {
+          "fqcn": "pkg.dnf.install",
+          "record": [
+            "name",
+            "version"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4207,7 +4572,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that installed an absent package emits a pkg.apt.remove and a run that found it already present emits nothing. The instruction names the concrete method rather than pkg.remove, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
+      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that installed an absent package emits a pkg.apt.remove and a run that found it already present emits nothing. The instruction names the concrete method rather than pkg.remove, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone.",
+      "inverses": [
+        {
+          "fqcn": "pkg.apt.remove",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "pkg.dnf.remove",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4277,7 +4656,23 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that removed a present package emits a pkg.apt.install pinned to the version it captured before removing, and a run that found the package already absent emits nothing. The instruction names the concrete method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop rather than svc.stop."
+      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that removed a present package emits a pkg.apt.install pinned to the version it captured before removing, and a run that found the package already absent emits nothing. The instruction names the concrete method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop rather than svc.stop.",
+      "inverses": [
+        {
+          "fqcn": "pkg.apt.install",
+          "record": [
+            "name",
+            "version"
+          ]
+        },
+        {
+          "fqcn": "pkg.dnf.install",
+          "record": [
+            "name",
+            "version"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4418,7 +4813,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, so the device is as it would have been had the task never run and there is nothing to undo."
+      "notes": "It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, so the device is as it would have been had the task never run and there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "endsLoginSession": true,
@@ -4450,7 +4846,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "This method only observes: it opens a TCP connection from the device and reports whether it succeeded, so the device is in exactly the state it would have been in had the task never run. There is nothing to undo, and an inverse that waited again would be work the forward run never did."
+      "notes": "This method only observes: it opens a TCP connection from the device and reports whether it succeeded, so the device is in exactly the state it would have been in had the task never run. There is nothing to undo, and an inverse that waited again would be work the forward run never did.",
+      "readOnly": true
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
@@ -4563,7 +4960,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that disabled an enabled service emits an svc.systemd.enable and a run that found it already disabled emits nothing. That concrete method also records what its own undo cannot preserve, such as a unit that was enabled only until the next reboot."
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that disabled an enabled service emits an svc.systemd.enable and a run that found it already disabled emits nothing. That concrete method also records what its own undo cannot preserve, such as a unit that was enabled only until the next reboot.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.enable",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "svc.windows.enable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4621,7 +5032,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that enabled a disabled service emits an svc.systemd.disable and a run that found it already enabled emits nothing. The undo restores the boot-time setting only, never stopping a service that is running."
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that enabled a disabled service emits an svc.systemd.disable and a run that found it already enabled emits nothing. The undo restores the boot-time setting only, never stopping a service that is running.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.disable",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "svc.windows.disable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4737,7 +5162,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that started a stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. The instruction names the concrete method rather than svc.stop, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that started a stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. The instruction names the concrete method rather than svc.stop, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.stop",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "svc.windows.stop",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4796,7 +5235,21 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that stopped a running service emits an svc.systemd.start and a run that found it already stopped emits nothing. Starting it again restores the service, never what it missed while it was down."
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that stopped a running service emits an svc.systemd.start and a run that found it already stopped emits nothing. Starting it again restores the service, never what it missed while it was down.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.start",
+          "record": [
+            "name"
+          ]
+        },
+        {
+          "fqcn": "svc.windows.start",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4897,7 +5350,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that disabled an enabled unit emits an svc.systemd.enable naming it. A run that found it already disabled emits nothing. One thing the undo does not preserve: a unit that was enabled-runtime, meaning enabled only until the next reboot, comes back as permanently enabled, because systemctl enable has no way to say \"only until reboot\" about a unit it is restoring."
+      "notes": "A run that disabled an enabled unit emits an svc.systemd.enable naming it. A run that found it already disabled emits nothing. One thing the undo does not preserve: a unit that was enabled-runtime, meaning enabled only until the next reboot, comes back as permanently enabled, because systemctl enable has no way to say \"only until reboot\" about a unit it is restoring.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.enable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -4958,7 +5419,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it already enabled emits nothing. The undo restores the boot-time setting only; it never stops a unit that is running, because enabling never started one."
+      "notes": "A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it already enabled emits nothing. The undo restores the boot-time setting only; it never stops a unit that is running, because enabling never started one.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.disable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5080,7 +5549,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that started a stopped unit emits an svc.systemd.stop naming it. A run that found it already running emits nothing, since undoing it means doing nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the unit to where it was, not the system."
+      "notes": "A run that started a stopped unit emits an svc.systemd.stop naming it. A run that found it already running emits nothing, since undoing it means doing nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the unit to where it was, not the system.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.stop",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5146,7 +5623,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that stopped a running unit emits an svc.systemd.start naming it. A run that found it already stopped emits nothing. Starting it again returns the unit to running, but nothing can restore what the service missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
+      "notes": "A run that stopped a running unit emits an svc.systemd.start naming it. A run that found it already stopped emits nothing. Starting it again returns the unit to running, but nothing can restore what the service missed while it was down: requests that were refused, queues that backed up, timers that did not fire.",
+      "inverses": [
+        {
+          "fqcn": "svc.systemd.start",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5211,7 +5696,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now."
+      "notes": "A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now.",
+      "inverses": [
+        {
+          "fqcn": "svc.windows.enable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5270,7 +5763,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming it. A run that found the start type already Automatic emits nothing. A run that changed a start type of Manual to Automatic emits no inverse at all, deliberately: this namespace's disable only sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never stops a service that is running, because enabling never started one."
+      "notes": "A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming it. A run that found the start type already Automatic emits nothing. A run that changed a start type of Manual to Automatic emits no inverse at all, deliberately: this namespace's disable only sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never stops a service that is running, because enabling never started one.",
+      "inverses": [
+        {
+          "fqcn": "svc.windows.disable",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5380,7 +5881,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that started a stopped service emits an svc.windows.stop naming it. A run that found it already running emits nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the service to where it was, not the system."
+      "notes": "A run that started a stopped service emits an svc.windows.stop naming it. A run that found it already running emits nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the service to where it was, not the system.",
+      "inverses": [
+        {
+          "fqcn": "svc.windows.stop",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5440,7 +5949,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that stopped a running service emits an svc.windows.start naming it. A run that found it already stopped emits nothing. Starting it again returns the service to running, but nothing can restore what it missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
+      "notes": "A run that stopped a running service emits an svc.windows.start naming it. A run that found it already stopped emits nothing. Starting it again returns the service to running, but nothing can restore what it missed while it was down: requests that were refused, queues that backed up, timers that did not fire.",
+      "inverses": [
+        {
+          "fqcn": "svc.windows.start",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5616,7 +6133,17 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing."
+      "notes": "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.snapshot.delete",
+          "record": [
+            "vm",
+            "name",
+            "uuid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -5679,7 +6206,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this reads the VM and the host's DHCP leases and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this reads the VM and the host's DHCP leases and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -5731,7 +6259,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that made a VM emits virt.vbox.vm.delete naming it; one that found a VM under the name emits nothing."
+      "notes": "A run that made a VM emits virt.vbox.vm.delete naming it and pinning its UUID, so a VM made later under the name is refused rather than deleted; one that found a VM under the name emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.delete",
+          "record": [
+            "name",
+            "uuid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "seedsLogin": "login",
@@ -5885,13 +6422,18 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Deletes a stopped VirtualBox VM and its disks.",
-      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
       "params": [
         {
           "name": "name",
           "type": "string",
           "required": true,
           "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "uuid",
+          "type": "string",
+          "description": "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."
         }
       ],
       "returns": [
@@ -5991,7 +6533,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this reads the VM's console log and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this reads the VM's console log and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -6042,7 +6585,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that made a VM emits virt.vbox.vm.delete naming it, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing."
+      "notes": "A run that made a VM emits virt.vbox.vm.delete naming it and pinning its UUID, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.delete",
+          "record": [
+            "name",
+            "uuid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6131,7 +6683,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that imported a VM emits virt.vbox.vm.delete naming it; one that found a VM under the name emits nothing."
+      "notes": "A run that imported a VM emits virt.vbox.vm.delete naming it and pinning its UUID, so a VM made later under the name is refused rather than deleted; one that found a VM under the name emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.delete",
+          "record": [
+            "name",
+            "uuid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6190,7 +6751,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this runs VBoxManage showvminfo and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this runs VBoxManage showvminfo and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -6284,7 +6846,16 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that installed a VM emits virt.vbox.vm.delete naming it, which deletes its disk with it; the ISO is never changed. One that found an installed VM under the name emits nothing."
+      "notes": "A run that installed a VM emits virt.vbox.vm.delete naming it and pinning its UUID, which deletes its disk with it; the ISO is never changed. One that found an installed VM under the name emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.delete",
+          "record": [
+            "name",
+            "uuid"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6406,7 +6977,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this lists VMs and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this lists VMs and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -6444,7 +7016,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this reads the VM's log and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this reads the VM's log and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -6507,7 +7080,17 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing."
+      "notes": "A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.resize",
+          "record": [
+            "name",
+            "memory_mb",
+            "cpus"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6719,7 +7302,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that started a stopped VM emits virt.vbox.vm.stop naming it; one that found it running emits nothing. Stopping it does not undo what the guest did while it ran."
+      "notes": "A run that started a stopped VM emits virt.vbox.vm.stop naming it; one that found it running emits nothing. Stopping it does not undo what the guest did while it ran.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.stop",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6777,7 +7368,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that stopped a running VM emits virt.vbox.vm.start naming it; one that found it stopped emits nothing. Starting it again does not bring back what a power cut lost."
+      "notes": "A run that stopped a running VM emits virt.vbox.vm.start naming it; one that found it stopped emits nothing. Starting it again does not bring back what a power cut lost.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.start",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -6849,7 +7448,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "This method waits for a device to answer and changes nothing on it, so there is nothing to undo."
+      "notes": "This method waits for a device to answer and changes nothing on it, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": false,
     "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
@@ -6937,7 +7537,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "This method watches a path and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded."
+      "notes": "This method watches a path and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded.",
+      "readOnly": true
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
@@ -7040,7 +7641,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded."
+      "notes": "This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded.",
+      "readOnly": true
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
@@ -7167,7 +7769,8 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this reports the host's processors and alters nothing, so there is nothing an undo could restore."
+      "notes": "Reading is not changing: this reports the host's processors and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
@@ -7251,7 +7854,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that enabled a disabled feature emits a win.feature.remove naming it. A run that found it already enabled emits nothing. What the inverse cannot undo is anything the feature's own presence changed on the system while it was enabled, and either direction may need the restart reboot_required reports before it is complete."
+      "notes": "A run that enabled a disabled feature emits a win.feature.remove naming it. A run that found it already enabled emits nothing. What the inverse cannot undo is anything the feature's own presence changed on the system while it was enabled, and either direction may need the restart reboot_required reports before it is complete.",
+      "inverses": [
+        {
+          "fqcn": "win.feature.remove",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
@@ -7310,7 +7921,15 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that disabled an enabled feature emits a win.feature.install naming it. A run that found it already disabled emits nothing. Re-enabling it does not pass /all a second time from this inverse, so a parent feature the original install pulled in stays exactly as removing this one left it."
+      "notes": "A run that disabled an enabled feature emits a win.feature.install naming it. A run that found it already disabled emits nothing. Re-enabling it does not pass /all a second time from this inverse, so a parent feature the original install pulled in stays exactly as removing this one left it.",
+      "inverses": [
+        {
+          "fqcn": "win.feature.install",
+          "record": [
+            "name"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {

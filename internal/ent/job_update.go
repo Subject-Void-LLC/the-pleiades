@@ -367,6 +367,12 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.CredentialIdsCleared() {
 		_spec.ClearField(job.FieldCredentialIds, field.TypeJSON)
 	}
+	if _u.mutation.RollbackOfCleared() {
+		_spec.ClearField(job.FieldRollbackOf, field.TypeString)
+	}
+	if _u.mutation.RollbackCleared() {
+		_spec.ClearField(job.FieldRollback, field.TypeJSON)
+	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -799,6 +805,12 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if _u.mutation.CredentialIdsCleared() {
 		_spec.ClearField(job.FieldCredentialIds, field.TypeJSON)
+	}
+	if _u.mutation.RollbackOfCleared() {
+		_spec.ClearField(job.FieldRollbackOf, field.TypeString)
+	}
+	if _u.mutation.RollbackCleared() {
+		_spec.ClearField(job.FieldRollback, field.TypeJSON)
 	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -189,6 +189,64 @@ run one method against a device or a tag, with no runbook written
 
 `pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'`
 
+## pleiades rollback
+
+undo a run from its journal: every device it changed, newest change first
+
+`pleiades rollback <run-id> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --mode | `string` | `execute` | execute undoes the changes; check reports what each undo would change and changes nothing |
+| --runbook | `string` | - | the runbook the run ran, when a task's undo is its rollback: list; found in DIR/runbooks when unset |
+| --leave | `string` | - | a node whose change to leave in place rather than undo (repeatable) |
+| --allow-partial | `string` | - | a node whose partial undo to run anyway (repeatable) |
+| --allow-unknown | `string` | - | a node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable) |
+| --despite-run | `string` | - | a later run whose changes to the same devices to undo beneath (repeatable) |
+| --verbose | `bool` | `false` | print each undo's own output |
+| --v | `bool` | `false` | shorthand for --verbose |
+| --json | `bool` | `false` | print the rollback as one JSON document, with its plan, or its refusal and why |
+| --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
+| --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
+| --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
+
+`pleiades journal list`
+
+`pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check`
+
+`pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706`
+
+`pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --leave 'tasks[3]' --json`
+
+## pleiades journal
+
+list this project's runs, or show one run's journal
+
+`pleiades journal [flags]`
+
+### pleiades journal list
+
+every run recorded in this project, oldest first, with what it changed and whether it was rolled back
+
+`pleiades journal list [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+### pleiades journal show
+
+one run's journal: each task, its device, how it ended, and the undo it recorded
+
+`pleiades journal show <run-id> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
 ## pleiades inventory
 
 sync devices from an external source (see 'pleiades inventory --help')

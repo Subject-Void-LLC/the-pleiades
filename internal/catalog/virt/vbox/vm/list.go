@@ -33,8 +33,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: false, Notes: "Reading is not changing: this lists VMs and alters nothing, so there is nothing an undo could restore."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "Reading is not changing: this lists VMs and alters nothing, so there is nothing an undo could restore.",
+				ReadOnly:   true,
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them.",
 				Description: "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",

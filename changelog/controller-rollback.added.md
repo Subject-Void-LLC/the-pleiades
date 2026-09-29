@@ -1,0 +1,1 @@
+Added `POST /jobs/{id}/rollback` and a **Roll back** action on a finished job's page, which undo what a Controller job changed and refuse a plan with problems, listing each beside the request field that accepts it. A rollback job travels on its own subject that older Runners never read, so upgrade Runners before relying on it.

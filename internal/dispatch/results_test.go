@@ -30,7 +30,7 @@ func quietLogger() *slog.Logger {
 // field names are internal/runner's ResultEntry json tags, and the outcome
 // vocabulary is the Runner's ("completed"), not this package's
 // ("succeeded"), which is the translation under test.
-func resultEvent(t *testing.T, jobID, deviceID, outcome, reason string) event.Event {
+func resultEvent(t testing.TB, jobID, deviceID, outcome, reason string) event.Event {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{
 		"id":        jobID + ":" + deviceID,

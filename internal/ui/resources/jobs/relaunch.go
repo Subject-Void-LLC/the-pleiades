@@ -71,6 +71,8 @@ func applies(row view.Row, rel auth.LinkRel) bool {
 		return relaunchable(row)
 	case auth.RelCancel:
 		return cancelable(row)
+	case auth.RelRollback:
+		return rollbackable(row)
 	default:
 		return true
 	}

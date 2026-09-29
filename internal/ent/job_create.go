@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -309,6 +310,26 @@ func (_c *JobCreate) SetNillableExternalChecks(v *bool) *JobCreate {
 	return _c
 }
 
+// SetRollbackOf sets the "rollback_of" field.
+func (_c *JobCreate) SetRollbackOf(v string) *JobCreate {
+	_c.mutation.SetRollbackOf(v)
+	return _c
+}
+
+// SetNillableRollbackOf sets the "rollback_of" field if the given value is not nil.
+func (_c *JobCreate) SetNillableRollbackOf(v *string) *JobCreate {
+	if v != nil {
+		_c.SetRollbackOf(*v)
+	}
+	return _c
+}
+
+// SetRollback sets the "rollback" field.
+func (_c *JobCreate) SetRollback(v json.RawMessage) *JobCreate {
+	_c.mutation.SetRollback(v)
+	return _c
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_c *JobCreate) AddTaskIDs(ids ...int) *JobCreate {
 	_c.mutation.AddTaskIDs(ids...)
@@ -576,6 +597,14 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ExternalChecks(); ok {
 		_spec.SetField(job.FieldExternalChecks, field.TypeBool, value)
 		_node.ExternalChecks = value
+	}
+	if value, ok := _c.mutation.RollbackOf(); ok {
+		_spec.SetField(job.FieldRollbackOf, field.TypeString, value)
+		_node.RollbackOf = value
+	}
+	if value, ok := _c.mutation.Rollback(); ok {
+		_spec.SetField(job.FieldRollback, field.TypeJSON, value)
+		_node.Rollback = value
 	}
 	if nodes := _c.mutation.TasksIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

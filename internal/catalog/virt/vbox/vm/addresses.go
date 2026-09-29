@@ -35,8 +35,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: false, Notes: "Reading is not changing: this reads the VM and the host's DHCP leases and alters nothing, so there is nothing an undo could restore."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "Reading is not changing: this reads the VM and the host's DHCP leases and alters nothing, so there is nothing an undo could restore.",
+				ReadOnly:   true,
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.",
 				Description: "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the same as a run.",

@@ -1,0 +1,1 @@
+A Collection method, built in or external, may no longer declare a parameter the engine reads for itself (today only `target`): registration, `pleiades forge new-collection` and the external Collection loader all refuse it.

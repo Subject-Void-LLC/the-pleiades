@@ -3,6 +3,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -81,6 +82,16 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 		create = create.SetCredentialIds(j.CredentialIDs)
 	}
 	create = create.SetExternalChecks(j.ExternalChecks)
+	if j.RollbackOf != "" {
+		if j.Rollback == nil {
+			return fmt.Errorf("job %s undoes job %s and carries no plan", j.JobID, j.RollbackOf)
+		}
+		plan, err := json.Marshal(j.Rollback)
+		if err != nil {
+			return fmt.Errorf("failed to encode the rollback plan of job %s: %w", j.JobID, err)
+		}
+		create = create.SetRollbackOf(j.RollbackOf).SetRollback(plan)
+	}
 	// job_id has a DefaultFunc (newJobID, internal/ent/schema/job.go), but
 	// a caller-supplied JobID is honored when present, mirroring
 	// device.go's own optional-override-of-a-generated-default pattern:
@@ -252,6 +263,12 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 			// the returned slice.
 			return nil, nil, fmt.Errorf("job %s: %w", jobID, err)
 		}
+		// A waiting row is stored as dispatched with its flag set, so a
+		// build from before the window reads it as work still out
+		// (internal/ent/schema/job_task.go); this build calls it queued.
+		if t.Waiting {
+			outcome = OutcomeQueued
+		}
 		tasks = append(tasks, JobTask{
 			DeviceID:   t.DeviceID,
 			DeviceName: t.DeviceName,
@@ -270,6 +287,16 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 	}
 
 	return toJob(row), tasks, nil
+}
+
+// storedOutcome is the outcome column's value for o: a queued device is
+// stored as dispatched with its waiting flag set, and every other outcome
+// as itself.
+func storedOutcome(o Outcome) jobtask.Outcome {
+	if o == OutcomeQueued {
+		return jobtask.OutcomeDispatched
+	}
+	return jobtask.Outcome(o)
 }
 
 // toJob converts a generated *ent.Job row into this package's own domain
@@ -319,6 +346,15 @@ func toJob(row *ent.Job) *Job {
 		job.CredentialIDs = row.CredentialIds
 	}
 	job.ExternalChecks = row.ExternalChecks
+	// A plan that does not decode leaves Rollback nil beside a set
+	// RollbackOf, which the fan-out fails rather than runs.
+	if row.RollbackOf != "" {
+		job.RollbackOf = row.RollbackOf
+		var plan RollbackPlan
+		if err := json.Unmarshal(row.Rollback, &plan); err == nil {
+			job.Rollback = &plan
+		}
+	}
 	return job
 }
 
@@ -462,7 +498,8 @@ func (s *entJobStore) RecordTask(ctx context.Context, jobID string, fence int64,
 		SetJobID(row.ID).
 		SetDeviceID(task.DeviceID).
 		SetDeviceName(task.DeviceName).
-		SetOutcome(jobtask.Outcome(task.Outcome))
+		SetOutcome(storedOutcome(task.Outcome)).
+		SetWaiting(task.Outcome == OutcomeQueued)
 	if task.Reason != "" {
 		create = create.SetReason(task.Reason)
 	}

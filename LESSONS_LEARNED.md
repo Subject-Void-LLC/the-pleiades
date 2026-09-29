@@ -286,6 +286,10 @@ story, per `.AGENTS/AGENTS.md`.
 251. **A publish buffered through a reconnect is stored, and its dedup window starts, at the flush after the heal; prove what lies beyond a window by waiting past it after storage and showing the broker stored the retry (2026-09-27).**
 252. **Drive a guest by what it shows, not by a delay, and make the first typed step report back on a channel the host reads, keyed so a rerun never types twice (2026-09-27).**
 253. **Prove a memory limit by running the real process under it, at the rate, past every retention window, beside a control with the suspected cost removed; a benchmark's per-entry cost times a rate counts only the live data (2026-09-28).**
+254. **When an old consumer would misread a new kind of message, give the message its own subject, and have its consumer refuse one there that lacks what makes it that kind (2026-09-28).**
+255. **A check predicts each task against the device as it is now; answer "could not check", never a predicted failure, for state an earlier task in the same run may change (2026-09-28).**
+256. **A history read to decide "is this done" must let each step's latest attempt decide, since resume makes retries normal (2026-09-28).**
+257. **Run a recovery feature end to end on real infrastructure, in its awkward orders, before calling it done; the lab found what the container gates could not (2026-09-28).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

@@ -35,8 +35,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that stopped a running VM emits virt.vbox.vm.start naming it; one that found it stopped emits nothing. Starting it again does not bring back what a power cut lost."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that stopped a running VM emits virt.vbox.vm.start naming it; one that found it stopped emits nothing. Starting it again does not bring back what a power cut lost.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.start", Record: []string{"name"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Stops a VirtualBox VM, by its power button or by cutting its power.",
 				Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",

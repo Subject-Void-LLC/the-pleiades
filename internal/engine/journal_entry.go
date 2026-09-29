@@ -18,13 +18,18 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -103,20 +108,6 @@ var engineActionStatKeys = map[string][]string{
 	"telnet_exec":                   transportExecStatKeys,
 	"winrm_exec":                    transportExecStatKeys,
 }
-
-// The two keys sdk.RecordInverse writes its record under
-// (pkg/sdk/inverse.go, the map literal it hands to SetStat).
-//
-// They are re-declared here rather than imported because pkg/sdk exports
-// no constant for either: RecordInverse builds its map with bare string
-// literals, so sdk.StatInverse names the stat but nothing names the two
-// keys inside it. That is a real gap in pkg/sdk and this is the second
-// copy of those literals in the module. Until pkg/sdk exports them, a
-// reader renaming one has to find this file too.
-const (
-	inverseRecordFQCN   = "fqcn"
-	inverseRecordParams = "params"
-)
 
 // resolvedFQCN is what resolveFQCN made of one FQCN string, and it is the
 // only shape allowed to reach JournalEntry.FQCN or InverseFQCN.
@@ -459,7 +450,18 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 		// on resolvedFQCN.engineAction: projecting here would let a
 		// runbook forge an InverseFQCN a rollback engine would later
 		// trust.
-		projectInverse(&entry, n.journalStats)
+		var emitter *collection.Descriptor
+		if desc, ok := collection.Lookup(task.FQCN); ok {
+			emitter = &desc
+		}
+		projectInverse(&entry, n.journalStats, emitter)
+	}
+	entry.ActionChanged = n.journalChanged
+	entry.AuthoredRollback = len(task.Rollback) > 0
+	if r.x != nil && r.x.rollback.of != "" {
+		entry.RollbackOf = r.x.rollback.of
+		undo := r.x.rollback.undoes[n.NodeID]
+		entry.UndoesNode, entry.UndoesStep = undo.Node, undo.Step
 	}
 
 	switch {
@@ -518,7 +520,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 //
 // DiffRecorded is presence only, never the diff. A diff is a before and
 // after pair of exactly the device content JournalEntry refuses to hold.
-func projectInverse(entry *JournalEntry, stats map[string]interface{}) {
+func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *collection.Descriptor) {
 	if _, ok := stats[sdk.StatDiff]; ok {
 		entry.DiffRecorded = true
 	}
@@ -533,15 +535,111 @@ func projectInverse(entry *JournalEntry, stats map[string]interface{}) {
 		return
 	}
 
-	name, _ := record[inverseRecordFQCN].(string)
+	name, _ := record[sdk.InverseFQCNKey].(string)
 	inverse := resolveFQCN(name)
 	entry.InverseFQCN = inverse.Name
 	entry.InverseFQCNUnresolved = inverse.Unresolved
 
 	// Key names of the RESOLVED target's own Doc.Params, not of the task
 	// that emitted the record. The inverse is a different method's call.
-	params, _ := record[inverseRecordParams].(map[string]interface{})
+	params, _ := record[sdk.InverseParamsKey].(map[string]interface{})
 	entry.InverseParamKeys, entry.UndeclaredInverseParamCount = admitKeys(params, inverse.paramKeys)
+	entry.InversePartial, _ = record[sdk.InversePartialKey].(bool)
+
+	// The values, kind 7: only what the emitter's own manifest declares
+	// for this undo's method. No declaration for the resolved method
+	// (an external program's, an undo naming a method the emitter never
+	// declared, an unresolved name) leaves every value out, and the undo
+	// reads as incomplete, which is what stops a rollback replaying it.
+	spec, declared := declaredUndo(emitter, inverse)
+	if !declared {
+		return
+	}
+	complete := !inverse.Unresolved && entry.UndeclaredInverseParamCount == 0
+	for _, key := range sortedParamKeys(params) {
+		value, ok := recordedValue(key, params[key])
+		if !ok || !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
+			complete = false
+			continue
+		}
+		entry.InverseParams = append(entry.InverseParams, value)
+	}
+	// A method marking an undo partial that its manifest never said could
+	// be is misbehaving; treat what it recorded as not replayable.
+	if entry.InversePartial && !spec.MayBePartial {
+		complete = false
+	}
+	entry.InverseComplete = complete && !entry.InversePartial
+}
+
+// declaredUndo returns the emitting method's declaration for an undo
+// through inverse's method, when the emitter is compiled into The Pleiades
+// and declares one. An external Collection program's declaration is never
+// honored: it would let a third party decide what the journal keeps.
+func declaredUndo(emitter *collection.Descriptor, inverse resolvedFQCN) (sdk.InverseSpec, bool) {
+	if emitter == nil || emitter.Provider != nil || inverse.Unresolved {
+		return sdk.InverseSpec{}, false
+	}
+	for _, spec := range emitter.Manifest.Reversibility.Inverses {
+		if spec.FQCN == inverse.Name {
+			return spec, true
+		}
+	}
+	return sdk.InverseSpec{}, false
+}
+
+// maxRecordedText bounds a recorded text value. An identifier (a name, a
+// path, an id) fits well inside it; a value that does not is more likely
+// content than an identifier, and is left out rather than cut short.
+const maxRecordedText = 256
+
+// recordedValue returns value as an InverseParam when it is one the
+// journal may hold: a boolean, a whole or fractional number, or text of at
+// most maxRecordedText bytes of valid UTF-8 with nothing a terminal would
+// act on and no line break. Anything else (a map, a list, nil, oversized
+// or unsafe text) is refused, and the caller marks the undo incomplete.
+func recordedValue(key string, value interface{}) (InverseParam, bool) {
+	p := InverseParam{Key: key}
+	switch v := value.(type) {
+	case bool:
+		p.Bool = &v
+	case string:
+		if len(v) > maxRecordedText || !utf8.ValidString(v) || termsafe.CheckLine(v) != nil {
+			return InverseParam{}, false
+		}
+		p.Text = &v
+	case int:
+		n := json.Number(strconv.FormatInt(int64(v), 10))
+		p.Number = &n
+	case int64:
+		n := json.Number(strconv.FormatInt(v, 10))
+		p.Number = &n
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return InverseParam{}, false
+		}
+		n := json.Number(strconv.FormatFloat(v, 'f', -1, 64))
+		p.Number = &n
+	case json.Number:
+		if _, err := v.Float64(); err != nil {
+			return InverseParam{}, false
+		}
+		p.Number = &v
+	default:
+		return InverseParam{}, false
+	}
+	return p, true
+}
+
+// sortedParamKeys returns m's keys in order, so an entry's InverseParams do
+// not vary with map iteration.
+func sortedParamKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 // projectLevel turns one topological level's results into journal

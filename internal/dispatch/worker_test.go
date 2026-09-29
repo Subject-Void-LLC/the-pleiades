@@ -72,8 +72,15 @@ func (r *fakeRepository) GetGroup(_ context.Context, _ pkginventory.Selector) (i
 	return &fakeIterator{devices: r.Devices}, nil
 }
 
-func (r *fakeRepository) GetByName(_ context.Context, _ string) (pkginventory.InventoryItem, error) {
-	return nil, errors.New("fakeRepository.GetByName is not implemented for these tests")
+// GetByName answers from Devices, as a real repository would: a windowed
+// job's pump reads each device again by name when its turn comes.
+func (r *fakeRepository) GetByName(_ context.Context, name string) (pkginventory.InventoryItem, error) {
+	for _, d := range r.Devices {
+		if d.Name() == name {
+			return d, nil
+		}
+	}
+	return nil, fmt.Errorf("no device %q: %w", name, inventory.ErrItemNotFound)
 }
 
 func (r *fakeRepository) Create(_ context.Context, _ pkginventory.InventoryItem) error {
@@ -121,7 +128,7 @@ func (i *fakeIterator) Close() error                     { return nil }
 // metadata.interruptible: false, so tests can dispatch against either to
 // prove that value actually reaches the published wire.DispatchPayload
 // (worker_devices.go).
-func newTestRunbookSource(t *testing.T) runbook.Source {
+func newTestRunbookSource(t testing.TB) runbook.Source {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -146,7 +153,7 @@ func newTestRunbookSource(t *testing.T) runbook.Source {
 
 // newTestJobStore spins up a real in-memory SQLite-backed JobStore, per
 // RULE 0.
-func newTestJobStore(t *testing.T) dispatch.JobStore {
+func newTestJobStore(t testing.TB) dispatch.JobStore {
 	t.Helper()
 	store, _ := newTestStore(t)
 	return store
@@ -265,7 +272,7 @@ func requestJob(t *testing.T, ctx context.Context, store dispatch.JobStore, runb
 // 3b.1's second hop). A separate helper rather than widening requestJob's
 // own signature: requestJob has more than a dozen call sites that have no
 // reason to know about launch fields at all.
-func requestJobWithLaunchFields(t *testing.T, ctx context.Context, store dispatch.JobStore, runbookID, groupName string, fields launch.Fields, extraVars map[string]any) event.Event {
+func requestJobWithLaunchFields(t testing.TB, ctx context.Context, store dispatch.JobStore, runbookID, groupName string, fields launch.Fields, extraVars map[string]any) event.Event {
 	t.Helper()
 
 	job := &dispatch.Job{RunbookID: runbookID, GroupName: groupName, Actor: "user@example.com", Fields: fields, ExtraVars: extraVars}
@@ -1112,7 +1119,7 @@ func TestWorker_HandleJobRequested_FencedMidLoopStopsWithoutError(t *testing.T) 
 
 // jobIDFromEvent decodes the job_id this test package's own requestJob
 // embedded into evt.Data.
-func jobIDFromEvent(t *testing.T, evt event.Event) string {
+func jobIDFromEvent(t testing.TB, evt event.Event) string {
 	t.Helper()
 	var payload struct {
 		JobID string `json:"job_id"`

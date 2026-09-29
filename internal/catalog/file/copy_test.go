@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // These tests run file.copy against a REAL SSH server, in this process,
@@ -634,6 +635,9 @@ func TestCopy_CreateEmitsARemovalInverse(t *testing.T) {
 	if got := inverse["fqcn"]; got != "file.remove" {
 		t.Errorf("inverse fqcn = %v, want file.remove: this run created the file", got)
 	}
+	if _, partial := inverse[sdk.InversePartialKey]; partial {
+		t.Errorf("removing a file this run created is a whole undo, but it is marked partial")
+	}
 	if got := copyInverseParams(t, rc)["path"]; got != dest {
 		t.Errorf("inverse path = %v, want %q", got, dest)
 	}
@@ -773,6 +777,9 @@ func TestCopy_OverwriteEmitsAnAttributeInverseThatAdmitsWhatIsLost(t *testing.T)
 	inverse := copyRecordedInverse(t, rc)
 	if got := inverse["fqcn"]; got != "file.permissions" {
 		t.Errorf("inverse fqcn = %v, want file.permissions: removing a file that was already there would destroy what the run did not create", got)
+	}
+	if inverse[sdk.InversePartialKey] != true {
+		t.Errorf("the undo of an overwrite restores the mode but not the content, and is not marked partial: %v", inverse)
 	}
 	params := copyInverseParams(t, rc)
 	for key, want := range map[string]any{"path": dest, "mode": "0640", "owner": owner, "group": group} {

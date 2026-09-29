@@ -52,6 +52,9 @@ func init() {
 					"large as the file. A run that found nothing to remove emits nothing, and so does a run against a file " +
 					"that was not there. The modification time is not restored, and file.copy itself is declared rather than " +
 					"implemented today.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.copy", Record: []string{"dest", "mode", "owner", "group"}, Withhold: []string{"content"}},
+				},
 			},
 			Doc: removeDoc(),
 		},

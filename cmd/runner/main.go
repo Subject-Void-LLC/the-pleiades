@@ -291,6 +291,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create check consumer: %v", err)
 	}
+	// Rollbacks arrive on a third subject (topology.RollbackSubject), for
+	// the same reason: a Runner built before rollback never creates this
+	// consumer, so it never runs the runbook being undone in a
+	// rollback's place.
+	rollbackConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.RollbackConsumerConfig())
+	if err != nil {
+		log.Fatalf("failed to create rollback consumer: %v", err)
+	}
 
 	// lockMgr backs Agent's own per-device execution lease (PLAN.md
 	// Section 13: "Locks live in the backend... a device can only have
@@ -455,6 +463,11 @@ func main() {
 	// routing.CheckOnly, so it is a check whatever its payload says.
 	checkAgent := runner.NewAgent(checkConsumer, routing.CheckOnly(router), js, lockMgr, topology.MaxDeliverDefault, logger,
 		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
+	// The rollback loop: everything from the rollback subject must carry
+	// its steps (routing.RollbackOnly), and runs in the mode it says, since
+	// a rollback may be checked.
+	rollbackAgent := runner.NewAgent(rollbackConsumer, routing.RollbackOnly(router), js, lockMgr, topology.MaxDeliverDefault, logger,
+		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -471,13 +484,14 @@ func main() {
 	// 1, which under a restartPolicy of Always reads as a crash loop on
 	// every rolling update.
 	//
-	// The two loops run side by side, and either one failing stops the
-	// Runner: a Runner that silently stopped taking checks, or dispatches,
-	// would look healthy while doing half its job.
-	loops := make(chan error, 2)
+	// The three loops run side by side, and any one failing stops the
+	// Runner: a Runner that silently stopped taking checks, rollbacks or
+	// dispatches would look healthy while doing part of its job.
+	loops := make(chan error, 3)
 	go func() { loops <- checkAgent.Run(ctx) }()
+	go func() { loops <- rollbackAgent.Run(ctx) }()
 	go func() { loops <- agent.Run(ctx) }()
-	for range 2 {
+	for range 3 {
 		if err := <-loops; err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("agent run failed: %v", err)
 		}

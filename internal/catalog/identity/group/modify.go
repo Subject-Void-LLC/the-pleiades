@@ -29,6 +29,9 @@ func init() {
 				Reversible: true,
 				Notes: "A run that converged the gid emits an identity.group.modify pinned to the old gid, which " +
 					"is a real, restorable inverse. A run that found the gid already matching emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.group.modify", Record: []string{"name", "gid"}},
+				},
 			},
 			Doc: modifyDoc(),
 		},

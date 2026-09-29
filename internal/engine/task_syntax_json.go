@@ -108,7 +108,7 @@ func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
 		}
 	}
 
-	for _, key := range []string{"block", "rescue", "always", "parallel"} {
+	for _, key := range []string{"block", "rescue", "always", "parallel", "rollback"} {
 		if sub, ok := task[key]; ok {
 			if err := normalizeTaskListJSON(sub, label+"."+key); err != nil {
 				return err

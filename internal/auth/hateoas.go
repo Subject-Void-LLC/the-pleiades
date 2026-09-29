@@ -151,6 +151,13 @@ const (
 	// being granted changes.
 	RelCheck LinkRel = "check"
 
+	// RelRollback is the affordance that undoes what a finished job
+	// changed. Its own relation because a job already uses RelExecute for
+	// its relaunch, and the two are opposites a client must tell apart:
+	// one runs the work again, the other takes it back out. It carries
+	// runbook:execute, since a rollback changes devices as any run does.
+	RelRollback LinkRel = "rollback"
+
 	// RelOnboard is the affordance that onboards a generic device: probe
 	// it over its protocol and record what it proved. It carries
 	// inventory:onboard.

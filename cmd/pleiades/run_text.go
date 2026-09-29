@@ -146,6 +146,14 @@ func printResults(rep *runReport, verbose bool) {
 		printMetadata(rep.Metadata, nil)
 	}
 
+	// The run id is printed whatever the outcome: a run that failed
+	// partway is the one an operator most needs to find again, to read or
+	// to roll back.
+	if rep.RunID != "" {
+		fmt.Println()
+		fmt.Printf("run %s, journal %s\n", rep.RunID, termsafe.EscapeLine(rep.Journal))
+	}
+
 	switch rep.Outcome.Status {
 	case "complete":
 		fmt.Println()

@@ -47,7 +47,7 @@ func init() {
 			{
 				Name: "forks", Type: launch.TypeInt, Min: 1, Max: 1000,
 				Label: "FORKS",
-				Help:  "Ansible's --forks: how many hosts are worked on at once.",
+				Help:  "How many of this job's hosts run at once; the next starts as each finishes. Also passed to ansible-playbook as --forks. Empty runs them all at once.",
 			},
 			{
 				Name: "timeout", Type: launch.TypeInt, Min: 0, Max: 86400,

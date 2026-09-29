@@ -43,6 +43,9 @@ func init() {
 					"emits nothing. What no inverse here can restore is whatever remove=true deleted once the " +
 					"archive was written: those source paths are gone, and the archive holding their bytes is " +
 					"exactly what the inverse would just have deleted.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.remove", Record: []string{"path"}, MayBePartial: true},
+				},
 			},
 			Doc: createDoc(),
 			// A check reads what a real run reads and runs no tar (checkCreate).
@@ -172,6 +175,9 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN:   "file.remove",
 			Params: map[string]any{"path": path},
+			// What remove=true deleted to build the archive does not come
+			// back when the archive goes.
+			Partial: remove,
 			Description: fmt.Sprintf("Remove %s, which this task created. Anything remove=true deleted to "+
 				"build it is not restored.", path),
 		}); err != nil {

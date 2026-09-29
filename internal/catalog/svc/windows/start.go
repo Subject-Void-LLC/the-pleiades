@@ -32,6 +32,9 @@ func init() {
 					"already running emits nothing. What the inverse cannot restore is anything the service did while " +
 					"it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again " +
 					"returns the service to where it was, not the system.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.windows.stop", Record: []string{"name"}},
+				},
 			},
 			Doc: startDoc(),
 		},

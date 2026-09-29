@@ -30,6 +30,9 @@ func init() {
 					"this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. " +
 					"What the inverse cannot restore is anything the package's scriptlets did beyond placing its own " +
 					"files.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "pkg.dnf.remove", Record: []string{"name"}},
+				},
 			},
 			Doc: installDoc(),
 		},

@@ -22,6 +22,9 @@ const (
 	paramMode    = "mode"
 	paramTimeout = "timeout"
 	paramPath    = "path"
+	// paramUUID is virt.vbox.vm.delete's identity guard, which the undo of
+	// every method that makes a VM sets.
+	paramUUID = "uuid"
 
 	statExists              = "exists"
 	statUUID                = "uuid"

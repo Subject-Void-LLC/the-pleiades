@@ -18,6 +18,10 @@ func init() {
 					"stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. " +
 					"The instruction names the concrete method rather than svc.stop, which is deliberate: by the time " +
 					"an undo runs, the device that was resolved is the device that must be undone.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.stop", Record: []string{"name"}},
+					{FQCN: "svc.windows.stop", Record: []string{"name"}},
+				},
 			},
 			startDoc(),
 		),

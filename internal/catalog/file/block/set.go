@@ -54,6 +54,10 @@ func init() {
 					"this still does not restore: anything outside the markers, the file's mode and owner (which this method never changes, and " +
 					"puts back after each rewrite), and a final newline added to a file that had none, which the emitted inverse says in its own " +
 					"description. A converged run emits nothing, because undoing a run that changed nothing means doing nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.block.set", Record: []string{"path", "marker", "marker_begin", "marker_end"}, Withhold: []string{"block"}},
+					{FQCN: "file.block.remove", Record: []string{"path", "marker", "marker_begin", "marker_end"}},
+				},
 			},
 			Doc: setDoc(),
 		},

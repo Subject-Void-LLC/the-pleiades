@@ -85,6 +85,9 @@ func init() {
 					"before, which restores it exactly. A converged run emits nothing, because undoing a change that was never " +
 					"made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before " +
 					"failing stays applied and has to be re-run rather than undone.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}},
+				},
 			},
 			// A check reads the path and reports whether a real run would
 			// send a chmod, chown or chgrp, sending none. See

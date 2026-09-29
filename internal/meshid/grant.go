@@ -79,6 +79,7 @@ func FleetRunnerGrant(name string) Grant {
 			topology.JournalSubjectAll(),
 			topology.DeadLetterSubject(topology.DispatchSubjectAll()),
 			topology.DeadLetterSubject(topology.CheckSubjectAll()),
+			topology.DeadLetterSubject(topology.RollbackSubjectAll()),
 
 			// The per-device execution lease, written both through the KV
 			// API and, for the TTL refresh, as a raw publish to the
@@ -122,10 +123,19 @@ func FleetRunnerGrant(name string) Grant {
 			consumerAPI("INFO", topology.StreamName, topology.CheckDurableName),
 			consumerAPI("MSG.NEXT", topology.StreamName, topology.CheckDurableName),
 
+			// The rollback consumer (Phase 40): a third loop, for the
+			// reason the check consumer is a second one. A Runner that
+			// predates rollback never creates it, so it never receives a
+			// rollback and runs the runbook being undone instead.
+			consumerCreateWithFilter(topology.StreamName, topology.RollbackDurableName, topology.RollbackSubjectAll()),
+			consumerAPI("INFO", topology.StreamName, topology.RollbackDurableName),
+			consumerAPI("MSG.NEXT", topology.StreamName, topology.RollbackDurableName),
+
 			// Message settlement. Ack, Nak and Term are all core publishes
 			// to the reply subject JetStream stamped on the delivery.
 			ackSpace(topology.StreamName, topology.DispatchDurableName),
 			ackSpace(topology.StreamName, topology.CheckDurableName),
+			ackSpace(topology.StreamName, topology.RollbackDurableName),
 
 			// Asking the control plane for a fresh credential before this
 			// one lapses. Without it a Runner authenticates perfectly,
@@ -180,6 +190,8 @@ func ControllerGrant(name string) Grant {
 			// fan-out times out, and every check records its devices as
 			// failed.
 			topology.CheckSubjectAll(),
+			// A rollback goes to its own subject too, for the same reason.
+			topology.RollbackSubjectAll(),
 			topology.JobRequestedSubject(),
 
 			// No grant for topology.EventSubject's own space. Nothing in

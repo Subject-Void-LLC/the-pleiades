@@ -27,6 +27,9 @@ func init() {
 					"already disabled emits nothing. One thing the undo does not preserve: a unit that was " +
 					"enabled-runtime, meaning enabled only until the next reboot, comes back as permanently enabled, " +
 					"because systemctl enable has no way to say \"only until reboot\" about a unit it is restoring.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.enable", Record: []string{"name"}},
+				},
 			},
 			// A check reads the unit's state and says whether a disable
 			// would be sent, without sending it. See CheckDisable.

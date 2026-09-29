@@ -12,6 +12,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -25,7 +26,7 @@ import (
 // not a rename, so it belongs in a commit that says so.
 //
 // They live on this type rather than on a separate wire struct in
-// internal/journal on purpose. A wire struct would need a 28-field
+// internal/journal on purpose. A wire struct would need a field-by-field
 // mapping function, and the failure mode of such a function is that a
 // field added here is silently absent there: the entry still marshals,
 // the tests still pass, and the one run that needed the new field is the
@@ -34,14 +35,15 @@ import (
 // serialization, which is stated here rather than left for a reader to
 // discover.
 //
-// No field carries omitempty, so every record is the full 28 fields. A
-// synthetic fan-out marker therefore writes an empty FQCN and a zero
+// No field of this type carries omitempty, so every record carries every
+// field. (InverseParam, the element type of InverseParams, does: a
+// parameter holds one of text, number or bool.) A synthetic fan-out marker therefore writes an empty FQCN and a zero
 // StartedAt and FinishedAt, which is the honest record of a node that
 // executed nothing, not corruption.
 //
 // # The provenance rule
 //
-// A field belongs in this type only if it is one of six kinds. This is
+// A field belongs in this type only if it is one of seven kinds. This is
 // the rule a reviewer applies to every field a later phase proposes, so
 // it is written out here in full rather than left in a design note:
 //
@@ -49,28 +51,40 @@ import (
 //     synthesized graph id, see NodeResult.NodeID), DeviceID (the
 //     inventory item's own stored id field, internal/inventory/record/
 //     record.go:161, never a device property), JobID, Attempt, StartedAt,
-//     FinishedAt.
+//     FinishedAt, and a rollback's RollbackOf and UndoesNode.
 //  2. A compile-time constant resolved through a registry at write time:
 //     FQCN and InverseFQCN after resolution through collection.Lookup,
 //     the stat and param key names a method's own Doc declares, and the
 //     two pkg/sdk stat keys (sdk.StatInverse, sdk.StatDiff).
 //  3. A closed enum this package defines: Outcome, FailureStage,
 //     SkipKind. A bool is the two-valued case of the same thing, and is
-//     admitted here rather than as a seventh kind: FQCNUnresolved,
-//     InverseFQCNUnresolved and DiffRecorded each report a decision the
-//     platform made, never a value it observed.
+//     admitted here rather than as a kind of its own: FQCNUnresolved,
+//     InverseFQCNUnresolved, DiffRecorded, InverseComplete,
+//     InversePartial, ActionChanged and AuthoredRollback each report a
+//     decision the platform made or a flag a method raised, never a value
+//     it observed.
 //  4. A content-addressed digest: DAGVersion, and nothing else.
 //     DAG.Version is computed, never authored (dag.go:313-329), a
 //     sha256:<hex> over the fully resolved definition.
 //  5. An author-written label from the compiled runbook: DAGID, TaskName,
 //     Register. See below.
 //  6. A count: SkipOrdinal, SkipTotal, UndeclaredStatCount,
-//     UndeclaredParamCount, UndeclaredInverseParamCount.
+//     UndeclaredParamCount, UndeclaredInverseParamCount, UndoesStep.
+//  7. An undo parameter's value that the emitting method declares an
+//     identifier (sdk.InverseSpec.Record, in its manifest): InverseParams.
+//     A name, a path, an id, a mode, a version, a number or a boolean the
+//     run observed or the author gave, held to 256 bytes of valid,
+//     terminal-safe UTF-8, and admitted only for a method compiled into
+//     The Pleiades.
 //
-// Nothing admitted by those six can hold a value a device, a credential
-// store, a decrypted envelope, or an injector produced. That is the whole
-// point, and it is why this is not a masking design and must never be
-// described as one: there is nothing in an entry to mask.
+// Nothing admitted by the first six can hold a value a device, a
+// credential store, a decrypted envelope, or an injector produced, and
+// the seventh admits only what a built-in method's reviewed manifest names
+// as an identifier: never a file's content, a mount's options, a user's
+// GECOS text or a secret. So the guarantee is "no value the platform
+// obtained, except identifiers a method declares recordable for its undo".
+// This is still not a masking design and must never be described as one:
+// there is nothing in an entry to mask, only identifiers to replay.
 //
 // # Kind 5 is the residual text channel
 //
@@ -82,40 +96,35 @@ import (
 // A runbook's name: and register: are unconstrained free text, so an
 // author who pastes a password into a task name puts it in the journal.
 //
-// Task.Params is excluded under the same rule, and adding it would fail
-// TestJournalEntryHoldsNoValue, because the catalog documents param
-// values as secret bearing: file.copy's content is a required param and
-// is the file body.
+// Task.Params is excluded under the same rule, because the catalog
+// documents param values as secret bearing: file.copy's content is a
+// required param and is the file body. Kind 7 does not reach it: it reads
+// only the undo a method emitted, and only the parameters that method's
+// manifest declares.
 //
 // # Two archtests hold this up
 //
 // Neither is sufficient alone. TestJournalEntryHoldsNoValue rejects a
 // field whose type could carry a value at all (map[string]interface{},
 // any, error, []byte, an inventory type) anywhere in the transitive field
-// graph, including as a slice element or a map value.
+// graph, including as a slice element or a map value; InverseParam passes
+// it because its value is a typed text, number or bool, never an any.
 // TestEveryJournalStringFieldIsConstructed pins every string and []string
 // field to the kind above that makes it safe, because reflection cannot
-// tell a vector of key names from a vector of values.
+// tell a vector of key names from a vector of values, and the registry
+// sweep (TestEveryProjectedKeyNameIsRegistryDeclared) lets a planted value
+// survive only in InverseParams, only for a key its method declares.
 //
-// # Pending amendment, deliberately not built
+// # Kind 7, taken 2026-09-28
 //
-// Section 12 of the Phase 40 design note proposes a seventh kind: a
-// run-observed value that the emitting method declares safe to record,
-// per parameter, declared beside the inverse rather than in Doc. Under it
-// InverseParamKeys would be joined by an InverseParams map of resolved
-// key/value pairs for declared-safe parameters, and the four methods that
-// carry a whole prior file or region in their inverse (file.line.set,
-// file.line.remove, file.block.set, file.block.remove) would declare that
-// parameter unsafe and keep the key-name-only treatment.
-//
-// It is not built here. Section 12 concedes in its own words that the
-// resulting weakening of TestJournalEntryHoldsNoValue, from a blanket
-// refusal into a rule with one tested exception, "should be argued again
-// before it is built, not assumed settled by this amendment." So this
-// type ships the strict version: InverseParamKeys is key names only,
-// there is no InverseParams, and the blanket refusal stands with no
-// exception. Adding the exception then costs a deliberate argument,
-// which is the correct price for it, rather than arriving as a default.
+// Section 12 of the Phase 40 design note proposed the seventh kind and
+// asked that it be argued again before it was built. It was, by the
+// user's rule of deciding on edge cases: a rollback from key names alone
+// cannot undo a VM a run made without its author restating every name,
+// and an authored undo list runs steps for tasks that never ran. The
+// argument, and the parameters Section 12 undercounted (a user's comment,
+// a mount's source and options, a symlink's old target), are recorded in
+// the design note's Section 13.
 //
 // # The kind-2 fields are a contract projectLevel now keeps
 //
@@ -286,20 +295,110 @@ type JournalEntry struct {
 	InverseFQCNUnresolved bool `json:"inverse_fqcn_unresolved"`
 
 	// InverseParamKeys are the resolved inverse target's param keys that
-	// its own Doc.Params declares (kind 2). Key names only. See this
-	// type's own note on the pending Section 12 amendment for what would
-	// widen this to values, and why that has not been built.
+	// its own Doc.Params declares (kind 2): every key the undo carried,
+	// whether or not its value is recorded in InverseParams.
 	InverseParamKeys []string `json:"inverse_param_keys"`
 
 	// UndeclaredInverseParamCount is how many inverse param keys were not
 	// admitted (kind 6).
 	UndeclaredInverseParamCount int `json:"undeclared_inverse_param_count"`
 
+	// InverseParams are the undo's parameter values the emitting method's
+	// manifest declares recordable (kind 7), in key order. A key appears
+	// here only when the emitter is compiled into The Pleiades, declares
+	// an undo through InverseFQCN (sdk.InverseSpec), lists the key in that
+	// declaration's Record, and the target reads it; and only when the
+	// value is a boolean, a number, or at most 256 bytes of valid,
+	// terminal-safe text on one line. Anything else stays a key name in
+	// InverseParamKeys, and InverseComplete says so.
+	InverseParams []InverseParam `json:"inverse_params"`
+
+	// InverseComplete reports that every parameter the undo carried is in
+	// InverseParams and the undo is not partial (kind 3), so a rollback can
+	// replay it exactly as the run recorded it. False for a task with no
+	// undo.
+	InverseComplete bool `json:"inverse_complete"`
+
+	// InversePartial reports that the method marked its undo partial: it
+	// would not put back everything the run overwrote (kind 3). A rollback
+	// replays it only when its operator names it.
+	InversePartial bool `json:"inverse_partial"`
+
 	// DiffRecorded reports whether the method wrote a diff under
 	// sdk.StatDiff (kind 3). Presence only, never the diff: a diff is a
 	// before-and-after pair of exactly the device content this type
 	// refuses to hold.
 	DiffRecorded bool `json:"diff_recorded"`
+
+	// ActionChanged reports that the task's action itself reported a
+	// change (kind 3). It differs from Outcome changed exactly when a
+	// stage after the action (register_mask, record) then failed: the
+	// device was changed, the node failed, and a rollback must still undo
+	// it.
+	ActionChanged bool `json:"action_changed"`
+
+	// AuthoredRollback reports that the task carries a rollback: list in
+	// its runbook (kind 3), which a rollback runs instead of the recorded
+	// undo. The steps themselves are the runbook's, never the journal's.
+	AuthoredRollback bool `json:"authored_rollback"`
+
+	// RollbackOf names the run this run undoes (kind 1): the run id on the
+	// Crawl tier, the job id on the Walk tier. Empty for a run that is not
+	// a rollback.
+	RollbackOf string `json:"rollback_of"`
+
+	// UndoesNode is the node, in RollbackOf, that this node undoes on the
+	// same device (kind 1). Empty for a run that is not a rollback.
+	UndoesNode string `json:"undoes_node"`
+
+	// UndoesStep is which step of that node's undo this node is (kind 6):
+	// 0 for a recorded undo, and the position in the task's rollback: list
+	// for an authored one. A rollback resumed after a failure skips steps
+	// already done.
+	UndoesStep int `json:"undoes_step"`
+}
+
+// InverseParam is one recorded undo parameter (JournalEntry.InverseParams):
+// its name and exactly one of Text, Number or Bool.
+//
+// The value is typed rather than an any, so nothing but a string, a
+// number or a boolean can reach an entry, which is what
+// TestJournalEntryHoldsNoValue checks for. A number is kept as its JSON
+// text, so an integer as large as a uid or a memory size round-trips
+// exactly.
+type InverseParam struct {
+	// Key is the parameter's name, from the emitting method's declaration
+	// (kind 2).
+	Key string `json:"key"`
+
+	// Text is a string value (kind 7).
+	Text *string `json:"text,omitempty"`
+
+	// Number is a numeric value, as its JSON text (kind 7).
+	Number *json.Number `json:"number,omitempty"`
+
+	// Bool is a boolean value (kind 7).
+	Bool *bool `json:"bool,omitempty"`
+}
+
+// Value returns the parameter's value as a runbook task's params carry it:
+// a string, an int64 (or a float64 for a number with a fraction), or a
+// bool; and false when it holds none, or a number that is not one.
+func (p InverseParam) Value() (any, bool) {
+	switch {
+	case p.Text != nil:
+		return *p.Text, true
+	case p.Bool != nil:
+		return *p.Bool, true
+	case p.Number != nil:
+		if n, err := p.Number.Int64(); err == nil {
+			return n, true
+		}
+		if f, err := p.Number.Float64(); err == nil {
+			return f, true
+		}
+	}
+	return nil, false
 }
 
 // FQCNUnregistered is what JournalEntry.FQCN and JournalEntry.InverseFQCN

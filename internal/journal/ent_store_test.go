@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -706,5 +707,103 @@ func TestEntStoreForJobReportsAReadFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "job-1") {
 		t.Errorf("the read failure does not name the job: %v", err)
+	}
+}
+
+// TestEntStoreRoundTripsEveryFieldByReflection closes the gap the
+// hand-written round trip above cannot: it sets only the fields its author
+// knew of, so a field added to engine.JournalEntry later round-trips as its
+// zero value through a mapping that drops it, and the test stays green.
+// This one gives every field a distinguishable value by reflection, so a
+// new field is covered the moment it exists, and a field of a kind it
+// cannot fill fails the test rather than being skipped.
+func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+
+	var want engine.JournalEntry
+	v := reflect.ValueOf(&want).Elem()
+	text := "a-recorded-name"
+	for i := 0; i < v.NumField(); i++ {
+		f, field := v.Field(i), v.Type().Field(i)
+		switch {
+		case field.Type == reflect.TypeOf(time.Time{}):
+			f.Set(reflect.ValueOf(time.Date(2026, 9, 28, 12, i, 0, 0, time.UTC)))
+		case field.Type == reflect.TypeOf([]engine.InverseParam{}):
+			f.Set(reflect.ValueOf([]engine.InverseParam{{Key: "name", Text: &text}}))
+		case f.Kind() == reflect.String:
+			f.SetString("v-" + field.Name)
+		case f.Kind() == reflect.Bool:
+			f.SetBool(true)
+		case f.Kind() == reflect.Int:
+			f.SetInt(int64(i + 1))
+		case field.Type == reflect.TypeOf([]string{}):
+			f.Set(reflect.ValueOf([]string{"k-" + field.Name}))
+		default:
+			t.Fatalf("JournalEntry.%s is a %s, which this test cannot fill; teach it one, so the field is round-tripped", field.Name, field.Type)
+		}
+	}
+	// The closed enums hold only their own values: the store refuses
+	// anything else.
+	want.Outcome, want.FailureStage, want.SkipKind = engine.OutcomeFailed, engine.FailureStageAction, engine.SkipKindWhenCEL
+	want.JobID = "job-reflect"
+
+	if _, err := store.Save(ctx, []engine.JournalEntry{want}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	entries, _, err := store.ForJob(ctx, want.JobID, 0)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("ForJob = %d entries, %v", len(entries), err)
+	}
+	got := reflect.ValueOf(entries[0])
+	for i := 0; i < v.NumField(); i++ {
+		name := v.Type().Field(i).Name
+		w, g := v.Field(i).Interface(), got.Field(i).Interface()
+		if wt, ok := w.(time.Time); ok {
+			if !wt.Equal(g.(time.Time)) {
+				t.Errorf("%s = %v after the round trip, want %v", name, g, w)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(w, g) {
+			t.Errorf("%s = %#v after the round trip, want %#v: the store drops or changes it", name, g, w)
+		}
+	}
+}
+
+// TestEntStoreReadsAnUnreadableUndoAsNone covers a stored inverse_params
+// that is not the list this store writes: it reads as holding no values,
+// which the planner then treats as an undo it cannot replay.
+func TestEntStoreReadsAnUnreadableUndoAsNone(t *testing.T) {
+	store, path := newEntStore(t)
+	ctx := context.Background()
+	e := walkEntry("job-u", "d1", 1, 1, "tasks[0]")
+	e.InverseFQCN, e.InverseParamKeys, e.InverseComplete = "file.remove", []string{"path"}, true
+	text := "/tmp/x"
+	e.InverseParams = []engine.InverseParam{{Key: "path", Text: &text}}
+	if _, err := store.Save(ctx, []engine.JournalEntry{e}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE journal_entries SET inverse_params = '{"path":"/elsewhere"}'`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.AllForJob(ctx, "job-u")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("AllForJob = %v, %v", got, err)
+	}
+	if got[0].InverseParams != nil {
+		t.Errorf("an unreadable column read as %+v, want no values", got[0].InverseParams)
+	}
+	// And a row written before the column existed holds NULL.
+	if _, err := db.Exec(`UPDATE journal_entries SET inverse_params = NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.AllForJob(ctx, "job-u"); err != nil || got[0].InverseParams != nil {
+		t.Errorf("a NULL column: %+v, %v", got, err)
 	}
 }

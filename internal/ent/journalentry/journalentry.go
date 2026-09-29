@@ -78,6 +78,22 @@ const (
 	FieldUndeclaredInverseParamCount = "undeclared_inverse_param_count"
 	// FieldDiffRecorded holds the string denoting the diff_recorded field in the database.
 	FieldDiffRecorded = "diff_recorded"
+	// FieldInverseParams holds the string denoting the inverse_params field in the database.
+	FieldInverseParams = "inverse_params"
+	// FieldInverseComplete holds the string denoting the inverse_complete field in the database.
+	FieldInverseComplete = "inverse_complete"
+	// FieldInversePartial holds the string denoting the inverse_partial field in the database.
+	FieldInversePartial = "inverse_partial"
+	// FieldActionChanged holds the string denoting the action_changed field in the database.
+	FieldActionChanged = "action_changed"
+	// FieldAuthoredRollback holds the string denoting the authored_rollback field in the database.
+	FieldAuthoredRollback = "authored_rollback"
+	// FieldRollbackOf holds the string denoting the rollback_of field in the database.
+	FieldRollbackOf = "rollback_of"
+	// FieldUndoesNode holds the string denoting the undoes_node field in the database.
+	FieldUndoesNode = "undoes_node"
+	// FieldUndoesStep holds the string denoting the undoes_step field in the database.
+	FieldUndoesStep = "undoes_step"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -117,6 +133,14 @@ var Columns = []string{
 	FieldInverseParamKeys,
 	FieldUndeclaredInverseParamCount,
 	FieldDiffRecorded,
+	FieldInverseParams,
+	FieldInverseComplete,
+	FieldInversePartial,
+	FieldActionChanged,
+	FieldAuthoredRollback,
+	FieldRollbackOf,
+	FieldUndoesNode,
+	FieldUndoesStep,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -172,6 +196,18 @@ var (
 	UndeclaredInverseParamCountValidator func(int) error
 	// DefaultDiffRecorded holds the default value on creation for the "diff_recorded" field.
 	DefaultDiffRecorded bool
+	// DefaultInverseComplete holds the default value on creation for the "inverse_complete" field.
+	DefaultInverseComplete bool
+	// DefaultInversePartial holds the default value on creation for the "inverse_partial" field.
+	DefaultInversePartial bool
+	// DefaultActionChanged holds the default value on creation for the "action_changed" field.
+	DefaultActionChanged bool
+	// DefaultAuthoredRollback holds the default value on creation for the "authored_rollback" field.
+	DefaultAuthoredRollback bool
+	// DefaultUndoesStep holds the default value on creation for the "undoes_step" field.
+	DefaultUndoesStep int
+	// UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.
+	UndoesStepValidator func(int) error
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -351,4 +387,39 @@ func ByUndeclaredInverseParamCount(opts ...sql.OrderTermOption) OrderOption {
 // ByDiffRecorded orders the results by the diff_recorded field.
 func ByDiffRecorded(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDiffRecorded, opts...).ToFunc()
+}
+
+// ByInverseComplete orders the results by the inverse_complete field.
+func ByInverseComplete(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInverseComplete, opts...).ToFunc()
+}
+
+// ByInversePartial orders the results by the inverse_partial field.
+func ByInversePartial(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInversePartial, opts...).ToFunc()
+}
+
+// ByActionChanged orders the results by the action_changed field.
+func ByActionChanged(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldActionChanged, opts...).ToFunc()
+}
+
+// ByAuthoredRollback orders the results by the authored_rollback field.
+func ByAuthoredRollback(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthoredRollback, opts...).ToFunc()
+}
+
+// ByRollbackOf orders the results by the rollback_of field.
+func ByRollbackOf(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRollbackOf, opts...).ToFunc()
+}
+
+// ByUndoesNode orders the results by the undoes_node field.
+func ByUndoesNode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUndoesNode, opts...).ToFunc()
+}
+
+// ByUndoesStep orders the results by the undoes_step field.
+func ByUndoesStep(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUndoesStep, opts...).ToFunc()
 }

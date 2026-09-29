@@ -53,6 +53,7 @@ func init() {
 				Reversible: false,
 				Notes: "It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, " +
 					"so the device is as it would have been had the task never run and there is nothing to undo.",
+				ReadOnly: true,
 			},
 			// Its check is its run: it only closes a connection, which a
 			// check may do as freely as a run, since the next task logs

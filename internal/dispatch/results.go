@@ -56,14 +56,36 @@ type ResultConsumer struct {
 	// or device this Controller has no record of. Both are acknowledged,
 	// so the log line is the only trace either happened.
 	logger *slog.Logger
+
+	// pump, when set, is called after a result that leaves its job
+	// unfinished, so a windowed job's next device starts as soon as a
+	// place in its forks window frees (window.go). Nil pumps nothing.
+	pump func(ctx context.Context, jobID string) error
 }
 
 // NewResultConsumer builds the consumer-side handler over store.
-func NewResultConsumer(store JobStore, logger *slog.Logger) *ResultConsumer {
+func NewResultConsumer(store JobStore, logger *slog.Logger, opts ...ResultOption) *ResultConsumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ResultConsumer{store: store, logger: logger}
+	c := &ResultConsumer{store: store, logger: logger}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// ResultOption configures a ResultConsumer.
+type ResultOption func(*ResultConsumer)
+
+// WithResultPump has the consumer call pump after each result that leaves
+// its job unfinished, which is Worker.Pump in the Controller: the result
+// freed a place in the job's forks window, and the next device should take
+// it now rather than at the leader's next sweep.
+func WithResultPump(pump func(ctx context.Context, jobID string) error) ResultOption {
+	return func(c *ResultConsumer) {
+		c.pump = pump
+	}
 }
 
 // Subscribe attaches c to the result subject on bus.
@@ -149,6 +171,14 @@ func (c *ResultConsumer) Handle(evt event.Event) error {
 	}
 
 	if !complete {
+		// A pump that fails is retried by redelivering the result, which is
+		// harmless: recording the same result again changes nothing
+		// (RecordResult counts rows), and the pump then runs again.
+		if c.pump != nil {
+			if err := c.pump(ctx, payload.JobID); err != nil {
+				return fmt.Errorf("failed to start the next devices of job %s: %w", payload.JobID, err)
+			}
+		}
 		return nil
 	}
 

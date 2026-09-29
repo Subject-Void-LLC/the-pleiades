@@ -109,6 +109,10 @@ var fields = []view.Field{
 	// they are two concepts.
 	{Name: "actor", Label: "LAUNCHED BY", Kind: view.KindReadOnly},
 	{Name: "created", Label: "CREATED", Kind: view.KindTimestamp, InList: true},
+	{
+		Name: "rollback_of", Label: "ROLLBACK OF", Kind: view.KindText, References: Name,
+		Help: "The job this one undoes, when it is a rollback.",
+	},
 }
 
 // kindBadge paints the launch-kind indicator from the registered
@@ -205,6 +209,10 @@ func taskBadge(outcome string) string {
 		return "badge-failed"
 	case string(dispatch.OutcomeSkipped):
 		return "badge-skipped"
+	case string(dispatch.OutcomeQueued):
+		// Waiting for a place in the job's forks window: nothing has gone
+		// right or wrong yet, the same reading as a result not yet in.
+		return "badge-neutral"
 	default:
 		return "badge-neutral"
 	}
@@ -304,24 +312,25 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, entries JournalReader, logs LogArchive) error {
+func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, rollbacker Rollbacker, entries JournalReader, logs LogArchive) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
 				return view.Row{}
 			}
 			return view.Row{ID: j.JobID, Cells: view.Cells{
-				"job_id":     j.JobID,
-				"runbook":    j.RunbookID,
-				"template":   j.TemplateName,
-				"kind":       j.Kind,
-				"mode":       j.ModeLabel(),
-				"state":      j.State,
-				"dispatched": strconv.Itoa(j.DispatchedCount),
-				"skipped":    strconv.Itoa(j.SkippedCount),
-				"failed":     strconv.Itoa(j.FailedCount),
-				"actor":      j.Actor,
-				"created":    formatTime(j.CreatedAt),
+				"job_id":      j.JobID,
+				"runbook":     j.RunbookID,
+				"template":    j.TemplateName,
+				"kind":        j.Kind,
+				"mode":        j.ModeLabel(),
+				"state":       j.State,
+				"dispatched":  strconv.Itoa(j.DispatchedCount),
+				"skipped":     strconv.Itoa(j.SkippedCount),
+				"failed":      strconv.Itoa(j.FailedCount),
+				"actor":       j.Actor,
+				"created":     formatTime(j.CreatedAt),
+				"rollback_of": j.RollbackOf,
 			}}
 		},
 	}
@@ -356,7 +365,7 @@ func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, ent
 			// editing the audit trail. Stopping a running job is a
 			// different thing entirely and is offered as an action below.
 		},
-		Actions: []view.RecordAction{cancelAction(canceller), relaunchAction(runner)},
+		Actions: []view.RecordAction{cancelAction(canceller), relaunchAction(runner), rollbackAction(rollbacker)},
 		// Withdraws each control on the jobs it would fail on: Relaunch on
 		// one still running, and on one that never came from a template;
 		// Cancel on one that has already stopped. The two are exclusive by

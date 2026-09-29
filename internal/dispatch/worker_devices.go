@@ -34,7 +34,9 @@ import (
 // RecordTask, presenting fence (the value job.JobID's owning
 // Worker.HandleJobRequested call obtained from its own BeginFanOut) so a
 // caller superseded by a later reclaim is rejected by the store rather
-// than allowed to keep writing.
+// than allowed to keep writing. It is the unwindowed path: a job with a
+// forks window queues its devices instead (queueDevice) and a pump
+// dispatches them (window.go).
 //
 // It returns the Outcome actually recorded (OutcomeSkipped, OutcomeFailed,
 // or OutcomeDispatched) and a nil error on every path that successfully
@@ -52,44 +54,82 @@ import (
 // device, and it is passed rather than recomputed so a ten-thousand-device
 // fan-out renders its credentials once.
 func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, injected credtype.Artifact, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
+	a := w.admit(job, prepared, device)
+	if a.outcome != "" {
+		return w.recordOutcome(ctx, job, fence, device, a.outcome, a.reason)
+	}
+
+	payload := w.dispatchPayload(ctx, job, prepared, injected, device, a)
+	if reason, ok := w.publishDispatch(ctx, job, evt.TraceID, device, a.mode, payload); !ok {
+		return w.recordOutcome(ctx, job, fence, device, OutcomeFailed, reason)
+	}
+	return w.recordOutcome(ctx, job, fence, device, OutcomeDispatched, "")
+}
+
+// queueDevice is admitAndDispatchDevice's windowed counterpart: it runs
+// the same admission and records an admitted device as OutcomeQueued
+// rather than dispatching it. A pump dispatches it later, when the job's
+// forks window has room, and admits it again then (window.go), since a
+// device's lifecycle can change while it waits.
+func (w *Worker) queueDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, device pkginventory.InventoryItem) (Outcome, error) {
+	a := w.admit(job, prepared, device)
+	if a.outcome != "" {
+		return w.recordOutcome(ctx, job, fence, device, a.outcome, a.reason)
+	}
+	return w.recordOutcome(ctx, job, fence, device, OutcomeQueued, "")
+}
+
+// recordOutcome writes device's one JobTask row with outcome and reason
+// and returns outcome, or the RecordTask error the caller must check with
+// fenced and canceled.
+func (w *Worker) recordOutcome(ctx context.Context, job *Job, fence int64, device pkginventory.InventoryItem, outcome Outcome, reason string) (Outcome, error) {
+	if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
+		DeviceID:   string(device.ID()),
+		DeviceName: device.Name(),
+		Outcome:    outcome,
+		Reason:     reason,
+	}); err != nil {
+		return "", fmt.Errorf("failed to record %s for device %s on job %s: %w", outcome, device.ID(), job.JobID, err)
+	}
+	return outcome, nil
+}
+
+// admission is one device's admission decision, taken before any payload
+// exists: the mode and address a dispatch would use, or the outcome and
+// reason that keep the device from being dispatched at all.
+type admission struct {
+	// mode is the job's run mode.
+	mode collection.Mode
+	// host is the address the Runner connects to.
+	host string
+	// outcome is empty when the device is admitted, and OutcomeSkipped or
+	// OutcomeFailed when it is not.
+	outcome Outcome
+	// reason says why a device was not admitted. It names the device,
+	// its lifecycle state or a capability, never a property value.
+	reason string
+}
+
+// admit decides whether device may be dispatched for job: the job's mode
+// must parse, the device's lifecycle must admit that mode, it must carry
+// every capability the definition requires, and it must have an address.
+// The fan-out and a windowed job's pump both ask, through this one
+// function, so the two can never disagree about what admits a device.
+func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventory.InventoryItem) admission {
 	mode, err := job.Mode()
 	if err != nil {
-		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeFailed,
-			Reason:     err.Error(),
-		}); recErr != nil {
-			return "", fmt.Errorf("failed to record failure for device %s on job %s: %w", device.ID(), job.JobID, recErr)
-		}
-		return OutcomeFailed, nil
+		return admission{outcome: OutcomeFailed, reason: err.Error()}
 	}
 
 	// A check admits a simulate-locked device, which is what such a
 	// device is for, and a real run never does (engine.LifecycleAdmitsIn,
 	// the one rule the CLI, validation and the engine share).
 	if ok, reason := engine.LifecycleAdmitsIn(mode, device); !ok {
-		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeSkipped,
-			Reason:     reason,
-		}); err != nil {
-			return "", fmt.Errorf("failed to record skip for device %s on job %s: %w", device.ID(), job.JobID, err)
-		}
-		return OutcomeSkipped, nil
+		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
 	}
 
 	if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
-		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeSkipped,
-			Reason:     reason,
-		}); err != nil {
-			return "", fmt.Errorf("failed to record skip for device %s on job %s: %w", device.ID(), job.JobID, err)
-		}
-		return OutcomeSkipped, nil
+		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
 	}
 
 	// "host", never "ip": every concrete device type in this codebase
@@ -105,18 +145,16 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		host, ok = declaredAddress(device)
 	}
 	if !ok {
-		reason := fmt.Sprintf("device %q has no host property", device.Name())
-		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeSkipped,
-			Reason:     reason,
-		}); err != nil {
-			return "", fmt.Errorf("failed to record skip for device %s on job %s: %w", device.ID(), job.JobID, err)
-		}
-		return OutcomeSkipped, nil
+		return admission{mode: mode, outcome: OutcomeSkipped, reason: fmt.Sprintf("device %q has no host property", device.Name())}
 	}
+	return admission{mode: mode, host: host}
+}
 
+// dispatchPayload builds the dispatch payload for a device admit let
+// through, a's mode and host included, with the job's rendered credentials
+// (injected) and, failing a bound machine credential, the device's own.
+func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared PreparedDefinition, injected credtype.Artifact, device pkginventory.InventoryItem, a admission) wire.DispatchPayload {
+	host, mode := a.host, a.mode
 	payload := wire.DispatchPayload{
 		JobID:     job.JobID,
 		RunbookID: job.RunbookID,
@@ -163,6 +201,13 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// through the same resolution the CLI uses. Off at either is off.
 	payload.PersistConnections = launch.PersistConnections(job.Fields) && engine.PersistFor(w.repo)(ctx, device)
 
+	// A rollback job's device carries its own steps, which its Runner runs
+	// in place of the runbook's tasks (rollback.go).
+	if job.RollbackOf != "" {
+		steps, _ := job.Rollback.StepsFor(string(device.ID()))
+		payload.Rollback = &wire.Rollback{Of: job.RollbackOf, DAGVersion: job.Rollback.DAGVersion, Steps: steps}
+	}
+
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them
 	// supplies authentication for EVERY device in this dispatch, which is
@@ -205,30 +250,30 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 				slog.Any("error", err))
 		}
 	}
+	return payload
+}
 
+// publishDispatch wraps payload in its dispatch event and publishes it on
+// device's subject (the check subject for a check), under the idempotency
+// key job:device. traceID continues the launch's trace when it has one.
+// On failure it returns false and the reason the device's row records,
+// which names the device and nothing it holds.
+func (w *Worker) publishDispatch(ctx context.Context, job *Job, traceID string, device pkginventory.InventoryItem, mode collection.Mode, payload wire.DispatchPayload) (string, bool) {
 	dispatchEvt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)
 	if err != nil {
-		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeFailed,
-			Reason:     fmt.Sprintf("failed to build dispatch event for device %q", device.Name()),
-		}); recErr != nil {
-			return "", fmt.Errorf("failed to record failure for device %s on job %s: %w", device.ID(), job.JobID, recErr)
-		}
-		return OutcomeFailed, nil
+		return fmt.Sprintf("failed to build dispatch event for device %q", device.Name()), false
 	}
 
 	// Envelope fields mirror internal/api/dispatcher.go's own current
 	// block: WithActor from the job's own stored Actor (there is no live
 	// caller identity here anymore, only what was captured at launch),
-	// WithTraceID from evt's own TraceID when it carries one, and
+	// WithTraceID from the launch's trace id when it has one (a pump has none), and
 	// IdempotencyKey as jobID+":"+deviceID so a redelivery of this same
 	// job.requested event, or a retry of this device's dispatch within
 	// it, is recognized as a duplicate rather than double-published.
 	pubCtx := event.WithActor(ctx, job.Actor)
-	if evt.TraceID != "" {
-		pubCtx = event.WithTraceID(pubCtx, evt.TraceID)
+	if traceID != "" {
+		pubCtx = event.WithTraceID(pubCtx, traceID)
 	}
 	pubCtx = event.WithIdempotencyKey(pubCtx, job.JobID+":"+string(device.ID()))
 
@@ -254,30 +299,22 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	//
 	// A check goes to its own subject (topology.CheckSubject), which only a
 	// Runner that knows what a check is ever consumes.
+	//
+	// A rollback, checked or not, goes to the rollback subject: a Runner
+	// that predates rollback would drop its steps and run the runbook
+	// being undone, and one that predates it only on the check side would
+	// check that runbook instead of its undo.
 	subject := topology.DispatchSubject(string(device.ID()))
-	if mode == collection.ModeCheck {
+	switch {
+	case payload.Rollback != nil:
+		subject = topology.RollbackSubject(string(device.ID()))
+	case mode == collection.ModeCheck:
 		subject = topology.CheckSubject(string(device.ID()))
 	}
 	if err := w.bus.Publish(pubCtx, subject, *dispatchEvt); err != nil {
-		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-			DeviceID:   string(device.ID()),
-			DeviceName: device.Name(),
-			Outcome:    OutcomeFailed,
-			Reason:     fmt.Sprintf("failed to publish dispatch event for device %q", device.Name()),
-		}); recErr != nil {
-			return "", fmt.Errorf("failed to record failure for device %s on job %s: %w", device.ID(), job.JobID, recErr)
-		}
-		return OutcomeFailed, nil
+		return fmt.Sprintf("failed to publish dispatch event for device %q", device.Name()), false
 	}
-
-	if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
-		DeviceID:   string(device.ID()),
-		DeviceName: device.Name(),
-		Outcome:    OutcomeDispatched,
-	}); err != nil {
-		return "", fmt.Errorf("failed to record dispatch for device %s on job %s: %w", device.ID(), job.JobID, err)
-	}
-	return OutcomeDispatched, nil
+	return "", true
 }
 
 // fenced reports whether err is (or wraps) JobStore's ErrFenced, logging

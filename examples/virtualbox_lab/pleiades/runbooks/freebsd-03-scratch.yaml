@@ -1,0 +1,34 @@
+# A throwaway FreeBSD VM, made to be rolled back: the same clone
+# freebsd-02-create.yaml makes, under another name and address.
+#
+# Run it, then undo it from its journal:
+#
+#   pleiades run runbooks/freebsd-03-scratch.yaml     # prints its run id
+#   pleiades rollback <run-id> --mode check           # stop it, then delete it
+#   pleiades rollback <run-id>
+#
+# The rollback runs the undos the clone and the start recorded, newest
+# first: it stops the VM, then deletes it by the UUID the clone recorded,
+# so it never deletes another VM made since under the same name. Reading
+# the host keys changed nothing, so there is nothing to undo for it.
+#
+# The clone reuses bsd-lab's login (login: bsd-lab), so it needs no host
+# or credential of its own: nothing here connects to it over SSH.
+id: vbox-lab-freebsd-scratch
+hosts: vengeance
+tasks:
+  - name: make a scratch FreeBSD VM from the base's never-booted snapshot
+    virt.vbox.vm.clone:
+      name: bsd-scratch
+      from: freebsd-base
+      snapshot: base
+      login: bsd-lab
+      address: 192.168.56.41/24
+      size: small
+  - name: start it
+    virt.vbox.vm.start:
+      name: bsd-scratch
+  - name: wait for its first boot to print its SSH host keys
+    virt.vbox.vm.host_keys:
+      name: bsd-scratch
+      timeout: 600

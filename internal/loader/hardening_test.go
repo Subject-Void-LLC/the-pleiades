@@ -268,3 +268,19 @@ func TestHardening_CannotCheckIsNeverASuccess(t *testing.T) {
 		})
 	}
 }
+
+// TestHardening_AReservedParamIsRefusedBeforeAnythingLoads covers the
+// device-selector collision for a third party: a program declaring a
+// parameter named target would have its datastore, path or anything else
+// read by the engine as the device or tag to run on, so its description is
+// refused before any method of it registers.
+func TestHardening_AReservedParamIsRefusedBeforeAnythingLoads(t *testing.T) {
+	for _, name := range collection.ReservedParams() {
+		m := implemented(false)
+		m.Doc.Params = []collection.Param{{Name: "content", Type: "string"}, {Name: name, Type: "string"}}
+		_, err := validateMethod(external.DescribedMethod{Name: "acme.reserved.run", Manifest: m}, "dev", nil)
+		if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "device or tag") {
+			t.Errorf("validateMethod(param %q) = %v, want it refused naming the parameter", name, err)
+		}
+	}
+}

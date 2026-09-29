@@ -31,6 +31,9 @@ func init() {
 					"already running emits nothing, since undoing it means doing nothing. What the inverse cannot " +
 					"restore is anything the service did while it was up: connections it accepted, files it wrote, " +
 					"messages it consumed. Stopping it again returns the unit to where it was, not the system.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.stop", Record: []string{"name"}},
+				},
 			},
 			// A check reads the unit's state and says whether a start would
 			// be sent, without sending it. See CheckStart.

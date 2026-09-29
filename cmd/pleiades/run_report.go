@@ -61,6 +61,16 @@ type runReport struct {
 	Tasks []taskReport `json:"tasks,omitempty"`
 	// Metadata is what set_metadata tasks recorded, masked.
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// RunID names this run in its journal, and is what `pleiades
+	// rollback` and `pleiades journal show` take. Empty for a check, which
+	// writes no journal, and for a run that never started.
+	RunID string `json:"run_id,omitempty"`
+	// Journal is the path of this run's journal file, empty when RunID is.
+	Journal string `json:"journal,omitempty"`
+	// Rollback is, for `pleiades rollback`, what it planned: the run it
+	// undoes, what it leaves in place, what nobody can say changed, and,
+	// when it refused, why.
+	Rollback *rollbackReport `json:"rollback,omitempty"`
 	// Outcome is how the run ended.
 	Outcome runOutcome `json:"outcome"`
 }

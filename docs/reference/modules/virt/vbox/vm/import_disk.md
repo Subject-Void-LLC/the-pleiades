@@ -40,7 +40,7 @@ Makes sure a VM of this name exists, creating it from a disk image already on th
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that made a VM emits virt.vbox.vm.delete naming it, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing.
+A run that made a VM emits virt.vbox.vm.delete naming it and pinning its UUID, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

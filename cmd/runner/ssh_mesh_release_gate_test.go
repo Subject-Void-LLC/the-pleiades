@@ -264,7 +264,12 @@ func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFile
 	if err != nil {
 		t.Fatalf("failed to init native adapter: %v", err)
 	}
-	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
+	// Result reporting on, as the real Runner has it (cmd/runner's main):
+	// a Controller-side test needs to hear each device's result, and a
+	// harness Runner that stayed silent differed from the binary it stands
+	// for in exactly the way that hid it.
+	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil,
+		runner.WithResultReporting(bus))
 
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	t.Cleanup(cancelAgent)

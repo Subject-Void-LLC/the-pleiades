@@ -97,6 +97,19 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return fmt.Errorf("failed to load job %s after claiming fan-out: %w", payload.JobID, err)
 	}
 
+	// A rollback dispatches only the devices its plan names; one whose
+	// plan cannot be read is failed, never run as an ordinary job.
+	undo, err := newRollbackFanOut(job)
+	if err != nil {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, err.Error()); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
 	// alreadyRecorded names every device an attempt this claim might be
 	// superseding already recorded (see BeginFanOut's own doc comment on
 	// why this guard lives here rather than inside JobStore.RecordTask).
@@ -107,10 +120,13 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// reclaim, re-running this whole loop for a job a crashed Worker
 	// partially finished, ever finds entries here.
 	alreadyRecorded := make(map[string]struct{}, len(priorTasks))
-	var dispatched, skipped, failed int
+	var dispatched, skipped, failed, queued int
 	for _, t := range priorTasks {
 		alreadyRecorded[t.DeviceID] = struct{}{}
+		undo.admits(t.DeviceID)
 		switch t.Outcome {
+		case OutcomeQueued:
+			queued++
 		case OutcomeDispatched:
 			dispatched++
 		case OutcomeSkipped:
@@ -253,6 +269,10 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	}
 	defer iter.Close()
 
+	// windowed says whether this job runs its devices through a forks
+	// window (window.go) rather than dispatching each as it is reached.
+	windowed := windowOf(job) > 0
+
 	// The streaming Next/Item/Error/Close loop shape, mirroring
 	// internal/api/dispatcher.go's CURRENT loop exactly. Devices are
 	// never materialized into a slice: this streaming property is the
@@ -261,6 +281,10 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// moving fan-out into a durable worker in the first place.
 	for iter.Next(ctx) {
 		device := iter.Item()
+
+		if !undo.admits(string(device.ID())) {
+			continue
+		}
 
 		if _, done := alreadyRecorded[string(device.ID())]; done {
 			// This exact device was already admitted-or-skipped and
@@ -280,8 +304,15 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// admitAndDispatchDevice (worker_devices.go) owns admission,
 		// payload construction, publish, and the RecordTask write for
 		// exactly one device; see that file's own doc comment for why
-		// this block lives there rather than inline in this loop.
-		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
+		// this block lives there rather than inline in this loop. A job
+		// with a forks window queues each admitted device instead, and
+		// the pump below dispatches them (window.go).
+		var outcome Outcome
+		if windowed {
+			outcome, err = w.queueDevice(ctx, job, fence, prepared, device)
+		} else {
+			outcome, err = w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
+		}
 		if err != nil {
 			if fenced(job.JobID, err) {
 				return nil
@@ -312,6 +343,8 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			return err
 		}
 		switch outcome {
+		case OutcomeQueued:
+			queued++
 		case OutcomeDispatched:
 			dispatched++
 		case OutcomeSkipped:
@@ -338,6 +371,15 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
+	missing, err := w.recordMissing(ctx, job, fence, undo)
+	failed += missing
+	if err != nil {
+		if fenced(job.JobID, err) || canceled(job.JobID, err) {
+			return nil
+		}
+		return err
+	}
+
 	// Which of the two endings this fan-out gets turns on one question:
 	// did anything reach a Runner. If nothing did, every device having
 	// been skipped or failed at dispatch, the run really is over and
@@ -346,8 +388,12 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// here would be the platform announcing the end of its OWN part as
 	// the end of the job. Those devices are executing, and the job stays
 	// "running" until each of them has reported back.
+	//
+	// A queued device is work still to come in the same way, so a windowed
+	// job with anything queued settles into "running" too, with its
+	// dispatched tally at zero for the pump to count up.
 	settle := w.store.Complete
-	if dispatched > 0 {
+	if dispatched > 0 || queued > 0 {
 		settle = w.store.SettleRunning
 	}
 	if err := settle(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
@@ -361,6 +407,18 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			return nil
 		}
 		return fmt.Errorf("failed to settle job %s: %w", job.JobID, err)
+	}
+
+	// The first window. A failure here is logged rather than returned: the
+	// fan-out's own work is done and recorded, redelivering it would
+	// change nothing (BeginFanOut refuses a settled job), and the leader's
+	// sweep pumps every running job that still has queued devices.
+	if queued > 0 {
+		if err := w.Pump(ctx, job.JobID); err != nil {
+			slog.Error("a windowed job's first pump failed; the leader's sweep will retry it",
+				slog.String("job_id", job.JobID),
+				slog.String("error", err.Error()))
+		}
 	}
 	return nil
 }

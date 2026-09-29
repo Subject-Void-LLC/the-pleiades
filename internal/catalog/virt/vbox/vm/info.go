@@ -32,8 +32,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: false, Notes: "Reading is not changing: this runs VBoxManage showvminfo and alters nothing, so there is nothing an undo could restore."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "Reading is not changing: this runs VBoxManage showvminfo and alters nothing, so there is nothing an undo could restore.",
+				ReadOnly:   true,
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reports a VirtualBox VM's state, hardware and snapshots.",
 				Description: "Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",

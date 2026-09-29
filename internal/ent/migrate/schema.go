@@ -418,6 +418,8 @@ var (
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 		{Name: "credential_ids", Type: field.TypeJSON, Nullable: true},
 		{Name: "external_checks", Type: field.TypeBool, Default: false},
+		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
+		{Name: "rollback", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{
@@ -429,6 +431,11 @@ var (
 				Name:    "job_template_id",
 				Unique:  false,
 				Columns: []*schema.Column{JobsColumns[7]},
+			},
+			{
+				Name:    "job_rollback_of",
+				Unique:  false,
+				Columns: []*schema.Column{JobsColumns[25]},
 			},
 		},
 	}
@@ -445,6 +452,8 @@ var (
 		{Name: "result_reason", Type: field.TypeString, Nullable: true},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "unchecked", Type: field.TypeInt, Default: 0},
+		{Name: "waiting", Type: field.TypeBool, Default: false},
+		{Name: "slot", Type: field.TypeInt, Nullable: true},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -455,7 +464,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[11]},
+				Columns:    []*schema.Column{JobTasksColumns[13]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -464,7 +473,12 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[11]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[13]},
+			},
+			{
+				Name:    "jobtask_slot_job_tasks",
+				Unique:  true,
+				Columns: []*schema.Column{JobTasksColumns[12], JobTasksColumns[13]},
 			},
 		},
 	}
@@ -503,6 +517,14 @@ var (
 		{Name: "inverse_param_keys", Type: field.TypeJSON, Nullable: true},
 		{Name: "undeclared_inverse_param_count", Type: field.TypeInt, Default: 0},
 		{Name: "diff_recorded", Type: field.TypeBool, Default: false},
+		{Name: "inverse_params", Type: field.TypeJSON, Nullable: true},
+		{Name: "inverse_complete", Type: field.TypeBool, Default: false},
+		{Name: "inverse_partial", Type: field.TypeBool, Default: false},
+		{Name: "action_changed", Type: field.TypeBool, Default: false},
+		{Name: "authored_rollback", Type: field.TypeBool, Default: false},
+		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
+		{Name: "undoes_node", Type: field.TypeString, Nullable: true},
+		{Name: "undoes_step", Type: field.TypeInt, Default: 0},
 	}
 	// JournalEntriesTable holds the schema information for the "journal_entries" table.
 	JournalEntriesTable = &schema.Table{
@@ -519,6 +541,11 @@ var (
 				Name:    "journalentry_job_id_device_id_attempt_sequence",
 				Unique:  false,
 				Columns: []*schema.Column{JournalEntriesColumns[3], JournalEntriesColumns[4], JournalEntriesColumns[5], JournalEntriesColumns[8]},
+			},
+			{
+				Name:    "journalentry_rollback_of",
+				Unique:  false,
+				Columns: []*schema.Column{JournalEntriesColumns[38]},
 			},
 		},
 	}

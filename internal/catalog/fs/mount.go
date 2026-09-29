@@ -30,6 +30,9 @@ func init() {
 					"or updated its fstab entry emits no inverse: undoing that without also unmounting a mount " +
 					"this task did not create needs a capability this namespace does not expose. A run that found " +
 					"everything already as requested emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "fs.unmount", Record: []string{"path", "persist", "fstab"}},
+				},
 			},
 			Doc: mountDoc(),
 		},

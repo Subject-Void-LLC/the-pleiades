@@ -13,9 +13,17 @@ import (
 
 // engineParamKeys are the params the engine itself reads from every task,
 // whatever method it calls: target, the device selector TaskTarget
-// resolves (internal/engine/action.go). No method declares it, and it is
-// always allowed.
-var engineParamKeys = map[string]bool{"target": true}
+// resolves (internal/engine/action.go). No method may declare one
+// (collection.Register refuses it), and each is always allowed. The set is
+// collection's own list, so a key reserved there is allowed here with no
+// second edit.
+var engineParamKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	for _, name := range collection.ReservedParams() {
+		keys[name] = true
+	}
+	return keys
+}()
 
 // ParamsRule flags a task that passes its Collection method a parameter
 // the method does not declare, in its own Doc.Params or through a shared

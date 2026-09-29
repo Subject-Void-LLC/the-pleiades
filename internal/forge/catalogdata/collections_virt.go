@@ -439,8 +439,10 @@ var virtCollections = []collectionscaffold.Config{
 		Doc: collection.Doc{
 			Summary: "Deletes a stopped VirtualBox VM and its disks.",
 			Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone." +
-				vboxHostParamNote + " A check reads the VM and sends nothing.",
-			Params: []collection.Param{vmNameParam},
+				vboxHostParamNote + " A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
+			Params: []collection.Param{vmNameParam,
+				{Name: "uuid", Type: "string", Description: "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."},
+			},
 			Returns: []collection.ReturnField{
 				{Name: "uuid", Type: "string", Returned: "when a VM was deleted", Description: "The VM deleted."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},

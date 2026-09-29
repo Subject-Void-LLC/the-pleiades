@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -39,7 +40,7 @@ type TargetResolver interface {
 // assembled by hand, which the builder never saw, and treats such a value
 // as absent.
 func TaskTarget(dag *DAG, task *Task) string {
-	if target, ok := task.Params["target"].(string); ok && target != "" {
+	if target, ok := task.Params[collection.TargetParam].(string); ok && target != "" {
 		return target
 	}
 	return dag.Hosts

@@ -59,6 +59,7 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+				ReadOnly:   true,
 			},
 			Doc: collection.Doc{
 				Summary:     "Gathers a Cisco Catalyst Center's site hierarchy, as facts.",

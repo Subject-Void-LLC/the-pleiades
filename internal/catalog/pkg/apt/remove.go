@@ -29,6 +29,9 @@ func init() {
 					"undoes exactly what this run did to the package database. A run that found the package already " +
 					"absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer " +
 					"scripts did beyond deleting the package's files.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "pkg.apt.install", Record: []string{"name", "version"}},
+				},
 			},
 			Doc: removeDoc(),
 		},

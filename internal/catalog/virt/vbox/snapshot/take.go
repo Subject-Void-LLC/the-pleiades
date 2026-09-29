@@ -33,8 +33,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.snapshot.delete", Record: []string{"vm", "name", "uuid"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has.",
 				Description: "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",

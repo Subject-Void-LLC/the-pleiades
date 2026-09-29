@@ -77,6 +77,13 @@
           },
           "type": "array"
         },
+        "rollback": {
+          "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. Only on a method call; each step is a method and its params, with no target, register, conditions or tags.",
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "type": "array"
+        },
         "secret_mask": {
           "additionalProperties": false,
           "description": "Retroactively masks fields of an earlier task's registered result.",
@@ -232,6 +239,10 @@
         "$ref": "#/$defs/task"
       },
       "type": "array"
+    },
+    "reversible": {
+      "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise.",
+      "type": "boolean"
     },
     "tags": {
       "description": "Tags every task in the runbook carries, as a play's tags do in Ansible.",

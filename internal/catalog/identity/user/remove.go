@@ -34,6 +34,9 @@ func init() {
 					"already absent emits nothing. What the inverse cannot restore is the account's password " +
 					"(never captured by this platform), or the home directory's contents once remove=true has " +
 					"asked userdel to delete them.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.user.create", Record: []string{"name", "uid", "group", "shell", "home"}, Withhold: []string{"comment"}, MayBePartial: true},
+				},
 			},
 			Doc: removeDoc(),
 		},
@@ -136,6 +139,9 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if changed {
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN: "identity.user.create",
+			// The password and any removed home directory's contents are
+			// not restored.
+			Partial: true,
 			Params: map[string]any{
 				paramName:    name,
 				paramUID:     before.uid,

@@ -37,8 +37,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: false, Notes: "Reading is not changing: this reads the VM's console log and alters nothing, so there is nothing an undo could restore."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "Reading is not changing: this reads the VM's console log and alters nothing, so there is nothing an undo could restore.",
+				ReadOnly:   true,
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reads a VM's SSH host keys from what cloud-init printed on its serial console.",
 				Description: "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the console once, without waiting.",

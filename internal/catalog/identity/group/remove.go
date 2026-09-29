@@ -31,6 +31,9 @@ func init() {
 					"gid this run captured before removing it, which is a real, restorable inverse. A run that " +
 					"found the group already absent emits nothing. What the inverse cannot restore is any user's " +
 					"primary or supplementary membership in the group at the moment it was removed.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.group.create", Record: []string{"name", "gid"}, MayBePartial: true},
+				},
 			},
 			Doc: removeDoc(),
 		},
@@ -125,7 +128,9 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 	if changed {
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:        "identity.group.create",
+			FQCN: "identity.group.create",
+			// Users' membership in the group is not restored.
+			Partial:     true,
 			Params:      map[string]any{paramName: name, paramGID: before.gid},
 			Description: fmt.Sprintf("Recreate %s at its previous gid %d. Any user's membership in it is not restored.", name, before.gid),
 		}); err != nil {

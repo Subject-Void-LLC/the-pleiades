@@ -197,7 +197,7 @@ func TestImportDisk(t *testing.T) {
 	if !attached || !bytes.Equal(model.Files[disk], diskStart(true)) || !bytes.Equal(model.Files[vhdx], diskStart(true)) {
 		t.Errorf("the copy is not the VM's disk, or the image changed: %+v", vm.Slots)
 	}
-	want := map[string]any{"fqcn": "virt.vbox.vm.delete", "params": map[string]any{"name": "ws2025-base"}, "description": "Delete ws2025-base and the disk copied for it, which this task made."}
+	want := map[string]any{"fqcn": "virt.vbox.vm.delete", "params": map[string]any{"name": "ws2025-base", "uuid": rc.stats["uuid"]}, "description": "Delete ws2025-base and the disk copied for it, which this task made."}
 	if !reflect.DeepEqual(rc.stats[sdk.StatInverse], want) {
 		t.Errorf("inverse = %v", rc.stats[sdk.StatInverse])
 	}

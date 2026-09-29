@@ -35,8 +35,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that installed a VM emits virt.vbox.vm.delete naming it, which deletes its disk with it; the ISO is never changed. One that found an installed VM under the name emits nothing."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that installed a VM emits virt.vbox.vm.delete naming it and pinning its UUID, which deletes its disk with it; the ISO is never changed. One that found an installed VM under the name emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.delete", Record: []string{"name", "uuid"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Makes a Windows or FreeBSD VM by installing it from its installation ISO, unattended, as a base to clone.",
 				Description: "Makes sure a VM of this name exists, creating it by installing an operating system from an installation ISO already on the host, with no one at the keyboard. installer says which: windows or freebsd, declared by the task rather than read from os_type. The VM gets a new disk of disk_gb, BIOS firmware, the size asked for, os_type, and no network adapter, so the install downloads nothing. Its DVD drives hold the ISO and an answer medium Pleiades builds. For windows it is an answer file (Autounattend.xml), which partitions the disk, installs image and accepts its license, then takes the new Windows through audit mode, where it deletes the two copies of itself Windows cached, points the registry (HKLM\\SYSTEM\\Setup, UnattendFile) at D:\\Autounattend.xml, and runs sysprep to generalize the installation and shut it down. A generalized Windows looks for its answer file at first boot only there and in its own folders, never on a DVD, so the pointer is how a clone reads its seed. The answer file holds a password only for audit mode's sign-in, made at random for this install and kept nowhere by Pleiades; Windows keeps it, not blanked, in one of the two copies it caches, which is why audit mode deletes both, and a clone's seed sets a password of its own. For freebsd it is bsdinstall's script (installerconfig), which a released DVD cannot hold, so Pleiades watches the VM's screen for the installer's Welcome dialog, chooses its shell, and types the command that mounts the script's DVD and runs it. The command first says so on the VM's serial console, which is written to console.log in its folder, then copies the installer's log there, so the console shows how far an install got; running the task again resumes an install that stopped before or after the command, and never types it twice. The script installs the kernel and base system from the DVD onto the first disk with bsdinstall's default partitioning, enables sshd, and prepares the system for its clones' first boot: nuageinit reads each clone's seed, the serial console stays on, and the SSH host keys are printed on it between the lines cloud-init uses, which virt.vbox.vm.host_keys reads. Then the VM powers off; a script that fails leaves it running at a shell. The task waits for the power-off: about six to eight minutes for Windows on the lab host. When the VM is off, both DVDs are taken out, the answer medium is deleted, and the VM is marked installed (the extradata pleiades/installed). The VM is meant as a base to snapshot and clone: virt.vbox.vm.clone gives each clone its own name, address and login. A VM already under the name reports no change when it is marked installed, and is refused when it is not, since an install that did not finish is no base: delete it with virt.vbox.vm.delete and run again. An install still running at the timeout is left running, with a picture of its screen saved in its folder to show where it stopped. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and memory, and sends nothing.",
@@ -184,8 +190,10 @@ func runInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 		return collection.Result{}, err
 	}
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.vbox.vm.delete",
-		Params:      map[string]any{paramName: name},
+		FQCN: "virt.vbox.vm.delete",
+		// The UUID pins the undo to the VM this task made: a VM made later
+		// under the same name is refused rather than deleted.
+		Params:      map[string]any{paramName: name, paramUUID: uuid},
 		Description: fmt.Sprintf("Delete %s and its disk, which this task installed.", name),
 	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

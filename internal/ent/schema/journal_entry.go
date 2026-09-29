@@ -7,6 +7,8 @@
 package schema
 
 import (
+	"encoding/json"
+
 	"entgo.io/ent"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
@@ -169,6 +171,28 @@ func (JournalEntry) Fields() []ent.Field {
 		// without any of either. It is a decision the platform made, not
 		// a value it observed.
 		field.Bool("diff_recorded").Immutable().Default(false),
+
+		// The rollback columns (Phase 40), last so the migration adding
+		// them only adds.
+		//
+		// inverse_params is the one column holding values, and only the
+		// kind the entry type calls kind 7: an undo parameter's value that
+		// the emitting built-in method's manifest declares an identifier
+		// (engine.InverseParam). jsonb, holding the entry's marshalled
+		// InverseParams, so an operator can query it. It carries no crypto
+		// hook for the same reason the table carries none: it holds no
+		// secret, by construction rather than by masking.
+		field.JSON("inverse_params", json.RawMessage{}).Immutable().Optional(),
+		field.Bool("inverse_complete").Immutable().Default(false),
+		field.Bool("inverse_partial").Immutable().Default(false),
+		field.Bool("action_changed").Immutable().Default(false),
+		field.Bool("authored_rollback").Immutable().Default(false),
+		// rollback_of is the job this row's job undoes, empty for a job that
+		// is not a rollback; undoes_node and undoes_step say which node,
+		// and step, of that job's journal this row's node undoes.
+		field.String("rollback_of").Immutable().Optional(),
+		field.String("undoes_node").Immutable().Optional(),
+		field.Int("undoes_step").Immutable().NonNegative().Default(0),
 	}
 }
 
@@ -186,5 +210,8 @@ func (JournalEntry) Indexes() []ent.Index {
 		// actually runs, and sequence alone is not enough to answer it
 		// because two devices in one job each number from one.
 		index.Fields("job_id", "device_id", "attempt", "sequence"),
+		// A Walk rollback reads every earlier rollback of the job it undoes,
+		// to resume rather than repeat what is already undone.
+		index.Fields("rollback_of"),
 	}
 }

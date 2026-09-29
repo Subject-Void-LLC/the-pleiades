@@ -325,6 +325,11 @@ func TestTouch_AttributeChangeEmitsAPartialRestore(t *testing.T) {
 	if fqcn != "file.permissions" {
 		t.Errorf("the inverse names %q, want file.permissions", fqcn)
 	}
+	// The modification time this touch moved is not restored by the undo,
+	// so a rollback must be told it is partial.
+	if record, _ := rc.stats[sdk.StatInverse].(map[string]any); record[sdk.InversePartialKey] != true {
+		t.Errorf("the undo of touching an existing file is not marked partial: %v", record)
+	}
 
 	// Read out of the recorded prior state, so this proves the inverse
 	// carries what the run observed.

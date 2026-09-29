@@ -185,6 +185,12 @@ type Descriptor struct {
 	// not exist yet to route dispatch on".
 	Adapter string
 
+	// Journals says a run of this kind keeps the run journal (Phase 40):
+	// one entry per task per device, recording each change and its undo,
+	// which is what a rollback of the job is planned from. A kind that does
+	// not cannot be rolled back.
+	Journals bool
+
 	// Fields are the fields this kind accepts, in the order a form renders
 	// them.
 	Fields []FieldSpec

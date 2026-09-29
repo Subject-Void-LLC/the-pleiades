@@ -114,8 +114,20 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	if m.Manifest.SupportsCheck && m.Manifest.NoCheckReason != "" {
 		return false, fmt.Errorf("method %q declares check support and also a reason it cannot be checked", m.Name)
 	}
-	if !m.Manifest.Reversibility.Reversible && m.Manifest.Reversibility.Notes == "" {
-		return false, fmt.Errorf("method %q declares itself not reversible with no notes saying why", m.Name)
+	// Register's own rule for the declaration (collection.ValidateReversibility),
+	// called rather than restated so the two cannot drift. A program's
+	// Inverses and ReadOnly are carried but never honored (the engine
+	// ignores them for a method with a Provider); a contradictory one is
+	// still refused here, as Register would.
+	if err := collection.ValidateReversibility(m.Manifest.Reversibility); err != nil {
+		return false, fmt.Errorf("method %q %w", m.Name, err)
+	}
+	for _, p := range m.Manifest.Doc.Params {
+		// Register refuses the same thing (checkReservedParams); saying so
+		// here keeps a whole directory from loading halfway.
+		if collection.IsReservedParam(p.Name) {
+			return false, fmt.Errorf("method %q declares a parameter named %q, which the engine reads as the device or tag a task runs on; give it another name", m.Name, p.Name)
+		}
 	}
 	for _, name := range m.Manifest.RequiredCapabilities {
 		if _, known := capability.Lookup(name); !known {

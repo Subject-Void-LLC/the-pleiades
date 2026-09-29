@@ -34,6 +34,9 @@ func init() {
 					"sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that " +
 					"would over-correct is worse than emitting none. The undo restores the boot-time setting only; it " +
 					"never stops a service that is running, because enabling never started one.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.windows.disable", Record: []string{"name"}},
+				},
 			},
 			Doc: enableDoc(),
 		},

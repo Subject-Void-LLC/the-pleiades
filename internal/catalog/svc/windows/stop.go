@@ -32,6 +32,9 @@ func init() {
 					"already stopped emits nothing. Starting it again returns the service to running, but nothing can " +
 					"restore what it missed while it was down: requests that were refused, queues that backed up, " +
 					"timers that did not fire.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.windows.start", Record: []string{"name"}},
+				},
 			},
 			Doc: stopDoc(),
 		},

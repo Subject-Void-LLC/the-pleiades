@@ -167,6 +167,10 @@ type jobResponse struct {
 	CheckComplete *bool `json:"check_complete,omitempty"`
 	Unchecked     int   `json:"unchecked,omitempty"`
 
+	// RollbackOf, on a rollback job, is the job it undoes. Absent on every
+	// other job.
+	RollbackOf string `json:"rollback_of,omitempty"`
+
 	// FailureReason explains a failed state, and is empty for every other
 	// one. It carries only facts a job-resource reader may see, never a
 	// raw internal error.
@@ -219,6 +223,7 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 	return jobResponse{
 		CheckComplete: checkComplete,
 		Unchecked:     unchecked,
+		RollbackOf:    job.RollbackOf,
 		JobID:         job.JobID,
 		RunbookID:     job.RunbookID,
 		State:         job.State,

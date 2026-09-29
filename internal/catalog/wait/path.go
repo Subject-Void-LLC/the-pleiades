@@ -61,6 +61,7 @@ func init() {
 				Notes: "This method watches a path and changes nothing on the device, so there is nothing to undo. That is the same fact " +
 					"that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell " +
 					"an observation from a task that was never recorded.",
+				ReadOnly: true,
 			},
 			// Only reads, and still not checkable: see NoCheckReason.
 			NoCheckReason: "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out " +

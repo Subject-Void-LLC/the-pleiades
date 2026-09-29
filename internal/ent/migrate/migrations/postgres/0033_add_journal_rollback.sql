@@ -1,0 +1,2 @@
+ALTER TABLE "journal_entries" ADD COLUMN "inverse_params" jsonb NULL, ADD COLUMN "inverse_complete" boolean NOT NULL DEFAULT false, ADD COLUMN "inverse_partial" boolean NOT NULL DEFAULT false, ADD COLUMN "action_changed" boolean NOT NULL DEFAULT false, ADD COLUMN "authored_rollback" boolean NOT NULL DEFAULT false, ADD COLUMN "rollback_of" character varying NULL, ADD COLUMN "undoes_node" character varying NULL, ADD COLUMN "undoes_step" bigint NOT NULL DEFAULT 0;
+CREATE INDEX "journalentry_rollback_of" ON "journal_entries" ("rollback_of");

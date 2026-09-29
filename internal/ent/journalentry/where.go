@@ -194,6 +194,41 @@ func DiffRecorded(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldDiffRecorded, v))
 }
 
+// InverseComplete applies equality check predicate on the "inverse_complete" field. It's identical to InverseCompleteEQ.
+func InverseComplete(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseComplete, v))
+}
+
+// InversePartial applies equality check predicate on the "inverse_partial" field. It's identical to InversePartialEQ.
+func InversePartial(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInversePartial, v))
+}
+
+// ActionChanged applies equality check predicate on the "action_changed" field. It's identical to ActionChangedEQ.
+func ActionChanged(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldActionChanged, v))
+}
+
+// AuthoredRollback applies equality check predicate on the "authored_rollback" field. It's identical to AuthoredRollbackEQ.
+func AuthoredRollback(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollback, v))
+}
+
+// RollbackOf applies equality check predicate on the "rollback_of" field. It's identical to RollbackOfEQ.
+func RollbackOf(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldRollbackOf, v))
+}
+
+// UndoesNode applies equality check predicate on the "undoes_node" field. It's identical to UndoesNodeEQ.
+func UndoesNode(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldUndoesNode, v))
+}
+
+// UndoesStep applies equality check predicate on the "undoes_step" field. It's identical to UndoesStepEQ.
+func UndoesStep(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldUndoesStep, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -1752,6 +1787,246 @@ func DiffRecordedEQ(v bool) predicate.JournalEntry {
 // DiffRecordedNEQ applies the NEQ predicate on the "diff_recorded" field.
 func DiffRecordedNEQ(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldNEQ(FieldDiffRecorded, v))
+}
+
+// InverseParamsIsNil applies the IsNil predicate on the "inverse_params" field.
+func InverseParamsIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldInverseParams))
+}
+
+// InverseParamsNotNil applies the NotNil predicate on the "inverse_params" field.
+func InverseParamsNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldInverseParams))
+}
+
+// InverseCompleteEQ applies the EQ predicate on the "inverse_complete" field.
+func InverseCompleteEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseComplete, v))
+}
+
+// InverseCompleteNEQ applies the NEQ predicate on the "inverse_complete" field.
+func InverseCompleteNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldInverseComplete, v))
+}
+
+// InversePartialEQ applies the EQ predicate on the "inverse_partial" field.
+func InversePartialEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInversePartial, v))
+}
+
+// InversePartialNEQ applies the NEQ predicate on the "inverse_partial" field.
+func InversePartialNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldInversePartial, v))
+}
+
+// ActionChangedEQ applies the EQ predicate on the "action_changed" field.
+func ActionChangedEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldActionChanged, v))
+}
+
+// ActionChangedNEQ applies the NEQ predicate on the "action_changed" field.
+func ActionChangedNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldActionChanged, v))
+}
+
+// AuthoredRollbackEQ applies the EQ predicate on the "authored_rollback" field.
+func AuthoredRollbackEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollback, v))
+}
+
+// AuthoredRollbackNEQ applies the NEQ predicate on the "authored_rollback" field.
+func AuthoredRollbackNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldAuthoredRollback, v))
+}
+
+// RollbackOfEQ applies the EQ predicate on the "rollback_of" field.
+func RollbackOfEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldRollbackOf, v))
+}
+
+// RollbackOfNEQ applies the NEQ predicate on the "rollback_of" field.
+func RollbackOfNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldRollbackOf, v))
+}
+
+// RollbackOfIn applies the In predicate on the "rollback_of" field.
+func RollbackOfIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldRollbackOf, vs...))
+}
+
+// RollbackOfNotIn applies the NotIn predicate on the "rollback_of" field.
+func RollbackOfNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldRollbackOf, vs...))
+}
+
+// RollbackOfGT applies the GT predicate on the "rollback_of" field.
+func RollbackOfGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldRollbackOf, v))
+}
+
+// RollbackOfGTE applies the GTE predicate on the "rollback_of" field.
+func RollbackOfGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldRollbackOf, v))
+}
+
+// RollbackOfLT applies the LT predicate on the "rollback_of" field.
+func RollbackOfLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldRollbackOf, v))
+}
+
+// RollbackOfLTE applies the LTE predicate on the "rollback_of" field.
+func RollbackOfLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldRollbackOf, v))
+}
+
+// RollbackOfContains applies the Contains predicate on the "rollback_of" field.
+func RollbackOfContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldRollbackOf, v))
+}
+
+// RollbackOfHasPrefix applies the HasPrefix predicate on the "rollback_of" field.
+func RollbackOfHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldRollbackOf, v))
+}
+
+// RollbackOfHasSuffix applies the HasSuffix predicate on the "rollback_of" field.
+func RollbackOfHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldRollbackOf, v))
+}
+
+// RollbackOfIsNil applies the IsNil predicate on the "rollback_of" field.
+func RollbackOfIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldRollbackOf))
+}
+
+// RollbackOfNotNil applies the NotNil predicate on the "rollback_of" field.
+func RollbackOfNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldRollbackOf))
+}
+
+// RollbackOfEqualFold applies the EqualFold predicate on the "rollback_of" field.
+func RollbackOfEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldRollbackOf, v))
+}
+
+// RollbackOfContainsFold applies the ContainsFold predicate on the "rollback_of" field.
+func RollbackOfContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldRollbackOf, v))
+}
+
+// UndoesNodeEQ applies the EQ predicate on the "undoes_node" field.
+func UndoesNodeEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldUndoesNode, v))
+}
+
+// UndoesNodeNEQ applies the NEQ predicate on the "undoes_node" field.
+func UndoesNodeNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldUndoesNode, v))
+}
+
+// UndoesNodeIn applies the In predicate on the "undoes_node" field.
+func UndoesNodeIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldUndoesNode, vs...))
+}
+
+// UndoesNodeNotIn applies the NotIn predicate on the "undoes_node" field.
+func UndoesNodeNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldUndoesNode, vs...))
+}
+
+// UndoesNodeGT applies the GT predicate on the "undoes_node" field.
+func UndoesNodeGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldUndoesNode, v))
+}
+
+// UndoesNodeGTE applies the GTE predicate on the "undoes_node" field.
+func UndoesNodeGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldUndoesNode, v))
+}
+
+// UndoesNodeLT applies the LT predicate on the "undoes_node" field.
+func UndoesNodeLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldUndoesNode, v))
+}
+
+// UndoesNodeLTE applies the LTE predicate on the "undoes_node" field.
+func UndoesNodeLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldUndoesNode, v))
+}
+
+// UndoesNodeContains applies the Contains predicate on the "undoes_node" field.
+func UndoesNodeContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldUndoesNode, v))
+}
+
+// UndoesNodeHasPrefix applies the HasPrefix predicate on the "undoes_node" field.
+func UndoesNodeHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldUndoesNode, v))
+}
+
+// UndoesNodeHasSuffix applies the HasSuffix predicate on the "undoes_node" field.
+func UndoesNodeHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldUndoesNode, v))
+}
+
+// UndoesNodeIsNil applies the IsNil predicate on the "undoes_node" field.
+func UndoesNodeIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldUndoesNode))
+}
+
+// UndoesNodeNotNil applies the NotNil predicate on the "undoes_node" field.
+func UndoesNodeNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldUndoesNode))
+}
+
+// UndoesNodeEqualFold applies the EqualFold predicate on the "undoes_node" field.
+func UndoesNodeEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldUndoesNode, v))
+}
+
+// UndoesNodeContainsFold applies the ContainsFold predicate on the "undoes_node" field.
+func UndoesNodeContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldUndoesNode, v))
+}
+
+// UndoesStepEQ applies the EQ predicate on the "undoes_step" field.
+func UndoesStepEQ(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldUndoesStep, v))
+}
+
+// UndoesStepNEQ applies the NEQ predicate on the "undoes_step" field.
+func UndoesStepNEQ(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldUndoesStep, v))
+}
+
+// UndoesStepIn applies the In predicate on the "undoes_step" field.
+func UndoesStepIn(vs ...int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldUndoesStep, vs...))
+}
+
+// UndoesStepNotIn applies the NotIn predicate on the "undoes_step" field.
+func UndoesStepNotIn(vs ...int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldUndoesStep, vs...))
+}
+
+// UndoesStepGT applies the GT predicate on the "undoes_step" field.
+func UndoesStepGT(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldUndoesStep, v))
+}
+
+// UndoesStepGTE applies the GTE predicate on the "undoes_step" field.
+func UndoesStepGTE(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldUndoesStep, v))
+}
+
+// UndoesStepLT applies the LT predicate on the "undoes_step" field.
+func UndoesStepLT(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldUndoesStep, v))
+}
+
+// UndoesStepLTE applies the LTE predicate on the "undoes_step" field.
+func UndoesStepLTE(v int) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldUndoesStep, v))
 }
 
 // And groups predicates with the AND operator between them.

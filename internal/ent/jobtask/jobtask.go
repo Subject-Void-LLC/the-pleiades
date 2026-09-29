@@ -35,6 +35,10 @@ const (
 	FieldFinishedAt = "finished_at"
 	// FieldUnchecked holds the string denoting the unchecked field in the database.
 	FieldUnchecked = "unchecked"
+	// FieldWaiting holds the string denoting the waiting field in the database.
+	FieldWaiting = "waiting"
+	// FieldSlot holds the string denoting the slot field in the database.
+	FieldSlot = "slot"
 	// EdgeJob holds the string denoting the job edge name in mutations.
 	EdgeJob = "job"
 	// Table holds the table name of the jobtask in the database.
@@ -61,6 +65,8 @@ var Columns = []string{
 	FieldResultReason,
 	FieldFinishedAt,
 	FieldUnchecked,
+	FieldWaiting,
+	FieldSlot,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "job_tasks"
@@ -99,6 +105,10 @@ var (
 	DefaultUnchecked int
 	// UncheckedValidator is a validator for the "unchecked" field. It is called by the builders before save.
 	UncheckedValidator func(int) error
+	// DefaultWaiting holds the default value on creation for the "waiting" field.
+	DefaultWaiting bool
+	// SlotValidator is a validator for the "slot" field. It is called by the builders before save.
+	SlotValidator func(int) error
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -204,6 +214,16 @@ func ByFinishedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByUnchecked orders the results by the unchecked field.
 func ByUnchecked(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUnchecked, opts...).ToFunc()
+}
+
+// ByWaiting orders the results by the waiting field.
+func ByWaiting(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWaiting, opts...).ToFunc()
+}
+
+// BySlot orders the results by the slot field.
+func BySlot(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSlot, opts...).ToFunc()
 }
 
 // ByJobField orders the results by job field.

@@ -426,6 +426,11 @@ func TestCreate_RemoveDeletesSources(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("expected the archive to hold the removed source's content")
 	}
+	// Removing the archive does not bring back the sources remove=true
+	// deleted, so this undo, unlike a plain create's, is partial.
+	if record, _ := h.rc.stats[sdk.StatInverse].(map[string]any); record[sdk.InversePartialKey] != true {
+		t.Errorf("the undo of an archive that removed its sources is not marked partial: %v", record)
+	}
 }
 
 func TestCreate_TarFailureSurfaces(t *testing.T) {

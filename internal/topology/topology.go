@@ -59,9 +59,16 @@ const (
 	// check for real. Such a Runner's consumer filters dispatchSubjectPrefix
 	// only, so it never receives anything published here. See
 	// CheckConsumerConfig.
-	checkSubjectPrefix  = "pleiades.jobs.check."
-	logSubjectPrefix    = "pleiades.jobs.logs."
-	resultSubjectPrefix = "pleiades.jobs.results."
+	checkSubjectPrefix = "pleiades.jobs.check."
+	// rollbackSubjectPrefix carries a rollback job's dispatches (Phase
+	// 40), for the reason checkSubjectPrefix exists: a Runner built before
+	// rollback ignores the payload's rollback steps, and would run the
+	// runbook being undone again. Its consumer filters neither of the
+	// other two prefixes, so it never receives anything published here.
+	// See RollbackConsumerConfig.
+	rollbackSubjectPrefix = "pleiades.jobs.rollback."
+	logSubjectPrefix      = "pleiades.jobs.logs."
+	resultSubjectPrefix   = "pleiades.jobs.results."
 	// journalSubjectPrefix carries the run journal a Runner produces
 	// while executing a dispatch (Phase 40). It sits beside the log and
 	// result prefixes rather than under either, because it is neither:
@@ -108,6 +115,11 @@ const (
 	// same consumer-group semantics as DispatchDurableName over a disjoint
 	// subject prefix.
 	CheckDurableName = "runner-check"
+
+	// RollbackDurableName is the durable consumer every Runner replica
+	// that can run a rollback shares for rollback dispatches
+	// (rollbackSubjectPrefix), over a prefix disjoint from the other two.
+	RollbackDurableName = "runner-rollback"
 
 	// MaxDeliverDefault is the default redelivery ceiling before a message
 	// is dead-lettered. Shared by consumer configuration and the DLQ
@@ -265,6 +277,20 @@ func CheckSubject(deviceID string) string {
 // subject, which is what the shared check consumer filters on.
 func CheckSubjectAll() string {
 	return checkSubjectPrefix + ">"
+}
+
+// RollbackSubject returns the subject a rollback of deviceID is published
+// to: the same device token as DispatchSubject, under
+// rollbackSubjectPrefix. A Runner that predates rollback never receives
+// it, so it can never run the runbook being undone in its place.
+func RollbackSubject(deviceID string) string {
+	return rollbackSubjectPrefix + SubjectToken(deviceID)
+}
+
+// RollbackSubjectAll returns the wildcard matching every device's rollback
+// subject, which is what the shared rollback consumer filters on.
+func RollbackSubjectAll() string {
+	return rollbackSubjectPrefix + ">"
 }
 
 // LogSubject returns the subject a given job's execution log lines publish

@@ -451,6 +451,14 @@ func init() {
 	jobtask.DefaultUnchecked = jobtaskDescUnchecked.Default.(int)
 	// jobtask.UncheckedValidator is a validator for the "unchecked" field. It is called by the builders before save.
 	jobtask.UncheckedValidator = jobtaskDescUnchecked.Validators[0].(func(int) error)
+	// jobtaskDescWaiting is the schema descriptor for waiting field.
+	jobtaskDescWaiting := jobtaskFields[8].Descriptor()
+	// jobtask.DefaultWaiting holds the default value on creation for the waiting field.
+	jobtask.DefaultWaiting = jobtaskDescWaiting.Default.(bool)
+	// jobtaskDescSlot is the schema descriptor for slot field.
+	jobtaskDescSlot := jobtaskFields[9].Descriptor()
+	// jobtask.SlotValidator is a validator for the "slot" field. It is called by the builders before save.
+	jobtask.SlotValidator = jobtaskDescSlot.Validators[0].(func(int) error)
 	journalentryMixin := schema.JournalEntry{}.Mixin()
 	journalentryMixinFields0 := journalentryMixin[0].Fields()
 	_ = journalentryMixinFields0
@@ -528,6 +536,28 @@ func init() {
 	journalentryDescDiffRecorded := journalentryFields[29].Descriptor()
 	// journalentry.DefaultDiffRecorded holds the default value on creation for the diff_recorded field.
 	journalentry.DefaultDiffRecorded = journalentryDescDiffRecorded.Default.(bool)
+	// journalentryDescInverseComplete is the schema descriptor for inverse_complete field.
+	journalentryDescInverseComplete := journalentryFields[31].Descriptor()
+	// journalentry.DefaultInverseComplete holds the default value on creation for the inverse_complete field.
+	journalentry.DefaultInverseComplete = journalentryDescInverseComplete.Default.(bool)
+	// journalentryDescInversePartial is the schema descriptor for inverse_partial field.
+	journalentryDescInversePartial := journalentryFields[32].Descriptor()
+	// journalentry.DefaultInversePartial holds the default value on creation for the inverse_partial field.
+	journalentry.DefaultInversePartial = journalentryDescInversePartial.Default.(bool)
+	// journalentryDescActionChanged is the schema descriptor for action_changed field.
+	journalentryDescActionChanged := journalentryFields[33].Descriptor()
+	// journalentry.DefaultActionChanged holds the default value on creation for the action_changed field.
+	journalentry.DefaultActionChanged = journalentryDescActionChanged.Default.(bool)
+	// journalentryDescAuthoredRollback is the schema descriptor for authored_rollback field.
+	journalentryDescAuthoredRollback := journalentryFields[34].Descriptor()
+	// journalentry.DefaultAuthoredRollback holds the default value on creation for the authored_rollback field.
+	journalentry.DefaultAuthoredRollback = journalentryDescAuthoredRollback.Default.(bool)
+	// journalentryDescUndoesStep is the schema descriptor for undoes_step field.
+	journalentryDescUndoesStep := journalentryFields[37].Descriptor()
+	// journalentry.DefaultUndoesStep holds the default value on creation for the undoes_step field.
+	journalentry.DefaultUndoesStep = journalentryDescUndoesStep.Default.(int)
+	// journalentry.UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.
+	journalentry.UndoesStepValidator = journalentryDescUndoesStep.Validators[0].(func(int) error)
 	launchableMixin := schema.Launchable{}.Mixin()
 	launchableMixinFields0 := launchableMixin[0].Fields()
 	_ = launchableMixinFields0

@@ -18,6 +18,10 @@ func init() {
 					"enabled service emits an svc.systemd.enable and a run that found it already disabled emits " +
 					"nothing. That concrete method also records what its own undo cannot preserve, such as a unit " +
 					"that was enabled only until the next reboot.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.enable", Record: []string{"name"}},
+					{FQCN: "svc.windows.enable", Record: []string{"name"}},
+				},
 			},
 			disableDoc(),
 		),

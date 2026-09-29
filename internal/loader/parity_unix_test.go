@@ -27,23 +27,25 @@ import (
 // Register knows about.
 func FuzzRegistrationParity(f *testing.F) {
 	for _, seed := range []struct {
-		name, status, notes, capability, transport, engine, noCheck string
-		reversible, supportsCheck                                   bool
+		name, status, notes, capability, transport, engine, noCheck, param string
+		reversible, supportsCheck                                          bool
 	}{
-		{"acme.motd.read", "implemented", "", string(capability.NameSSHTransport), "ssh", "", "", true, true},
-		{"acme.motd.read", "implemented", "reads only", "", "", ">=1.0.0", "", false, false},
-		{"acme.motd.read", "implemented", "", "", "", "", "", false, false},
-		{"acme.motd.read", "declared", "", "", "", "", "", true, true},
-		{"acme.motd.read", "implemented", "x", "NoSuchCapable", "", "", "", false, false},
-		{"acme", "implemented", "x", "", "", "", "", false, false},
-		{"fuzzparity.taken.run", "implemented", "x", "", "", "", "", false, false},
-		{"pleiades.motd.read", "implemented", "x", "", "", "", "", false, true},
-		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", false, true},
-		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", false, false},
+		{"acme.motd.read", "implemented", "", string(capability.NameSSHTransport), "ssh", "", "", "", true, true},
+		{"acme.motd.read", "implemented", "reads only", "", "", ">=1.0.0", "", "", false, false},
+		{"acme.motd.read", "implemented", "", "", "", "", "", "", false, false},
+		{"acme.motd.read", "declared", "", "", "", "", "", "", true, true},
+		{"acme.motd.read", "implemented", "x", "NoSuchCapable", "", "", "", "", false, false},
+		{"acme", "implemented", "x", "", "", "", "", "", false, false},
+		{"fuzzparity.taken.run", "implemented", "x", "", "", "", "", "", false, false},
+		{"pleiades.motd.read", "implemented", "x", "", "", "", "", "", false, true},
+		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", false, true},
+		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", collection.TargetParam, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", "path", false, false},
 	} {
-		f.Add(seed.name, seed.status, seed.notes, seed.capability, seed.transport, seed.engine, seed.noCheck, seed.reversible, seed.supportsCheck)
+		f.Add(seed.name, seed.status, seed.notes, seed.capability, seed.transport, seed.engine, seed.noCheck, seed.param, seed.reversible, seed.supportsCheck)
 	}
-	f.Fuzz(func(t *testing.T, name, status, notes, capName, transport, engine, noCheck string, reversible, supportsCheck bool) {
+	f.Fuzz(func(t *testing.T, name, status, notes, capName, transport, engine, noCheck, param string, reversible, supportsCheck bool) {
 		defer collection.SnapshotForTest()()
 		taken := collection.Descriptor{
 			Name:     "fuzzparity.taken.run",
@@ -66,6 +68,9 @@ func FuzzRegistrationParity(f *testing.F) {
 		}
 		if transport != "" {
 			m.Manifest.SupportedTransports = []string{transport}
+		}
+		if param != "" {
+			m.Manifest.Doc.Params = []collection.Param{{Name: param, Type: "string", Description: "fuzzed"}}
 		}
 		if _, err := validateMethod(m, "dev", reservedNamespaces()); err != nil {
 			return

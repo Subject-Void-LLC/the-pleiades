@@ -30,6 +30,8 @@ func init() {
 		BadgeClass: "badge-ok",
 		Summary:    "This platform's own typed automation format, executed natively against the device.",
 		Adapter:    Adapter,
+		// The native engine journals every task it runs.
+		Journals: true,
 		Fields: []launch.FieldSpec{
 			{
 				Name: launch.ModeField, Type: launch.TypeChoice,
@@ -50,7 +52,7 @@ func init() {
 			{
 				Name: "forks", Type: launch.TypeInt, Min: 1, Max: 1000,
 				Label: "FORKS",
-				Help:  "How many devices are worked on at once.",
+				Help:  "How many of this job's devices run at once; the next starts as each finishes. Empty runs them all at once, as many as the Runners can take.",
 			},
 			{
 				Name: "timeout", Type: launch.TypeInt, Min: 0, Max: 86400,

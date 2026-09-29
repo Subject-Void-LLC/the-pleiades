@@ -32,6 +32,10 @@ func init() {
 					"found the group already present but converged its gid emits an identity.group.modify pinned " +
 					"to the old gid, which is a real, restorable inverse. A run that found the group already at " +
 					"the requested gid emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.group.remove", Record: []string{"name"}},
+					{FQCN: "identity.group.modify", Record: []string{"name", "gid"}},
+				},
 			},
 			Doc: createDoc(),
 		},

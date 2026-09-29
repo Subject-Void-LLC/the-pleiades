@@ -11,7 +11,10 @@
 // this codebase, and a second one is a defect, not a variation.
 package collection
 
-import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+import (
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+)
 
 // Status records whether a registered Collection method has a real
 // implementation yet, or only a declared Manifest whose stub returns an
@@ -78,11 +81,12 @@ type ExecutionContext struct {
 // instruction through sdk.RecordInverse. A rollback engine then reads
 // something it can execute rather than a template it has to reconstruct.
 //
-// NOTHING PERFORMS A ROLLBACK YET. There is no journal and no rollback
-// engine. What this buys today is that the values an undo needs are
-// captured by the forward run, which is the only thing in a position to
-// capture them, and that is why it is worth declaring before the engine
-// exists rather than after.
+// What this type DOES declare about the inverse is an allowlist, not the
+// inverse (Inverses below): which methods a run's undo may call, and which
+// of their parameters are identifiers the run journal may keep the values
+// of. The run still decides whether there is an undo and what it says; the
+// allowlist decides what of it may be written down, and so what a rollback
+// can replay without the runbook's author restating it (Phase 40).
 type Reversibility struct {
 	// Reversible reports whether this method can ever emit an inverse.
 	//
@@ -100,6 +104,29 @@ type Reversibility struct {
 	// Worth writing when Reversible is true as well, to say what the
 	// inverse does NOT restore.
 	Notes string `json:"notes,omitempty"`
+
+	// Inverses lists every method this one's undo may call, each with the
+	// parameters whose values the run journal may keep (sdk.InverseSpec).
+	// A reversible method that declares none is still reversible, but its
+	// undo is journaled by key name only and a rollback cannot replay it
+	// without an authored rollback step. An undo naming a method not listed
+	// here is journaled the same way, whatever it says.
+	//
+	// It is honored only for a method compiled into The Pleiades. An
+	// external Collection program's declaration is carried but not trusted
+	// (Descriptor.Provider), because it would let a third party decide what
+	// the journal keeps, and which built-in method a rollback calls.
+	Inverses []sdk.InverseSpec `json:"inverses,omitempty"`
+
+	// ReadOnly declares that the method never changes a device: it reads,
+	// probes or waits. It must not also be Reversible or list Inverses,
+	// since there is nothing to undo. It lets a rollback say a failed
+	// read-only task left nothing behind, and a runbook marked reversible
+	// pass validation with read-only tasks in it; a run that reports a
+	// change or an undo from such a method fails, so the claim is held
+	// rather than trusted. Like Inverses, it is not honored for an external
+	// Collection program's method.
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 // Manifest is the full declared contract for one namespaced Collection

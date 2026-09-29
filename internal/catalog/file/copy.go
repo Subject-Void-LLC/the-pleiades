@@ -118,6 +118,10 @@ func init() {
 					"CONTENT is not restored by it: those bytes are not read before the write and are not journaled anywhere, so once " +
 					"the new content lands the old content is gone. The emitted instruction says so in its own description rather than " +
 					"leaving a rollback to discover it. A run that changed nothing emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.remove", Record: []string{"path"}},
+					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}, MayBePartial: true},
+				},
 			},
 			Doc: copyDoc(),
 		},
@@ -584,6 +588,9 @@ func copyRecordInverse(rc sdk.RunbookContext, dest string, before remotefile.Inf
 	}
 	return sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN: copyInversePermissions,
+		// The overwritten content is not restored: those bytes were never
+		// read, so only the mode, owner and group come back.
+		Partial: true,
 		Params: map[string]any{
 			"path":  dest,
 			"mode":  before.Mode,

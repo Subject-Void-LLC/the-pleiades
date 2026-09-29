@@ -63,6 +63,10 @@ const (
 	FieldCredentialIds = "credential_ids"
 	// FieldExternalChecks holds the string denoting the external_checks field in the database.
 	FieldExternalChecks = "external_checks"
+	// FieldRollbackOf holds the string denoting the rollback_of field in the database.
+	FieldRollbackOf = "rollback_of"
+	// FieldRollback holds the string denoting the rollback field in the database.
+	FieldRollback = "rollback"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -103,6 +107,8 @@ var Columns = []string{
 	FieldExtraVars,
 	FieldCredentialIds,
 	FieldExternalChecks,
+	FieldRollbackOf,
+	FieldRollback,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -283,6 +289,11 @@ func ByFence(opts ...sql.OrderTermOption) OrderOption {
 // ByExternalChecks orders the results by the external_checks field.
 func ByExternalChecks(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldExternalChecks, opts...).ToFunc()
+}
+
+// ByRollbackOf orders the results by the rollback_of field.
+func ByRollbackOf(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRollbackOf, opts...).ToFunc()
 }
 
 // ByTasksCount orders the results by tasks count.

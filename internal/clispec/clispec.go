@@ -229,6 +229,55 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "rollback",
+			Positional: "<run-id>",
+			Synopsis:   "undo a run from its journal: every device it changed, newest change first",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "mode", Type: "string", Default: "execute", Doc: "execute undoes the changes; check reports what each undo would change and changes nothing"},
+				{Name: "runbook", Type: "string", Default: "", Doc: "the runbook the run ran, when a task's undo is its rollback: list; found in DIR/runbooks when unset"},
+				{Name: "leave", Type: "string", Default: "", Doc: "a node whose change to leave in place rather than undo (repeatable)"},
+				{Name: "allow-partial", Type: "string", Default: "", Doc: "a node whose partial undo to run anyway (repeatable)"},
+				{Name: "allow-unknown", Type: "string", Default: "", Doc: "a node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable)"},
+				{Name: "despite-run", Type: "string", Default: "", Doc: "a later run whose changes to the same devices to undo beneath (repeatable)"},
+				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each undo's own output"},
+				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the rollback as one JSON document, with its plan, or its refusal and why"},
+				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "with --mode check, a method that may go unchecked without making the check incomplete"},
+				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000"},
+				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
+			},
+			Examples: []string{
+				"pleiades journal list",
+				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check",
+				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706",
+				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --leave 'tasks[3]' --json",
+			},
+		},
+		{
+			Name:     "journal",
+			Synopsis: "list this project's runs, or show one run's journal",
+			Subcommands: []Command{
+				{
+					Name:     "list",
+					Synopsis: "every run recorded in this project, oldest first, with what it changed and whether it was rolled back",
+					Flags: []Flag{
+						{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+						{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+					},
+				},
+				{
+					Name:       "show",
+					Positional: "<run-id>",
+					Synopsis:   "one run's journal: each task, its device, how it ended, and the undo it recorded",
+					Flags: []Flag{
+						{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+						{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+					},
+				},
+			},
+		},
+		{
 			Name:     "inventory",
 			Synopsis: "sync devices from an external source (see 'pleiades inventory --help')",
 			Subcommands: []Command{

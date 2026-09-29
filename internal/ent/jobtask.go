@@ -38,6 +38,10 @@ type JobTask struct {
 	FinishedAt time.Time `json:"finished_at,omitempty"`
 	// Unchecked holds the value of the "unchecked" field.
 	Unchecked int `json:"unchecked,omitempty"`
+	// Waiting holds the value of the "waiting" field.
+	Waiting bool `json:"waiting,omitempty"`
+	// Slot holds the value of the "slot" field.
+	Slot *int `json:"slot,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobTaskQuery when eager-loading is set.
 	Edges        JobTaskEdges `json:"edges"`
@@ -70,7 +74,9 @@ func (*JobTask) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case jobtask.FieldID, jobtask.FieldUnchecked:
+		case jobtask.FieldWaiting:
+			values[i] = new(sql.NullBool)
+		case jobtask.FieldID, jobtask.FieldUnchecked, jobtask.FieldSlot:
 			values[i] = new(sql.NullInt64)
 		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason:
 			values[i] = new(sql.NullString)
@@ -159,6 +165,19 @@ func (_m *JobTask) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Unchecked = int(value.Int64)
 			}
+		case jobtask.FieldWaiting:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field waiting", values[i])
+			} else if value.Valid {
+				_m.Waiting = value.Bool
+			}
+		case jobtask.FieldSlot:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field slot", values[i])
+			} else if value.Valid {
+				_m.Slot = new(int)
+				*_m.Slot = int(value.Int64)
+			}
 		case jobtask.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field job_tasks", value)
@@ -236,6 +255,14 @@ func (_m *JobTask) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("unchecked=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Unchecked))
+	builder.WriteString(", ")
+	builder.WriteString("waiting=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Waiting))
+	builder.WriteString(", ")
+	if v := _m.Slot; v != nil {
+		builder.WriteString("slot=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -93,8 +93,9 @@ func (c Config) FunctionName() string {
 
 // Validate reports whether cfg is safe to generate from: Name must have at
 // least two segments (at least one dot, matching pkg/collection.Register's
-// own requirement), every segment must be a valid identifier, and every
-// capability name must already be registered.
+// own requirement), every segment must be a valid identifier, every
+// capability name must already be registered, and no documented parameter
+// may take a name the engine reads for itself.
 func (c Config) Validate() error {
 	segs := c.segments()
 	if len(segs) < 2 {
@@ -111,6 +112,14 @@ func (c Config) Validate() error {
 	for _, transport := range c.Transports {
 		if transport == "" {
 			return fmt.Errorf("collectionscaffold: empty transport in --transports")
+		}
+	}
+	for _, p := range c.Doc.Params {
+		// collection.Register refuses this at process start, which for a
+		// scaffolded file means every binary importing it panics. Saying
+		// so here, before a file is written, is the same rule moved left.
+		if collection.IsReservedParam(p.Name) {
+			return fmt.Errorf("collectionscaffold: parameter %q is the engine's device selector, which no method may declare; name it something else", p.Name)
 		}
 	}
 	return nil

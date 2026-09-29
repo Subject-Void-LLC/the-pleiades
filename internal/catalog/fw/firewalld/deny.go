@@ -28,6 +28,9 @@ func init() {
 					"emits an fw.firewalld.allow naming the same port or service and zone, with permanent and " +
 					"immediate set to match exactly which half this run actually changed. A run that found " +
 					"everything already denied emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "fw.firewalld.allow", Record: []string{"port", "protocol", "service", "zone", "permanent", "immediate"}},
+				},
 			},
 			Doc: denyDoc(),
 		},

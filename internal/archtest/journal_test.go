@@ -12,7 +12,7 @@
 // is blind to the difference between a vector of key names and a vector
 // of the values under them, because both are []string.
 // TestEveryJournalStringFieldIsConstructed closes exactly that hole: it
-// pins every string and []string field to the one of six provenance
+// pins every string and []string field to the one of seven provenance
 // kinds that makes it safe, and fails when a field appears that the
 // table does not name, so a later phase adding one has to classify it
 // rather than inherit the guarantee by silence.
@@ -358,9 +358,9 @@ func TestJournalValueViolationsDetectsAValueBearingField(t *testing.T) {
 // reader moving between the two never has to translate.
 type journalFieldKind int
 
-// The six kinds. There is no seventh, and adding one is a design
-// decision rather than a table edit: see TestJournalEntryHoldsNoValue on
-// the amendment that would propose one.
+// The seven kinds. The seventh was added deliberately (Phase 40's design
+// note, Sections 12 and 13), and adding an eighth is a design decision
+// rather than a table edit.
 const (
 	// journalKindPlatformID is a platform-generated identifier: the
 	// platform minted or stamped it, so nothing a device said can reach
@@ -389,6 +389,14 @@ const (
 	// is an int, so no string field can legitimately claim it, and the
 	// table check below says so.
 	journalKindCount
+
+	// journalKindDeclaredIdentifier is an undo parameter's value that the
+	// emitting method's own manifest declares an identifier
+	// (sdk.InverseSpec.Record): a name, a path, an id. The projection
+	// admits it only for a built-in method's declared key, and the
+	// registry sweep (journalAssertNoValueSurvived) holds each one to that
+	// declaration.
+	journalKindDeclaredIdentifier
 )
 
 // journalKindNames turns a kind into the phrase the design note uses for
@@ -400,6 +408,8 @@ var journalKindNames = map[journalFieldKind]string{
 	journalKindDigest:           "4, a content-addressed digest",
 	journalKindAuthorLabel:      "5, an author-written label from the compiled runbook",
 	journalKindCount:            "6, a count",
+
+	journalKindDeclaredIdentifier: "7, an undo parameter's value its method declares an identifier",
 }
 
 // journalStringField is one field's classification: which kind it is,
@@ -424,7 +434,7 @@ type journalStringField struct {
 // table does not name fails the build.
 //
 // Adding a field here is not paperwork. It is the moment to ask whether
-// the new field really is one of the six kinds, which is the question the
+// the new field really is one of the seven kinds, which is the question the
 // journal exists to keep answerable.
 var journalStringFields = map[string]journalStringField{
 	"JobID": {
@@ -473,7 +483,27 @@ var journalStringFields = map[string]journalStringField{
 	},
 	"InverseParamKeys": {
 		kind: journalKindRegistryConstant,
-		why:  "the resolved inverse target's Doc.Params key names, key names only; Section 12's amendment would widen this to declared-safe values and is deliberately not built",
+		why:  "the resolved inverse target's Doc.Params key names, key names only; their values, where declared, are InverseParams",
+	},
+	"InverseParams.Key": {
+		kind: journalKindRegistryConstant,
+		why:  "a key the emitting method's manifest lists in its sdk.InverseSpec.Record for this undo's method and the target's Doc.Params declares; any other key's value is not recorded",
+	},
+	"InverseParams.Text": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a string undo parameter under a declared key, admitted only at 256 bytes or fewer of valid UTF-8 that termsafe.CheckLine accepts (engine.recordedValue)",
+	},
+	"InverseParams.Number": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a numeric undo parameter under a declared key, kept as its JSON text; a number carries no text a terminal could act on",
+	},
+	"RollbackOf": {
+		kind: journalKindPlatformID,
+		why:  "the run id (Crawl) or job id (Walk) of the run being undone, handed to engine.WithRollback by the rollback command or job, which read it from the platform's own journal",
+	},
+	"UndoesNode": {
+		kind: journalKindPlatformID,
+		why:  "a graph node id of the run being undone, handed to engine.WithRollback from that run's own journal entries",
 	},
 	"Outcome": {
 		kind: journalKindClosedEnum,
@@ -664,7 +694,7 @@ func TestEveryJournalStringFieldIsConstructed(t *testing.T) {
 
 	for name, field := range journalStringFields {
 		if _, ok := journalKindNames[field.kind]; !ok {
-			t.Errorf("journalStringFields[%q] claims kind %d, which is not one of the six", name, field.kind)
+			t.Errorf("journalStringFields[%q] claims kind %d, which is not one of the seven", name, field.kind)
 		}
 		if strings.TrimSpace(field.why) == "" {
 			t.Errorf("journalStringFields[%q] states no construction: a kind with no reason classifies nothing", name)
@@ -759,13 +789,13 @@ func TestJournalStringFieldRulesDetectAnUnclassifiedField(t *testing.T) {
 	// And the kind names really do cover every kind the table can hold,
 	// since a missing entry there would print "kind 0" in a failure
 	// message and teach a reader nothing.
-	for kind := journalKindPlatformID; kind <= journalKindCount; kind++ {
+	for kind := journalKindPlatformID; kind <= journalKindDeclaredIdentifier; kind++ {
 		if _, ok := journalKindNames[kind]; !ok {
 			t.Errorf("journalKindNames has no phrase for kind %d", kind)
 		}
 	}
-	if len(journalKindNames) != int(journalKindCount) {
+	if len(journalKindNames) != int(journalKindDeclaredIdentifier) {
 		t.Errorf("journalKindNames holds %d kinds, want the %d the provenance rule defines",
-			len(journalKindNames), int(journalKindCount))
+			len(journalKindNames), int(journalKindDeclaredIdentifier))
 	}
 }

@@ -33,6 +33,9 @@ func init() {
 					"found it already disabled emits nothing. Re-enabling it does not pass /all a second time from " +
 					"this inverse, so a parent feature the original install pulled in stays exactly as removing " +
 					"this one left it.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "win.feature.install", Record: []string{"name"}},
+				},
 			},
 			Doc: removeDoc(),
 			// A check reads the feature and sends nothing (predictFeature).

@@ -41,6 +41,7 @@ var ReservedTaskKeys = map[string]bool{
 	"always":           true,
 	"parallel":         true,
 	"tags":             true,
+	"rollback":         true,
 }
 
 // --- YAML path -------------------------------------------------------
@@ -198,7 +199,9 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 		}
 	}
 
-	for _, key := range []string{"block", "rescue", "always", "parallel"} {
+	// rollback: holds tasks too (a task's authored undo), written the same
+	// way, so it is normalized with the others.
+	for _, key := range []string{"block", "rescue", "always", "parallel", "rollback"} {
 		if seq := findMappingValue(task, key); seq != nil {
 			if err := normalizeTaskListNode(seq, label+"."+key); err != nil {
 				return err

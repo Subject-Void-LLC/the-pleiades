@@ -26,7 +26,7 @@ import (
 // Each test gets its own database name so shared-cache SQLite does not
 // leak rows between tests, mirroring internal/inventory/ent_save_test.go's
 // own newTestRepo.
-func newTestStore(t *testing.T) (dispatch.JobStore, *ent.Client) {
+func newTestStore(t testing.TB) (dispatch.JobStore, *ent.Client) {
 	t.Helper()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())

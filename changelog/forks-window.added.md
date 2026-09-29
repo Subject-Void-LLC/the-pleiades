@@ -1,0 +1,1 @@
+The `forks` launch field now limits how many of a Controller job's devices run at once: the fan-out queues the rest and dispatches the next as each result comes back, across Controller replicas. A launch that supplies credential inputs asked for at launch cannot also set `forks`, and is refused. Before this the field was accepted and ignored.

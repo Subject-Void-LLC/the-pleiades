@@ -429,6 +429,45 @@ name, and the fixed address. `virt.vbox.vm.host_keys` reads the keys the first b
 does an Ubuntu clone's. Onboarding reads the kernel (FreeBSD) and grants the file methods; nothing
 Linux-only, so no `facts.gather`, apt, dnf or systemd.
 
+### 4. Make one to throw away, and roll it back
+
+`freebsd-03-scratch.yaml` makes the same clone as `bsd-scratch`, at 192.168.56.41, reusing
+`bsd-lab`'s login, so it needs no inventory entry of its own. Every run names itself, and its
+journal records how to undo each change:
+
+```console
+$ pleiades run runbooks/freebsd-03-scratch.yaml
+...
+run 1c1f16c4-1c1d-4477-bfae-b8e6f8e43900, journal /home/you/pleiades-lab/.pleiades/journal/1c1f16c4-1c1d-4477-bfae-b8e6f8e43900.jsonl
+
+$ pleiades journal show 1c1f16c4-1c1d-4477-bfae-b8e6f8e43900
+run 1c1f16c4-1c1d-4477-bfae-b8e6f8e43900
+    1 tasks[0]                 vengeance        changed  virt.vbox.vm.clone
+        undo: virt.vbox.vm.delete name=bsd-scratch uuid=5d0b295a-6f5a-4cfc-aa85-71a7dfeec4bd
+    2 tasks[1]                 vengeance        changed  virt.vbox.vm.start
+        undo: virt.vbox.vm.stop name=bsd-scratch
+    3 tasks[2]                 vengeance        ran      virt.vbox.vm.host_keys
+```
+
+`pleiades rollback` runs those undos, newest first: it stops the VM, then deletes it by the UUID
+the clone recorded, so it never deletes another VM made since under the same name. Reading the host
+keys changed nothing, so it has nothing to undo.
+
+```bash
+pleiades rollback 1c1f16c4-1c1d-4477-bfae-b8e6f8e43900 --mode check
+pleiades rollback 1c1f16c4-1c1d-4477-bfae-b8e6f8e43900
+```
+
+The check reports the delete as not checkable, and ends with exit 3: the VM is running when the check
+reads it, and only the stop before it, which a check never makes, would let the delete go ahead.
+
+A later run on the same host stops a rollback from undoing beneath it. After
+`pleiades adhoc vengeance virt.vbox.vm.stop name=bsd-scratch`, rolling back the scratch run is
+refused, naming the stop's run and `--despite-run`; roll the stop back first (which starts the VM
+again), then the scratch run. On this host a FreeBSD VM started moments earlier did not answer the
+power button in the stop's two minutes, so that rollback failed at its first step; run the same
+`pleiades rollback` again once the VM has booted, and it continues from the stop.
+
 ## How it works
 
 ### Two accounts, two lists of VMs

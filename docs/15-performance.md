@@ -217,7 +217,8 @@ Disk per run, MiB (control node read / write; whole machine read / write):
   tried.
 - **The command line only.** The Controller and Runner run the same engine and the same
   connection pool. Their parallelism comes from the number of Runners (each works on 5 devices
-  at a time), and their `forks` launch field is not read yet. They were not measured here.
+  at a time), capped per job by the `forks` launch field when it is set. They were not
+  measured here.
 - **Only the conditions above.** A figure from this page predicts a different machine only
   roughly. Rerun the benchmark there.
 

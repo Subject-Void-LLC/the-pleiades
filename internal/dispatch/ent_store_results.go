@@ -78,13 +78,20 @@ func (s *entJobStore) SettleRunning(ctx context.Context, jobID string, fence int
 	return s.CompleteRunning(ctx, jobID)
 }
 
-// outstandingDevices counts the devices this job handed to a Runner that
-// have not reported back.
+// outstandingDevices counts the devices this job still has to hear from:
+// those it handed to a Runner that have not reported back, and those a
+// windowed job admitted and has not yet dispatched.
 //
 // Dispatched tasks with no result, which is deliberately not "every task":
 // a skipped device never ran and a device whose dispatch failed never
 // reached a Runner, so neither will ever report and counting either would
-// leave the job waiting forever on something that cannot arrive.
+// leave the job waiting forever on something that cannot arrive. A
+// windowed job's waiting device is stored as dispatched with no result
+// (internal/ent/schema/job_task.go), so it is counted too, and must be:
+// otherwise a job whose first window drained would read as finished while
+// most of its devices were still waiting for their turn. That it needs no
+// clause of its own here is the point of storing it that way, since a
+// Controller from before the window runs this same query.
 func (s *entJobStore) outstandingDevices(ctx context.Context, jobID string) (int, error) {
 	outstanding, err := s.client.JobTask.Query().
 		Where(
@@ -122,11 +129,18 @@ func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, 
 			jobtask.HasJobWith(job.IDEQ(row.ID)),
 			jobtask.DeviceIDEQ(deviceID),
 			jobtask.OutcomeEQ(jobtask.OutcomeDispatched),
+			// A waiting device was never handed to a Runner, so a result
+			// naming it is about something that did not happen.
+			jobtask.WaitingEQ(false),
 		).
 		SetResult(jobtask.Result(result)).
 		SetResultReason(reason).
 		SetUnchecked(unchecked).
 		SetFinishedAt(time.Now()).
+		// A device that has reported frees its place in a windowed job's
+		// forks window (window.go); for any other job it holds none, and
+		// clearing an empty slot changes nothing.
+		ClearSlot().
 		Save(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to record result for device %s on job %s: %w", deviceID, jobID, err)

@@ -90,6 +90,10 @@ func init() {
 					"undo: the modification time this method moves on every run is NOT restored, because no method in this " +
 					"catalog can set one. A run that found the file already there and only re-stamped it emits nothing at all, " +
 					"since the modification time is then the single thing that moved and nothing here can put it back.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.remove", Record: []string{"path"}},
+					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}, MayBePartial: true},
+				},
 			},
 			Doc: touchDoc(),
 		},
@@ -324,6 +328,8 @@ func touchRecordInverse(rc sdk.RunbookContext, path string, before remotefile.In
 		// file.permissions' parameter names, for the same reason.
 		return sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN: "file.permissions",
+			// The modification time this task moved is not restored.
+			Partial: true,
 			Params: map[string]any{
 				"path":  path,
 				"mode":  before.Mode,

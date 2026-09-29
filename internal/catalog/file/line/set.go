@@ -59,6 +59,9 @@ func init() {
 					"again. That makes the record as large as the file. A converged run emits nothing, since undoing a " +
 					"change that was never made means doing nothing, and a run that fails partway emits nothing either. The " +
 					"modification time is not restored, and file.copy itself is declared rather than implemented today.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.copy", Record: []string{"dest", "mode", "owner", "group"}, Withhold: []string{"content"}},
+				},
 			},
 			Doc: setDoc(),
 		},

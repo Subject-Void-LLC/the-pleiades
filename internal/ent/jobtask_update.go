@@ -35,6 +35,40 @@ func (_u *JobTaskUpdate) SetUpdatedAt(v time.Time) *JobTaskUpdate {
 	return _u
 }
 
+// SetOutcome sets the "outcome" field.
+func (_u *JobTaskUpdate) SetOutcome(v jobtask.Outcome) *JobTaskUpdate {
+	_u.mutation.SetOutcome(v)
+	return _u
+}
+
+// SetNillableOutcome sets the "outcome" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableOutcome(v *jobtask.Outcome) *JobTaskUpdate {
+	if v != nil {
+		_u.SetOutcome(*v)
+	}
+	return _u
+}
+
+// SetReason sets the "reason" field.
+func (_u *JobTaskUpdate) SetReason(v string) *JobTaskUpdate {
+	_u.mutation.SetReason(v)
+	return _u
+}
+
+// SetNillableReason sets the "reason" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableReason(v *string) *JobTaskUpdate {
+	if v != nil {
+		_u.SetReason(*v)
+	}
+	return _u
+}
+
+// ClearReason clears the value of the "reason" field.
+func (_u *JobTaskUpdate) ClearReason() *JobTaskUpdate {
+	_u.mutation.ClearReason()
+	return _u
+}
+
 // SetResult sets the "result" field.
 func (_u *JobTaskUpdate) SetResult(v jobtask.Result) *JobTaskUpdate {
 	_u.mutation.SetResult(v)
@@ -116,6 +150,47 @@ func (_u *JobTaskUpdate) AddUnchecked(v int) *JobTaskUpdate {
 	return _u
 }
 
+// SetWaiting sets the "waiting" field.
+func (_u *JobTaskUpdate) SetWaiting(v bool) *JobTaskUpdate {
+	_u.mutation.SetWaiting(v)
+	return _u
+}
+
+// SetNillableWaiting sets the "waiting" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableWaiting(v *bool) *JobTaskUpdate {
+	if v != nil {
+		_u.SetWaiting(*v)
+	}
+	return _u
+}
+
+// SetSlot sets the "slot" field.
+func (_u *JobTaskUpdate) SetSlot(v int) *JobTaskUpdate {
+	_u.mutation.ResetSlot()
+	_u.mutation.SetSlot(v)
+	return _u
+}
+
+// SetNillableSlot sets the "slot" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableSlot(v *int) *JobTaskUpdate {
+	if v != nil {
+		_u.SetSlot(*v)
+	}
+	return _u
+}
+
+// AddSlot adds value to the "slot" field.
+func (_u *JobTaskUpdate) AddSlot(v int) *JobTaskUpdate {
+	_u.mutation.AddSlot(v)
+	return _u
+}
+
+// ClearSlot clears the value of the "slot" field.
+func (_u *JobTaskUpdate) ClearSlot() *JobTaskUpdate {
+	_u.mutation.ClearSlot()
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdate) SetJobID(id int) *JobTaskUpdate {
 	_u.mutation.SetJobID(id)
@@ -176,6 +251,11 @@ func (_u *JobTaskUpdate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *JobTaskUpdate) check() error {
+	if v, ok := _u.mutation.Outcome(); ok {
+		if err := jobtask.OutcomeValidator(v); err != nil {
+			return &ValidationError{Name: "outcome", err: fmt.Errorf(`ent: validator failed for field "JobTask.outcome": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Result(); ok {
 		if err := jobtask.ResultValidator(v); err != nil {
 			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
@@ -184,6 +264,11 @@ func (_u *JobTaskUpdate) check() error {
 	if v, ok := _u.mutation.Unchecked(); ok {
 		if err := jobtask.UncheckedValidator(v); err != nil {
 			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.Slot(); ok {
+		if err := jobtask.SlotValidator(v); err != nil {
+			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
@@ -206,6 +291,12 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(jobtask.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if value, ok := _u.mutation.Outcome(); ok {
+		_spec.SetField(jobtask.FieldOutcome, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.Reason(); ok {
+		_spec.SetField(jobtask.FieldReason, field.TypeString, value)
 	}
 	if _u.mutation.ReasonCleared() {
 		_spec.ClearField(jobtask.FieldReason, field.TypeString)
@@ -233,6 +324,18 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedUnchecked(); ok {
 		_spec.AddField(jobtask.FieldUnchecked, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Waiting(); ok {
+		_spec.SetField(jobtask.FieldWaiting, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Slot(); ok {
+		_spec.SetField(jobtask.FieldSlot, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSlot(); ok {
+		_spec.AddField(jobtask.FieldSlot, field.TypeInt, value)
+	}
+	if _u.mutation.SlotCleared() {
+		_spec.ClearField(jobtask.FieldSlot, field.TypeInt)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -286,6 +389,40 @@ type JobTaskUpdateOne struct {
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *JobTaskUpdateOne) SetUpdatedAt(v time.Time) *JobTaskUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
+	return _u
+}
+
+// SetOutcome sets the "outcome" field.
+func (_u *JobTaskUpdateOne) SetOutcome(v jobtask.Outcome) *JobTaskUpdateOne {
+	_u.mutation.SetOutcome(v)
+	return _u
+}
+
+// SetNillableOutcome sets the "outcome" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableOutcome(v *jobtask.Outcome) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetOutcome(*v)
+	}
+	return _u
+}
+
+// SetReason sets the "reason" field.
+func (_u *JobTaskUpdateOne) SetReason(v string) *JobTaskUpdateOne {
+	_u.mutation.SetReason(v)
+	return _u
+}
+
+// SetNillableReason sets the "reason" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableReason(v *string) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetReason(*v)
+	}
+	return _u
+}
+
+// ClearReason clears the value of the "reason" field.
+func (_u *JobTaskUpdateOne) ClearReason() *JobTaskUpdateOne {
+	_u.mutation.ClearReason()
 	return _u
 }
 
@@ -370,6 +507,47 @@ func (_u *JobTaskUpdateOne) AddUnchecked(v int) *JobTaskUpdateOne {
 	return _u
 }
 
+// SetWaiting sets the "waiting" field.
+func (_u *JobTaskUpdateOne) SetWaiting(v bool) *JobTaskUpdateOne {
+	_u.mutation.SetWaiting(v)
+	return _u
+}
+
+// SetNillableWaiting sets the "waiting" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableWaiting(v *bool) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetWaiting(*v)
+	}
+	return _u
+}
+
+// SetSlot sets the "slot" field.
+func (_u *JobTaskUpdateOne) SetSlot(v int) *JobTaskUpdateOne {
+	_u.mutation.ResetSlot()
+	_u.mutation.SetSlot(v)
+	return _u
+}
+
+// SetNillableSlot sets the "slot" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableSlot(v *int) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetSlot(*v)
+	}
+	return _u
+}
+
+// AddSlot adds value to the "slot" field.
+func (_u *JobTaskUpdateOne) AddSlot(v int) *JobTaskUpdateOne {
+	_u.mutation.AddSlot(v)
+	return _u
+}
+
+// ClearSlot clears the value of the "slot" field.
+func (_u *JobTaskUpdateOne) ClearSlot() *JobTaskUpdateOne {
+	_u.mutation.ClearSlot()
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdateOne) SetJobID(id int) *JobTaskUpdateOne {
 	_u.mutation.SetJobID(id)
@@ -443,6 +621,11 @@ func (_u *JobTaskUpdateOne) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *JobTaskUpdateOne) check() error {
+	if v, ok := _u.mutation.Outcome(); ok {
+		if err := jobtask.OutcomeValidator(v); err != nil {
+			return &ValidationError{Name: "outcome", err: fmt.Errorf(`ent: validator failed for field "JobTask.outcome": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Result(); ok {
 		if err := jobtask.ResultValidator(v); err != nil {
 			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
@@ -451,6 +634,11 @@ func (_u *JobTaskUpdateOne) check() error {
 	if v, ok := _u.mutation.Unchecked(); ok {
 		if err := jobtask.UncheckedValidator(v); err != nil {
 			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.Slot(); ok {
+		if err := jobtask.SlotValidator(v); err != nil {
+			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
@@ -491,6 +679,12 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(jobtask.FieldUpdatedAt, field.TypeTime, value)
 	}
+	if value, ok := _u.mutation.Outcome(); ok {
+		_spec.SetField(jobtask.FieldOutcome, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.Reason(); ok {
+		_spec.SetField(jobtask.FieldReason, field.TypeString, value)
+	}
 	if _u.mutation.ReasonCleared() {
 		_spec.ClearField(jobtask.FieldReason, field.TypeString)
 	}
@@ -517,6 +711,18 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	}
 	if value, ok := _u.mutation.AddedUnchecked(); ok {
 		_spec.AddField(jobtask.FieldUnchecked, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Waiting(); ok {
+		_spec.SetField(jobtask.FieldWaiting, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Slot(); ok {
+		_spec.SetField(jobtask.FieldSlot, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSlot(); ok {
+		_spec.AddField(jobtask.FieldSlot, field.TypeInt, value)
+	}
+	if _u.mutation.SlotCleared() {
+		_spec.ClearField(jobtask.FieldSlot, field.TypeInt)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{

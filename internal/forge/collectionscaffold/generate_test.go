@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 func TestGenerate(t *testing.T) {
@@ -291,5 +292,22 @@ func TestGenerate_DeclaresNoCheckSupport(t *testing.T) {
 				t.Errorf("the generated starter test does not assert the absence of check support:\n%s", testSource)
 			}
 		})
+	}
+}
+
+// TestGenerate_RefusesAReservedParam proves a scaffold never writes a
+// method declaring the engine's device selector as its own parameter:
+// collection.Register would refuse it at process start, which for a
+// generated file means every binary importing it panics.
+func TestGenerate_RefusesAReservedParam(t *testing.T) {
+	for _, name := range collection.ReservedParams() {
+		cfg := collectionscaffold.Config{Name: "probe.reserved", Doc: collection.Doc{
+			Summary: "Probe.",
+			Params:  []collection.Param{{Name: name, Type: "string", Description: "the datastore"}},
+		}}
+		files, err := collectionscaffold.Generate(cfg)
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("Generate(param %q) = %d files, %v; want it refused naming the parameter", name, len(files), err)
+		}
 	}
 }

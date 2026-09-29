@@ -33,6 +33,10 @@ func init() {
 					"attributes it changed, which is a real, restorable inverse. A run that found the account " +
 					"already exactly as requested emits nothing. What no inverse here can restore is the account's " +
 					"password, or anything a login shell or profile script did while the account existed.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.user.remove", Record: []string{"name"}},
+					{FQCN: "identity.user.modify", Record: []string{"name", "uid", "group", "shell", "home"}, Withhold: []string{"comment"}},
+				},
 			},
 			Doc: createDoc(),
 		},

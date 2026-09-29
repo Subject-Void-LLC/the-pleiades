@@ -909,6 +909,10 @@ func TestRemove_PresentAccountIsRemovedAndInverseCapturesAttributes(t *testing.T
 	if inv["fqcn"] != "identity.user.create" {
 		t.Errorf("inverse fqcn = %v, want identity.user.create", inv["fqcn"])
 	}
+	// The removed user's password never comes back, so the undo is partial.
+	if inv[sdk.InversePartialKey] != true {
+		t.Errorf("the undo of removing a user is not marked partial: %v", inv)
+	}
 	invParams := inv["params"].(map[string]any)
 	if invParams["uid"] != presentUser.uid {
 		t.Errorf("inverse uid = %v, want %d", invParams["uid"], presentUser.uid)

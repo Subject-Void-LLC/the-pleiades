@@ -282,6 +282,52 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 		t.Fatalf("the Runner could not dead-letter a check under FleetRunnerGrant: %v", err)
 	}
 
+	// ---- Act 4c': a rollback crosses the mesh on a third consumer. ----
+	//
+	// Phase 40 put rollbacks on their own subject and durable, for the
+	// reason checks have theirs, and the grants gained the same entries.
+	// A Runner denied its rollback consumer exits at startup, which on a
+	// real broker would take the whole fleet down on upgrade.
+	rollbackConsumer, err := runJS.CreateOrUpdateConsumer(runCtx, topology.StreamName, topology.RollbackConsumerConfig())
+	if err != nil {
+		t.Fatalf("the Runner could not create its rollback consumer under FleetRunnerGrant: %v", err)
+	}
+	if _, err := rollbackConsumer.Info(runCtx); err != nil {
+		t.Fatalf("the rollback loop's heartbeat probe was denied under FleetRunnerGrant: %v", err)
+	}
+	if _, err := ctrlJS.Publish(runCtx, topology.RollbackSubject(deviceID), []byte(`{"job_id":"gate-rollback"}`)); err != nil {
+		t.Fatalf("the Controller could not publish a rollback under ControllerGrant: %v", err)
+	}
+	var rolled jetstream.Msg
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && rolled == nil {
+		batch, err := rollbackConsumer.FetchNoWait(1)
+		if err != nil {
+			t.Fatalf("the rollback loop's pull was denied under FleetRunnerGrant: %v", err)
+		}
+		for m := range batch.Messages() {
+			rolled = m
+		}
+		if err := batch.Error(); err != nil {
+			t.Fatalf("draining the rollback fetch: %v", err)
+		}
+		if rolled == nil {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	if rolled == nil {
+		t.Fatal("the Runner's rollback consumer never received the rollback the Controller published")
+	}
+	if rolled.Subject() != topology.RollbackSubject(deviceID) {
+		t.Fatalf("the rollback consumer received %q, want %q", rolled.Subject(), topology.RollbackSubject(deviceID))
+	}
+	if err := rolled.Ack(); err != nil {
+		t.Fatalf("the Runner could not settle a rollback under FleetRunnerGrant: %v", err)
+	}
+	if _, err := runJS.Publish(runCtx, topology.DeadLetterSubject(topology.RollbackSubject(deviceID)), []byte(`{"dead":true}`)); err != nil {
+		t.Fatalf("the Runner could not dead-letter a rollback under FleetRunnerGrant: %v", err)
+	}
+
 	// ---- Act 4d: a real credential renewal crosses the mesh. ----
 	//
 	// This is here rather than in a unit test because a grant table
@@ -380,6 +426,17 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 		t.Error("a Runner reshaped the shared check consumer to a wider filter, which lets it read every other device's dispatch payload")
 	} else if !errors.Is(err, context.DeadlineExceeded) && !isPermissionish(err) {
 		t.Logf("the check widening attempt failed with %v, which is a refusal but not the expected shape", err)
+	}
+
+	// And the rollback consumer: a rollback payload carries credentials too.
+	widenedRollback := topology.RollbackConsumerConfig()
+	widenedRollback.FilterSubject = "pleiades.>"
+	wideRollbackCtx, cancelWideRollback := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWideRollback()
+	if _, err := runJS.CreateOrUpdateConsumer(wideRollbackCtx, topology.StreamName, widenedRollback); err == nil {
+		t.Error("a Runner reshaped the shared rollback consumer to a wider filter, which lets it read every other device's dispatch payload")
+	} else if !errors.Is(err, context.DeadlineExceeded) && !isPermissionish(err) {
+		t.Logf("the rollback widening attempt failed with %v, which is a refusal but not the expected shape", err)
 	}
 
 	// A Runner may ASK for a credential and must not be able to hear the

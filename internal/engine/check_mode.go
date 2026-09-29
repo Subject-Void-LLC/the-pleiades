@@ -217,6 +217,7 @@ var RunbookKeys = map[string]bool{
 	"pretasks":   true,
 	"tasks":      true,
 	"posttasks":  true,
+	"reversible": true,
 }
 
 // checkRunbookKeys refuses any top-level key not in RunbookKeys, naming

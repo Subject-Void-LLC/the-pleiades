@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -396,6 +397,110 @@ func (_c *JournalEntryCreate) SetNillableDiffRecorded(v *bool) *JournalEntryCrea
 	return _c
 }
 
+// SetInverseParams sets the "inverse_params" field.
+func (_c *JournalEntryCreate) SetInverseParams(v json.RawMessage) *JournalEntryCreate {
+	_c.mutation.SetInverseParams(v)
+	return _c
+}
+
+// SetInverseComplete sets the "inverse_complete" field.
+func (_c *JournalEntryCreate) SetInverseComplete(v bool) *JournalEntryCreate {
+	_c.mutation.SetInverseComplete(v)
+	return _c
+}
+
+// SetNillableInverseComplete sets the "inverse_complete" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableInverseComplete(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetInverseComplete(*v)
+	}
+	return _c
+}
+
+// SetInversePartial sets the "inverse_partial" field.
+func (_c *JournalEntryCreate) SetInversePartial(v bool) *JournalEntryCreate {
+	_c.mutation.SetInversePartial(v)
+	return _c
+}
+
+// SetNillableInversePartial sets the "inverse_partial" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableInversePartial(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetInversePartial(*v)
+	}
+	return _c
+}
+
+// SetActionChanged sets the "action_changed" field.
+func (_c *JournalEntryCreate) SetActionChanged(v bool) *JournalEntryCreate {
+	_c.mutation.SetActionChanged(v)
+	return _c
+}
+
+// SetNillableActionChanged sets the "action_changed" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableActionChanged(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetActionChanged(*v)
+	}
+	return _c
+}
+
+// SetAuthoredRollback sets the "authored_rollback" field.
+func (_c *JournalEntryCreate) SetAuthoredRollback(v bool) *JournalEntryCreate {
+	_c.mutation.SetAuthoredRollback(v)
+	return _c
+}
+
+// SetNillableAuthoredRollback sets the "authored_rollback" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableAuthoredRollback(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetAuthoredRollback(*v)
+	}
+	return _c
+}
+
+// SetRollbackOf sets the "rollback_of" field.
+func (_c *JournalEntryCreate) SetRollbackOf(v string) *JournalEntryCreate {
+	_c.mutation.SetRollbackOf(v)
+	return _c
+}
+
+// SetNillableRollbackOf sets the "rollback_of" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableRollbackOf(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetRollbackOf(*v)
+	}
+	return _c
+}
+
+// SetUndoesNode sets the "undoes_node" field.
+func (_c *JournalEntryCreate) SetUndoesNode(v string) *JournalEntryCreate {
+	_c.mutation.SetUndoesNode(v)
+	return _c
+}
+
+// SetNillableUndoesNode sets the "undoes_node" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableUndoesNode(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetUndoesNode(*v)
+	}
+	return _c
+}
+
+// SetUndoesStep sets the "undoes_step" field.
+func (_c *JournalEntryCreate) SetUndoesStep(v int) *JournalEntryCreate {
+	_c.mutation.SetUndoesStep(v)
+	return _c
+}
+
+// SetNillableUndoesStep sets the "undoes_step" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableUndoesStep(v *int) *JournalEntryCreate {
+	if v != nil {
+		_c.SetUndoesStep(*v)
+	}
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -470,6 +575,26 @@ func (_c *JournalEntryCreate) defaults() {
 	if _, ok := _c.mutation.DiffRecorded(); !ok {
 		v := journalentry.DefaultDiffRecorded
 		_c.mutation.SetDiffRecorded(v)
+	}
+	if _, ok := _c.mutation.InverseComplete(); !ok {
+		v := journalentry.DefaultInverseComplete
+		_c.mutation.SetInverseComplete(v)
+	}
+	if _, ok := _c.mutation.InversePartial(); !ok {
+		v := journalentry.DefaultInversePartial
+		_c.mutation.SetInversePartial(v)
+	}
+	if _, ok := _c.mutation.ActionChanged(); !ok {
+		v := journalentry.DefaultActionChanged
+		_c.mutation.SetActionChanged(v)
+	}
+	if _, ok := _c.mutation.AuthoredRollback(); !ok {
+		v := journalentry.DefaultAuthoredRollback
+		_c.mutation.SetAuthoredRollback(v)
+	}
+	if _, ok := _c.mutation.UndoesStep(); !ok {
+		v := journalentry.DefaultUndoesStep
+		_c.mutation.SetUndoesStep(v)
 	}
 }
 
@@ -577,6 +702,26 @@ func (_c *JournalEntryCreate) check() error {
 	}
 	if _, ok := _c.mutation.DiffRecorded(); !ok {
 		return &ValidationError{Name: "diff_recorded", err: errors.New(`ent: missing required field "JournalEntry.diff_recorded"`)}
+	}
+	if _, ok := _c.mutation.InverseComplete(); !ok {
+		return &ValidationError{Name: "inverse_complete", err: errors.New(`ent: missing required field "JournalEntry.inverse_complete"`)}
+	}
+	if _, ok := _c.mutation.InversePartial(); !ok {
+		return &ValidationError{Name: "inverse_partial", err: errors.New(`ent: missing required field "JournalEntry.inverse_partial"`)}
+	}
+	if _, ok := _c.mutation.ActionChanged(); !ok {
+		return &ValidationError{Name: "action_changed", err: errors.New(`ent: missing required field "JournalEntry.action_changed"`)}
+	}
+	if _, ok := _c.mutation.AuthoredRollback(); !ok {
+		return &ValidationError{Name: "authored_rollback", err: errors.New(`ent: missing required field "JournalEntry.authored_rollback"`)}
+	}
+	if _, ok := _c.mutation.UndoesStep(); !ok {
+		return &ValidationError{Name: "undoes_step", err: errors.New(`ent: missing required field "JournalEntry.undoes_step"`)}
+	}
+	if v, ok := _c.mutation.UndoesStep(); ok {
+		if err := journalentry.UndoesStepValidator(v); err != nil {
+			return &ValidationError{Name: "undoes_step", err: fmt.Errorf(`ent: validator failed for field "JournalEntry.undoes_step": %w`, err)}
+		}
 	}
 	return nil
 }
@@ -731,6 +876,38 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.DiffRecorded(); ok {
 		_spec.SetField(journalentry.FieldDiffRecorded, field.TypeBool, value)
 		_node.DiffRecorded = value
+	}
+	if value, ok := _c.mutation.InverseParams(); ok {
+		_spec.SetField(journalentry.FieldInverseParams, field.TypeJSON, value)
+		_node.InverseParams = value
+	}
+	if value, ok := _c.mutation.InverseComplete(); ok {
+		_spec.SetField(journalentry.FieldInverseComplete, field.TypeBool, value)
+		_node.InverseComplete = value
+	}
+	if value, ok := _c.mutation.InversePartial(); ok {
+		_spec.SetField(journalentry.FieldInversePartial, field.TypeBool, value)
+		_node.InversePartial = value
+	}
+	if value, ok := _c.mutation.ActionChanged(); ok {
+		_spec.SetField(journalentry.FieldActionChanged, field.TypeBool, value)
+		_node.ActionChanged = value
+	}
+	if value, ok := _c.mutation.AuthoredRollback(); ok {
+		_spec.SetField(journalentry.FieldAuthoredRollback, field.TypeBool, value)
+		_node.AuthoredRollback = value
+	}
+	if value, ok := _c.mutation.RollbackOf(); ok {
+		_spec.SetField(journalentry.FieldRollbackOf, field.TypeString, value)
+		_node.RollbackOf = value
+	}
+	if value, ok := _c.mutation.UndoesNode(); ok {
+		_spec.SetField(journalentry.FieldUndoesNode, field.TypeString, value)
+		_node.UndoesNode = value
+	}
+	if value, ok := _c.mutation.UndoesStep(); ok {
+		_spec.SetField(journalentry.FieldUndoesStep, field.TypeInt, value)
+		_node.UndoesStep = value
 	}
 	return _node, _spec
 }

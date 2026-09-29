@@ -60,6 +60,7 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A read-only reachability check changes nothing on the device, so there is nothing to undo.",
+				ReadOnly:   true,
 			},
 			Doc: collection.Doc{
 				Summary:     "Reports which devices a Cisco Catalyst Center can currently reach and manage.",

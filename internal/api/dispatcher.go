@@ -68,6 +68,11 @@ type Dispatcher struct {
 	// package ever imports the package that could hand it one.
 	credentials CredentialReader
 
+	// rollbackJournal and deviceNames are what a rollback plans from
+	// (dispatcher_rollback.go); nil refuses every rollback.
+	rollbackJournal RollbackJournal
+	deviceNames     DeviceNamer
+
 	// filePolicy is the deployment's half of the survey file rule, read
 	// from the environment at the composition root and held as a value.
 	//
@@ -126,6 +131,14 @@ type LaunchConfigStore interface {
 // is one a caller can act on by launching the template directly with fresh
 // input. The wrapped message says which case it was.
 var ErrNotRelaunchable = errors.New("api: this job cannot be relaunched")
+
+// ErrWindowedPrompt is returned when a launch asks for a forks window and
+// supplies credential inputs prompted at launch. A windowed job dispatches
+// most of its devices after its fan-out has ended, and a prompted input is
+// held only for the length of the fan-out (it is never stored), so every
+// device past the first window would run without it.
+var ErrWindowedPrompt = errors.New("api: a launch that supplies credential inputs cannot also set forks; " +
+	"those inputs are held only while the job fans out, and a forks window dispatches most devices after that")
 
 // NewDispatcher creates a new task dispatcher over runbooks, jobs, and
 // bus.
@@ -483,6 +496,8 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 		RespondError(w, r, http.StatusNotFound, "template not found")
 	case errors.Is(err, launch.ErrSurveyAnswer), errors.Is(err, launch.ErrMode):
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, ErrWindowedPrompt):
+		RespondError(w, r, http.StatusUnprocessableEntity, ErrWindowedPrompt.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
 		// which is a deployment fact rather than a caller's mistake, so it
@@ -548,6 +563,9 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	resolved, ignored, err := tmpl.Resolve(ctx, cfg)
 	if err != nil {
 		return "", ignored, fmt.Errorf("resolve template %d: %w", templateID, err)
+	}
+	if len(prompted) > 0 && resolved.Fields.Int(dispatch.ForksField) > 0 {
+		return "", ignored, ErrWindowedPrompt
 	}
 
 	// 2. Record what this launch was configured with, before the job, so

@@ -39,6 +39,12 @@ type Reaper struct {
 	bus        event.Bus
 	staleAfter time.Duration
 	interval   time.Duration
+
+	// pump, when set, is called for every running job that still has
+	// queued devices, catching a windowed job whose pump after a result
+	// never ran (a replica that crashed between the two). Nil pumps
+	// nothing.
+	pump func(ctx context.Context, jobID string) error
 }
 
 // ReaperOption configures optional, non-default behavior on a Reaper built
@@ -51,6 +57,14 @@ type ReaperOption func(*Reaper)
 func WithReapInterval(interval time.Duration) ReaperOption {
 	return func(r *Reaper) {
 		r.interval = interval
+	}
+}
+
+// WithReaperPump has each sweep call pump (Worker.Pump) for every running
+// job that still has queued devices.
+func WithReaperPump(pump func(ctx context.Context, jobID string) error) ReaperOption {
+	return func(r *Reaper) {
+		r.pump = pump
 	}
 }
 
@@ -124,6 +138,29 @@ func (r *Reaper) sweep(ctx context.Context) {
 		}
 		slog.Info("reaper republished job.requested for a stale fan-out",
 			slog.String("job_id", jobID))
+	}
+	r.pumpQueued(ctx)
+}
+
+// pumpQueued pumps every running job that still has queued devices. It is
+// the backstop for the pump a result should have triggered: pumping a job
+// whose window is already full, or that another replica is pumping right
+// now, does nothing, so a sweep can never start more than forks devices.
+func (r *Reaper) pumpQueued(ctx context.Context) {
+	if r.pump == nil {
+		return
+	}
+	jobIDs, err := r.store.ListQueuedJobs(ctx)
+	if err != nil {
+		slog.Error("reaper failed to list jobs with queued devices", slog.String("error", err.Error()))
+		return
+	}
+	for _, jobID := range jobIDs {
+		if err := r.pump(ctx, jobID); err != nil {
+			slog.Error("reaper failed to pump a windowed job",
+				slog.String("job_id", jobID),
+				slog.String("error", err.Error()))
+		}
 	}
 }
 

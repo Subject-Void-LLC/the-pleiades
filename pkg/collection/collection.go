@@ -151,8 +151,9 @@ func SnapshotForTest() func() {
 
 // Register adds d under d.Name, rejecting a bare (non-namespaced) name, an
 // empty namespace or method segment, an unknown required capability, a
-// check declaration that contradicts itself (see checkCheckSupport), or a
-// duplicate name. It returns an error rather than panicking, for genuine
+// documented parameter the engine reads for itself (see
+// checkReservedParams), a check declaration that contradicts itself (see
+// checkCheckSupport), or a duplicate name. It returns an error rather than panicking, for genuine
 // runtime registration where a rejection is a data problem the caller must
 // handle, not a process-ending programmer error.
 //
@@ -186,6 +187,10 @@ func Register(d Descriptor) error {
 	}
 
 	if err := checkReversibility(d); err != nil {
+		return err
+	}
+
+	if err := checkReservedParams(d); err != nil {
 		return err
 	}
 

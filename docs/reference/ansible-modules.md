@@ -476,12 +476,12 @@ Also written as `netconf_config`.
 
 | When | Native call | Class |
 |---|---|---|
-| otherwise | `net.netconf.config` with `lock: always` (review: Ansible edits the candidate datastore and commits when the device offers one; net.netconf.config edits running, since its target cannot be set here yet) | asserted |
+| otherwise | `net.netconf.config` with `lock: always` (review: Ansible edits the candidate datastore and commits when the device offers one; net.netconf.config edits running unless the task names datastore: candidate) | asserted |
 
 | Argument | Becomes |
 |---|---|
 | `content`, `xml` | `content` |
-| `target`, `datastore` | blocked (`netconf.target`): net.netconf.config's target is also the engine's device selector |
+| `target`, `datastore` | `datastore` |
 | `default_operation` | `default_operation` |
 | `error_option` | `error_option` |
 | `lock` | `lock` |
@@ -558,7 +558,6 @@ Every finding in a migration report carries one of these codes. The set is close
 | `module.manual` | blocked | This module needs a person: it has no faithful mechanical conversion. | - |
 | `module.semantics` | review | The native method does what the module does, except in the way the finding says. | - |
 | `module.unmapped` | blocked | No native method does what this module does. | Write the task by hand with a native method, or run the playbook unchanged as a playbook job. |
-| `netconf.target` | blocked | net.netconf.config's datastore parameter is named target, which the engine reads as the device to run against. | Leave target out (running is the default) until the device selector moves out of params. |
 | `play.facts` | info | gather_facts dropped: facts are not gathered. | facts.gather, where the device supports it. |
 | `play.hosts_all` | review | hosts: all needs an inventory tag named all. | - |
 | `play.hosts_local` | review | hosts: localhost has no native equivalent; the tasks run with no target. | - |

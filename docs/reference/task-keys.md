@@ -20,6 +20,7 @@ Every key a runbook author can write. The key list itself is generated from the 
 | `pretasks` | Tasks that run before `tasks`. Optional. |
 | `tasks` | The runbook's main task list. Required. |
 | `posttasks` | Tasks that run after `tasks`. Optional. |
+| `reversible` | `true` promises that `pleiades rollback` can undo every task that changes a device: each one calls a method whose recorded undo replays whole, calls a read-only method, or has its own `rollback` list. Validation refuses the runbook otherwise, naming each task and why, before anything runs. Optional; it does not change the runbook's version. |
 
 ## Task scope
 
@@ -41,3 +42,4 @@ Every key a runbook author can write. The key list itself is generated from the 
 | `rescue` | **Accepted, validated, printed in the plan, and never executed.** The builder registers rescue tasks as graph nodes but wires no edges to them (`internal/engine/tasktree.go`), and the executor follows edges only (`internal/engine/executor.go`), so a `block` whose child fails runs no rescue handler: the run just fails. Do not rely on it to recover from a failure. |
 | `always` | **Accepted, validated, printed in the plan, and never executed**, for the same reason as `rescue`, and this is the more dangerous of the two. When the sibling `block` succeeds, the run prints `run complete` and exits 0 while every `always` task is skipped in silence, so nothing tells you the cleanup did not happen. Until this is implemented, put cleanup steps at the end of the `block` itself. |
 | `parallel` | Native fan-out/join: runs its child tasks concurrently. Mutually exclusive with `fqcn` and `block`; may not carry `rescue`/`always`. |
+| `rollback` | This task's authored undo: a list of method calls, written like any task (the method as the key), that `pleiades rollback` runs on each device this task changed, in place of the undo the method recorded. Use it where the recorded undo cannot serve: a method that records none (`exec.command`), one whose undo keeps a value out of the journal (a file's prior content), or when you want a different undo. Allowed only on a method call, not on a `block`, `parallel`, `import_tasks`, `rescue` or `always` task. Each step is a method and its params only: no `target` (it runs on the device this task changed), `register`, `when`, `check_mode` or `tags`, since a rollback runs long after this run and has none of its results. Adding or changing it does not change the runbook's version, so an undo written after a run failed still matches that run. |

@@ -36,8 +36,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that made a VM emits virt.vbox.vm.delete naming it, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that made a VM emits virt.vbox.vm.delete naming it and pinning its UUID, which deletes the copied disk with it; the image copied from is never changed. One that found a VM under the name emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.delete", Record: []string{"name", "uuid"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX.",
 				Description: "Makes sure a VM of this name exists, creating it from a disk image already on the host: a VHDX, VHD, VMDK or VDI file, such as the evaluation VHDX Microsoft publishes for Windows Server. The image is copied into the VM's folder as a VDI that grows as the guest writes to it, and the image itself is left as it was, so one image can make many VMs. The copy is the VM's disk, and virt.vbox.vm.delete removes it with the VM. The VM gets os_type; a SATA controller holding the disk and an IDE controller for the DVD a clone's seed goes in; network cards Windows has a driver for, with nothing attached; and the firmware the disk boots with, read from its first sectors: EFI for a GUID partition table, BIOS for a master boot record. A VM already under the name reports no change and is not compared with the image. The VM is not started, and is meant as a base to snapshot and clone. For Windows the image must be generalized (by sysprep), and virt.vbox.vm.clone then gives each clone its own name, address and password on a DVD. Microsoft's Windows Server evaluation VHDX is generalized but never reads that DVD at its first boot (measured on the lab host), so its clones stop at the first-boot screens; virt.vbox.vm.install makes a Windows base whose clones read theirs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and sends nothing; it does not read the disk, so it reports the firmware only when firmware names one.",
@@ -172,8 +178,10 @@ func runImportDisk(ctx context.Context, rc sdk.RunbookContext, device inventory.
 		return collection.Result{}, err
 	}
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.vbox.vm.delete",
-		Params:      map[string]any{paramName: name},
+		FQCN: "virt.vbox.vm.delete",
+		// The UUID pins the undo to the VM this task made: a VM made later
+		// under the same name is refused rather than deleted.
+		Params:      map[string]any{paramName: name, paramUUID: uuid},
 		Description: fmt.Sprintf("Delete %s and the disk copied for it, which this task made.", name),
 	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

@@ -178,6 +178,9 @@ func normalize(entry engine.JournalEntry) engine.JournalEntry {
 	if entry.InverseParamKeys == nil {
 		entry.InverseParamKeys = []string{}
 	}
+	if entry.InverseParams == nil {
+		entry.InverseParams = []engine.InverseParam{}
+	}
 	return entry
 }
 

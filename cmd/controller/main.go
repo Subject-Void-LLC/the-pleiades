@@ -1189,7 +1189,10 @@ func main() {
 	// store the subscriber writes. One value, so a deployment cannot end
 	// up recording into one database and reading from another.
 	journalStore := journal.NewEntStore(client)
-	journalSubscriber := journal.NewSubscriber(journalStore, logger)
+	// A batch is stored only for a device this Controller dispatched: any
+	// Runner may publish on any job's journal subject (internal/journal's
+	// admission.go says what that does and does not close).
+	journalSubscriber := journal.NewSubscriber(journalStore, logger, journal.WithAdmission(journalAdmission(jobStore)))
 	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
@@ -1200,7 +1203,9 @@ func main() {
 	// the only thing that hears those reports. A Controller that started
 	// without it would leave every job it launches running forever, with
 	// nothing in the system saying why.
-	resultConsumer := dispatch.NewResultConsumer(jobStore, logger)
+	// A result frees a place in its job's forks window, so the consumer
+	// pumps that job's next device straight away (dispatch.Worker.Pump).
+	resultConsumer := dispatch.NewResultConsumer(jobStore, logger, dispatch.WithResultPump(worker.Pump))
 	if err := resultConsumer.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the job result consumer", err)
 	}
@@ -1245,7 +1250,10 @@ func main() {
 	// WithFanOutLeaseTTL override): the two must agree for a job either one
 	// considers stale to actually be the same job, so if worker above is
 	// ever given an explicit override, this call must change to match.
-	reaper := dispatch.NewReaper(jobStore, bus, dispatch.DefaultFanOutLeaseTTL)
+	//
+	// Its sweep also pumps windowed jobs that still have queued devices,
+	// the backstop for a pump a crashed replica never ran after a result.
+	reaper := dispatch.NewReaper(jobStore, bus, dispatch.DefaultFanOutLeaseTTL, dispatch.WithReaperPump(worker.Pump))
 	reaperDone := make(chan struct{})
 	go func() {
 		defer close(reaperDone)
@@ -1305,7 +1313,10 @@ func main() {
 		// The deployment's half of the survey file rule, threaded as a
 		// value so the Controller judges every launch against what it was
 		// started with.
-		api.WithSurveyFilePolicy(launch.FilePolicy{AllowProgramContent: allowProgramContent}))
+		api.WithSurveyFilePolicy(launch.FilePolicy{AllowProgramContent: allowProgramContent}),
+		// What a rollback plans from: the stored journal, and the devices
+		// it names as the inventory holds them now.
+		api.WithRollback(journalStore, deviceNamesByID(client)))
 	templates := api.NewTemplateHandler(templateStore, logger)
 
 	// Schedules: the administration surface and the store the scanner
@@ -1500,6 +1511,7 @@ func main() {
 		apispec.StreamJobLogs.Name: streamer.StreamLogs,
 		apispec.CancelJob.Name:     jobs.Cancel,
 		apispec.RelaunchJob.Name:   dispatcher.RelaunchJob,
+		apispec.RollbackJob.Name:   dispatcher.RollbackJob,
 
 		// Templates split across two handlers on purpose, along the same
 		// line the scopes split on: administering one is the TemplateHandler
