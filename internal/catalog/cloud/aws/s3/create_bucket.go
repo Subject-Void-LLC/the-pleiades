@@ -26,6 +26,9 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: true,
 				Notes:      "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "cloud.aws.s3.delete_bucket", Record: []string{"bucket"}},
+				},
 			},
 			Doc: createBucketDoc(),
 		},

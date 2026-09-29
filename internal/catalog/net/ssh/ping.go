@@ -86,6 +86,7 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false.",
+				ReadOnly:   true,
 			},
 			// Read-only (Ping), so a check runs it for real.
 			SupportsCheck: true,

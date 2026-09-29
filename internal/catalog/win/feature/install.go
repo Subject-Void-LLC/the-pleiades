@@ -33,6 +33,9 @@ func init() {
 					"found it already enabled emits nothing. What the inverse cannot undo is anything the feature's " +
 					"own presence changed on the system while it was enabled, and either direction may need the " +
 					"restart reboot_required reports before it is complete.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "win.feature.remove", Record: []string{"name"}},
+				},
 			},
 			Doc: installDoc(),
 			// A check reads the feature and sends nothing (predictFeature).

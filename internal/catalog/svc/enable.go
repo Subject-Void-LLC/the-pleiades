@@ -17,6 +17,10 @@ func init() {
 				Notes: "The inverse is whatever the concrete method records, so on a systemd host a run that enabled a " +
 					"disabled service emits an svc.systemd.disable and a run that found it already enabled emits " +
 					"nothing. The undo restores the boot-time setting only, never stopping a service that is running.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.disable", Record: []string{"name"}},
+					{FQCN: "svc.windows.disable", Record: []string{"name"}},
+				},
 			},
 			enableDoc(),
 		),

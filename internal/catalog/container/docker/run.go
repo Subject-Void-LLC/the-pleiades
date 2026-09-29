@@ -29,6 +29,9 @@ func init() {
 					"found a container already present under that name emits nothing, the same as every other " +
 					"converged run in this catalog, even though this method does not compare that existing " +
 					"container's configuration against what was requested.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "container.docker.remove", Record: []string{"name", "force", "id"}},
+				},
 			},
 			Doc: runDoc(),
 		},
@@ -147,8 +150,10 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 
 	if changed {
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:   "container.docker.remove",
-			Params: map[string]any{paramName: name, paramForce: true},
+			FQCN: "container.docker.remove",
+			// The id pins the undo to the container this task created: one
+			// run later under the same name is refused rather than removed.
+			Params: map[string]any{paramName: name, paramForce: true, paramID: after.id},
 			Description: fmt.Sprintf("Remove %s, which this task created. Its volumes' contents on the host "+
 				"are not touched by that removal, and are not restorable by this inverse either.", name),
 		}); err != nil {

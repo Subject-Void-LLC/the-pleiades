@@ -17,6 +17,10 @@ func init() {
 				Notes: "The inverse is whatever the concrete method records, so on a systemd host a run that stopped a " +
 					"running service emits an svc.systemd.start and a run that found it already stopped emits nothing. " +
 					"Starting it again restores the service, never what it missed while it was down.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.start", Record: []string{"name"}},
+					{FQCN: "svc.windows.start", Record: []string{"name"}},
+				},
 			},
 			stopDoc(),
 		),

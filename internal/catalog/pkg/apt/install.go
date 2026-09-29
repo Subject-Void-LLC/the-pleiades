@@ -30,6 +30,9 @@ func init() {
 					"already there before this task ran would be lost along with the one this task left. What the " +
 					"inverse cannot restore is anything the package's install scripts did: a service they started, a " +
 					"user they created, a config file they wrote outside dpkg's own tracking.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "pkg.apt.remove", Record: []string{"name"}},
+				},
 			},
 			Doc: installDoc(),
 		},

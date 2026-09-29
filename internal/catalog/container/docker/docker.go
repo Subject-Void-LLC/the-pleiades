@@ -63,6 +63,9 @@ const (
 	paramEnv           = "env"
 	paramRestartPolicy = "restart_policy"
 	paramForce         = "force"
+	// paramID is container.docker.remove's identity guard, which the undo
+	// of container.docker.run sets.
+	paramID = "id"
 )
 
 const statName = "name"
@@ -72,6 +75,10 @@ const statName = "name"
 type containerState struct {
 	exists bool
 	status string // running, exited, created, paused, restarting, removing, dead; empty when absent
+	// id is the container's full id, empty when absent. It is not part of
+	// Map (and so of a diff): it names which container this is, which is
+	// what container.docker.remove's id guard compares, not a state.
+	id string
 }
 
 func (s containerState) Map() map[string]any {
@@ -85,14 +92,15 @@ func (s containerState) Map() map[string]any {
 // internal/catalog/fs's queryMount does for findmnt's identical lack of
 // one.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--format", "{{.State.Status}}", name}))
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--format", "{{.Id}} {{.State.Status}}", name}))
 	if err != nil {
 		return containerState{}, err
 	}
 	if result.ExitCode != 0 {
 		return containerState{}, nil
 	}
-	return containerState{exists: true, status: strings.TrimSpace(result.Stdout)}, nil
+	id, status, _ := strings.Cut(strings.TrimSpace(result.Stdout), " ")
+	return containerState{exists: true, status: status, id: id}, nil
 }
 
 // envParam reads the env param as a map of string keys to string

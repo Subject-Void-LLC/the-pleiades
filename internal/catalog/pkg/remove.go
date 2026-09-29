@@ -19,6 +19,10 @@ func init() {
 					"run that found the package already absent emits nothing. The instruction names the concrete " +
 					"method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop " +
 					"rather than svc.stop.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "pkg.apt.install", Record: []string{"name", "version"}},
+					{FQCN: "pkg.dnf.install", Record: []string{"name", "version"}},
+				},
 			},
 			removeDoc(),
 		),

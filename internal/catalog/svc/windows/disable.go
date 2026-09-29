@@ -34,6 +34,9 @@ func init() {
 					"only sets Automatic, which is not what Manual was, and emitting an instruction that would " +
 					"over-correct is worse than emitting none. The undo restores the boot-time setting only; it never " +
 					"starts a service, because disabling never stopped one running right now.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.windows.enable", Record: []string{"name"}},
+				},
 			},
 			Doc: disableDoc(),
 		},

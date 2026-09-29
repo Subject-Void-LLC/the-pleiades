@@ -49,6 +49,7 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "This method waits for a device to answer and changes nothing on it, so there is nothing to undo.",
+				ReadOnly:   true,
 			},
 			// Only reads, and still not checkable: see NoCheckReason.
 			NoCheckReason: "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out " +

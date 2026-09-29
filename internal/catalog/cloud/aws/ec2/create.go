@@ -30,6 +30,9 @@ func init() {
 					"an existing match emits nothing, the same as every other converged run in this catalog, even " +
 					"though this method does not compare that existing instance's image or type against what was " +
 					"requested.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "cloud.aws.ec2.terminate", Record: []string{"instance_id"}},
+				},
 			},
 			Doc: createDoc(),
 		},

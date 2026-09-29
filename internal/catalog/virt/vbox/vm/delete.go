@@ -38,9 +38,10 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a stopped VirtualBox VM and its disks.",
-				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
+					{Name: "uuid", Type: "string", Description: "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when a VM was deleted", Description: "The VM deleted."},
@@ -82,7 +83,18 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if !exists {
 		return collection.Result{}, recordExists(rc, fqcn, false, false)
 	}
+	// The identity guard, before anything else about the VM is acted on:
+	// a name can be reused, a UUID cannot.
+	if want := sdk.StringParam(params, paramUUID); want != "" && !strings.EqualFold(want, m.UUID) {
+		return collection.Result{}, fmt.Errorf("%s: %q is VM %s, not %s; nothing was deleted", fqcn, name, m.UUID, want)
+	}
 	if !m.Off() {
+		// Unchecked rather than failed, as virt.vbox.vm.resize does: an
+		// earlier task in the same run, a rollback's stop above all, may be
+		// what stops it, and a check cannot tell.
+		if mode == collection.ModeCheck && (m.State == vboxmanage.StateRunning || m.State == vboxmanage.StatePaused) {
+			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("%q is %s now; a real run fails on it unless an earlier task stops it", name, m.State))
+		}
 		return collection.Result{}, fmt.Errorf("%s: %q is %s; stop it first with virt.vbox.vm.stop", fqcn, name, m.State)
 	}
 	if err := rc.SetStat(statUUID, m.UUID); err != nil {

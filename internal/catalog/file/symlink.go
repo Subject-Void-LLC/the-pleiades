@@ -87,6 +87,10 @@ func init() {
 					"points at. A run that found a link already there and repointed it emits a file.symlink pointing back at " +
 					"the target it had, because removing that link would delete something the run never created. A converged " +
 					"run emits nothing, since it sent no command at all.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.remove", Record: []string{"path"}},
+					{FQCN: "file.symlink", Record: []string{"path"}, Withhold: []string{"src"}},
+				},
 			},
 			Doc: symlinkDoc(),
 		},

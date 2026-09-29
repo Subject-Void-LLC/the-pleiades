@@ -28,12 +28,11 @@ func inverseOf(t *testing.T, c *recordingContext) map[string]any {
 // TestRecordInverse covers the one function in this package that writes
 // the undo instruction a rollback would run.
 //
-// Nothing performs a rollback yet, which is exactly why the shape has to
-// be pinned now. Only the forward run can capture the values an undo
-// needs, so a run that records them in the wrong shape has destroyed
-// information that cannot be recovered later, and the failure surfaces
-// whenever rollback is eventually built, against journals written months
-// earlier by code nobody is looking at any more.
+// The shape is pinned because only the forward run can capture the values
+// an undo needs, so a run that records them in the wrong shape has
+// destroyed information that cannot be recovered later, and the failure
+// surfaces at rollback, against journals written months earlier by code
+// nobody is looking at any more.
 func TestRecordInverse(t *testing.T) {
 	t.Run("the full record", func(t *testing.T) {
 		rc := newRecordingContext()
@@ -73,6 +72,27 @@ func TestRecordInverse(t *testing.T) {
 		record := inverseOf(t, rc)
 		if _, present := record["description"]; present {
 			t.Errorf("an absent description was recorded anyway: %v", record)
+		}
+	})
+
+	t.Run("a partial undo says so, and a whole one carries no key", func(t *testing.T) {
+		// A rollback replays a partial undo only when its operator names
+		// it, so the flag has to survive into the record; absent on a whole
+		// undo, so every record written before the flag existed reads as
+		// what it was.
+		rc := newRecordingContext()
+		if err := sdk.RecordInverse(rc, sdk.Inverse{FQCN: "file.permissions", Params: map[string]any{"path": "/x"}, Partial: true}); err != nil {
+			t.Fatalf("RecordInverse: %v", err)
+		}
+		if got := inverseOf(t, rc)[sdk.InversePartialKey]; got != true {
+			t.Errorf("%s = %v, want true", sdk.InversePartialKey, got)
+		}
+		rc = newRecordingContext()
+		if err := sdk.RecordInverse(rc, sdk.Inverse{FQCN: "file.permissions", Params: map[string]any{"path": "/x"}}); err != nil {
+			t.Fatalf("RecordInverse: %v", err)
+		}
+		if _, present := inverseOf(t, rc)[sdk.InversePartialKey]; present {
+			t.Errorf("a whole undo carries %s", sdk.InversePartialKey)
 		}
 	})
 

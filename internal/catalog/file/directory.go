@@ -92,6 +92,10 @@ func init() {
 					"A run that found the directory already there and only changed its mode, owner or group emits a " +
 					"file.permissions carrying the old ones, which puts the attributes back and never removes the directory. " +
 					"A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.remove", Record: []string{"path"}},
+					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}},
+				},
 			},
 			// A check reads the path, compares, and reports whether a real
 			// run would create the directory or change its attributes,

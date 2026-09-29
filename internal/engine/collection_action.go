@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // collectionActionExecutor runs a task whose FQCN names a registered
@@ -211,6 +212,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		if err != nil {
 			return ActionResult{}, methodError(task.FQCN, mode, err)
 		}
+		if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
+			return ActionResult{}, err
+		}
 		return ActionResult{Changed: result.Changed, Stats: stats}, nil
 	}
 
@@ -242,8 +246,35 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
 	}
+	if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
+		return ActionResult{}, err
+	}
 
 	return ActionResult{Changed: result.Changed, Stats: stats}, nil
+}
+
+// holdReadOnly fails a built-in method that declares it only reads
+// (Reversibility.ReadOnly) and reported a change or an undo anyway.
+//
+// The declaration is what a rollback relies on to say a failed read-only
+// task left nothing behind, and what lets a runbook marked reversible run
+// read-only tasks with no rollback step of their own. A claim those two
+// lean on is held at run time rather than trusted. A diff is not held
+// against it: a read-only method may report one saying nothing changed
+// (sdk.Unchanged), as wait.connection does. An external Collection
+// program's declaration is not honored at all (Descriptor.Provider), so it
+// is not held either.
+func holdReadOnly(desc collection.Descriptor, fqcn string, changed bool, stats map[string]interface{}) error {
+	if !desc.Manifest.Reversibility.ReadOnly || desc.Provider != nil {
+		return nil
+	}
+	if changed {
+		return fmt.Errorf("collection method %q declares that it only reads, and reported a change", fqcn)
+	}
+	if _, undo := stats[sdk.StatInverse]; undo {
+		return fmt.Errorf("collection method %q declares that it only reads, and recorded an undo", fqcn)
+	}
+	return nil
 }
 
 // FactCollector is satisfied by a RunbookContext that accumulates the facts

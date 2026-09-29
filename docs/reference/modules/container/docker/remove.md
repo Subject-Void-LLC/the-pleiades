@@ -24,6 +24,7 @@ Makes sure a container named name does not exist, removing it if present. Contai
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The container to remove. |
 | `force` | `bool` | no | `false` | Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first. |
+| `id` | `string` | no | - | When set, the container named name must be this one, by its full id, or the task is refused and nothing is removed. A rollback sets it, so undoing the task that created a container never removes a different container run later under the same name. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

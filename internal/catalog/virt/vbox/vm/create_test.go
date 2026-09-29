@@ -76,7 +76,7 @@ func TestImportOva(t *testing.T) {
 	if vm == nil || vm.NICs[1].Kind != "none" || rc.stats["uuid"] != vm.UUID {
 		t.Fatalf("imported %+v, stats %v", vm, rc.stats)
 	}
-	want := map[string]any{"fqcn": "virt.vbox.vm.delete", "params": map[string]any{"name": "ubuntu-2404-base"}, "description": "Delete ubuntu-2404-base, which this task imported."}
+	want := map[string]any{"fqcn": "virt.vbox.vm.delete", "params": map[string]any{"name": "ubuntu-2404-base", "uuid": vm.UUID}, "description": "Delete ubuntu-2404-base, which this task imported."}
 	if !reflect.DeepEqual(rc.stats[sdk.StatInverse], want) {
 		t.Errorf("inverse = %v", rc.stats[sdk.StatInverse])
 	}
@@ -268,10 +268,14 @@ func TestDelete_Refusals(t *testing.T) {
 	vm.State = vboxmanage.StateRunning
 	model := vboxmanagetest.New(vm)
 	onModel(t, model)
-	for _, check := range []bool{false, true} {
-		if _, err := call(t, "virt.vbox.vm.delete", check, newRecorder(), map[string]any{"name": "ubuntu-2404-base"}); err == nil || !strings.Contains(err.Error(), "stop it first") {
-			t.Errorf("check %v, a running VM: %v", check, err)
-		}
+	if _, err := call(t, "virt.vbox.vm.delete", false, newRecorder(), map[string]any{"name": "ubuntu-2404-base"}); err == nil || !strings.Contains(err.Error(), "stop it first") {
+		t.Errorf("a running VM: %v", err)
+	}
+	// A check cannot tell whether an earlier task stops it first, as a
+	// rollback's does, so it says so rather than predicting a failure.
+	var cannot *collection.CannotCheckError
+	if _, err := call(t, "virt.vbox.vm.delete", true, newRecorder(), map[string]any{"name": "ubuntu-2404-base"}); !errors.As(err, &cannot) || !strings.Contains(cannot.Reason, "unless an earlier task stops it") {
+		t.Errorf("a check of a running VM: %v, want it not checkable", err)
 	}
 	vm.State = vboxmanage.StatePoweroff
 	vm.Folder = ""
@@ -388,5 +392,38 @@ func TestHostKeys_Refusals(t *testing.T) {
 	var cannot *collection.CannotCheckError
 	if _, err := call(t, "virt.vbox.vm.host_keys", true, newRecorder(), map[string]any{"name": "missing"}); !errors.As(err, &cannot) {
 		t.Errorf("a check of a VM not made yet: %v", err)
+	}
+}
+
+// TestDelete_TheUUIDGuardRefusesAnotherVMOfTheName is B3's identity
+// guard: the undo of a clone names the VM it made by UUID, so a VM made
+// later under the same name survives a rollback of the earlier run, in a
+// check and for real, while the right UUID still deletes.
+func TestDelete_TheUUIDGuardRefusesAnotherVMOfTheName(t *testing.T) {
+	model := vboxmanagetest.New(base())
+	onModel(t, model)
+	made := seeded()
+	if _, err := call(t, "virt.vbox.vm.clone", false, made, cloneParams()); err != nil {
+		t.Fatal(err)
+	}
+	inverse := made.stats[sdk.StatInverse].(map[string]any)
+	undo := inverse["params"].(map[string]any)
+	if undo["uuid"] != made.stats["uuid"] || undo["uuid"] == "" {
+		t.Fatalf("the clone's undo %v does not pin the VM it made (%v)", undo, made.stats["uuid"])
+	}
+
+	stranger := map[string]any{"name": "ubuntu-lab", "uuid": "11111111-2222-4333-8444-555555555555"}
+	for _, check := range []bool{true, false} {
+		if _, err := call(t, "virt.vbox.vm.delete", check, newRecorder(), stranger); err == nil || !strings.Contains(err.Error(), "nothing was deleted") {
+			t.Errorf("check %v: delete with another VM's uuid = %v, want it refused", check, err)
+		}
+	}
+	if model.VM("ubuntu-lab") == nil {
+		t.Fatal("a refused delete removed the VM anyway")
+	}
+	// The UUID matches whatever its letter case.
+	pinned := map[string]any{"name": "ubuntu-lab", "uuid": strings.ToUpper(undo["uuid"].(string))}
+	if result, err := call(t, "virt.vbox.vm.delete", false, newRecorder(), pinned); err != nil || !result.Changed || model.VM("ubuntu-lab") != nil {
+		t.Fatalf("delete with the VM's own uuid: %+v, %v", result, err)
 	}
 }

@@ -31,6 +31,9 @@ func init() {
 					"inverse: undoing that without also mounting something this task did not mount needs a " +
 					"capability this namespace does not expose. A run that found everything already absent " +
 					"emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "fs.mount", Record: []string{"path", "fstype", "persist", "fstab"}, Withhold: []string{"src", "opts"}},
+				},
 			},
 			Doc: unmountDoc(),
 		},

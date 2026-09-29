@@ -50,6 +50,7 @@ func removeDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to remove."},
 			{Name: paramForce, Type: "bool", Default: "false", Description: "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."},
+			{Name: paramID, Type: "string", Description: "When set, the container named name must be this one, by its full id, or the task is refused and nothing is removed. A rollback sets it, so undoing the task that created a container never removes a different container run later under the same name."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -103,6 +104,11 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	before, err := queryContainer(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// The identity guard: a name can be reused, an id cannot. An absent
+	// container is still no change, whichever id was asked for.
+	if want := sdk.StringParam(params, paramID); want != "" && before.exists && want != before.id {
+		return collection.Result{}, fmt.Errorf("%s: container %s is %s, not %s; nothing was removed", fqcn, name, before.id, want)
 	}
 
 	changed := before.exists

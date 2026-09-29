@@ -119,3 +119,63 @@ func TestRegister_DeclaredStubIsExempt(t *testing.T) {
 		t.Fatalf("a declared stub must not need a Reversibility answer: %v", err)
 	}
 }
+
+// TestValidateReversibility_RefusesADeclarationThatCannotBeHonored covers
+// the undo allowlist's own coherence, each case a declaration a rollback
+// could not honor as written.
+func TestValidateReversibility_RefusesADeclarationThatCannotBeHonored(t *testing.T) {
+	spec := func(fqcn string, record, withhold []string) sdk.InverseSpec {
+		return sdk.InverseSpec{FQCN: fqcn, Record: record, Withhold: withhold}
+	}
+	for _, tc := range []struct {
+		name string
+		r    collection.Reversibility
+		want string
+	}{
+		{"read-only and reversible", collection.Reversibility{Reversible: true, ReadOnly: true}, "read-only"},
+		{"read-only with undo methods", collection.Reversibility{Notes: "x", ReadOnly: true, Inverses: []sdk.InverseSpec{spec("a.b", nil, nil)}}, "read-only"},
+		{"undo methods on an irreversible method", collection.Reversibility{Notes: "x", Inverses: []sdk.InverseSpec{spec("a.b", nil, nil)}}, "not reversible"},
+		{"an undo method with no namespace", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("remove", nil, nil)}}, "namespaced"},
+		{"the same undo method twice", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", nil, nil), spec("a.b", nil, nil)}}, "twice"},
+		{"a param both recorded and withheld", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", []string{"name"}, []string{"name"})}}, "name"},
+		{"a param recorded twice", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", []string{"name", "name"}, nil)}}, "name"},
+		{"an empty param name", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", []string{""}, nil)}}, "empty"},
+		{"the device selector recorded", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", []string{collection.TargetParam}, nil)}}, "device or tag"},
+		{"the device selector withheld", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", nil, []string{collection.TargetParam})}}, "device or tag"},
+		{"the host key bypass recorded", collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{spec("a.b", []string{sdk.ParamInsecureSkipHostKeyVerify}, nil)}}, "host key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := collection.ValidateReversibility(tc.r)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateReversibility = %v, want an error mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateReversibility_AcceptsTheShapesTheCatalogUses is the control.
+func TestValidateReversibility_AcceptsTheShapesTheCatalogUses(t *testing.T) {
+	for name, r := range map[string]collection.Reversibility{
+		"read-only":              {Notes: "reads", ReadOnly: true},
+		"reversible, undeclared": {Reversible: true},
+		"two targets": {Reversible: true, Inverses: []sdk.InverseSpec{
+			{FQCN: "file.remove", Record: []string{"path"}},
+			{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}, MayBePartial: true},
+		}},
+		"a withheld param": {Reversible: true, Inverses: []sdk.InverseSpec{{FQCN: "file.copy", Record: []string{"dest"}, Withhold: []string{"content"}}}},
+	} {
+		if err := collection.ValidateReversibility(r); err != nil {
+			t.Errorf("%s: ValidateReversibility = %v, want nil", name, err)
+		}
+	}
+}
+
+// TestRegister_RefusesAContradictoryUndoDeclaration proves Register runs
+// the same validation, naming the method.
+func TestRegister_RefusesAContradictoryUndoDeclaration(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	err := collection.Register(implemented("test.rev_readonly_undo", collection.Reversibility{Reversible: true, ReadOnly: true}))
+	if err == nil || !strings.Contains(err.Error(), "test.rev_readonly_undo") {
+		t.Fatalf("Register = %v, want the contradiction refused naming the method", err)
+	}
+}

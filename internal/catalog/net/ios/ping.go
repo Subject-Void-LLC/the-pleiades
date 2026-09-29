@@ -43,6 +43,7 @@ func init() {
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo.",
+				ReadOnly:   true,
 			},
 			Doc: collection.Doc{
 				Summary:     "Runs a ping from a Cisco IOS device and reports the result.",

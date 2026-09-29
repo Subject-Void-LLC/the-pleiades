@@ -36,8 +36,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: false, Notes: "Reading is not changing: this reads the VM's log and alters nothing, so there is nothing an undo could restore."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "Reading is not changing: this reads the VM's log and alters nothing, so there is nothing an undo could restore.",
+				ReadOnly:   true,
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.",
 				Description: "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the log as a run does.",

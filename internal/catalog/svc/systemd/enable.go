@@ -26,6 +26,9 @@ func init() {
 				Notes: "A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it " +
 					"already enabled emits nothing. The undo restores the boot-time setting only; it never stops a " +
 					"unit that is running, because enabling never started one.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.disable", Record: []string{"name"}},
+				},
 			},
 			// A check reads the unit's state and says whether an enable
 			// would be sent, without sending it. See CheckEnable.

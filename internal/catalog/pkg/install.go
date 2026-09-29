@@ -18,6 +18,10 @@ func init() {
 					"absent package emits a pkg.apt.remove and a run that found it already present emits nothing. The " +
 					"instruction names the concrete method rather than pkg.remove, which is deliberate: by the time an " +
 					"undo runs, the device that was resolved is the device that must be undone.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "pkg.apt.remove", Record: []string{"name"}},
+					{FQCN: "pkg.dnf.remove", Record: []string{"name"}},
+				},
 			},
 			installDoc(),
 		),

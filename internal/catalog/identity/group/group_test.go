@@ -672,6 +672,10 @@ func TestRemove_PresentGroupIsRemovedAndInverseCapturesGid(t *testing.T) {
 		t.Errorf("invocations = %v, want a plain groupdel call", calls)
 	}
 	inv := h.rc.stats[sdk.StatInverse].(map[string]any)
+	// Users' membership in the removed group never comes back.
+	if inv[sdk.InversePartialKey] != true {
+		t.Errorf("the undo of removing a group is not marked partial: %v", inv)
+	}
 	if inv["fqcn"] != "identity.group.create" {
 		t.Errorf("inverse fqcn = %v, want identity.group.create", inv["fqcn"])
 	}

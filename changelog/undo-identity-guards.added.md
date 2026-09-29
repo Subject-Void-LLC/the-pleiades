@@ -1,0 +1,1 @@
+`virt.vbox.vm.delete` takes an optional `uuid` and `container.docker.remove` an optional `id`, and each refuses when the VM or container of that name is not the one named. The methods that make them record the identity with their undo, so a rollback never deletes a VM or container someone made since under the same name.

@@ -38,9 +38,15 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that made a VM emits virt.vbox.vm.delete naming it; one that found a VM under the name emits nothing."},
-			SupportsCheck:   true,
-			SeedsLogin:      paramLogin,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that made a VM emits virt.vbox.vm.delete naming it and pinning its UUID, so a VM made later under the name is refused rather than deleted; one that found a VM under the name emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.delete", Record: []string{"name", "uuid"}},
+				},
+			},
+			SupportsCheck: true,
+			SeedsLogin:    paramLogin,
 			// A Windows VM admits the Administrator's password, not a key.
 			SeedsLoginPassword: true,
 			Doc: collection.Doc{
@@ -245,8 +251,10 @@ func runClone(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		return collection.Result{}, err
 	}
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.vbox.vm.delete",
-		Params:      map[string]any{paramName: name},
+		FQCN: "virt.vbox.vm.delete",
+		// The UUID pins the undo to the VM this task made: a VM made later
+		// under the same name is refused rather than deleted.
+		Params:      map[string]any{paramName: name, paramUUID: made.UUID},
 		Description: fmt.Sprintf("Delete %s, which this task made.", name),
 	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

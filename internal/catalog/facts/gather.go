@@ -97,6 +97,7 @@ func init() {
 				Reversible: false,
 				Notes: "Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing " +
 					"on the device, and so has nothing an undo could restore.",
+				ReadOnly: true,
 			},
 			Doc: gatherDoc(),
 			// Every command it sends is a fixed uname or cat (gatherProbes),

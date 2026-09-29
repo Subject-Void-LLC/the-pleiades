@@ -47,6 +47,9 @@ func init() {
 					"comes back at the END, because file.block.set appends, and the emitted inverse says so in its own description when that " +
 					"applies. Nor does it restore a final newline added to a file that had none. A run that found no block emits nothing, because " +
 					"undoing a run that changed nothing means doing nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "file.block.set", Record: []string{"path", "marker", "marker_begin", "marker_end"}, Withhold: []string{"block"}},
+				},
 			},
 			Doc: removeDoc(),
 		},

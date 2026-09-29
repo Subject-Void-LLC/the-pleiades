@@ -280,3 +280,86 @@ func TestCollectionActionExecutor_WithCollectionInvoker_StillRefusesDeclaredMeth
 		t.Error("the installed CollectionInvoker ran for a declared-but-unimplemented method; want it refused first")
 	}
 }
+
+// registerReadOnly registers a method declaring ReadOnly whose body is fn,
+// with provider set for the external-program case.
+func registerReadOnly(t *testing.T, suffix string, provider *collection.Provider, fn collection.Method) string {
+	t.Helper()
+	t.Cleanup(collection.SnapshotForTest())
+	name := "enginetest." + suffix
+	if err := collection.Register(collection.Descriptor{
+		Name: name,
+		Manifest: collection.Manifest{Status: collection.StatusImplemented,
+			Reversibility: collection.Reversibility{Notes: "reads only", ReadOnly: true}},
+		Invoke:   fn,
+		Provider: provider,
+	}); err != nil {
+		t.Fatalf("registering %s: %v", name, err)
+	}
+	return name
+}
+
+// TestCollectionActionExecutor_HoldsAReadOnlyMethodToItsClaim is B4: a
+// built-in declaring it only reads fails its task when it reports a change
+// or an undo, on the in-process path and through an invoker (the Walk
+// tier's per-task child) alike, while a diff saying nothing changed is
+// allowed and an external program's declaration is not held at all.
+func TestCollectionActionExecutor_HoldsAReadOnlyMethodToItsClaim(t *testing.T) {
+	changes := func(_ context.Context, _ sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+		return collection.Result{Changed: true}, nil
+	}
+	undoes := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+		return collection.Result{}, sdk.RecordInverse(rc, sdk.Inverse{FQCN: "a.b"})
+	}
+	unchangedDiff := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+		return collection.Result{}, sdk.RecordDiff(rc, sdk.Unchanged(map[string]any{"up": true}))
+	}
+
+	for _, tc := range []struct {
+		name     string
+		fn       collection.Method
+		provider *collection.Provider
+		want     string
+	}{
+		{"change", changes, nil, "reported a change"},
+		{"undo", undoes, nil, "recorded an undo"},
+		{"unchanged diff", unchangedDiff, nil, ""},
+		{"external program", changes, &collection.Provider{Program: "/p", Digest: "sha256:x"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := registerReadOnly(t, "readonly_"+strings.ReplaceAll(tc.name, " ", "_"), tc.provider, tc.fn)
+			task := &engine.Task{FQCN: name}
+
+			_, err := newBridge(&recordingFallback{}).Execute(context.Background(), task, &inventorytest.Stub{StubName: "sw1"})
+			checkReadOnlyErr(t, "in process", err, tc.want)
+
+			// The per-task child's path: an invoker returning what the
+			// method would have.
+			desc, _ := collection.Lookup(name)
+			invoker := func(ctx context.Context, d collection.Descriptor, dev inventory.InventoryItem, params map[string]any, _ collection.Mode) (collection.Result, map[string]interface{}, error) {
+				rc, err := engine.NewDeviceRunbookContext(ctx, dev)
+				if err != nil {
+					return collection.Result{}, nil, err
+				}
+				res, err := desc.Invoke(ctx, rc, dev, params)
+				facts, _ := rc.(engine.FactCollector)
+				return res, facts.Facts(), err
+			}
+			executor := engine.NewCollectionActionExecutor(&recordingFallback{}, engine.NewDeviceRunbookContext, engine.WithCollectionInvoker(invoker))
+			_, err = executor.Execute(context.Background(), task, &inventorytest.Stub{StubName: "sw1"})
+			checkReadOnlyErr(t, "through an invoker", err, tc.want)
+		})
+	}
+}
+
+// checkReadOnlyErr asserts err is nil when want is empty and mentions
+// want otherwise.
+func checkReadOnlyErr(t *testing.T, path string, err error, want string) {
+	t.Helper()
+	switch {
+	case want == "" && err != nil:
+		t.Errorf("%s: Execute = %v, want it allowed", path, err)
+	case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+		t.Errorf("%s: Execute = %v, want an error mentioning %q", path, err, want)
+	}
+}

@@ -27,6 +27,9 @@ func init() {
 					"already stopped emits nothing. Starting it again returns the unit to running, but nothing can " +
 					"restore what the service missed while it was down: requests that were refused, queues that " +
 					"backed up, timers that did not fire.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "svc.systemd.start", Record: []string{"name"}},
+				},
 			},
 			// A check reads the unit's state and says whether a stop would
 			// be sent, without sending it. See CheckStop.

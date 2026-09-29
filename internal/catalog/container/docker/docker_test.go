@@ -71,6 +71,10 @@ type containerFixture struct {
 	rmFailStream   string
 }
 
+// fakeContainerID is the full id the fake docker inspect reports for any
+// container that exists.
+const fakeContainerID = "4c1f0e6a9b2d3c5e7f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e"
+
 var (
 	absent  = containerFixture{}
 	running = containerFixture{exists: true, status: "running"}
@@ -97,8 +101,16 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 	script := `#!/bin/sh
 case "$1" in
   inspect)
+    status="$FAKE_STATUS"
+    # A container a successful run created exists afterwards, running, as
+    # it would on a real daemon.
+    if [ -f "$FAKE_RECORD.created" ]; then
+      FAKE_EXISTS=1
+      status=running
+    fi
     if [ "$FAKE_EXISTS" = "1" ]; then
-      printf '%s\n' "$FAKE_STATUS"
+      # Render --format as the real CLI does: $2 is --format, $3 the template.
+      printf '%s\n' "$3" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/"
       exit 0
     fi
     printf 'Error: No such object\n' >&2
@@ -109,6 +121,9 @@ case "$1" in
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
     printf -- '---\n' >> "$FAKE_RECORD"
     exit_code="${FAKE_RUN_EXIT:-0}"
+    if [ "$exit_code" = "0" ]; then
+      : > "$FAKE_RECORD.created"
+    fi
     if [ "$exit_code" != "0" ]; then
       case "$FAKE_RUN_FAIL_STREAM" in
         stdout) printf 'fake failure\n' ;;
@@ -157,6 +172,7 @@ esac
 	t.Setenv("FAKE_RECORD", record)
 	t.Setenv("FAKE_EXISTS", boolEnv(fixture.exists))
 	t.Setenv("FAKE_STATUS", fixture.status)
+	t.Setenv("FAKE_ID", fakeContainerID)
 	t.Setenv("FAKE_RUN_EXIT", strconv.Itoa(fixture.runExit))
 	t.Setenv("FAKE_RUN_FAIL_STREAM", fixture.runFailStream)
 	t.Setenv("FAKE_STOP_EXIT", strconv.Itoa(fixture.stopExit))
@@ -322,8 +338,32 @@ func TestRun_AbsentCreatesContainer(t *testing.T) {
 		}
 	}
 	fqcn, params, ok := inverseOf(h.rc)
-	if !ok || fqcn != "container.docker.remove" || params["name"] != "web" || params["force"] != true {
-		t.Fatalf("inverse = %q, %v, ok=%v", fqcn, params, ok)
+	if !ok || fqcn != "container.docker.remove" || params["name"] != "web" || params["force"] != true || params["id"] != fakeContainerID {
+		t.Fatalf("inverse = %q, %v, ok=%v; want it pinned to the container run made", fqcn, params, ok)
+	}
+}
+
+// TestRemove_TheIDGuardRefusesAnotherContainerOfTheName is B3's identity
+// guard: the undo of container.docker.run names the container it made by
+// id, so a container run later under the same name survives a rollback of
+// the earlier run, in a check and for real, while the right id removes it.
+func TestRemove_TheIDGuardRefusesAnotherContainerOfTheName(t *testing.T) {
+	h := newHarness(t, stopped)
+	stranger := h.params(map[string]any{"name": "web", "id": strings.Repeat("f", 64)})
+	for _, remove := range []func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error){dockermod.CheckRemove, dockermod.Remove} {
+		if _, err := remove(context.Background(), h.rc, h.device, stranger); err == nil || !strings.Contains(err.Error(), "nothing was removed") {
+			t.Fatalf("remove with another container's id = %v, want it refused", err)
+		}
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Fatalf("a refused remove sent %v", calls)
+	}
+	result, err := dockermod.Remove(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web", "id": fakeContainerID}))
+	if err != nil || !result.Changed {
+		t.Fatalf("remove with the container's own id = %+v, %v", result, err)
+	}
+	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "docker rm web" {
+		t.Fatalf("invocations = %v", calls)
 	}
 }
 

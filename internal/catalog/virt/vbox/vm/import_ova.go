@@ -33,8 +33,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that imported a VM emits virt.vbox.vm.delete naming it; one that found a VM under the name emits nothing."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that imported a VM emits virt.vbox.vm.delete naming it and pinning its UUID, so a VM made later under the name is refused rather than deleted; one that found a VM under the name emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.delete", Record: []string{"name", "uuid"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Imports an OVA appliance on a VirtualBox host as a VM, with no network adapter.",
 				Description: "Makes sure a VM of this name exists, importing it from an OVA file already on the host (win.file.download fetches one) into the host's vm_folder. A VM already under the name reports no change, and is not compared with the file. The imported VM is left with no network adapter, whatever the appliance asked for: Ubuntu's cloud image asks for a bridged one, which would put the VM on the host's own network. A VM made from it (virt.vbox.vm.clone) is given the networks it is meant to have. The VM is not started, and is meant as a base to snapshot and clone rather than to boot. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and sends nothing.",
@@ -109,8 +115,10 @@ func runImportOva(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 		return collection.Result{}, err
 	}
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.vbox.vm.delete",
-		Params:      map[string]any{paramName: name},
+		FQCN: "virt.vbox.vm.delete",
+		// The UUID pins the undo to the VM this task made: a VM made later
+		// under the same name is refused rather than deleted.
+		Params:      map[string]any{paramName: name, paramUUID: imported.UUID},
 		Description: fmt.Sprintf("Delete %s, which this task imported.", name),
 	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

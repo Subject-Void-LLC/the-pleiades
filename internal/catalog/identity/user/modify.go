@@ -30,6 +30,9 @@ func init() {
 				Notes: "A run that converged one or more attributes emits an identity.user.modify pinned to " +
 					"exactly the old values of the attributes it changed, which is a real, restorable inverse. A " +
 					"run that found every requested attribute already matching emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "identity.user.modify", Record: []string{"name", "uid", "group", "shell", "home"}, Withhold: []string{"comment"}},
+				},
 			},
 			Doc: modifyDoc(),
 		},

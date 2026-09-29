@@ -33,8 +33,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
-			Reversibility:   collection.Reversibility{Reversible: true, Notes: "A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing."},
-			SupportsCheck:   true,
+			Reversibility: collection.Reversibility{
+				Reversible: true,
+				Notes:      "A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "virt.vbox.vm.resize", Record: []string{"name", "memory_mb", "cpus"}},
+				},
+			},
+			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count.",
 				Description: "Makes sure a VM has the CPUs and memory asked for: a size, or memory_mb and cpus, either of which alone leaves the other as it is. A VM that has them already reports no change. VirtualBox changes them only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A size larger than the host is refused: more CPUs than it has processors online, or more memory than it has. The guest sees the change at its next boot. A run that changed the VM emits virt.vbox.vm.resize back to the CPUs and memory it had. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host, and sends nothing.",
