@@ -112,7 +112,7 @@ func TestRecordConfigCannotSeeAPromptedCredentialInput(t *testing.T) {
 
 	jobs := newTestJobStore(t)
 	configs := &recordingConfigs{}
-	tmpl := launchableTemplate()
+	tmpl := promptableTemplate()
 	tmpl.CredentialIDs = []int{18}
 
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, newCapturingBus(),
@@ -164,7 +164,7 @@ func TestAPromptedInputTravelsOnTheEvent(t *testing.T) {
 
 	jobs := newTestJobStore(t)
 	bus := newCapturingBus()
-	tmpl := launchableTemplate()
+	tmpl := promptableTemplate()
 	tmpl.CredentialIDs = []int{18}
 
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, bus,
@@ -351,3 +351,43 @@ func TestRelaunchReportsACredentialStoreFailureRatherThanGuessing(t *testing.T) 
 // sites above read as "launched with nothing supplied" rather than as a
 // bare struct literal repeated eight times.
 func launchConfig() launch.Config { return launch.Config{} }
+
+// promptableTemplate is launchableTemplate without its forks default: a
+// launch supplying prompted credential inputs cannot also set a forks
+// window (api.ErrWindowedPrompt), and these tests are about the inputs.
+func promptableTemplate() launch.Template {
+	tmpl := launchableTemplate()
+	tmpl.Defaults = launch.Fields{"limit": "edge-*"}
+	return tmpl
+}
+
+// TestALaunchWithPromptedInputsCannotSetForks proves the one combination a
+// forks window cannot serve is refused at launch, before any job exists: a
+// prompted input is held only while the job fans out, and the window
+// dispatches most devices after that, so they would run without it.
+func TestALaunchWithPromptedInputsCannotSetForks(t *testing.T) {
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	tmpl := launchableTemplate() // carries forks: 5
+	tmpl.CredentialIDs = []int{18}
+
+	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, bus,
+		api.WithTemplates(stubTemplates{tmpl: tmpl}))
+
+	_, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12,
+		launchConfig(), credtype.PromptedInputs{18: {"api_token": "typed-at-launch"}})
+	if !errors.Is(err, api.ErrWindowedPrompt) {
+		t.Fatalf("LaunchTemplate = %v, want ErrWindowedPrompt", err)
+	}
+	if _, ok := bus.firstOnTopic(topology.JobRequestedSubject()); ok {
+		t.Error("a refused launch still published job.requested")
+	}
+	if listed, err := jobs.List(context.Background(), "", 10); err != nil || len(listed) != 0 {
+		t.Errorf("a refused launch left %d jobs (%v), want none", len(listed), err)
+	}
+
+	// The same launch without its inputs is an ordinary windowed launch.
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launchConfig(), nil); err != nil {
+		t.Errorf("LaunchTemplate without prompted inputs = %v, want it accepted", err)
+	}
+}

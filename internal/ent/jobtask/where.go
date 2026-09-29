@@ -95,6 +95,16 @@ func Unchecked(v int) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldUnchecked, v))
 }
 
+// Waiting applies equality check predicate on the "waiting" field. It's identical to WaitingEQ.
+func Waiting(v bool) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldWaiting, v))
+}
+
+// Slot applies equality check predicate on the "slot" field. It's identical to SlotEQ.
+func Slot(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldSlot, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldCreatedAt, v))
@@ -593,6 +603,66 @@ func UncheckedLT(v int) predicate.JobTask {
 // UncheckedLTE applies the LTE predicate on the "unchecked" field.
 func UncheckedLTE(v int) predicate.JobTask {
 	return predicate.JobTask(sql.FieldLTE(FieldUnchecked, v))
+}
+
+// WaitingEQ applies the EQ predicate on the "waiting" field.
+func WaitingEQ(v bool) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldWaiting, v))
+}
+
+// WaitingNEQ applies the NEQ predicate on the "waiting" field.
+func WaitingNEQ(v bool) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldWaiting, v))
+}
+
+// SlotEQ applies the EQ predicate on the "slot" field.
+func SlotEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldSlot, v))
+}
+
+// SlotNEQ applies the NEQ predicate on the "slot" field.
+func SlotNEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldSlot, v))
+}
+
+// SlotIn applies the In predicate on the "slot" field.
+func SlotIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldSlot, vs...))
+}
+
+// SlotNotIn applies the NotIn predicate on the "slot" field.
+func SlotNotIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldSlot, vs...))
+}
+
+// SlotGT applies the GT predicate on the "slot" field.
+func SlotGT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldSlot, v))
+}
+
+// SlotGTE applies the GTE predicate on the "slot" field.
+func SlotGTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldSlot, v))
+}
+
+// SlotLT applies the LT predicate on the "slot" field.
+func SlotLT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldSlot, v))
+}
+
+// SlotLTE applies the LTE predicate on the "slot" field.
+func SlotLTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldSlot, v))
+}
+
+// SlotIsNil applies the IsNil predicate on the "slot" field.
+func SlotIsNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldIsNull(FieldSlot))
+}
+
+// SlotNotNil applies the NotNil predicate on the "slot" field.
+func SlotNotNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotNull(FieldSlot))
 }
 
 // HasJob applies the HasEdge predicate on the "job" edge.

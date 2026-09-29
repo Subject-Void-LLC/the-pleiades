@@ -50,7 +50,7 @@ func init() {
 			{
 				Name: "forks", Type: launch.TypeInt, Min: 1, Max: 1000,
 				Label: "FORKS",
-				Help:  "How many devices are worked on at once.",
+				Help:  "How many of this job's devices run at once; the next starts as each finishes. Empty runs them all at once, as many as the Runners can take.",
 			},
 			{
 				Name: "timeout", Type: launch.TypeInt, Min: 0, Max: 86400,

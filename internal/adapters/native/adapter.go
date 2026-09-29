@@ -231,13 +231,12 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// lock before running (executor.go's runOne): two tasks racing the
 	// same device serialize on that lock regardless of maxConcurrency, so
 	// there is no concurrency dimension within one Execute call for forks
-	// to bound. Wiring it through anyway would set a real parameter to a
-	// real value with no observable effect, exactly the "correctly
-	// computed and never actually read" shape FAILURE_PATTERNS.md #116
-	// already named for this same job's Fields before this phase.
-	// limit has the identical non-answer: device selection already
-	// happened upstream, in internal/dispatch's own fan-out, before this
-	// payload ever existed. See LESSONS_LEARNED.md for the recorded rule.
+	// to bound. forks is how many devices of one job run at once, which is
+	// decided where devices are dispatched: internal/dispatch's forks
+	// window (window.go) holds each device back until the job has room.
+	// limit is NOT read anywhere yet, although device selection happens in
+	// internal/dispatch's fan-out, where it belongs; that is recorded as an
+	// open item (FAILURE_PATTERNS.md #116's shape) rather than claimed.
 	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
 
 	executor := engine.NewExecutor(

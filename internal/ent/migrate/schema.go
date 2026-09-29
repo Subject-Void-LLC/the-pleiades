@@ -445,6 +445,8 @@ var (
 		{Name: "result_reason", Type: field.TypeString, Nullable: true},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "unchecked", Type: field.TypeInt, Default: 0},
+		{Name: "waiting", Type: field.TypeBool, Default: false},
+		{Name: "slot", Type: field.TypeInt, Nullable: true},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -455,7 +457,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[11]},
+				Columns:    []*schema.Column{JobTasksColumns[13]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -464,7 +466,12 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[11]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[13]},
+			},
+			{
+				Name:    "jobtask_slot_job_tasks",
+				Unique:  true,
+				Columns: []*schema.Column{JobTasksColumns[12], JobTasksColumns[13]},
 			},
 		},
 	}

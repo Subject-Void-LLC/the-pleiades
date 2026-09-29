@@ -13,9 +13,11 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 )
 
 // Complete transitions jobID to "completed" and stamps its final tallies.
@@ -122,9 +124,51 @@ func (s *entJobStore) Cancel(ctx context.Context, jobID string, canceledBy strin
 		return fmt.Errorf("failed to cancel job %s: %w", jobID, err)
 	}
 	if affected > 0 {
+		// The cancel has taken effect whatever happens next, so a failure
+		// to settle the queued rows is logged rather than returned: an
+		// error here would tell the operator the cancel failed. Those rows
+		// can never be dispatched either way, since a pump claims only into
+		// a running job.
+		if err := s.skipQueued(ctx, jobID); err != nil {
+			slog.Error("a canceled job's queued devices still read as queued",
+				slog.String("job_id", jobID),
+				slog.String("error", err.Error()))
+		}
 		return nil
 	}
 	return s.cancelRejected(ctx, jobID)
+}
+
+// skipQueued settles a canceled windowed job's queued devices as skipped,
+// so none of them is ever dispatched and the job's record says why they
+// never ran. The pump already refuses to claim into a job that is not
+// running (ClaimQueued), so this is about the record rather than about
+// stopping anything; left undone, those rows would read as still waiting.
+func (s *entJobStore) skipQueued(ctx context.Context, jobID string) error {
+	row, err := s.jobRow(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	skipped, err := s.client.JobTask.Update().
+		Where(
+			jobtask.HasJobWith(job.IDEQ(row.ID)),
+			jobtask.OutcomeEQ(jobtask.OutcomeDispatched),
+			jobtask.WaitingEQ(true),
+		).
+		SetOutcome(jobtask.OutcomeSkipped).
+		SetWaiting(false).
+		SetReason("the job was canceled before this device's turn").
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to skip the queued devices of canceled job %s: %w", jobID, err)
+	}
+	if skipped == 0 {
+		return nil
+	}
+	if err := s.client.Job.UpdateOneID(row.ID).AddSkippedCount(skipped).Exec(ctx); err != nil {
+		return fmt.Errorf("failed to count the skipped devices of canceled job %s: %w", jobID, err)
+	}
+	return nil
 }
 
 // cancelRejected is Cancel's own counterpart to terminalWriteRejected,

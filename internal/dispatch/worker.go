@@ -107,10 +107,12 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// reclaim, re-running this whole loop for a job a crashed Worker
 	// partially finished, ever finds entries here.
 	alreadyRecorded := make(map[string]struct{}, len(priorTasks))
-	var dispatched, skipped, failed int
+	var dispatched, skipped, failed, queued int
 	for _, t := range priorTasks {
 		alreadyRecorded[t.DeviceID] = struct{}{}
 		switch t.Outcome {
+		case OutcomeQueued:
+			queued++
 		case OutcomeDispatched:
 			dispatched++
 		case OutcomeSkipped:
@@ -253,6 +255,10 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	}
 	defer iter.Close()
 
+	// windowed says whether this job runs its devices through a forks
+	// window (window.go) rather than dispatching each as it is reached.
+	windowed := windowOf(job) > 0
+
 	// The streaming Next/Item/Error/Close loop shape, mirroring
 	// internal/api/dispatcher.go's CURRENT loop exactly. Devices are
 	// never materialized into a slice: this streaming property is the
@@ -280,8 +286,15 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// admitAndDispatchDevice (worker_devices.go) owns admission,
 		// payload construction, publish, and the RecordTask write for
 		// exactly one device; see that file's own doc comment for why
-		// this block lives there rather than inline in this loop.
-		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
+		// this block lives there rather than inline in this loop. A job
+		// with a forks window queues each admitted device instead, and
+		// the pump below dispatches them (window.go).
+		var outcome Outcome
+		if windowed {
+			outcome, err = w.queueDevice(ctx, job, fence, prepared, device)
+		} else {
+			outcome, err = w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
+		}
 		if err != nil {
 			if fenced(job.JobID, err) {
 				return nil
@@ -312,6 +325,8 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			return err
 		}
 		switch outcome {
+		case OutcomeQueued:
+			queued++
 		case OutcomeDispatched:
 			dispatched++
 		case OutcomeSkipped:
@@ -346,8 +361,12 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// here would be the platform announcing the end of its OWN part as
 	// the end of the job. Those devices are executing, and the job stays
 	// "running" until each of them has reported back.
+	//
+	// A queued device is work still to come in the same way, so a windowed
+	// job with anything queued settles into "running" too, with its
+	// dispatched tally at zero for the pump to count up.
 	settle := w.store.Complete
-	if dispatched > 0 {
+	if dispatched > 0 || queued > 0 {
 		settle = w.store.SettleRunning
 	}
 	if err := settle(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
@@ -361,6 +380,18 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			return nil
 		}
 		return fmt.Errorf("failed to settle job %s: %w", job.JobID, err)
+	}
+
+	// The first window. A failure here is logged rather than returned: the
+	// fan-out's own work is done and recorded, redelivering it would
+	// change nothing (BeginFanOut refuses a settled job), and the leader's
+	// sweep pumps every running job that still has queued devices.
+	if queued > 0 {
+		if err := w.Pump(ctx, job.JobID); err != nil {
+			slog.Error("a windowed job's first pump failed; the leader's sweep will retry it",
+				slog.String("job_id", job.JobID),
+				slog.String("error", err.Error()))
+		}
 	}
 	return nil
 }

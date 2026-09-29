@@ -158,11 +158,47 @@ rows. Otherwise it moves to `running`, or straight to `completed` if no device w
 dispatched. A job stuck in `fanning_out` for ten minutes, because the replica doing it died,
 is picked up again by the leader.
 
+### `forks`: how many devices run at once
+
+With no `forks` launch field, every admitted device is dispatched during the fan-out, and
+how many run at once is limited only by your Runners. With `forks: N`, at most N of the job's
+devices run at once:
+
+- The fan-out admits each device as above, but records an admitted device as `queued`
+  instead of dispatching it, then dispatches the first N.
+- Each time a device's result comes back, the next queued device is dispatched in its
+  place. The leader also checks every minute for a job with room and queued devices, in case
+  the replica that recorded a result stopped before dispatching the next one.
+- A queued device is admitted again when its turn comes. One that left the inventory is
+  `failed`, and one no longer `active` is `skipped`, each with its reason.
+- Cancelling the job skips every queued device, with the reason "canceled before this
+  device's turn".
+- A launch that supplies credential inputs asked for at launch cannot also set `forks`,
+  and is refused (422). Those inputs are held only while the job fans out and are never
+  stored, so devices dispatched later could not have them. Bind a stored credential, or
+  leave `forks` unset.
+
+The limit holds across Controller replicas: each running device holds a numbered place, and
+the database refuses a second device in the same place. Two things can still make it
+inexact, and both are stated rather than hidden:
+
+- **A lost result holds its place.** A device whose result never arrives (a Runner with no
+  `RUNNER_WAL_DIR` that died before publishing, say) keeps its place, so the job's
+  remaining devices wait. Such a job already never completes; with `forks` set, it also
+  stops starting devices.
+- **A failed run frees its place early.** A device whose run failed reports that failure
+  and is then delivered again (see below). Its place is freed at the first report, so its
+  retries can run beside the next device, and the job briefly has more than N running.
+
+`forks` applies to both kinds. The `playbook` kind also passes it to `ansible-playbook`, but
+each dispatch there is one host, so it is the window that limits how many run at once.
+
 ### What a Runner does with a dispatch
 
 Each device's dispatch is published on its own subject, `pleiades.jobs.dispatch.<device>`,
 or `pleiades.jobs.check.<device>` for a check, where only a Runner that understands checks
-reads it. A Runner takes a per-device lease first, so two runs never touch one device at
+reads it, or `pleiades.jobs.rollback.<device>` for a rollback, where only a Runner that
+understands rollbacks reads it. A Runner takes a per-device lease first, so two runs never touch one device at
 once, and a dispatch for a busy device waits and is delivered again. It runs a `runbook` kind
 through the native adapter and a `playbook` kind through the Ansible adapter, then publishes
 the device's result, which the Controller records on the task as `result` (`succeeded` or

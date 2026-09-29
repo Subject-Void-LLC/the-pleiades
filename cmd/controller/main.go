@@ -1200,7 +1200,9 @@ func main() {
 	// the only thing that hears those reports. A Controller that started
 	// without it would leave every job it launches running forever, with
 	// nothing in the system saying why.
-	resultConsumer := dispatch.NewResultConsumer(jobStore, logger)
+	// A result frees a place in its job's forks window, so the consumer
+	// pumps that job's next device straight away (dispatch.Worker.Pump).
+	resultConsumer := dispatch.NewResultConsumer(jobStore, logger, dispatch.WithResultPump(worker.Pump))
 	if err := resultConsumer.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the job result consumer", err)
 	}
@@ -1245,7 +1247,10 @@ func main() {
 	// WithFanOutLeaseTTL override): the two must agree for a job either one
 	// considers stale to actually be the same job, so if worker above is
 	// ever given an explicit override, this call must change to match.
-	reaper := dispatch.NewReaper(jobStore, bus, dispatch.DefaultFanOutLeaseTTL)
+	//
+	// Its sweep also pumps windowed jobs that still have queued devices,
+	// the backstop for a pump a crashed replica never ran after a result.
+	reaper := dispatch.NewReaper(jobStore, bus, dispatch.DefaultFanOutLeaseTTL, dispatch.WithReaperPump(worker.Pump))
 	reaperDone := make(chan struct{})
 	go func() {
 		defer close(reaperDone)

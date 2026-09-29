@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -114,6 +115,11 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 				// run, or a check of a kind that cannot run as one, refused
 				// rather than launched as something else.
 				return "", view.FieldErrors{launch.ModeField: {fieldMessage(err)}}, nil
+			case errors.Is(err, api.ErrWindowedPrompt):
+				// Beside the forks control: the credential inputs asked for
+				// above are held only while the job fans out, so a window
+				// that dispatches devices later would run them without.
+				return "", view.FieldErrors{dispatch.ForksField: {"A launch that asks for credential inputs cannot also set forks: those inputs are held only while the job starts, and forks dispatches most devices later. Clear forks, or bind a stored credential."}}, nil
 			case err != nil:
 				return "", nil, err
 			}

@@ -289,8 +289,15 @@ func ParseResult(s string) (Result, error) {
 // failed dispatch as a successful one or vice versa.
 type Outcome string
 
-// The three outcomes a JobTask can record.
+// The outcomes a JobTask can record. A row in an unwindowed job is
+// written once, with one of the last three. A windowed job (a forks limit,
+// window.go) first records an admitted device as OutcomeQueued, and that
+// row later moves, once, to one of the other three.
 const (
+	// OutcomeQueued means a windowed job admitted the device and it is
+	// waiting for a free place in the job's forks window. It has not been
+	// handed to a Runner.
+	OutcomeQueued Outcome = "queued"
 	// OutcomeDispatched means the runbook was successfully handed off to
 	// the event bus for this device.
 	OutcomeDispatched Outcome = "dispatched"
@@ -316,6 +323,8 @@ func (o Outcome) String() string {
 // device this build cannot explain as having succeeded.
 func ParseOutcome(s string) (Outcome, error) {
 	switch Outcome(s) {
+	case OutcomeQueued:
+		return OutcomeQueued, nil
 	case OutcomeDispatched:
 		return OutcomeDispatched, nil
 	case OutcomeSkipped:
@@ -578,7 +587,85 @@ type JobStore interface {
 	// hold its claim, and a job that has somehow left "canceled" is not
 	// one whose tallies this call should be writing.
 	SettleCanceled(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error
+
+	// Lookup returns jobID's record without its tasks, for a caller that
+	// needs the job alone once per device result: a windowed job's pump.
+	// Get loads every task, which for a large job would make each result
+	// cost a read of the whole job.
+	Lookup(ctx context.Context, jobID string) (*Job, error)
+
+	// QueuedTasks returns up to limit of jobID's queued tasks, the oldest
+	// first, which is the order they were admitted in.
+	QueuedTasks(ctx context.Context, jobID string, limit int) ([]JobTask, error)
+
+	// HeldSlots returns the forks-window slots jobID's dispatched devices
+	// hold while they run (window.go).
+	HeldSlots(ctx context.Context, jobID string) ([]int, error)
+
+	// ClaimQueued moves jobID's queued task for deviceID to dispatched,
+	// holding slot, and counts it in the job's dispatched tally. It
+	// reports ClaimSlotTaken when another device holds slot (another
+	// replica's pump got there first), and ClaimGone when the task is no
+	// longer queued or the job is no longer running. It is called BEFORE
+	// the device's dispatch is published, so a result can never arrive for
+	// a device whose row does not yet say dispatched.
+	ClaimQueued(ctx context.Context, jobID, deviceID string, slot int) (ClaimResult, error)
+
+	// ResolveQueued moves jobID's queued task for deviceID to outcome
+	// (OutcomeSkipped or OutcomeFailed) with reason, and counts it in the
+	// matching tally. It reports false when the task was no longer queued.
+	ResolveQueued(ctx context.Context, jobID, deviceID string, outcome Outcome, reason string) (bool, error)
+
+	// ReleaseClaim moves a device ClaimQueued dispatched, whose publish
+	// then failed, to failed with reason, frees its slot, and moves it from
+	// the dispatched tally to the failed one.
+	ReleaseClaim(ctx context.Context, jobID, deviceID, reason string) error
+
+	// ListQueuedJobs returns every running job that still has a queued
+	// task, for the leader's sweep to pump in case the pump that should
+	// have followed a result never ran.
+	ListQueuedJobs(ctx context.Context) ([]string, error)
+
+	// CompleteIfDone ends a running job that has no queued task and no
+	// dispatched device still out, and does nothing otherwise.
+	CompleteIfDone(ctx context.Context, jobID string) error
+
+	// DispatchState says what this Controller's own record holds about
+	// one device of one job: whether a Runner was handed its dispatch.
+	// The run journal's consumer asks it before storing a batch a Runner
+	// published, since any Runner may publish on any job's subject.
+	DispatchState(ctx context.Context, jobID, deviceID string) (DispatchState, error)
 }
+
+// DispatchState is what a job's record says about one device's dispatch.
+type DispatchState int
+
+// The three answers DispatchState gives.
+const (
+	// DispatchUnrecorded means there is no such job, or no row for the
+	// device yet. The second is ordinary for a moment: an unwindowed
+	// fan-out publishes a dispatch before it records it.
+	DispatchUnrecorded DispatchState = iota
+	// DispatchSent means the device was handed to a Runner.
+	DispatchSent
+	// DispatchNotSent means the device was skipped, failed at dispatch,
+	// or is still waiting in a forks window: no Runner has it.
+	DispatchNotSent
+)
+
+// ClaimResult is what ClaimQueued found.
+type ClaimResult int
+
+// The three things ClaimQueued can find.
+const (
+	// ClaimMade means the task is now dispatched and holds the slot.
+	ClaimMade ClaimResult = iota
+	// ClaimSlotTaken means another device already holds the slot.
+	ClaimSlotTaken
+	// ClaimGone means the task is no longer queued, or the job is no
+	// longer running, so there is nothing to claim.
+	ClaimGone
+)
 
 // ErrJobNotFound is returned by JobStore methods when jobID names no job
 // this store can resolve. Callers should use errors.Is(err,

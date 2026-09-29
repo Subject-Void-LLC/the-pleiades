@@ -451,6 +451,14 @@ func init() {
 	jobtask.DefaultUnchecked = jobtaskDescUnchecked.Default.(int)
 	// jobtask.UncheckedValidator is a validator for the "unchecked" field. It is called by the builders before save.
 	jobtask.UncheckedValidator = jobtaskDescUnchecked.Validators[0].(func(int) error)
+	// jobtaskDescWaiting is the schema descriptor for waiting field.
+	jobtaskDescWaiting := jobtaskFields[8].Descriptor()
+	// jobtask.DefaultWaiting holds the default value on creation for the waiting field.
+	jobtask.DefaultWaiting = jobtaskDescWaiting.Default.(bool)
+	// jobtaskDescSlot is the schema descriptor for slot field.
+	jobtaskDescSlot := jobtaskFields[9].Descriptor()
+	// jobtask.SlotValidator is a validator for the "slot" field. It is called by the builders before save.
+	jobtask.SlotValidator = jobtaskDescSlot.Validators[0].(func(int) error)
 	journalentryMixin := schema.JournalEntry{}.Mixin()
 	journalentryMixinFields0 := journalentryMixin[0].Fields()
 	_ = journalentryMixinFields0

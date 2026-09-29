@@ -252,6 +252,12 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 			// the returned slice.
 			return nil, nil, fmt.Errorf("job %s: %w", jobID, err)
 		}
+		// A waiting row is stored as dispatched with its flag set, so a
+		// build from before the window reads it as work still out
+		// (internal/ent/schema/job_task.go); this build calls it queued.
+		if t.Waiting {
+			outcome = OutcomeQueued
+		}
 		tasks = append(tasks, JobTask{
 			DeviceID:   t.DeviceID,
 			DeviceName: t.DeviceName,
@@ -270,6 +276,16 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 	}
 
 	return toJob(row), tasks, nil
+}
+
+// storedOutcome is the outcome column's value for o: a queued device is
+// stored as dispatched with its waiting flag set, and every other outcome
+// as itself.
+func storedOutcome(o Outcome) jobtask.Outcome {
+	if o == OutcomeQueued {
+		return jobtask.OutcomeDispatched
+	}
+	return jobtask.Outcome(o)
 }
 
 // toJob converts a generated *ent.Job row into this package's own domain
@@ -462,7 +478,8 @@ func (s *entJobStore) RecordTask(ctx context.Context, jobID string, fence int64,
 		SetJobID(row.ID).
 		SetDeviceID(task.DeviceID).
 		SetDeviceName(task.DeviceName).
-		SetOutcome(jobtask.Outcome(task.Outcome))
+		SetOutcome(storedOutcome(task.Outcome)).
+		SetWaiting(task.Outcome == OutcomeQueued)
 	if task.Reason != "" {
 		create = create.SetReason(task.Reason)
 	}

@@ -205,6 +205,10 @@ func taskBadge(outcome string) string {
 		return "badge-failed"
 	case string(dispatch.OutcomeSkipped):
 		return "badge-skipped"
+	case string(dispatch.OutcomeQueued):
+		// Waiting for a place in the job's forks window: nothing has gone
+		// right or wrong yet, the same reading as a result not yet in.
+		return "badge-neutral"
 	default:
 		return "badge-neutral"
 	}

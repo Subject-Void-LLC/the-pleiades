@@ -12944,6 +12944,9 @@ type JobTaskMutation struct {
 	finished_at   *time.Time
 	unchecked     *int
 	addunchecked  *int
+	waiting       *bool
+	slot          *int
+	addslot       *int
 	clearedFields map[string]struct{}
 	job           *int
 	clearedjob    bool
@@ -13482,6 +13485,112 @@ func (m *JobTaskMutation) ResetUnchecked() {
 	m.addunchecked = nil
 }
 
+// SetWaiting sets the "waiting" field.
+func (m *JobTaskMutation) SetWaiting(b bool) {
+	m.waiting = &b
+}
+
+// Waiting returns the value of the "waiting" field in the mutation.
+func (m *JobTaskMutation) Waiting() (r bool, exists bool) {
+	v := m.waiting
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWaiting returns the old "waiting" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldWaiting(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWaiting is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWaiting requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWaiting: %w", err)
+	}
+	return oldValue.Waiting, nil
+}
+
+// ResetWaiting resets all changes to the "waiting" field.
+func (m *JobTaskMutation) ResetWaiting() {
+	m.waiting = nil
+}
+
+// SetSlot sets the "slot" field.
+func (m *JobTaskMutation) SetSlot(i int) {
+	m.slot = &i
+	m.addslot = nil
+}
+
+// Slot returns the value of the "slot" field in the mutation.
+func (m *JobTaskMutation) Slot() (r int, exists bool) {
+	v := m.slot
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSlot returns the old "slot" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldSlot(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSlot is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSlot requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSlot: %w", err)
+	}
+	return oldValue.Slot, nil
+}
+
+// AddSlot adds i to the "slot" field.
+func (m *JobTaskMutation) AddSlot(i int) {
+	if m.addslot != nil {
+		*m.addslot += i
+	} else {
+		m.addslot = &i
+	}
+}
+
+// AddedSlot returns the value that was added to the "slot" field in this mutation.
+func (m *JobTaskMutation) AddedSlot() (r int, exists bool) {
+	v := m.addslot
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSlot clears the value of the "slot" field.
+func (m *JobTaskMutation) ClearSlot() {
+	m.slot = nil
+	m.addslot = nil
+	m.clearedFields[jobtask.FieldSlot] = struct{}{}
+}
+
+// SlotCleared returns if the "slot" field was cleared in this mutation.
+func (m *JobTaskMutation) SlotCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldSlot]
+	return ok
+}
+
+// ResetSlot resets all changes to the "slot" field.
+func (m *JobTaskMutation) ResetSlot() {
+	m.slot = nil
+	m.addslot = nil
+	delete(m.clearedFields, jobtask.FieldSlot)
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -13555,7 +13664,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 12)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -13586,6 +13695,12 @@ func (m *JobTaskMutation) Fields() []string {
 	if m.unchecked != nil {
 		fields = append(fields, jobtask.FieldUnchecked)
 	}
+	if m.waiting != nil {
+		fields = append(fields, jobtask.FieldWaiting)
+	}
+	if m.slot != nil {
+		fields = append(fields, jobtask.FieldSlot)
+	}
 	return fields
 }
 
@@ -13614,6 +13729,10 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.FinishedAt()
 	case jobtask.FieldUnchecked:
 		return m.Unchecked()
+	case jobtask.FieldWaiting:
+		return m.Waiting()
+	case jobtask.FieldSlot:
+		return m.Slot()
 	}
 	return nil, false
 }
@@ -13643,6 +13762,10 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldFinishedAt(ctx)
 	case jobtask.FieldUnchecked:
 		return m.OldUnchecked(ctx)
+	case jobtask.FieldWaiting:
+		return m.OldWaiting(ctx)
+	case jobtask.FieldSlot:
+		return m.OldSlot(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -13722,6 +13845,20 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetUnchecked(v)
 		return nil
+	case jobtask.FieldWaiting:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWaiting(v)
+		return nil
+	case jobtask.FieldSlot:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSlot(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -13733,6 +13870,9 @@ func (m *JobTaskMutation) AddedFields() []string {
 	if m.addunchecked != nil {
 		fields = append(fields, jobtask.FieldUnchecked)
 	}
+	if m.addslot != nil {
+		fields = append(fields, jobtask.FieldSlot)
+	}
 	return fields
 }
 
@@ -13743,6 +13883,8 @@ func (m *JobTaskMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case jobtask.FieldUnchecked:
 		return m.AddedUnchecked()
+	case jobtask.FieldSlot:
+		return m.AddedSlot()
 	}
 	return nil, false
 }
@@ -13758,6 +13900,13 @@ func (m *JobTaskMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddUnchecked(v)
+		return nil
+	case jobtask.FieldSlot:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSlot(v)
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask numeric field %s", name)
@@ -13778,6 +13927,9 @@ func (m *JobTaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(jobtask.FieldFinishedAt) {
 		fields = append(fields, jobtask.FieldFinishedAt)
+	}
+	if m.FieldCleared(jobtask.FieldSlot) {
+		fields = append(fields, jobtask.FieldSlot)
 	}
 	return fields
 }
@@ -13804,6 +13956,9 @@ func (m *JobTaskMutation) ClearField(name string) error {
 		return nil
 	case jobtask.FieldFinishedAt:
 		m.ClearFinishedAt()
+		return nil
+	case jobtask.FieldSlot:
+		m.ClearSlot()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask nullable field %s", name)
@@ -13842,6 +13997,12 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldUnchecked:
 		m.ResetUnchecked()
+		return nil
+	case jobtask.FieldWaiting:
+		m.ResetWaiting()
+		return nil
+	case jobtask.FieldSlot:
+		m.ResetSlot()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)

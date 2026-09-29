@@ -137,6 +137,34 @@ func (_c *JobTaskCreate) SetNillableUnchecked(v *int) *JobTaskCreate {
 	return _c
 }
 
+// SetWaiting sets the "waiting" field.
+func (_c *JobTaskCreate) SetWaiting(v bool) *JobTaskCreate {
+	_c.mutation.SetWaiting(v)
+	return _c
+}
+
+// SetNillableWaiting sets the "waiting" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableWaiting(v *bool) *JobTaskCreate {
+	if v != nil {
+		_c.SetWaiting(*v)
+	}
+	return _c
+}
+
+// SetSlot sets the "slot" field.
+func (_c *JobTaskCreate) SetSlot(v int) *JobTaskCreate {
+	_c.mutation.SetSlot(v)
+	return _c
+}
+
+// SetNillableSlot sets the "slot" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableSlot(v *int) *JobTaskCreate {
+	if v != nil {
+		_c.SetSlot(*v)
+	}
+	return _c
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_c *JobTaskCreate) SetJobID(id int) *JobTaskCreate {
 	_c.mutation.SetJobID(id)
@@ -195,6 +223,10 @@ func (_c *JobTaskCreate) defaults() {
 		v := jobtask.DefaultUnchecked
 		_c.mutation.SetUnchecked(v)
 	}
+	if _, ok := _c.mutation.Waiting(); !ok {
+		v := jobtask.DefaultWaiting
+		_c.mutation.SetWaiting(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -240,6 +272,14 @@ func (_c *JobTaskCreate) check() error {
 	if v, ok := _c.mutation.Unchecked(); ok {
 		if err := jobtask.UncheckedValidator(v); err != nil {
 			return &ValidationError{Name: "unchecked", err: fmt.Errorf(`ent: validator failed for field "JobTask.unchecked": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Waiting(); !ok {
+		return &ValidationError{Name: "waiting", err: errors.New(`ent: missing required field "JobTask.waiting"`)}
+	}
+	if v, ok := _c.mutation.Slot(); ok {
+		if err := jobtask.SlotValidator(v); err != nil {
+			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
 	if len(_c.mutation.JobIDs()) == 0 {
@@ -310,6 +350,14 @@ func (_c *JobTaskCreate) createSpec() (*JobTask, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Unchecked(); ok {
 		_spec.SetField(jobtask.FieldUnchecked, field.TypeInt, value)
 		_node.Unchecked = value
+	}
+	if value, ok := _c.mutation.Waiting(); ok {
+		_spec.SetField(jobtask.FieldWaiting, field.TypeBool, value)
+		_node.Waiting = value
+	}
+	if value, ok := _c.mutation.Slot(); ok {
+		_spec.SetField(jobtask.FieldSlot, field.TypeInt, value)
+		_node.Slot = &value
 	}
 	if nodes := _c.mutation.JobIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
