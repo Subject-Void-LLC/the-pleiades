@@ -4,6 +4,7 @@
 package generic_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
@@ -42,6 +43,14 @@ func discovery(caps ...capability.Name) inventory.PropertyValue {
 	return inventory.Discovery{Protocol: "test", Capabilities: caps}.Property()
 }
 
+// boundDiscovery is a discovery of deviceType made against its address in
+// addressed, bound as onboarding binds one.
+func boundDiscovery(deviceType string, caps ...capability.Name) inventory.PropertyValue {
+	d := inventory.Discovery{Protocol: "test", Capabilities: caps}
+	d.Binding = generic.Binding(deviceType, inventory.NewProperties(addressed[deviceType]))
+	return d.Property()
+}
+
 // TestGeneric_OnlyADiscoveryGrants: before onboarding, no discoverable
 // capability is held, not even when classification claims all of them;
 // after a discovery naming each, every one is held, which proves the type
@@ -59,7 +68,7 @@ func TestGeneric_OnlyADiscoveryGrants(t *testing.T) {
 					t.Errorf("classification alone granted %s", c)
 				}
 			}
-			onboarded, err := buildWith(t, deviceType, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: discovery(grants...)}, nil)
+			onboarded, err := buildWith(t, deviceType, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: boundDiscovery(deviceType, grants...)}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -256,5 +265,72 @@ func TestSSH_ARecordSettingWinsOverTheDiscovery(t *testing.T) {
 	}
 	if l := bare.(capability.LinuxCapable); l.KernelVersion() != "" {
 		t.Errorf("no discovery read kernel %q", l.KernelVersion())
+	}
+}
+
+// repointed is, per bound type, a change to the address its discovery was
+// made against.
+var repointed = map[string]map[string]inventory.PropertyValue{
+	generic.TypeHTTP: {generic.BaseURLProperty: "https://attacker.example.net"},
+	generic.TypeGRPC: {generic.GRPCTargetProperty: "attacker.example.net:443"},
+}
+
+// TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline is Phase 117a's S2 at
+// the type: a discovery made against one address grants nothing once the
+// record names another, and the device still loads and says to onboard it
+// again. Changing a TLS setting voids it the same way.
+func TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline(t *testing.T) {
+	for deviceType, change := range repointed {
+		t.Run(deviceType, func(t *testing.T) {
+			grants := generic.Discoverable(deviceType)
+			for name, extra := range map[string]map[string]inventory.PropertyValue{
+				"address": change,
+				"tls":     {"tls_server_name": "attacker.example.net"},
+			} {
+				props := map[string]inventory.PropertyValue{inventory.DiscoveredProperty: boundDiscovery(deviceType, grants...)}
+				for k, v := range extra {
+					props[k] = v
+				}
+				item, err := buildWith(t, deviceType, props, nil)
+				if err != nil {
+					t.Fatalf("%s: a repointed device failed to load: %v", name, err)
+				}
+				for _, c := range grants {
+					if item.HasCapability(c) {
+						t.Errorf("%s: a discovery made against another address still grants %s", name, c)
+					}
+				}
+				stale, ok := item.(inventory.StaleDiscoverer)
+				if !ok || !strings.Contains(stale.StaleDiscovery(), "pleiades onboard d1") {
+					t.Errorf("%s: the device does not say to onboard it again", name)
+				}
+			}
+		})
+	}
+}
+
+// TestGeneric_AnUnboundDiscoveryGrantsNothingToABoundType: a discovery
+// recorded before discoveries were bound grants nothing to a bound type
+// (pre-1.0, forward only), and says why; an SSH-based type, which is not
+// bound, is unaffected.
+func TestGeneric_AnUnboundDiscoveryGrantsNothingToABoundType(t *testing.T) {
+	for deviceType := range repointed {
+		item, err := buildWith(t, deviceType, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: discovery(generic.Discoverable(deviceType)...)}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.HasCapability(generic.Discoverable(deviceType)[0]) {
+			t.Errorf("%s: an unbound discovery granted a capability", deviceType)
+		}
+		if s := item.(inventory.StaleDiscoverer).StaleDiscovery(); !strings.Contains(s, "predates") {
+			t.Errorf("%s: the reason %q does not say the discovery predates binding", deviceType, s)
+		}
+	}
+	ssh, err := buildWith(t, generic.TypeSSH, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: discovery(capability.NameShellExec)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ssh.HasCapability(capability.NameShellExec) {
+		t.Error("an SSH-based type's discovery became bound; its host-key check already protects it")
 	}
 }

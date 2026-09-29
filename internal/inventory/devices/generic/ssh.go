@@ -27,7 +27,7 @@ type SSH struct {
 
 // NewSSH builds a generic_ssh device from rec.
 func NewSSH(rec record.Record) (inventory.InventoryItem, error) {
-	caps, err := declared(TypeSSH, rec, []capability.Name{
+	caps, _, err := declared(TypeSSH, rec, []capability.Name{
 		capability.NameSSHTransport,
 		capability.NameCommandExec,
 		capability.NameNetworkAddressable,

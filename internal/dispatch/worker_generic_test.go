@@ -27,15 +27,19 @@ func TestWorker_DispatchesAGenericDevice(t *testing.T) {
 	ctx := t.Context()
 	store := newTestJobStore(t)
 	bus := newCapturingBus()
-	discovery := pkginventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property()
+	props := map[string]pkginventory.PropertyValue{
+		generic.BaseURLProperty:  "https://api.example.com/v2",
+		generic.HTTPAuthProperty: "bearer",
+		"enable_password":        "hunter2",
+	}
+	// Bound to the properties it was made against, as onboarding binds it.
+	found := pkginventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	found.Binding = generic.Binding(generic.TypeHTTP, pkginventory.NewProperties(props))
+	discovery := found.Property()
+	props[pkginventory.DiscoveredProperty] = discovery
 	device, err := generic.NewHTTP(record.Record{
 		ID: "api-id", Name: "api1", Type: generic.TypeHTTP, State: pkginventory.StateActive,
-		Properties: map[string]pkginventory.PropertyValue{
-			generic.BaseURLProperty:         "https://api.example.com/v2",
-			generic.HTTPAuthProperty:        "bearer",
-			"enable_password":               "hunter2",
-			pkginventory.DiscoveredProperty: discovery,
-		},
+		Properties: props,
 	})
 	if err != nil {
 		t.Fatal(err)

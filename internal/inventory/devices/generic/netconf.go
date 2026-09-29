@@ -22,7 +22,7 @@ type Netconf struct {
 
 // NewNetconf builds a generic_netconf device from rec.
 func NewNetconf(rec record.Record) (inventory.InventoryItem, error) {
-	caps, err := declared(TypeNetconf, rec, []capability.Name{
+	caps, _, err := declared(TypeNetconf, rec, []capability.Name{
 		capability.NameSSHTransport,
 		capability.NameNetworkAddressable,
 	})

@@ -35,6 +35,16 @@ type requestDevice struct {
 	warnings []string
 }
 
+// requestDeviceCall is http.request's collection.Descriptor.DeviceCall: a
+// call whose url is a path on a device's API acts on its target device, and
+// one with a full URL acts on none. A url that is not text answers yes,
+// which keeps today's behavior (inheriting hosts:) for a call validation is
+// about to refuse anyway.
+func requestDeviceCall(params map[string]any) bool {
+	raw, ok := params[requestParamURL].(string)
+	return !ok || requestIsDevicePath(raw)
+}
+
 // requestIsDevicePath reports whether raw is a path on the target
 // device's API rather than a URL.
 func requestIsDevicePath(raw string) bool {
@@ -49,15 +59,23 @@ func requestDeviceURL(device inventory.InventoryItem, raw string) (string, *requ
 		return "", nil, fmt.Errorf("%s %q is a path on a device's API, and this task has no target device", requestParamURL, raw)
 	}
 	if !device.HasCapability(capability.NameHTTPAPI) {
+		// A device repointed since it was onboarded holds a discovery that
+		// grants nothing (Phase 117a, finding S2); saying so beats the
+		// generic advice, since the device was onboarded once already.
+		if s, ok := device.(inventory.StaleDiscoverer); ok && s.StaleDiscovery() != "" {
+			return "", nil, fmt.Errorf("%s %q is a path on a device's API, and %s", requestParamURL, raw, s.StaleDiscovery())
+		}
 		return "", nil, fmt.Errorf("%s %q is a path on a device's API, and device %q does not declare %s (onboard a generic_http device first)",
 			requestParamURL, raw, device.Name(), capability.NameHTTPAPI)
 	}
-	// Declared but with no base URL to read is the Walk tier today: a
-	// Runner rebuilds a dispatched device from its SSH address and
-	// capability names only, so the accessor is not there to call.
+	// Declared but with no base URL to read is a dispatch that did not
+	// carry the device's type: a Runner rebuilds a generic_http device as
+	// its real type from the dispatch (record.Dispatched), and falls back to
+	// a device built from its address alone only for a Controller that
+	// predates that, so the accessor is not there to call.
 	api, ok := device.(capability.HTTPAPICapable)
 	if !ok {
-		return "", nil, fmt.Errorf("%s %q is a path on a device's API, and device %q's base URL is not available where this task runs (a Runner receives only a device's SSH address)",
+		return "", nil, fmt.Errorf("%s %q is a path on a device's API, and device %q's base URL is not available where this task runs (the dispatch did not carry the device's type)",
 			requestParamURL, raw, device.Name())
 	}
 	base, err := httpapi.ValidateBaseURL(api.HTTPBaseURL(), api.HTTPAuth(), api.HTTPAllowPlaintextCredentials())

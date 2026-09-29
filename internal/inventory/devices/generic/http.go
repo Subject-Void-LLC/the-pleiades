@@ -27,6 +27,8 @@ type HTTP struct {
 	baseURL        *url.URL
 	allowPlaintext bool
 	tls            devicetls.Settings
+	// stale says why this device's discovery grants nothing, or is empty.
+	stale string
 }
 
 // NewHTTP builds a generic_http device from rec, refusing a base URL or
@@ -55,11 +57,22 @@ func NewHTTP(rec record.Record) (inventory.InventoryItem, error) {
 	if err := validateOpenAPIPath(props); err != nil {
 		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
 	}
-	caps, err := declared(TypeHTTP, rec, []capability.Name{capability.NameNetworkAddressable})
+	caps, stale, err := declared(TypeHTTP, rec, []capability.Name{capability.NameNetworkAddressable})
 	if err != nil {
 		return nil, err
 	}
-	return &HTTP{Base: record.NewBase(rec, caps), baseURL: base, allowPlaintext: allowPlaintext, tls: settings}, nil
+	return &HTTP{Base: record.NewBase(rec, caps), baseURL: base, allowPlaintext: allowPlaintext, tls: settings, stale: stale}, nil
+}
+
+// DiscoveryBinding implements inventory.DiscoveryBinder: the digest a
+// discovery must carry to hold for this record as it is now.
+func (h *HTTP) DiscoveryBinding() string {
+	return Binding(TypeHTTP, h.Properties())
+}
+
+// StaleDiscovery implements inventory.StaleDiscoverer.
+func (h *HTTP) StaleDiscovery() string {
+	return h.stale
 }
 
 // httpAuthOf reads the http_auth property, defaulting to none: a stored

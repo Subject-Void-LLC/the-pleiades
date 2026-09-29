@@ -25,6 +25,8 @@ type GRPC struct {
 	*record.Base
 	host string
 	tls  devicetls.Settings
+	// stale says why this device's discovery grants nothing, or is empty.
+	stale string
 }
 
 // NewGRPC builds a generic_grpc device from rec, refusing a target that
@@ -52,11 +54,22 @@ func NewGRPC(rec record.Record) (inventory.InventoryItem, error) {
 		return nil, fmt.Errorf("%s %s: gRPC runs over HTTP/2, which requires TLS 1.2 and forbids legacy cipher suites, so %s and %s cannot apply",
 			TypeGRPC, rec.Name, devicetls.AllowDeprecatedProperty, devicetls.AllowLegacyCiphersProperty)
 	}
-	caps, err := declared(TypeGRPC, rec, []capability.Name{capability.NameNetworkAddressable})
+	caps, stale, err := declared(TypeGRPC, rec, []capability.Name{capability.NameNetworkAddressable})
 	if err != nil {
 		return nil, err
 	}
-	return &GRPC{Base: record.NewBase(rec, caps), host: host, tls: settings}, nil
+	return &GRPC{Base: record.NewBase(rec, caps), host: host, tls: settings, stale: stale}, nil
+}
+
+// DiscoveryBinding implements inventory.DiscoveryBinder: the digest a
+// discovery must carry to hold for this record as it is now.
+func (g *GRPC) DiscoveryBinding() string {
+	return Binding(TypeGRPC, g.Properties())
+}
+
+// StaleDiscovery implements inventory.StaleDiscoverer.
+func (g *GRPC) StaleDiscovery() string {
+	return g.stale
 }
 
 // ValidateGRPCTarget checks target is host:port and returns the host. A

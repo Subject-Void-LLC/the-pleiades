@@ -128,7 +128,10 @@ func requestAPIDevice(t *testing.T, base, auth string, onboarded bool) inventory
 	t.Helper()
 	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base, generic.HTTPAuthProperty: auth}
 	if onboarded {
-		props[inventory.DiscoveredProperty] = inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property()
+		// Bound to the properties it was made against, as onboarding binds it.
+		d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+		d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+		props[inventory.DiscoveredProperty] = d.Property()
 	}
 	item, err := generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
 	if err != nil {
@@ -297,13 +300,15 @@ func tlsDeviceServer(t *testing.T, minV, maxV uint16) *requestDeviceServer {
 // extra settings.
 func requestDeviceWith(t *testing.T, base string, extra map[string]inventory.PropertyValue) (inventory.InventoryItem, error) {
 	t.Helper()
-	props := map[string]inventory.PropertyValue{
-		generic.BaseURLProperty:      base,
-		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property(),
-	}
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base}
 	for k, v := range extra {
 		props[k] = v
 	}
+	// Bound to the properties it was made against, extra included, as
+	// onboarding binds it.
+	d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = d.Property()
 	return generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
 }
 

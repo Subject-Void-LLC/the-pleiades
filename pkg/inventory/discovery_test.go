@@ -5,6 +5,7 @@ package inventory_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,5 +59,59 @@ func TestDiscoveryFrom_Shapes(t *testing.T) {
 		if _, ok, err := inventory.DiscoveryFrom(discovered(v)); err == nil || !ok {
 			t.Errorf("%s: ok %v, err %v, want a refusal", name, ok, err)
 		}
+	}
+}
+
+// TestBindingDigest_ChangesWithEveryBoundProperty: changing, adding or
+// removing any bound key changes the digest, the order keys are named in
+// does not, and a key outside the bound set does not either. The digest
+// never holds a value in the clear.
+func TestBindingDigest_ChangesWithEveryBoundProperty(t *testing.T) {
+	keys := []string{"base_url", "http_auth", "tls_ca_pem"}
+	base := map[string]inventory.PropertyValue{"base_url": "https://api.example.com", "http_auth": "bearer", "other": "x"}
+	digest := inventory.BindingDigest(inventory.NewProperties(base), keys)
+
+	if !strings.HasPrefix(digest, "sha256:") || strings.Contains(digest, "api.example.com") {
+		t.Fatalf("digest = %q, want an opaque sha256", digest)
+	}
+	if got := inventory.BindingDigest(inventory.NewProperties(base), []string{"tls_ca_pem", "base_url", "http_auth"}); got != digest {
+		t.Error("the order keys are named in changed the digest")
+	}
+	for name, change := range map[string]func(map[string]inventory.PropertyValue){
+		"a changed value": func(p map[string]inventory.PropertyValue) { p["base_url"] = "https://attacker.example.net" },
+		"an added key":    func(p map[string]inventory.PropertyValue) { p["tls_ca_pem"] = "-----BEGIN CERTIFICATE-----" },
+		"a removed key":   func(p map[string]inventory.PropertyValue) { delete(p, "http_auth") },
+		"an empty value":  func(p map[string]inventory.PropertyValue) { p["http_auth"] = "" },
+	} {
+		p := map[string]inventory.PropertyValue{}
+		for k, v := range base {
+			p[k] = v
+		}
+		change(p)
+		if inventory.BindingDigest(inventory.NewProperties(p), keys) == digest {
+			t.Errorf("%s did not change the digest", name)
+		}
+	}
+	unbound := map[string]inventory.PropertyValue{}
+	for k, v := range base {
+		unbound[k] = v
+	}
+	unbound["other"] = "y"
+	if inventory.BindingDigest(inventory.NewProperties(unbound), keys) != digest {
+		t.Error("a key outside the bound set changed the digest")
+	}
+}
+
+// TestDiscovery_BindingRoundTrips: the binding survives the property
+// encoding every inventory store round-trips, and an unbound discovery
+// writes no binding key at all.
+func TestDiscovery_BindingRoundTrips(t *testing.T) {
+	d := inventory.Discovery{Protocol: "http", Binding: "sha256:abc"}
+	got, ok, err := inventory.DiscoveryFrom(inventory.NewProperties(map[string]inventory.PropertyValue{inventory.DiscoveredProperty: d.Property()}))
+	if err != nil || !ok || got.Binding != "sha256:abc" {
+		t.Fatalf("inventory.DiscoveryFrom() = %+v, %v, %v, want the binding back", got, ok, err)
+	}
+	if _, present := (inventory.Discovery{Protocol: "http"}).Property()["binding"]; present {
+		t.Error("an unbound discovery wrote a binding key")
 	}
 }

@@ -19,15 +19,20 @@ import (
 
 // apiPayload dispatches an onboarded generic_http device.
 func apiPayload() wire.DispatchPayload {
+	props := map[string]any{
+		generic.BaseURLProperty:  "https://api.example.com/v2",
+		generic.HTTPAuthProperty: "bearer",
+	}
+	// Bound to the dispatched properties, as the Controller's stored,
+	// onboarded discovery is.
+	found := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	found.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = found.Property()
 	return wire.DispatchPayload{
 		JobID: "j1", DeviceID: "d1", DeviceName: "api1", DeviceHost: "api.example.com",
-		Capabilities: []capability.Name{capability.NameNetworkAddressable, capability.NameHTTPAPI},
-		DeviceType:   generic.TypeHTTP,
-		DeviceProperties: map[string]any{
-			generic.BaseURLProperty:      "https://api.example.com/v2",
-			generic.HTTPAuthProperty:     "bearer",
-			inventory.DiscoveredProperty: inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property(),
-		},
+		Capabilities:     []capability.Name{capability.NameNetworkAddressable, capability.NameHTTPAPI},
+		DeviceType:       generic.TypeHTTP,
+		DeviceProperties: props,
 	}
 }
 
