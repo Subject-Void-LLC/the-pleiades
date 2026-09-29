@@ -62,8 +62,12 @@ branch's build. `~/pleiades-lab/runbooks/freebsd-03-scratch.yaml` is new. The la
   Tests added; now 73.6, 94.6, 93.6, 98.4 and 100. `internal/rollback` gets its first floor, 92.6.
 - **Also added:** the real-broker enforcement gate now proves the rollback consumer's grants
   (mutation-checked: without the grant a Runner cannot create it and the gate fails).
-- **Not done:** a strict `make ci` on a committed tip, which is the only thing that writes a receipt and
-  closes Phase 110's last item.
+- **Committed as seven commits and gated with `make push-gate`** (the user: "Commit and push"). Its first
+  run found one more defect, FAILURE_PATTERNS 391: the upgrade gate assumed the previous release is always
+  refused after an upgrade, which is false for expand-only migrations (it correctly serves again inside
+  the compatibility window). Fixed; the push used the rerun's receipt. `internal/backup`'s restore chaos
+  test was tolerated once under load and passed alone; it still cuts after a fixed delay, the shape of 390.
+- **Not done:** a strict `make ci` on the committed tip, which closes Phase 110's last item.
 
 ### Decisions for the user
 
@@ -83,5 +87,5 @@ reads), `internal/dispatch` (window, rollback), `internal/api/dispatcher_rollbac
 `inverse.go`, four migrations, the gates in `cmd/pleiades` and `cmd/runner`, the lab runbook and README
 section. Changed: the undo declarations across the catalog, `pkg/sdk/inverse.go`, the journal projection,
 `topology`, `meshid` grants, `cmd/runner`'s third loop, docs 01, 02, 09, 10, 11, generated references,
-CLAUDE.md, changelog fragments, `coverage-floor.json` (the new `internal/rollback` floor), the backup chaos test, FAILURE_PATTERNS 378 to 390, LESSONS 254 to 257. Local only:
+CLAUDE.md, changelog fragments, `coverage-floor.json` (the new `internal/rollback` floor), the backup chaos test, the upgrade gate, FAILURE_PATTERNS 378 to 391, LESSONS 254 to 257. Local only:
 IMPLEMENTATION.md, SECURITY_ATTESTATION.md, PHASE40_MASKING_DECISION.md.

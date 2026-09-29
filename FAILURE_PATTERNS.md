@@ -393,6 +393,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 388. Rolling back a stop, then at once the start before it, asked a still-booting FreeBSD guest to shut down
 389. The forks window's first design was a contract migration
 390. A chaos test cut its link after a fixed delay, and a longer migration history moved the cut out of the step it meant to break
+391. The upgrade gate expected the previous build to be refused after every upgrade
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

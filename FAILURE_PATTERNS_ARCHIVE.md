@@ -10735,3 +10735,25 @@ is not a pass.
 
 **Lesson.** A fault injected after a fixed delay is placed by the speed of everything before it; place
 it by an observable event of the step under test instead.
+
+## 391. The upgrade gate expected the previous build to be refused after every upgrade
+
+**Symptom.** `make push-gate` on this branch failed tests/e2e's
+TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates, alone as well as under load: at its
+last step the previous release, started again against the database this build had migrated, kept
+running, logging that the newer migrations were within its compatibility window.
+
+**Root cause.** The test's fifth step asserted the previous build is always refused. That holds only
+when the upgrade crosses a contract migration, which moves the compatibility floor past the previous
+build. This branch's three migrations are expand-only (the classifier requires it of new work), so the
+floor stayed at 0029 and the previous build was, correctly, allowed to serve: the rollback path the
+window exists for. Every earlier run of the gate had crossed a contract migration, so the expand-only
+case had never been reached; the same shape as FAILURE_PATTERNS 300, where a gate's premise held only
+for the branch that wrote it.
+
+**Fix.** The gate reads the floor `migrate --plan` reports for the migrations it applies. Inside the
+window the previous build, started again, must become ready; past it, it must be refused and say why,
+as before.
+
+**Lesson.** A gate over a policy with two outcomes asserts the one the inputs call for, and reads which
+from the same source the product does.
