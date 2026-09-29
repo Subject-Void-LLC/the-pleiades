@@ -1,0 +1,1 @@
+`pleiades forge migrate-playbook` now converts a task written with `delegate_to: localhost`, `local_action` or `connection: local` when its native method already runs in the host process, and when it does not, the finding names that method.

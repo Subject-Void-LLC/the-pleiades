@@ -3,11 +3,13 @@ package playbook
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // leafSpec is everything a leaf task says, read once, before any loop
@@ -24,9 +26,22 @@ type leafSpec struct {
 	tags      []string
 	checkMode bool
 	hasLoop   bool
+	// local is set when the task is written to run on the Ansible
+	// controller (delegate_to: localhost, local_action, connection: local);
+	// localRun decides it once the native methods are known.
+	local localMark
 	// blocks are finding IDs that stop the task; cites are findings its
 	// comment names without stopping it.
 	blocks, cites []string
+}
+
+// localMark records how a task asked to run on the Ansible controller, and
+// where, or nothing.
+type localMark struct {
+	// key is the spelling the task used: "delegate_to: localhost",
+	// "local_action" or "connection: local"; empty when it asked nothing.
+	key string
+	at  Position
 }
 
 // translateLeaf translates a task that runs one module.
@@ -49,6 +64,9 @@ func (t *translator) translateLeaf(node *yaml.Node, entries []entry, name string
 	if entry.Rating == RatingManual {
 		id := t.raise(entry.Code, spec.modAt, name, fmt.Sprintf("%s: %s", spec.module, entry.Reason))
 		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(spec.cites, id)...)}
+	}
+	if t.localRun(entry, &spec) {
+		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(spec.blocks, spec.cites...)...)}
 	}
 	args, err := t.moduleArgs(entry, spec)
 	if err != nil {
@@ -148,9 +166,21 @@ func (t *translator) readSpecial(spec *leafSpec, e entry, at Position) {
 		} else {
 			spec.blocks = append(spec.blocks, t.raise("keyword.failed_when", at, spec.name, "failed_when has no native equivalent"))
 		}
+	case "delegate_to":
+		// Delegating to the controller is what a controller-side method
+		// already does (PLAN.md Section 14), so it is decided once the
+		// native method is known; delegating to another host has no
+		// native equivalent at all.
+		if isLocalHost(v) {
+			spec.local = localMark{key: "delegate_to: localhost", at: at}
+		} else if !literalFalse(e.value) {
+			spec.blocks = append(spec.blocks, t.raise("keyword.delegate_to", at, spec.name, "delegate_to runs the task on another host"))
+		}
+	case "local_action":
+		spec.local = localMark{key: "local_action", at: at}
 	case "connection":
 		if v != nil && v.Value == "local" {
-			spec.blocks = append(spec.blocks, t.raise("keyword.local_action", at, spec.name, "connection: local runs the task on the controller"))
+			spec.local = localMark{key: "connection: local", at: at}
 		} else {
 			spec.cites = append(spec.cites, t.raise("keyword.connection", at, spec.name, "connection dropped"))
 		}
@@ -254,4 +284,63 @@ func readTags(v *yaml.Node) ([]string, bool) {
 		tags = append(tags, tag)
 	}
 	return tags, true
+}
+
+// isLocalHost reports whether v names the Ansible controller itself,
+// literally: a templated host could resolve anywhere.
+func isLocalHost(v *yaml.Node) bool {
+	v = deref(v)
+	if v == nil || v.Kind != yaml.ScalarNode || hasTemplate(v.Value) {
+		return false
+	}
+	switch v.Value {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
+
+// localRun decides a task written to run on the Ansible controller, and
+// reports whether that blocks it. Every native method the task can become
+// must run in the host process (collection.SiteController), which is what
+// running on the controller means here, and the marker is then dropped
+// with a finding, since the method's execution context already says it.
+// A method that runs on the device blocks the task, naming the method.
+func (t *translator) localRun(entry *Entry, spec *leafSpec) bool {
+	if spec.local.key == "" {
+		return false
+	}
+	code := Code("keyword.local_action")
+	if spec.local.key == "delegate_to: localhost" {
+		code = "keyword.delegate_to"
+	}
+	for _, fqcn := range entryMethods(entry) {
+		desc, ok := collection.Lookup(fqcn)
+		if !ok || desc.Manifest.ExecutionContext.Site != collection.SiteController {
+			spec.blocks = append(spec.blocks, t.raise(code, spec.local.at, spec.name,
+				fmt.Sprintf("%s runs the task on the controller, and %s runs on the device", spec.local.key, fqcn)))
+			return true
+		}
+	}
+	spec.cites = append(spec.cites, t.raise("keyword.local_satisfied", spec.local.at, spec.name,
+		spec.local.key+" dropped: the native method already runs in the host process"))
+	return false
+}
+
+// entryMethods returns every native method entry can become, its default
+// call and each selector choice's, once each.
+func entryMethods(entry *Entry) []string {
+	var out []string
+	add := func(c *Call) {
+		if c != nil && !slices.Contains(out, c.FQCN) {
+			out = append(out, c.FQCN)
+		}
+	}
+	add(entry.Default)
+	for _, sel := range entry.Selectors {
+		for _, choice := range sel.Choices {
+			add(choice.Call)
+		}
+	}
+	return out
 }
