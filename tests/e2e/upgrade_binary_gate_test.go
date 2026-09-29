@@ -26,9 +26,11 @@
 //  4. A second controller of this build starts, and the first one is stopped
 //     behind a client that routes by readiness, the way a load balancer
 //     does: not one request fails, which is the shutdown drain's promise.
-//  5. The previous build started again is refused, and says why, which is
-//     what the rollback documentation tells an operator to expect from a
-//     build older than the compatibility window.
+//  5. The previous build started again serves again when this build's
+//     migrations leave it inside the compatibility window (expand-only ones
+//     do), which is the rollback path; when they take the database past it,
+//     it is refused and says why, which is what the rollback documentation
+//     tells an operator to expect from a build older than the window.
 package e2e
 
 import (
@@ -40,6 +42,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -334,6 +337,15 @@ func readAll(t *testing.T, c *upgradeController, token string, s seeded) {
 // stack's database and returns its exit code and the verdict it reported.
 func (s upgradeStack) runPlan(t *testing.T) (int, string, []string) {
 	t.Helper()
+	code, verdict, pending, _ := s.runPlanFloor(t)
+	return code, verdict, pending
+}
+
+// runPlanFloor is runPlan, also returning the compatibility floor the
+// database will hold once every pending migration is applied: the oldest
+// migration a build must know to serve it (internal/ent/migrate's plan.go).
+func (s upgradeStack) runPlanFloor(t *testing.T) (int, string, []string, string) {
+	t.Helper()
 	// #nosec G204 -- the binary this package built.
 	cmd := exec.Command(controllerBinPath, "migrate", "--plan", "--json")
 	cmd.Env = append(os.Environ(), "DB_DSN="+s.dsn, "DB_PATH=")
@@ -348,7 +360,8 @@ func (s upgradeStack) runPlan(t *testing.T) (int, string, []string) {
 		Plan struct {
 			Verdict string `json:"verdict"`
 			Pending []struct {
-				Name string `json:"name"`
+				Name  string `json:"name"`
+				Floor string `json:"floor"`
 			} `json:"pending"`
 		} `json:"plan"`
 	}
@@ -356,10 +369,12 @@ func (s upgradeStack) runPlan(t *testing.T) (int, string, []string) {
 		t.Fatalf("migrate --plan printed no plan: %v\n%s", err, out)
 	}
 	var pending []string
+	floor := ""
 	for _, p := range report.Plan.Pending {
 		pending = append(pending, p.Name)
+		floor = p.Floor
 	}
-	return code, report.Plan.Verdict, pending
+	return code, report.Plan.Verdict, pending, floor
 }
 
 // TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates is the
@@ -404,9 +419,15 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 	before := seedEveryKind(t, previousCtl, stack.token, "before", repo)
 
 	// 2. Asked first, this build says what it would do, and an admin
-	// command from it will not be what does it.
+	// command from it will not be what does it. floor is the oldest
+	// migration a build must know to serve the database once this build has
+	// migrated it, which decides step 5.
+	floor := ""
 	if len(prev.crossed) > 0 {
-		code, verdict, pending := stack.runPlan(t)
+		var code int
+		var verdict string
+		var pending []string
+		code, verdict, pending, floor = stack.runPlanFloor(t)
 		if code != 3 || verdict != "pending" || strings.Join(pending, ",") != strings.Join(prev.crossed, ",") {
 			t.Fatalf("migrate --plan = exit %d, %s, %v; want exit 3, pending, %v", code, verdict, pending, prev.crossed)
 		}
@@ -499,8 +520,16 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 	}
 	t.Logf("%d requests through a drain and a stop, none failed", probes)
 
-	// 5. The previous build, started again, is refused.
+	// 5. The previous build, started again. Inside the compatibility window
+	// (the floor is a migration it knows, as it stays across expand-only
+	// migrations), it serves again: that is the rollback path. Past the
+	// window, it is refused and says why.
 	again := stack.start(t, "previous-again", prev.controller)
+	if floor != "" && !slices.Contains(prev.crossed, floor) {
+		again.waitReady(t)
+		t.Logf("the previous build started again inside the compatibility window (floor %s) and serves", floor)
+		return
+	}
 	select {
 	case <-again.proc.done:
 	case <-time.After(time.Minute * raceTimeScale):
