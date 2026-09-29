@@ -3,6 +3,7 @@ package native
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -84,17 +85,35 @@ func refuseUnsupportedInjection(injected *wire.Injected) error {
 }
 
 // injectedVariables merges a dispatch's injected extra variables over its
-// launch-time ones, refusing a collision rather than picking a winner.
+// launch-time ones, refusing a collision rather than picking a winner, and
+// withholding every injected variable that holds a secret. It returns the
+// merged variables and the names it withheld, sorted, so the caller can say
+// so in the job's log.
 //
-// It mirrors the legacy adapter's own mergeExtraVars exactly, including the
-// refusal, so the two paths cannot disagree about what a run's variables
-// are. They are separate functions rather than one shared helper because
-// the two packages share no dependency by design (an execution adapter
-// imports the other's package for nothing), and the alternative would be a
-// third package holding four lines.
-func injectedVariables(launched map[string]any, injected *wire.Injected) (map[string]any, error) {
+// It mirrors the legacy adapter's own mergeExtraVars, including the
+// refusal, so the two paths cannot disagree about a collision. They are
+// separate functions rather than one shared helper because the two packages
+// share no dependency by design (an execution adapter imports the other's
+// package for nothing), and the alternative would be a third package
+// holding four lines.
+//
+// # Why a secret is withheld here and not on the legacy path
+//
+// A variable on this path reaches the run's CEL vars root, and from Phase
+// 117a a rendered task parameter. A secret there could be branched on one
+// bit at a time, which masking cannot hide because it scrubs text and not
+// control flow, or copied into a parameter bound for another host. Nothing
+// on this path needs a secret as a variable: a native method receives its
+// credential through sdk.RunbookContext.InjectSecrets. An Ansible module
+// reads its credential from a variable, which is why the legacy adapter
+// keeps them (PLAN.md Section 29.4).
+//
+// A collision is still refused before a secret is withheld, so whether a
+// launch and a credential disagree about a name never depends on which
+// value is secret.
+func injectedVariables(launched map[string]any, injected *wire.Injected) (map[string]any, []string, error) {
 	if injected == nil || len(injected.ExtraVars) == 0 {
-		return launched, nil
+		return launched, nil, nil
 	}
 
 	out := make(map[string]any, len(launched)+len(injected.ExtraVars))
@@ -108,14 +127,52 @@ func injectedVariables(launched map[string]any, injected *wire.Injected) (map[st
 	}
 	sort.Strings(names)
 
+	var withheld []string
 	for _, name := range names {
 		if _, clash := out[name]; clash {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"a bound credential injects the extra variable %q, which this launch also set", name)
+		}
+		// The mask is the dispatch's own statement of which values are
+		// secret (wire.Injected.Mask): every secret input, and every rendered
+		// value that contains one, so a value is checked for containment
+		// rather than equality.
+		if holdsSecret(injected.ExtraVars[name], injected.Mask) {
+			withheld = append(withheld, name)
+			continue
 		}
 		out[name] = injected.ExtraVars[name]
 	}
-	return out, nil
+	return out, withheld, nil
+}
+
+// holdsSecret reports whether value, at any depth of a decoded JSON value,
+// is or contains one of the secret values mask names.
+func holdsSecret(value any, mask []string) bool {
+	switch v := value.(type) {
+	case string:
+		for _, secret := range mask {
+			// An empty entry would contain in every string; the mask never
+			// carries one (credtype's trackSecret refuses short values), and
+			// this guard keeps that true here whatever arrives on the wire.
+			if secret != "" && strings.Contains(v, secret) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, entry := range v {
+			if holdsSecret(entry, mask) {
+				return true
+			}
+		}
+	case []any:
+		for _, entry := range v {
+			if holdsSecret(entry, mask) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // injectedSecretValues returns the values this injection says are secret,

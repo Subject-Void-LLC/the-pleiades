@@ -35,11 +35,21 @@ locking is in-process only and does not exclude a second `pleiades run`, see
 [Running in production](10-running-in-production.md#locking)), `parallel:`
 (native fan-out/join).
 
-**Does not exist yet, and a runbook cannot express it:** Jinja templating anywhere in
-`params:` (a runbook's params map is always a literal value), `loop:`/`with_items:`,
+**Partly there:** templating in `params:`. A string holding `{{ }}` renders when its task
+runs, through a strict subset of Jinja2 (a path, and a closed set of filters such as
+`default`, `quote`, `to_json`, `urlencode` and `cli_token`), and it may read the run's
+variables (`vars`: `pleiades run --extra-vars`, a launch's extra variables and survey
+answers), earlier registered results (`nodes`), and a result one device wrote
+(`result.<register>`). A target may be chosen from data too, when a `within:` names the
+only devices it may resolve to. There is no statement syntax (`{% %}`), no arithmetic
+and no authored `vars:`, and command text and URLs are held to rules that keep data from
+adding a command or choosing a host. See the [task keys reference](reference/task-keys.md).
+
+**Does not exist yet, and a runbook cannot express it:** `loop:`/`with_items:`,
 `handlers:`/`notify:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
-`changed_when:`/`failed_when:`, `group_vars:`/`host_vars:`, and inventory-level `vars:`
-of any kind. See the keyword map below for the complete, itemized list.
+`changed_when:`/`failed_when:`, `group_vars:`/`host_vars:`, `set_fact:`, and
+play-level or inventory-level `vars:` of any kind. See the keyword map below for the
+complete, itemized list.
 
 None of these are secret gaps. They are the honest distance between "what Ansible
 does today" and "what The Pleiades does today," and closing them is most of the open
@@ -189,8 +199,11 @@ underneath. Where it matters:
   reads identically; anything relying on a Jinja filter does not port and needs
   rewriting against CEL (or `when_cel:` for anything past a bare comparison).
 - **`register:`** in Ansible is read back with `{{ result.stdout }}` templating. In
-  The Pleiades there is no templating at all: a later task's `when_cel:` reads it
-  directly (`stat.result['deviceID'].stdout`), and nothing else can reference it.
+  The Pleiades a later task's `when_cel:` reads it as `stat.result['deviceID'].stdout`,
+  and a later task's params as `{{ nodes.result['deviceID'].stdout }}`. When one device
+  wrote it, both read it without a device id: `result.result.stdout` in a condition and
+  `{{ result.result.stdout }}` in params. The first `result` there is the root that
+  means "a register one device wrote"; the second is the register's name.
 - **`block:` conditions.** Ansible's block-level `when:` gates every task inside at
   once. The Pleiades evaluates a task's own condition once per task; a block task's own
   condition is never walked by the executor. The equivalent "skip everything" effect
@@ -243,7 +256,7 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 
 **Extended infrastructure**
 
-| Ansible | The Pleiades FQCN | Capability | Intended side (not enforced) |
+| Ansible | The Pleiades FQCN | Capability | Intended side (the Runs row on each reference page is authoritative) |
 |---|---|---|---|
 | `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
@@ -255,41 +268,37 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 The two cloud entries are the clearest controller-side cases: they call an API, not
 a device over SSH, and their manifests declare no transport at all.
 
-**The "Intended side" column is hand-written prose, not a manifest field.** It
-records where each method is meant to run. Nothing in the code stores that value,
-reads it, or checks it. `pkg/collection.ExecutionContext` is the only manifest field
-that sounds like it would, and it holds exactly one boolean, `RequiresElevation`.
-Two places in the shipping code read that boolean, and both are documentation
-renderers: `pleiades doc` and the generated
-[module catalog](reference/modules/index.md) pages. The dispatcher does not read it,
-and neither does `pleiades validate`. The table above proves the point:
-`fw.firewalld.*` ("target side") and `container.docker.*` ("hybrid") carry the same
-`executionContext` value, the same transport, and the same status, and differ only
-in a capability name. So do `archive.create` ("target side") and `archive.extract`
-(which the converter maps from `ansible.builtin.unarchive`, "hybrid"). Identical manifests cannot produce two different column values, because
-the column is not generated from them.
+**Where a method runs is now a manifest field, and the "Intended side" column predates
+it.** Every method states two things, its execution context: its site, `target`
+(on or against the device) or `controller` (in the process running the task: the CLI, or
+a Runner), and whether it acts on a device at all, `required`, `optional` or `none`. Each
+method's reference page shows them as its Runs row, which is authoritative where this
+column disagrees: `container.docker.*` and `archive.extract` say "hybrid" here and are
+target-side there, since they act on the device over its own connection. Today the
+controller-side methods are `cloud.aws.*` and `net.catalyst.*`, which act on an API
+device, and `http.request`, whose device is optional.
 
-**Execution side is decided at run time, from one thing only: whether the task ends
-up with a target.** `TaskTarget` (`internal/engine/action.go`) takes the task's own
-`params.target` when it is a non-empty string, and otherwise falls back to the
-runbook's `hosts:`. An empty result means the task runs once, against no device. A
-non-empty one means it runs once per device that target resolves to. With two hosts
-tagged `webtier`, a task that sets no target of its own runs twice under
-`hosts: webtier` (`blast radius: 2 devices`) and once, against no device, when
-`hosts:` is absent (`blast radius: 0 devices`).
+**Whether a task takes the runbook's `hosts:` follows from that.** `TaskTarget`
+(`internal/engine/action.go`) takes the task's own `params.target` when it is set.
+Otherwise a call that acts on no device does not take `hosts:`: it runs once, with no
+device and no credential. Any other call falls back to `hosts:` as before. So under
+`hosts: webtier`, `http.request` with a full URL runs once, and `http.request` with a path
+on each device's API (`url: /status`) runs once per device, which is what every such
+runbook did before. A task with neither a target nor `hosts:` runs once against no device.
+An empty `params.target` is refused when the runbook loads, never read as absent.
 
-**So a runbook that sets `hosts:` cannot mark one task controller-side.** A task has
-no `delegate_to` key, no `context` key, and no `run_once` key. Adding one is a build
-error, not a hint: the runbook fails to load with `sets both fqcn: and an
-unrecognized key "delegate_to"`. Writing `params.target: ""` does not help either,
-because an empty string falls back to `hosts:` exactly like an absent key, so the
-task still fans out per device. To keep a task controller-side today, leave `hosts:`
-off the runbook and give every target-side task its own `params.target`. Ansible's
-`delegate_to: localhost` has no Pleiades equivalent yet.
+**`delegate_to: localhost` converts when the method already runs there.** A task has no
+`delegate_to`, `context` or `run_once` key; adding one is a build error. `pleiades forge
+migrate-playbook` reads `delegate_to: localhost`, `local_action` and `connection: local`
+against the native method a task becomes: a controller-side method converts, with the
+keyword dropped and a finding saying why; a device-side method blocks the task, and the
+finding names it. Delegating to another host, or to a templated one, still blocks. The
+Controller's Runner still runs every task against its one dispatched device, so a
+device-less call there runs once per device until segmented dispatch lands.
 
 **Gating and facts**
 
-| Ansible | The Pleiades FQCN | Capability | Intended side (not enforced) |
+| Ansible | The Pleiades FQCN | Capability | Intended side (the Runs row on each reference page is authoritative) |
 |---|---|---|---|
 | `ansible.builtin.uri` | `http.request` | none | controller side |
 | `ansible.builtin.wait_for` with `path:` or `search_regex:` | `wait.path`, `wait.search` | `NetworkAddressableCapable` | hybrid |

@@ -60,6 +60,8 @@ func init() {
 {{end}}			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: {{.RequiresElevation}},
+				Site:              collection.{{.Site}},
+				Device:            collection.{{.Device}},
 			},
 			// TODO(forge): PlatformTargets narrows this manifest to a
 			// specific vendor, model, firmware range, or deployment
@@ -109,6 +111,13 @@ func init() {
 			// by name, giving that reason.
 			SupportsCheck: false,
 {{.Doc}}		},
+{{- if .DeviceCall}}
+		// TODO(forge): this method's device is optional, so it answers per
+		// call whether it acts on one. Replace this stub, which always says
+		// yes, with the real answer read from params alone: a call that
+		// needs no device skips the runbook's hosts: and runs once.
+		DeviceCall: func(map[string]any) bool { return true },
+{{- end}}
 	})
 }
 
@@ -156,6 +165,10 @@ func Test{{.FunctionName}}_Registered(t *testing.T) {
 	if d.Manifest.ExecutionContext.RequiresElevation != {{.RequiresElevation}} {
 		t.Errorf("Manifest.ExecutionContext.RequiresElevation = %v, want %v",
 			d.Manifest.ExecutionContext.RequiresElevation, {{.RequiresElevation}})
+	}
+	if d.Manifest.ExecutionContext.Site != collection.{{.Site}} || d.Manifest.ExecutionContext.Device != collection.{{.Device}} {
+		t.Errorf("Manifest.ExecutionContext = %+v, want site %v and device %v",
+			d.Manifest.ExecutionContext, collection.{{.Site}}, collection.{{.Device}})
 	}
 	// A declared stub cannot support check mode, since collection.Register
 	// refuses that. Change this assertion when the method is implemented

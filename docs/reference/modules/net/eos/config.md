@@ -15,6 +15,7 @@ Applies configuration to an Arista EOS device.
 | Capabilities | `AristaEOSCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked |
 | Engine version | `>=0.2.0` |
 

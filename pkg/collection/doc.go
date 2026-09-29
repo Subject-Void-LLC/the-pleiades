@@ -10,7 +10,29 @@ type Param struct {
 	Default     string   `json:"default,omitempty"`
 	Choices     []string `json:"choices,omitempty"`
 	Description string   `json:"description"`
+
+	// Format says where the parameter's text lands when that matters to a
+	// rendered value (Phase 117a): on a command line, or as a URL. A
+	// runbook that renders into such a parameter is held to a rule for it
+	// at validation (internal/validate's template rule). Empty for every
+	// other parameter.
+	Format ParamFormat `json:"format,omitempty"`
 }
+
+// ParamFormat is where a parameter's text lands.
+type ParamFormat string
+
+const (
+	// ParamFormatCommand is text a shell or a network device's command
+	// line reads. An expression rendered into it must end with the quote
+	// filter (a POSIX shell) or cli_token (a network CLI, which has no
+	// quoting), so data cannot add a command or an argument.
+	ParamFormatCommand ParamFormat = "command"
+	// ParamFormatURL is a URL. The text before its first expression must
+	// already name the scheme and host, or begin with "/" for a path on a
+	// device's API, so data cannot choose where a request goes.
+	ParamFormatURL ParamFormat = "url"
+)
 
 // ReturnField documents one key a Collection method emits, either as a
 // fact (sdk.RunbookContext.EmitFact) or a stat.

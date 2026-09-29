@@ -15,6 +15,7 @@ Makes sure path is mounted from src, creating the mount if it is not already the
 | Capabilities | `LinuxCapable` |
 | Transports | `ssh` |
 | Requires elevation | yes |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

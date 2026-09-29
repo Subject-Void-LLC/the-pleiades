@@ -311,3 +311,51 @@ func TestGenerate_RefusesAReservedParam(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerate_StatesTheExecutionContext: a scaffolded method is born
+// stating where it runs and whether it acts on a device, since
+// internal/archtest requires every built-in to (Phase 117a). An empty
+// config states target-side with a device required; an optional device
+// also gets a DeviceCall stub, without which collection.Register refuses it.
+func TestGenerate_StatesTheExecutionContext(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cfg        collectionscaffold.Config
+		want       []string
+		deviceCall bool
+	}{
+		{"defaults", collectionscaffold.Config{Name: "demo.target"}, []string{"collection.SiteTarget", "collection.DeviceRequired"}, false},
+		{"controller, none", collectionscaffold.Config{Name: "demo.notify", Site: collection.SiteController, Device: collection.DeviceNone}, []string{"collection.SiteController", "collection.DeviceNone"}, false},
+		{"controller, optional", collectionscaffold.Config{Name: "demo.api", Site: collection.SiteController, Device: collection.DeviceOptional}, []string{"collection.SiteController", "collection.DeviceOptional"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files, err := collectionscaffold.Generate(tc.cfg)
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(string(files[0].Content), want) || !strings.Contains(string(files[1].Content), want) {
+					t.Errorf("the generated method or its test does not state %s", want)
+				}
+			}
+			if got := strings.Contains(string(files[0].Content), "DeviceCall:"); got != tc.deviceCall {
+				t.Errorf("DeviceCall stub present = %v, want %v", got, tc.deviceCall)
+			}
+		})
+	}
+}
+
+// TestGenerate_RefusesAnIncoherentExecutionContext: what collection.Register
+// would refuse at process start is refused before a file is written.
+func TestGenerate_RefusesAnIncoherentExecutionContext(t *testing.T) {
+	for _, cfg := range []collectionscaffold.Config{
+		{Name: "demo.a", Site: "local"},
+		{Name: "demo.b", Device: "sometimes"},
+		{Name: "demo.c", Device: collection.DeviceNone},
+		{Name: "demo.d", Site: collection.SiteTarget, Device: collection.DeviceOptional},
+	} {
+		if _, err := collectionscaffold.Generate(cfg); err == nil {
+			t.Errorf("Generate(%+v) accepted an execution context Register would refuse", cfg)
+		}
+	}
+}

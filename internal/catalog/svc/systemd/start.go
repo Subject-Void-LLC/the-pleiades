@@ -21,6 +21,8 @@ func init() {
 				// Talking to the system manager to start a unit needs
 				// root on any ordinary configuration.
 				RequiresElevation: true,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",

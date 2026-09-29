@@ -11,6 +11,20 @@ import (
 // This is where the strict-undefined rule described in the package comment
 // is actually enforced, and where its single exception lives.
 func (e *expression) eval(vars map[string]any) (string, error) {
+	value, err := e.evalValue(vars)
+	if err != nil {
+		return "", err
+	}
+	out, err := text(value)
+	if err != nil {
+		return "", fmt.Errorf("%w (in %q)", err, e.source)
+	}
+	return out, nil
+}
+
+// evalValue resolves e's path and applies its filters, returning the
+// value before any conversion to text: the half of eval that Value shares.
+func (e *expression) evalValue(vars map[string]any) (any, error) {
 	value, defined := e.resolve(vars)
 	chain := e.filters
 
@@ -29,7 +43,7 @@ func (e *expression) eval(vars map[string]any) (string, error) {
 	}
 
 	if !defined {
-		return "", &UndefinedError{Name: e.reference()}
+		return nil, &UndefinedError{Name: e.reference()}
 	}
 
 	for _, f := range chain {
@@ -44,15 +58,10 @@ func (e *expression) eval(vars map[string]any) (string, error) {
 		var err error
 		value, err = filters[f.name].apply(value, f.args)
 		if err != nil {
-			return "", fmt.Errorf("%w (in %q)", err, e.source)
+			return nil, fmt.Errorf("%w (in %q)", err, e.source)
 		}
 	}
-
-	out, err := text(value)
-	if err != nil {
-		return "", fmt.Errorf("%w (in %q)", err, e.source)
-	}
-	return out, nil
+	return value, nil
 }
 
 // resolve walks the expression's path through vars.

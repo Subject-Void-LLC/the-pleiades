@@ -5364,3 +5364,39 @@ only container gates.
 planner defects and one method inconsistency in under an hour (FAILURE_PATTERNS 384, 385, and the
 timing of 388), each of which the gates could not have hit: a guest that ignores the power button while
 booting, and a rollback retried after a real failure.
+
+## 258. Check a proof about a remote endpoint where the proof is read, against the properties that name the endpoint
+
+**Rule.** When a record carries evidence gathered from a remote system (an onboarding probe, a host key, a
+certificate), bind the evidence to the properties that located the system and compare them where the
+evidence is used, not where the properties are written.
+
+**Why.** A `generic_http` device's discovery granted `HTTPAPICapable` long after its `base_url` had been
+repointed, so its stored credential went wherever inventory said (FAILURE_PATTERNS 392). Clearing the
+discovery on every write was the first design; it would have missed a hand-edited `inventory.yaml`, a
+sync, and any write path added later. A digest of the bound properties, recorded with the evidence and
+compared when capabilities are rebuilt, holds for every way the record can change, because it does not
+depend on seeing the change happen.
+
+## 259. A rule that keeps data out of a command or a host is held at plan time and again at the moment of use
+
+**Rule.** Validation is where an author learns a rule; the executor is where it must still hold. Share one
+function between the two, and never rely on validation having run.
+
+**Why.** Rendered task parameters (Phase 117a) are checked by `pleiades validate`'s template rule: command
+text must end with `| quote` or `| cli_token`, and a URL must name its host before any expression. A DAG
+can reach the executor without that validation (a hand-built one, a future caller), so
+`engine.TemplateProblems` runs again in `renderTask`, and `TestRenderedParams_HoldTheRulesWithoutValidation`
+proves an unvalidated DAG is refused at the render stage before any device is touched.
+
+## 260. Give a data-chosen value a literal bound its author wrote, and let the data name only members
+
+**Rule.** When data chooses where automation acts (a ticket naming a switch), the runbook states the set
+the choice must fall in, literally, and the data may name only members of it, by name, never a group or a
+pattern, with no fallback to a default target.
+
+**Why.** `within:` (Phase 117a) makes a rendered target resolve to device names inside a bound the author
+wrote. The release gate's negative controls show why each half matters: a ticket naming the bound's own tag
+(`switches`) would otherwise have fanned out to every switch, and a name carrying `; reboot` is simply not a
+member. Falling back to `hosts:` on a bad value, the shape of FAILURE_PATTERNS 11, would have turned every
+refusal into a run somewhere else.

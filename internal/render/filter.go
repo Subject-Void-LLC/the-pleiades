@@ -14,8 +14,10 @@ import (
 // execute code, or perform unbounded work on caller-controlled input. This
 // renderer's input arrives from an API-writable database row and its output
 // is injected into a process that handles secrets, so every filter here had
-// to earn its place by appearing in a real AWX credential type. Adding one
-// is a deliberate act with a written reason, not a convenience.
+// to earn its place by appearing in a real AWX credential type, or, since
+// Phase 117a rendered task parameters, by making a value safe to place in a
+// URL or on a network device's command line. Adding one is a deliberate act
+// with a written reason, not a convenience.
 //
 // Deliberately excluded, each for a stated reason:
 //
@@ -37,7 +39,14 @@ const (
 	filterLower     = "lower"
 	filterUpper     = "upper"
 	filterTrim      = "trim"
+	filterURLEncode = "urlencode"
+	filterCLIToken  = "cli_token"
 )
+
+// cliTokenMaxLen bounds what cli_token admits. A network CLI token (an
+// interface name, an address, a VLAN list) is short; a long one is not a
+// token.
+const cliTokenMaxLen = 255
 
 // filterSpec is one filter's arity and behavior.
 type filterSpec struct {
@@ -83,6 +92,12 @@ var filters = map[string]filterSpec{
 	filterLower: {apply: applyLower},
 	filterUpper: {apply: applyUpper},
 	filterTrim:  {apply: applyTrim},
+
+	// urlencode and cli_token make a rendered task parameter safe where it
+	// lands (Phase 117a): a value from a ticket placed in a URL, or on a
+	// network device's command line, where there is no quoting at all.
+	filterURLEncode: {apply: applyURLEncode},
+	filterCLIToken:  {apply: applyCLIToken},
 }
 
 // isKnownFilter reports whether name is in the closed set.
@@ -189,4 +204,70 @@ func applyTrim(value any, _ []any) (any, error) {
 		return nil, err
 	}
 	return strings.TrimSpace(s), nil
+}
+
+// applyURLEncode percent-encodes every byte of value's text form outside
+// RFC 3986's unreserved set (letters, digits, "-", ".", "_", "~"), so the
+// result is one path segment or one query value whatever it held.
+//
+// It is stricter than Jinja2's urlencode, which leaves "/" alone: a value
+// from a ticket must not be able to add a path segment ("../admin") to a
+// device API call, and one that needs a "/" can be written outside the
+// expression. Only text is accepted; Jinja2's encoding of a mapping as a
+// query string is not offered, since a query built from a whole structure
+// is not something a task should do from data it did not write.
+func applyURLEncode(value any, _ []any) (any, error) {
+	s, err := text(value)
+	if err != nil {
+		return nil, err
+	}
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isUnreserved(c) {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hex[c>>4])
+		b.WriteByte(hex[c&0x0f])
+	}
+	return b.String(), nil
+}
+
+// isUnreserved reports whether c is in RFC 3986's unreserved set.
+func isUnreserved(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		c == '-' || c == '.' || c == '_' || c == '~'
+}
+
+// applyCLIToken admits value's text form as one token on a network
+// device's command line, or refuses it.
+//
+// A network CLI has no quoting: whatever reaches it is typed at a prompt,
+// so a space starts a new argument, a "|" pipes the output, a "?" asks for
+// help and a newline runs a second command. So this admits only letters,
+// digits and ". _ - : / @ ,", which is enough for an interface name
+// (GigabitEthernet1/0/1), an address, a hostname or a VLAN list, and at
+// most cliTokenMaxLen bytes, and refuses anything else rather than
+// escaping it, since there is nothing to escape it with. The refusal names
+// no part of the value, which may have come from anywhere.
+func applyCLIToken(value any, _ []any) (any, error) {
+	s, err := text(value)
+	if err != nil {
+		return nil, err
+	}
+	if s == "" || len(s) > cliTokenMaxLen {
+		return nil, fmt.Errorf("%w: cli_token admits a value of 1 to %d bytes", ErrNotRenderable, cliTokenMaxLen)
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("._-:/@,", c) >= 0 {
+			continue
+		}
+		return nil, fmt.Errorf("%w: cli_token admits only letters, digits and . _ - : / @ , and this value has something else", ErrNotRenderable)
+	}
+	return s, nil
 }

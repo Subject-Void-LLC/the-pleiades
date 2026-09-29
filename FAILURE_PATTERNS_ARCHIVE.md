@@ -10757,3 +10757,145 @@ as before.
 
 **Lesson.** A gate over a policy with two outcomes asserts the one the inputs call for, and reads which
 from the same source the product does.
+
+## 392. A generic_http device's credential followed its base URL to wherever inventory pointed it
+
+**Symptom.** Found while planning Phase 117a (reasoned 2026-09-28), measured 2026-09-29 by
+TestRepointedHTTPDeviceSendsItsCredentialNowhereNew on the unfixed tree: after `pleiades set-host api1
+--set base_url=<another host>`, the next `http.request` path call succeeded against the new host with
+the device's stored bearer token, with no new onboarding. The other host only needed a certificate the
+trusted authorities vouch for.
+
+**Root cause.** Onboarding proved an API at one base URL and recorded only the capabilities it found.
+`base_url`, `http_auth`, the TLS settings and the plaintext flag stayed ordinary properties
+(`pkg/inventory/discovery.go` reserved only `discovered`), and `generic_http`'s capabilities were
+rebuilt from the discovery without comparing it to the record it was made against. So anyone with
+`inventory:write`, or with write access to `inventory.yaml`, could redirect a stored credential.
+
+**Fix.** A discovery carries a binding, a SHA-256 over the properties that decide where a probe went and
+what it trusted (`inventory.BindingDigest`, recorded by onboarding through
+`inventory.DiscoveryBinder`). `generic_http` and `generic_grpc` grant nothing from a discovery whose
+binding no longer matches the record, and say to onboard again (`inventory.StaleDiscoverer`). The rule
+is on the read side, so it holds for `set-host`, the Controller's PATCH, a sync and a hand-edited file
+alike. The SSH-based types are not bound: a strict host-key check already refuses a repointed host.
+
+**Lesson.** Proof about a remote endpoint holds only for the endpoint it was made against; bind it to
+the properties that name that endpoint, and check the binding where the proof is read, not where the
+properties are written.
+
+## 393. A bound credential's injected secret variable was readable by runbook conditions on the native path
+
+**Symptom.** Reasoned 2026-09-28, measured 2026-09-29 by
+TestAdapter_Execute_AnInjectedSecretIsNotReadableByWhenCEL on the unfixed tree: a task gated on
+`has(vars.token)` ran when a bound credential injected `token` as a secret extra variable.
+
+**Root cause.** `injectedVariables` (`internal/adapters/native/inject.go`) merged every injected extra
+variable into the run's variables, secrets included, and those become CEL's `vars` root. Masking scrubs
+text, not control flow, so a runbook could branch on a secret one bit per task, and once task parameters
+render (Phase 117a) it could copy one into a request bound for another host.
+
+**Fix.** An injected variable holding a masked value anywhere (`wire.Injected.Mask`, containment rather
+than equality, since a rendered value can embed a secret) is withheld; non-secret ones still merge, and
+a collision is still refused first. The job's log names each withheld variable, never its value. A
+native method still receives its credential through `InjectSecrets`, and the Ansible path is unchanged.
+
+**Lesson.** A channel built to carry configuration into expressions must not carry secrets, even
+masked ones: masking protects what is printed, not what is decided.
+
+## 394. `pleiades run` printed a device credential a Collection method echoed back
+
+**Symptom.** Suspected 2026-09-28, measured 2026-09-29 by TestRunMasksTheCredentialAMethodWasHanded on
+the unfixed tree: `pleiades run --json` against a `generic_http` device whose API echoed the bearer
+token printed `"content": "{\"seen\":\"echo-token-...\"}"` with the token in the clear.
+
+**Root cause.** On the Crawl tier only the SSH transport masked a device's credential out of what it
+captured (`internal/engine/action_ssh.go`). A Collection method's credential, handed to it through
+`InjectSecrets`, never joined the run's masking set, which held only `register_mask`'d values, so a
+stat or an error echoing it reached the report unmasked. The Walk tier was not affected: its adapter
+masks with the dispatch's own secrets.
+
+**Fix.** `ActionResult.Secrets` carries the credential a method was handed, on success and failure
+alike, and the executor adds it to the run's masking set (`recordActionSecrets`); `checkAction` passes
+it through. Every value is masked except the identifiers (`credentialSecrets`: username, a
+certificate's public half, a seeded login's public parts), as the SSH transport already did, because a
+substring scrub of a short username corrupts every path containing it.
+
+**Lesson.** Masking belongs to the credential, not to the transport: every path that hands a secret to
+code must also hand it to the masking set.
+
+## 395. `http.request` read a response body into memory with no bound
+
+**Symptom.** Found 2026-09-29 while bounding Phase 117a's `json` stat: there was no existing body bound to
+reuse. `http.request` read every response with `io.ReadAll`, so an API that answered with gigabytes (or a
+redirect to something that does) filled the memory of `pleiades run` or of the Runner's per-task child.
+Reasoned from the code; not driven to an out-of-memory kill.
+
+**Root cause.** The method's description said it "holds the body in memory, so it is for calling an API
+rather than fetching a large file", and nothing enforced the second half: a documented intent with no
+limit behind it. The call runs on the CLI host or a Runner, so the far side of the request, which a
+runbook author does not control, chose how much memory the platform used.
+
+**Fix.** The body is read through `io.LimitReader` to one byte past `requestMaxBodyBytes` (16 MiB); a body
+over the bound fails the task, naming the bound, rather than being cut short, since a truncated document
+can still parse and say something it does not. `TestRequest_RefusesABodyOverTheBound` holds a body at the
+bound accepted whole and one byte over refused.
+
+**Lesson.** A size a method's description promises is a limit its code enforces, or it is a claim about the
+far side's good behavior.
+
+## 396. A release gate lost a dispatch to lock contention with the retries of the failure it had just asserted
+
+**Symptom.** 2026-09-29, the Phase 117a `make -k ci` (and the first try before it, and one run alone right after
+a gate was killed): `TestGenericWalkReleaseGate_DeviceAccessorsReachTheRunner` timed out after 60 seconds
+waiting for its third dispatch's `task.completed`. It passed alone in 10 to 14 seconds every other time. Main's
+own clean-tree run of the same test that day shows the same overlap and passed only on timing.
+
+**Root cause.** The gate sent four dispatches of one device ID in a row, and the second one fails on purpose
+(an address-only dispatch, as an older Controller sends it). The Runner handles a failed execution through
+`event.HandleDeliveryFailure`, which NAKs it with backoff up to `MaxDeliver` (5), so that failure was retried
+four more times while the gate went on. Each retry held the device's lock while it ran. The third dispatch
+arrived in the middle of those retries, and a contended delivery is NAKed on a 200 ms to 1.6 s backoff that
+counts toward the same `MaxDeliver` (`internal/runner/agent_handle.go`, contention branch). In the failing run
+all five of its deliveries landed on a held lock within six seconds, JetStream stopped delivering it, and
+nothing reported a result, so the job would have stayed `running` forever. The log reads "device lock
+contention, retrying later" five times and then nothing. The product defect is the stranding itself: the
+contention branch never checks the delivery count, nothing listens for a max-deliveries advisory, and nothing
+sweeps a dispatch that never reported. It was already recorded, from reading the code, as unreproduced; this
+is its first reproduction.
+
+**Fix.** The gate's defect is fixed here: each dispatch now names its own device (`"api-gate-" + jobID[:8]`),
+since this gate is about a dispatched device's accessors reaching the Runner, not about contention. With that
+change, three runs in a row under `-race` passed in 10 to 11 seconds with no contention line in the log. The
+product defect is not fixed by this entry. Its fix, already designed, splits the contention branch three
+ways (the lock held by the same dispatch, held by another run with deliveries left, held by another run on
+the final delivery, which reports the job failed as "device busy" and terminates the message), and it needs
+the lock to record its owner.
+
+**Lesson.** A test that asserts a failure and then reuses the same resource is testing the platform's retry
+policy too, whether it means to or not: a failure on a queue with redelivery is not over when its result
+arrives. When a gate times out only under load, read the Runner's own log for the resource's lock before
+blaming the machine; "passes alone" was true here and still hid a real stranding.
+
+## 397. A strict coverage run that lost one test to Docker never compared coverage to the floors
+
+**Symptom.** 2026-09-29: the Phase 117a `make -k ci` reported its coverage step as failed because
+`TestTicketRunbookReleaseGate` lost its sshd container, and every failed test passed alone, so the branch
+looked ready. The `make push-gate` on the committed tip then ran 1h 28m and failed on something that run had
+never shown: five packages below their recorded floors (the native adapter at 92.5% against 92.9%, and
+`internal/catalog/http`, `internal/validate`, `pkg/collection` and `pkg/inventory` under 100%).
+
+**Root cause.** The strict `tools/coverage-check` stops at the first test failure ("a test failure, not a
+coverage question, must be fixed first") and compares nothing against `coverage-floor.json`. That is
+deliberate, but on this machine some container test fails in almost every full run, so a strict run that
+fails for Docker reports no coverage at all. Reading "failed only on Docker" as "passed everything else"
+skipped the one check that had not run.
+
+**Fix.** Tests for each uncovered branch, each driven through the path it guards: the Runner's renderer
+option through a real dispatch (and the render refusal without one), the withheld-variable warning's publish
+failure, a repointed device's refusal, the json stat's recording failure, `http.request`'s `DeviceCall`, an
+unnamed task's finding, `Register`'s execution-context refusal, and a binding over a value JSON cannot
+encode. All four packages are back at 100%, and the native adapter is at 94.1%.
+
+**Lesson.** When a gate step fails, ask whether it failed before or after it measured anything. A coverage
+step that failed on a test has said nothing about coverage, so measure the touched packages
+(`go test -cover`) against their floors before paying for the next full gate.

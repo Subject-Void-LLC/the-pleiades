@@ -199,3 +199,13 @@ func (r *run) applySecretMask(task *Task) error {
 	}
 	return nil
 }
+
+// recordActionSecrets adds the values an action was handed
+// (ActionResult.Secrets) to the run's masking set, so every output boundary
+// that masks with RunResult.Secrets masks them too. It is called whether
+// the action succeeded or failed.
+func (r *run) recordActionSecrets(result ActionResult) {
+	for _, s := range result.Secrets {
+		r.secrets.Add(s)
+	}
+}

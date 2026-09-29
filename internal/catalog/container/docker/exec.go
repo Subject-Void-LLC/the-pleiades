@@ -49,7 +49,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports:  []string{"docker"},
 			RequiredCapabilities: []capability.Name{capability.NameDocker},
-			ExecutionContext:     collection.ExecutionContext{RequiresElevation: false},
+			ExecutionContext:     collection.ExecutionContext{RequiresElevation: false, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			PlatformTargets:      nil,
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
@@ -75,7 +75,7 @@ func execDoc() collection.Doc {
 			"stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The running container to exec into."},
-			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them."},
+			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them.", Format: collection.ParamFormatCommand},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statName, Type: "string", Returned: "always", Description: "The container this task acted on."},

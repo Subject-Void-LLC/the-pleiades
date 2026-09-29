@@ -677,10 +677,16 @@ func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
 	if grants == nil {
 		return nil
 	}
-	return map[string]inventory.PropertyValue{
-		"host":                       "archtest.invalid",
-		generic.BaseURLProperty:      "https://archtest.invalid",
-		generic.GRPCTargetProperty:   "archtest.invalid:443",
-		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "archtest", Capabilities: grants}.Property(),
+	props := map[string]inventory.PropertyValue{
+		"host":                     "archtest.invalid",
+		generic.BaseURLProperty:    "https://archtest.invalid",
+		generic.GRPCTargetProperty: "archtest.invalid:443",
 	}
+	// Bound to these very properties, as onboarding binds a discovery, so
+	// a type that binds its discovery (generic_http, generic_grpc) holds
+	// what it grants.
+	d := inventory.Discovery{Protocol: "archtest", Capabilities: grants}
+	d.Binding = generic.Binding(typeKey, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = d.Property()
+	return props
 }

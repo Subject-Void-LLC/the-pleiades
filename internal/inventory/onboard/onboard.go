@@ -159,6 +159,12 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if next.Facts == nil {
 		next.Facts = map[string]any{}
 	}
+	// A type whose discovery holds only for the address it probed binds
+	// it to the properties as they are now, so repointing the device later
+	// voids it until it is onboarded again (Phase 117a, finding S2).
+	if binder, ok := item.(inventory.DiscoveryBinder); ok {
+		next.Binding = binder.DiscoveryBinding()
+	}
 	prev, _, err := inventory.DiscoveryFrom(item.Properties())
 	if err != nil {
 		return fail(res, err)
@@ -222,7 +228,8 @@ func fail(res Result, err error) (Result, error) {
 // contract), which every inventory store round-trips to the same Go
 // values, so a stored discovery compares equal to a fresh one.
 func sameDiscovery(a, b inventory.Discovery) bool {
-	return a.Protocol == b.Protocol && slices.Equal(a.Capabilities, b.Capabilities) && reflect.DeepEqual(a.Facts, b.Facts)
+	return a.Protocol == b.Protocol && slices.Equal(a.Capabilities, b.Capabilities) && reflect.DeepEqual(a.Facts, b.Facts) &&
+		a.Binding == b.Binding
 }
 
 // sorted returns caps sorted and without duplicates.

@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
@@ -51,6 +52,21 @@ type Adapter struct {
 	bindings map[string]engine.TransportBinding
 	ipc      *ipcCollectionExecutor
 	logger   *slog.Logger
+
+	// renderer renders a dispatched task's params that hold a template
+	// (WithRenderer); nil refuses such a task rather than handing the
+	// method the literal text.
+	renderer render.Engine
+}
+
+// AdapterOption configures an Adapter at construction.
+type AdapterOption func(*Adapter)
+
+// WithRenderer hands the Adapter the template renderer its runs render
+// task params through (engine.WithRenderer). cmd/runner, the composition
+// root, passes the one engine it holds.
+func WithRenderer(eng render.Engine) AdapterOption {
+	return func(a *Adapter) { a.renderer = eng }
 }
 
 // NewAdapter builds a native Adapter. runbooks resolves a dispatched
@@ -66,7 +82,7 @@ type Adapter struct {
 // Adapter can reach runs behind the per-task subprocess boundary PLAN.md
 // Section 17.5 requires, which re-execs this same binary, so a Runner
 // that cannot find its own path has no business starting up.
-func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*Adapter, error) {
+func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger, opts ...AdapterOption) (*Adapter, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -74,7 +90,7 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 	if err != nil {
 		return nil, fmt.Errorf("failed to init collection subprocess executor: %w", err)
 	}
-	return &Adapter{
+	a := &Adapter{
 		bus:      bus,
 		runbooks: runbooks,
 		bindings: engine.NewDefaultTransportBindings(
@@ -86,7 +102,11 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 		).All(),
 		ipc:    ipc,
 		logger: logger,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a, nil
 }
 
 // runbookContextFor is the newContext function
@@ -137,9 +157,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, err
 	}
 
-	variables, err := injectedVariables(payload.ExtraVars, payload.Injected)
+	variables, withheld, err := injectedVariables(payload.ExtraVars, payload.Injected)
 	if err != nil {
 		return wire.Outcome{}, fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
+	}
+	// A variable withheld because it holds a secret (inject.go) is named in
+	// the job's log, never its value, so an author whose condition reads it
+	// learns why it is not there rather than guessing.
+	for _, name := range withheld {
+		warning := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		warning.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		warning.EventData.Message = fmt.Sprintf("WARNING: the bound credential's extra variable %q holds a secret, so runbook expressions cannot read it; a native method receives its credential directly", name)
+		if err := a.publish(ctx, payload.JobID, warning); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+		}
 	}
 
 	dag, err := a.runbooks.GetDAG(ctx, payload.RunbookID)
@@ -250,6 +281,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// pre-existing machinery rather than something built for it:
 		// engine.WithVariables is what the Crawl-tier CLI already uses.
 		engine.WithVariables(variables),
+		// Task params that hold a template render through the one engine
+		// the composition root handed this Adapter (render_params.go).
+		engine.WithRenderer(a.renderer),
 		engine.WithTaskTimeout(taskTimeout(launch.Fields(payload.Fields))),
 		// The run journal (Phase 40), published onto this job's own
 		// journal subject for the Controller to store. Built here rather

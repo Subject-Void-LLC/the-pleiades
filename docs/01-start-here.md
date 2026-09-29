@@ -352,8 +352,13 @@ specifics. To watch a job today, call the API with `curl`, or use the CLI.
 
 Things a real Ansible user will look for and not currently find:
 
-- No Jinja templating in task parameters. A runbook's `params:` map is a literal
-  value, never rendered.
+- Task parameters render a strict subset of Jinja2 and nothing more. A string holding
+  `{{ }}` renders when its task runs, reading the run's variables (`vars`), earlier
+  registered results (`nodes`, and `result.<register>` for a result one device wrote),
+  through a closed set of filters; there is no `{% %}`, no arithmetic, no authored
+  `vars:` and no `set_fact`. A target chosen from data needs a `within:` bounding it. On
+  the Controller, a runbook still runs once per device, so a task on another device or on
+  no device runs against the dispatched device there until segmented dispatch lands.
 - No `loop` / `with_items`. A task runs once per its target device, never once per
   list item.
 - No `handlers` / `notify`, no `become`, no `serial`, no `roles`, no
@@ -394,7 +399,8 @@ multi-user control plane does dispatch real jobs to real devices, both native ru
 and unconverted Ansible playbooks; see [Implementation status](#implementation-status)
 above. What still stands between it and AWX is mostly the list under
 [Limitations](#limitations): a runbook has no loops, handlers, privilege escalation,
-roles or templated parameters yet, and an unconverted playbook runs against one device
+roles or authored variables yet, a runbook dispatched to a Runner runs every task against
+the one device it was dispatched to, and an unconverted playbook runs against one device
 per dispatch rather than across a whole play.
 
 **Why does a module I need say "declared but not implemented"?** It is registered in

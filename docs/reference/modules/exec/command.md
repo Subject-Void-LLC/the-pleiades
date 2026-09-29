@@ -15,6 +15,7 @@ Runs a single command on the target over SSH and reports its exit status, stdout
 | Capabilities | `CommandExecCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
 | Engine version | `>=0.2.0` |
 

@@ -195,7 +195,7 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		// both happen to be SSH today.
 		SupportedTransports:  nil,
 		RequiredCapabilities: []capability.Name{capability.NamePackageManager},
-		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
+		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 		PlatformTargets:      nil,
 		EngineVersion:        ">=0.2.0",
 		Status:               collection.StatusImplemented,

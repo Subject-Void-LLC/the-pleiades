@@ -4,88 +4,78 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-110-40-Rollback`, cut from `main` at `d572759` (PR #44), 2026-09-28. The user's
-order: "Phase 110: Connection Persistence ... Phase 40: The Run Journal and Rollback ... Validate with
-creation and rollback of BSD VM".** Decisions the user made: Walk-tier rollback now, on both tiers; build a
-windowed fan-out for the Walk tier's `forks`. Nothing is committed; the commit messages are in the final
-message of the session. Rules unchanged (method-as-key runbooks, two agents at most, heavy commands under
-`~/.local/bin/capped`, the lab provisioned by The Pleiades only).
+**Branch `feature/Phase-117a-Runbook-Data-Flow`, cut from `main` at `8de7351` (PR #45, the Phase 110/40
+work), 2026-09-29. The user's order: a runbook started by a ServiceNow (or other ticket system) event that
+reads the ticket, triages, collects from Cisco/Arista/other devices, decides and writes back is a gap; plan
+it, fix the two tracker release inconsistencies, make it the next worked phase, then "branch and start".**
+Committed 2026-09-29 at the user's word ("commit and push all"): eight commits, then two more after the first
+`make push-gate` failed on five coverage floors the strict run had never measured (FAILURE_PATTERNS 397).
+The push waits on a `make push-gate` receipt for the tip; each run's outcome is in 117a's Release Gate item. Rules unchanged
+(method-as-key runbooks, two agents at most, heavy commands under `~/.local/bin/capped`, the lab
+provisioned by The Pleiades only).
 
 ### What was done
 
-- **Phase 110 (13/15):** the Walk tier's `forks` was offered and read by nothing. Built a windowed
-  fan-out: `job_task.waiting` plus a `slot` with a unique `(slot, job)` index (expand-only after the
-  classifier refused the first design, FAILURE_PATTERNS 389), pumped at fan-out, after each result and by
-  the leader's reaper. Gate: `TestForksWindowReleaseGate_NeverMoreThanForksAtOnce` (real NATS, real Runner,
-  real sshd, overlap measured on the device, with an unwindowed control). Open: the strict `make ci`.
-  The Walk tier's ignored `limit` field moved to Phase 91.
-- **Phase 40 (22/22 plus the commit message):** rollback on both tiers, planned by one pure planner
-  (`internal/rollback`). Methods declare which undo params are identifiers the journal may keep
-  (`sdk.InverseSpec`); the journal gained `inverse_params` and seven more fields; `pleiades rollback`,
-  `pleiades journal list|show`, `.pleiades/run.lock`; `POST /jobs/{id}/rollback` with its own NATS
-  subject (`runner-rollback`) so an older Runner never re-runs the undone runbook (FAILURE_PATTERNS 381), a
-  Jobs-view **Roll back** form, `rollback_of` on a job; `rollback:` and `reversible:` runbook keys.
-  Decision recorded in `PHASE40_MASKING_DECISION.md` Section 13.
-- **Two security findings, reported as found:** `net.netconf.config`'s `target` doubled as the device
-  selector (fixed: reserved param names, the param is now `datastore`, FAILURE_PATTERNS 378); any Runner
-  could write any job's journal (narrowed by dispatch admission; the plan's per-dispatch MAC key was
-  dropped because it would put a new secret on the stream; residual in Phase 105, FAILURE_PATTERNS 379).
-- **Lab, through the real binary:** a FreeBSD VM (`freebsd-03-scratch.yaml`) made and rolled back, the
-  stack guard, a resume after a real failure, and `TestLab_FreeBSDVMRollback`. It found two planner
-  defects and one method inconsistency (FAILURE_PATTERNS 384, 385; 388 is the hardware timing).
+- **Roadmap (gitignored files):** a new Part XVII, Orchestration Runbooks, with Phases 117a to 117d, all
+  v0.3.0 and the owner's next work in that order (117a data flow on the Crawl tier, 117b segmented Walk
+  dispatch, 117c credential slots scoped to targets and shared API devices, 117d service identities,
+  template-bound tokens and idempotent launch). Items moved in from 87 and 107b, links added to 108, 88, 27,
+  105, 116h, 42 and 115a, ten PLAN amendments, attestation links. The tracker's "112 depends on 75 (later
+  release)" is fixed by moving Phase 75 to v0.3.0 (its WinRM transport ships from `main` already).
+- **Phase 110's strict `make ci` on `8de7351`:** failed only on containers Docker Desktop never made
+  reachable (one in the race pass, four in the coverage pass); each passed alone at once. Recorded in 110's
+  item; it stays open, so "113 done but depends on 110" remains until a strict run passes.
+- **Phase 117a (18/20):** four security findings measured on the unfixed tree and fixed, each with a test
+  that failed first: S2 (a repointed `generic_http` device sent its credential to the new host;
+  discoveries are now bound to what they probed, FAILURE_PATTERNS 392), S3 (injected secrets readable by
+  `when_cel`, 393), M1 (`pleiades run` printed a method's echoed credential, 394), and the unbounded
+  `http.request` body read (395). Built: the manifest's execution context (`Site`, `Device`,
+  `DeviceCall`; all 104 built-ins state it) and the `hosts:` rule it drives; rendered task params
+  (`vars`, `nodes`, `result`, typed single expressions, a `render` failure stage); `within:`;
+  `Param.Format` with the command-text and URL rules held at plan time and again at render; `urlencode`
+  and `cli_token`; `http.request`'s `json`; `pleiades run --extra-vars`; the converter deciding
+  `delegate_to: localhost` by the native method's site. The release gate
+  (`TestTicketRunbookReleaseGate`) runs the whole scenario through the real binary against Gitea in a
+  container, a real sshd and an approved external triage program, with five negative controls.
+- **ServiceNo!** (the user: "local mock service now in python called ServiceNo!"):
+  `tests/serviceno/serviceno.py`, a standard-library mock of the ServiceNow Table API, run by
+  `TestServiceNowRunbookReleaseGate` in a `python:3.12-alpine` container over verified TLS (so Python is
+  never a build or CI dependency); the same test targets a real instance through
+  `PLEIADES_SNOW_INSTANCE`/`_USER`/`_PASSWORD`. Dogfooding it found that conditions had no `result` root;
+  they have one now, like rendered params.
+- **117a's `make -k ci`** on the uncommitted tree, 17:38 to 19:27 UTC (1h 49m): every step but the tests
+  and `docs-gen-check` (uncommitted, by construction) passed. Four tests failed and each passed alone: the SSH
+  mesh, SCP and ticket runbook gates lost sshd containers, and the generic Walk gate lost a dispatch to a
+  real defect. A deliberately failed dispatch's retries held the device's lock, and the next dispatch of the
+  same device was contended five times in six seconds and then stranded with no result. That is Phase 103a's
+  known bug, reproduced here for the first time (FAILURE_PATTERNS 396). The gate now gives each dispatch its
+  own device and passed three times under `-race`; 103a's product fix is unchanged and still open. Timings
+  go in `.IGNORE/timings.md` (the user's request).
 
-### Lab state
+### Open
 
-As the session found it: `ubuntu-lab`, `win-lab` and `bsd-lab` running, everything else off. ubuntu-lab
-was stopped for memory and started again by rolling back that stop. `~/pleiades-lab/bin/pleiades` is this
-branch's build. `~/pleiades-lab/runbooks/freebsd-03-scratch.yaml` is new. The lab gate runs as
-`PLEIADES_VBOX_PROJECT=~/pleiades-lab PLEIADES_VBOX_HOST=vengeance`.
-
-### Gate run (2026-09-28, `make -k ci`, alone, capped, on the uncommitted tree)
-
-- **Passed:** build, vet (both tag sets), fmt, tidy-check, test-repeat, gosec (23 findings, each waived),
-  govulncheck (none), docs-lint, helm-lint, templ-gen-check.
-- **`docs-gen-check`** fails by construction until the work is committed (`git diff` against the index);
-  `gendocs` had just been run, so the committed tree will match.
-- **One real defect found and fixed:** `internal/backup`'s chaos test cut its link after a fixed 1.5 s,
-  and this branch's three new Postgres migrations lengthened the reads before pg_dump past it
-  (FAILURE_PATTERNS 390; it passed on the base commit, checked in a throwaway worktree). It now cuts once
-  the dump's session appears.
-- **Docker degraded under the load** (containers whose published ports never answered, and later even
-  the reaper container failed to start). Every failure of that shape passed alone: the generic Walk gate
-  (four runs, plus the whole `cmd/runner` package), meshid's renewal gate (twice), topology (three of
-  four; the fourth was the same broker timeout while Docker was still slow), the plugin conformance suite
-  with LocalStack, `internal/event`, and all 18 `tests/e2e` tests that failed.
-- **Coverage** (the tolerant check, which reruns failures alone) found five packages below their floors,
-  all new code without in-process tests: `cmd/pleiades` 63.3 (floor 69.4), `internal/journal` 75.4 (94.1),
-  `internal/adapters/native` 88.8 (92.9), `internal/api` 97.3 (98.4), `internal/validate` 99.2 (100).
-  Tests added; now 73.6, 94.6, 93.6, 98.4 and 100. `internal/rollback` gets its first floor, 92.6.
-- **Also added:** the real-broker enforcement gate now proves the rollback consumer's grants
-  (mutation-checked: without the grant a Runner cannot create it and the gate fails).
-- **Committed as seven commits and gated with `make push-gate`** (the user: "Commit and push"). Its first
-  run found one more defect, FAILURE_PATTERNS 391: the upgrade gate assumed the previous release is always
-  refused after an upgrade, which is false for expand-only migrations (it correctly serves again inside
-  the compatibility window). Fixed; the push used the rerun's receipt. `internal/backup`'s restore chaos
-  test was tolerated once under load and passed alone; it still cuts after a fixed delay, the shape of 390.
-- **Not done:** a strict `make ci` on the committed tip, which closes Phase 110's last item.
+1. **Phase 117a's strict `make ci`** on the committed tip (the uncommitted run above cannot pass
+   `docs-gen-check`), and its commit message.
+2. **The env-gated half of 117a's test plan:** the ServiceNow gate against a real developer instance
+   (written, runs with the three variables set; not run), and the lab's IOS XE device (not written).
+3. **Phase 110's strict `make ci`** is still open for the Docker reason above.
+4. Carried: Phase 113's missing Pattern Entry Gate item; Phases 12 and 70 have no Implements line.
 
 ### Decisions for the user
 
-1. **Phase 110's `limit`:** moved to Phase 91 by the user (2026-09-28), beside `serial:`.
-2. **Strict `make ci` on the committed tip:** Phase 110's last item closes only on that pass; the push
-   used `make push-gate`'s receipt.
-3. Carried: the broker's dedup-window memory (previous session), Phase 80's address profile, Phase 113's
-   missing Pattern Entry Gate item.
+1. Phase 117b next, once the branch is pushed and merged.
+2. Whether to map Ansible's `uri` onto `http.request` in the converter, which is what makes
+   `delegate_to: localhost` convert real ServiceNow playbooks (recorded as the follow-on in 117a).
 
 ### Files changed
 
-See `git status`. New: `internal/rollback`, `internal/journal` (reader, run lock, seal, admission, rollback
-reads), `internal/dispatch` (window, rollback), `internal/api/dispatcher_rollback.go`,
-`internal/adapters/native/rollback.go`, `internal/adapters/routing/rollbackonly.go`,
-`cmd/pleiades/rollback.go` and `journal_cmd.go`, `cmd/controller/rollback_devices.go` and
-`journal_admission.go`, `internal/ui/resources/jobs/rollback.go`, `pkg/collection/reserved.go` and
-`inverse.go`, four migrations, the gates in `cmd/pleiades` and `cmd/runner`, the lab runbook and README
-section. Changed: the undo declarations across the catalog, `pkg/sdk/inverse.go`, the journal projection,
-`topology`, `meshid` grants, `cmd/runner`'s third loop, docs 01, 02, 09, 10, 11, generated references,
-CLAUDE.md, changelog fragments, `coverage-floor.json` (the new `internal/rollback` floor), the backup chaos test, the upgrade gate, FAILURE_PATTERNS 378 to 391, LESSONS 254 to 257. Local only:
-IMPLEMENTATION.md, SECURITY_ATTESTATION.md, PHASE40_MASKING_DECISION.md.
+See `git status`. New: `pkg/collection/execution.go`, `internal/engine/render_params.go`,
+`internal/validate/template_rule.go`, `internal/redact/mapvalues.go`, `cmd/pleiades/extravars.go`,
+`tests/serviceno` (ServiceNo! and its README), the
+triage program under `cmd/pleiades/testdata/triage`, and the gates in `cmd/pleiades` (ticket runbook,
+stale discovery, method secret mask, device-less call, shell injection). Changed: every built-in manifest
+(execution context), catalogdata, the scaffold and `forge new-collection`, `internal/render`
+(`Value`, `Expressions`, two filters), the engine's executor, target and journal stage lists, the generic
+device types and onboarding, `http.request`, the native adapter and `cmd/runner`, the converter, generated
+references, docs 01, 03 and 11, CLAUDE.md, changelog fragments, FAILURE_PATTERNS 392 to 397, LESSONS 258
+to 260, the generic Walk gate's per-dispatch device. Local only: the roadmap, the specification and the attestation.

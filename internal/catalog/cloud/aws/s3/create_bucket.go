@@ -17,7 +17,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports:  []string{},
 			RequiredCapabilities: []capability.Name{capability.NameAWSAPI},
-			ExecutionContext:     collection.ExecutionContext{RequiresElevation: false},
+			ExecutionContext:     collection.ExecutionContext{RequiresElevation: false, Site: collection.SiteController, Device: collection.DeviceRequired},
 			PlatformTargets:      nil,
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,

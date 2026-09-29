@@ -15,6 +15,7 @@ Opens an interactive PTY session over SSH and runs one command, matched against 
 | Capabilities | `NetworkCLICapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since an arbitrary CLI line can be anything the device accepts, and what it changes, if anything, is known only once the device has run it |
 | Engine version | `>=0.2.0` |
 

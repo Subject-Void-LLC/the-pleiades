@@ -128,8 +128,28 @@ func requestAPIDevice(t *testing.T, base, auth string, onboarded bool) inventory
 	t.Helper()
 	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base, generic.HTTPAuthProperty: auth}
 	if onboarded {
-		props[inventory.DiscoveredProperty] = inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property()
+		// Bound to the properties it was made against, as onboarding binds it.
+		d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+		d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+		props[inventory.DiscoveredProperty] = d.Property()
 	}
+	item, err := generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
+// requestRepointedDevice builds a generic_http device onboarded against
+// another base URL and since pointed at base, as an inventory write that
+// needs no onboarding leaves it: its discovery grants nothing.
+func requestRepointedDevice(t *testing.T, base string) inventory.InventoryItem {
+	t.Helper()
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://onboarded.invalid", generic.HTTPAuthProperty: httpapi.AuthBasic}
+	d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = d.Property()
+	props[generic.BaseURLProperty] = base
 	item, err := generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +236,7 @@ func TestRequestDevice_Refusals(t *testing.T) {
 		{"own host", onboarded, map[string]any{"url": "/items", "headers": map[string]any{"Host": "evil.invalid"}}, creds, "Host"},
 		{"certificates off with a credential", onboarded, map[string]any{"url": "/items", "validate_certs": false}, creds, "validate_certs"},
 		{"credential missing", onboarded, map[string]any{"url": "/items"}, nil, "stored username and password"},
+		{"repointed since onboarding", requestRepointedDevice(t, srv.URL), map[string]any{"url": "/items"}, creds, "run `pleiades onboard api1` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := srv.hits.Load()
@@ -297,13 +318,15 @@ func tlsDeviceServer(t *testing.T, minV, maxV uint16) *requestDeviceServer {
 // extra settings.
 func requestDeviceWith(t *testing.T, base string, extra map[string]inventory.PropertyValue) (inventory.InventoryItem, error) {
 	t.Helper()
-	props := map[string]inventory.PropertyValue{
-		generic.BaseURLProperty:      base,
-		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property(),
-	}
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base}
 	for k, v := range extra {
 		props[k] = v
 	}
+	// Bound to the properties it was made against, extra included, as
+	// onboarding binds it.
+	d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = d.Property()
 	return generic.NewHTTP(record.Record{ID: "api1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
 }
 

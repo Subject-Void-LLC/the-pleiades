@@ -15,6 +15,7 @@ Makes sure a Windows service is running right now. This is ansible.windows.win_s
 | Capabilities | `WindowsServiceCapable` |
 | Transports | `winrm` |
 | Requires elevation | yes |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

@@ -371,6 +371,7 @@ func TestConditionReads(t *testing.T) {
 		{"literal index", engine.Conditional{WhenOr: engine.StringList{`stat["c"].ok`, "vars.x == 1"}}, []string{"c"}, false},
 		{"has", engine.Conditional{WhenCEL: "has(stat.d)"}, []string{"d"}, false},
 		{"several", engine.Conditional{When: engine.StringList{"stat.a.ok", "stat.b.ok && nodes.a.ok"}}, []string{"a", "b"}, false},
+		{"result", engine.Conditional{WhenCEL: "result.e.json.priority == '1 - Critical'"}, []string{"e"}, false},
 		{"computed index", engine.Conditional{WhenCEL: "stat[vars.name].ok"}, nil, true},
 		{"macro over the map", engine.Conditional{WhenCEL: "stat.exists(k, k == 'x')"}, nil, true},
 		{"none", engine.Conditional{When: engine.StringList{"vars.go == true"}}, nil, false},

@@ -73,11 +73,11 @@ var taskKeywords = map[string]kwRule{
 	"delay":           {kwBlock, "keyword.retries"},
 	"async":           {kwBlock, "keyword.async"},
 	"poll":            {kwBlock, "keyword.async"},
-	"delegate_to":     {kwBlock, "keyword.delegate_to"},
+	"delegate_to":     {kwSpecial, ""},
 	"delegate_facts":  {kwBlock, "keyword.delegate_to"},
 	"run_once":        {kwBlock, "keyword.run_once"},
 	"throttle":        {kwBlock, "keyword.throttle"},
-	"local_action":    {kwBlock, "keyword.local_action"},
+	"local_action":    {kwSpecial, ""},
 	"no_log":          {kwBlock, "keyword.no_log"},
 	"environment":     {kwBlock, "keyword.environment"},
 	"module_defaults": {kwBlock, "keyword.module_defaults"},
@@ -106,4 +106,19 @@ var playKeywords = map[string]kwRule{
 	"serial":      {kwBlock, "play.serial"},
 	"roles":       {kwBlock, "play.roles"},
 	"vars_prompt": {kwBlock, "play.vars_prompt"},
+}
+
+// isDelegation reports whether key asks for a task to run somewhere other
+// than its target: delegate_to or local_action. A task decides these by its
+// own native method (localRun); a block or a play still blocks on them.
+func isDelegation(key string) bool {
+	return key == "delegate_to" || key == "local_action"
+}
+
+// delegationCode is the finding a delegation keyword raises when it blocks.
+func delegationCode(key string) Code {
+	if key == "local_action" {
+		return "keyword.local_action"
+	}
+	return "keyword.delegate_to"
 }

@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -122,6 +123,45 @@ func (t *compiled) Names() []string {
 
 // Source returns the text this template was compiled from.
 func (t *compiled) Source() string { return t.source }
+
+// Value implements Template: a template that is one expression and nothing
+// else evaluates to that expression's value, typed.
+func (t *compiled) Value(vars map[string]any) (any, bool, error) {
+	if len(t.nodes) != 1 || t.nodes[0].expr == nil {
+		return nil, false, nil
+	}
+	value, err := t.nodes[0].expr.evalValue(vars)
+	if err != nil {
+		return nil, true, err
+	}
+	if s, isText := value.(string); isText && len(s) > maxOutputBytes {
+		return nil, true, fmt.Errorf("%w: output passed %d bytes", ErrTooLarge, maxOutputBytes)
+	}
+	return value, true, nil
+}
+
+// Expressions implements Template.
+func (t *compiled) Expressions() []ExpressionInfo {
+	var out []ExpressionInfo
+	for _, n := range t.nodes {
+		if n.expr == nil {
+			continue
+		}
+		info := ExpressionInfo{Path: []string{n.expr.root}}
+		for _, s := range n.expr.steps {
+			if s.kind == stepIndex {
+				info.Path = append(info.Path, strconv.Itoa(s.index))
+			} else {
+				info.Path = append(info.Path, s.key)
+			}
+		}
+		for _, f := range n.expr.filters {
+			info.Filters = append(info.Filters, f.name)
+		}
+		out = append(out, info)
+	}
+	return out
+}
 
 // collectNames gathers the sorted, deduplicated set of root names the
 // nodes reference. Computed once at compile time because callers use it to

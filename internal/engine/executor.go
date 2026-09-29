@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
@@ -373,6 +374,10 @@ type Executor struct {
 	taskTimeout    time.Duration
 	journal        Journal
 
+	// renderer renders a task's params that hold a template (WithRenderer,
+	// render_params.go); nil refuses such a task.
+	renderer render.Engine
+
 	// rollback, when its of is set, marks every entry this Executor
 	// journals as part of a rollback (WithRollback).
 	rollback rollbackLink
@@ -730,7 +735,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		if extraVars == nil {
 			extraVars = map[string]interface{}{}
 		}
-		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars}
+		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars, "result": singleWriters(tree)}
 		var res ConditionResult
 		if r.modeFor(task) == collection.ModeCheck {
 			// A condition the unchecked tasks before it leave undecided is
@@ -779,6 +784,17 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
 		return []NodeResult{failedNode(nodeID, started, FailureStageSecretMask, wrapped)}
 	}
+
+	// Params render here, after the condition decided the task runs and
+	// before its targets resolve, since a target may itself be rendered
+	// (render_params.go). The DAG's own task is left as authored.
+	rendered, err := r.renderTask(task)
+	if err != nil {
+		wrapped := fmt.Errorf("failed to render the parameters of %s: %w", taskLabel(nodeID, task), err)
+		r.publish(nodeID, task, "", "failed", wrapped.Error())
+		return []NodeResult{failedNode(nodeID, started, FailureStageRender, wrapped)}
+	}
+	task = rendered
 
 	devices, err := r.resolveDevices(task)
 	if err != nil {
@@ -866,6 +882,9 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 // exactly the kind of silent drop this codebase's own FAILURE_PATTERNS.md
 // already tracks as a defect class elsewhere.
 func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
+	if task.Within != "" {
+		return r.resolveBounded(task)
+	}
 	target := TaskTarget(r.dag, task)
 	if target == "" {
 		// Consult the resolver even with no target, rather than declaring
@@ -961,11 +980,13 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	switch mode {
 	case collection.ModeExecute:
 		actionResult, err = r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
+		r.recordActionSecrets(actionResult)
 		if err == nil {
 			err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
 		}
 	case collection.ModeCheck:
 		actionResult, err = r.checkAction(execCtx, cmd)
+		r.recordActionSecrets(actionResult)
 		// An action that cannot be checked is reported by name and the
 		// walk carries on (check.go's second rule). It is not a failure,
 		// so it gets no failure stage, and nothing is registered for it:

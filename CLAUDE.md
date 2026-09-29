@@ -218,6 +218,20 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
   code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
   Controller's payload falls back to `pkg/external.Device`.
+- **Task params render, targets can come from data, and every method says where it runs (Phase
+  117a).** A string in `params` holding `{{ }}` renders when its node dispatches
+  (`internal/engine/render_params.go`, through the one `internal/render` engine each composition root
+  hands in with `engine.WithRenderer`), reading `vars` (run/launch variables, never an injected secret),
+  `nodes` and `result.<register>` (a register one device wrote; conditions have the same `result` root);
+  a one-expression value keeps its type. A
+  rendered `params.target` needs a literal `within:` and resolves to device names inside it only
+  (`resolveBounded`). `collection.ExecutionContext` has `Site` (target, controller, hybrid) and `Device`
+  (required, optional with `Descriptor.DeviceCall`, none); a call needing no device skips `hosts:` and
+  runs once with no credential (`engine.TaskTarget`). `collection.Param.Format` (`command`, `url`) holds a
+  rendered value to `| quote`/`| cli_token` or a fixed host, checked by `validate`'s `TemplateRule` and
+  again at render. `pleiades run --extra-vars`/`-e`. **Walk caveat:** a Runner still runs every task
+  against its one dispatched device (Phase 117b builds segmented dispatch), and the Runner's per-task child
+  refuses a call with no device.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.

@@ -130,7 +130,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
 	}
 
-	secrets := secretValues(payload.Secrets)
+	secrets := redact.MapValues(payload.Secrets)
 
 	// A pipe, not a second exec.Cmd-managed stream: ExtraFiles hands the
 	// child a raw, unmanaged file descriptor (fd 3), so this package is
@@ -275,18 +275,6 @@ func (e *ipcCollectionExecutor) invokeInProcess(ctx context.Context, desc collec
 		return collection.Result{}, nil, err
 	}
 	return result, rc.Facts(), nil
-}
-
-// secretValues extracts every value from secrets, the shape
-// redact.Text needs and the shape Flatten's own keys are irrelevant
-// to: masking cares only about which strings must never appear in output,
-// never which secret each one was.
-func secretValues(secrets map[string]string) []string {
-	values := make([]string, 0, len(secrets))
-	for _, v := range secrets {
-		values = append(values, v)
-	}
-	return values
 }
 
 var _ engine.CollectionInvoker = (*ipcCollectionExecutor)(nil).invoke

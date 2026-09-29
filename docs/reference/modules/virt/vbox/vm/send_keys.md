@@ -15,6 +15,7 @@ Types keys into a running VM's console, written as Packer's boot_command writes 
 | Capabilities | `VirtualBoxCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

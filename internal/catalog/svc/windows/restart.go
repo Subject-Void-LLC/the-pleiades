@@ -18,6 +18,8 @@ func init() {
 			RequiredCapabilities: []capability.Name{capability.NameWindowsService},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: true,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",

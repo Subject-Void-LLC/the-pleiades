@@ -106,6 +106,12 @@ func (t *translator) translatePlay(play *yaml.Node, index int, runbook string) *
 			if !literalFalse(e.value) {
 				t.raise(rule.code, at, "", e.key+" dropped from the play and every task in it")
 			}
+		case isDelegation(e.key):
+			// As on a block: a play's delegation applies to tasks with
+			// different methods, so it still blocks them.
+			if !literalFalse(e.value) {
+				ctx.blockers = append(ctx.blockers, t.raise(delegationCode(e.key), at, "", e.key+" on a play applies to every task in it"))
+			}
 		case ok && rule.handling == kwBlock:
 			if !literalFalse(e.value) {
 				ctx.blockers = append(ctx.blockers, t.raise(rule.code, at, "", e.key+" on a play applies to every task in it"))

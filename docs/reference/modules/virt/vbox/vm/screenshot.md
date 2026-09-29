@@ -15,6 +15,7 @@ Takes a picture of a running VM's screen on the host, brings it back over the ho
 | Capabilities | `VirtualBoxCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

@@ -77,7 +77,7 @@ func TestNativeAcceptsExtraVariables(t *testing.T) {
 		t.Fatalf("the native path refused an extra-variable injection: %v", err)
 	}
 
-	merged, err := injectedVariables(map[string]any{"deploy_env": "prod"}, injected)
+	merged, _, err := injectedVariables(map[string]any{"deploy_env": "prod"}, injected)
 	if err != nil {
 		t.Fatalf("injectedVariables() error = %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNativeAcceptsExtraVariables(t *testing.T) {
 // that resolved the same collision differently would mean a run's variables
 // depending on which adapter happened to serve it.
 func TestNativeRefusesAnExtraVariableCollision(t *testing.T) {
-	_, err := injectedVariables(
+	_, _, err := injectedVariables(
 		map[string]any{"deploy_env": "prod"},
 		&wire.Injected{ExtraVars: map[string]any{"deploy_env": "from-the-credential"}},
 	)
@@ -135,6 +135,56 @@ func TestNativeMasksExactlyWhatWasDeclaredSecret(t *testing.T) {
 	}
 }
 
+// TestNativeWithholdsAVariableHoldingASecret is Phase 117a's S3: a bound
+// credential's injected variable that holds a secret, whole, inside a
+// longer string, or nested, never becomes a variable a runbook expression
+// can read, while a non-secret one still does. Each withheld name is
+// returned, sorted, and no value is.
+func TestNativeWithholdsAVariableHoldingASecret(t *testing.T) {
+	injected := &wire.Injected{
+		ExtraVars: map[string]any{
+			"token":       "a-real-bearer-token",
+			"auth_header": "Bearer a-real-bearer-token",
+			"outer":       map[string]any{"inner": []any{"a-nested-secret-value"}},
+			"region":      "us-east-1",
+			"count":       3.0,
+		},
+		Mask: []string{"a-real-bearer-token", "a-nested-secret-value"},
+	}
+
+	merged, withheld, err := injectedVariables(map[string]any{"deploy_env": "prod"}, injected)
+	if err != nil {
+		t.Fatalf("injectedVariables() error = %v", err)
+	}
+	for _, name := range []string{"token", "auth_header", "outer"} {
+		if _, present := merged[name]; present {
+			t.Errorf("the secret-holding variable %q reached the run's variables", name)
+		}
+	}
+	if merged["region"] != "us-east-1" || merged["count"] != 3.0 || merged["deploy_env"] != "prod" {
+		t.Errorf("merged = %v, want the non-secret injected variables and the launch's own", merged)
+	}
+	if strings.Join(withheld, ",") != "auth_header,outer,token" {
+		t.Errorf("withheld = %v, want [auth_header outer token]", withheld)
+	}
+}
+
+// TestNativeRefusesACollisionBeforeWithholdingASecret pins the order: a
+// launch variable and a credential's secret variable sharing a name is
+// still the collision it always was, not a silent withholding.
+func TestNativeRefusesACollisionBeforeWithholdingASecret(t *testing.T) {
+	_, _, err := injectedVariables(
+		map[string]any{"token": "from-the-launch"},
+		&wire.Injected{ExtraVars: map[string]any{"token": "a-real-bearer-token"}, Mask: []string{"a-real-bearer-token"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("injectedVariables() error = %v, want the collision refused by name", err)
+	}
+	if strings.Contains(err.Error(), "a-real-bearer-token") {
+		t.Errorf("the refusal quotes the secret: %v", err)
+	}
+}
+
 // TestNativeIsUnaffectedByADispatchCarryingNothing pins the nil case, which
 // is every dispatch in a deployment that has created no credential type.
 func TestNativeIsUnaffectedByADispatchCarryingNothing(t *testing.T) {
@@ -143,7 +193,7 @@ func TestNativeIsUnaffectedByADispatchCarryingNothing(t *testing.T) {
 	}
 
 	launched := map[string]any{"deploy_env": "prod"}
-	merged, err := injectedVariables(launched, nil)
+	merged, _, err := injectedVariables(launched, nil)
 	if err != nil {
 		t.Fatalf("injectedVariables() error = %v", err)
 	}

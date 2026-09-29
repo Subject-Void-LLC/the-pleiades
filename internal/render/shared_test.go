@@ -9,7 +9,8 @@ import (
 // TestOneEngineServesEveryDeclaredCallSite is the ledger for PLAN.md
 // Section 25's "Template renderer" row.
 //
-// That row names four call sites: credential injectors, notification
+// That row names four call sites (six since Phase 117a added task
+// parameters and data-chosen targets): credential injectors, notification
 // messages, constructed inventory, and survey defaults. The rule attached
 // to it is that the contract has exactly one implementation, and a second
 // implementation is a defect rather than a variation. Proving that needs
@@ -56,6 +57,29 @@ func TestOneEngineServesEveryDeclaredCallSite(t *testing.T) {
 			source: "{{ api_token }}",
 			vars:   map[string]any{"api_token": "T", "api_url": "U"},
 			want:   "T",
+		},
+		{
+			site: "task parameters",
+			// Built by Phase 117a (internal/engine's render_params.go): a
+			// task's params read the run's variables and earlier results
+			// when its node dispatches. The shape below is the ticket
+			// write-back a runbook renders from a registered API result.
+			source: "/api/now/table/incident/{{ result.ticket.json.result.sys_id | urlencode }}",
+			vars: map[string]any{"result": map[string]any{"ticket": map[string]any{"json": map[string]any{
+				"result": map[string]any{"sys_id": "a1b2 c3"},
+			}}}},
+			want: "/api/now/table/incident/a1b2%20c3",
+		},
+		{
+			site: "data-chosen targets",
+			// Built by Phase 117a: a task's params.target renders from data,
+			// bounded by its within: (internal/engine's resolveBounded). The
+			// shape below is the switch a ticket's configuration item names.
+			source: "{{ result.ticket.json.result.cmdb_ci }}",
+			vars: map[string]any{"result": map[string]any{"ticket": map[string]any{"json": map[string]any{
+				"result": map[string]any{"cmdb_ci": "core-sw1"},
+			}}}},
+			want: "core-sw1",
 		},
 		{
 			site:  "notification messages",

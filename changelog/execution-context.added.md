@@ -1,0 +1,1 @@
+Every Collection method now states where its code runs and whether it acts on a device, shown as the Runs row on its reference page, and `pleiades forge new-collection` takes `--site` and `--device` so a new method states them too.

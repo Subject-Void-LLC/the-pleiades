@@ -6,7 +6,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -99,7 +102,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -174,7 +180,10 @@
     "requiredCapabilities": [
       "AWSAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -248,7 +257,10 @@
     "requiredCapabilities": [
       "AWSAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -296,7 +308,10 @@
     "requiredCapabilities": [
       "AWSAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -358,7 +373,10 @@
     "requiredCapabilities": [
       "AWSAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -409,7 +427,10 @@
     "requiredCapabilities": [
       "DockerCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -432,7 +453,8 @@
           "name": "cmd",
           "type": "string",
           "required": true,
-          "description": "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them."
+          "description": "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them.",
+          "format": "command"
         }
       ],
       "returns": [
@@ -483,7 +505,9 @@
       "DockerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -558,7 +582,9 @@
       "DockerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -659,7 +685,9 @@
       "DockerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -718,7 +746,10 @@
     "requiredCapabilities": [
       "CommandExecCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -733,7 +764,8 @@
         {
           "name": "cmd",
           "type": "string",
-          "description": "The command and its arguments as one string, split the way a shell splits a command line: whitespace separates arguments, and single quotes, double quotes and backslashes group them. Mutually exclusive with argv."
+          "description": "The command and its arguments as one string, split the way a shell splits a command line: whitespace separates arguments, and single quotes, double quotes and backslashes group them. Mutually exclusive with argv.",
+          "format": "command"
         },
         {
           "name": "argv",
@@ -831,7 +863,10 @@
     "requiredCapabilities": [
       "ShellExecCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -847,7 +882,8 @@
           "name": "cmd",
           "type": "string",
           "required": true,
-          "description": "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them."
+          "description": "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them.",
+          "format": "command"
         },
         {
           "name": "executable",
@@ -945,7 +981,10 @@
     "requiredCapabilities": [
       "WinRMCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -962,7 +1001,8 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "The script to run, or with shell none the command line: a program and its arguments, quoted the way that program expects. It is passed on verbatim, so every metacharacter the named shell understands is syntax and any runbook value interpolated into it is code. Pass values in env instead."
+          "description": "The script to run, or with shell none the command line: a program and its arguments, quoted the way that program expects. It is passed on verbatim, so every metacharacter the named shell understands is syntax and any runbook value interpolated into it is code. Pass values in env instead.",
+          "format": "command"
         },
         {
           "name": "shell",
@@ -1052,7 +1092,10 @@
     "requiredCapabilities": [
       "FactGathererCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1150,7 +1193,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1263,7 +1309,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1396,7 +1445,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1544,7 +1596,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1642,7 +1697,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1745,7 +1803,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1853,7 +1914,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -1964,7 +2028,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -2030,7 +2097,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -2118,7 +2188,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
@@ -2136,7 +2209,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -2243,7 +2319,9 @@
       "LinuxCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2345,7 +2423,9 @@
       "LinuxCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2435,7 +2515,9 @@
       "FirewalldCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2540,7 +2622,9 @@
       "FirewalldCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2641,7 +2725,9 @@
       "FirewalldCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2674,7 +2760,10 @@
     }
   },
   "http.request": {
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "optional"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -2690,7 +2779,8 @@
           "name": "url",
           "type": "string",
           "required": true,
-          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it."
+          "description": "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it.",
+          "format": "url"
         },
         {
           "name": "method",
@@ -2738,7 +2828,7 @@
           "name": "content",
           "type": "string",
           "returned": "always",
-          "description": "The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file."
+          "description": "The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file: a body over 16 MiB fails the task."
         },
         {
           "name": "headers",
@@ -2763,6 +2853,12 @@
           "type": "string",
           "returned": "always",
           "description": "The status line, for example \"404 Not Found\", for a person reading a run log."
+        },
+        {
+          "name": "json",
+          "type": "any",
+          "returned": "when the response is JSON",
+          "description": "A JSON response body, decoded, so a later task can read one field of it (Ansible uri's own key). Recorded only when the response says its content is JSON (application/json, or a type ending in +json), the body parses as JSON and it is at most 1 MiB; otherwise the key is left out and content still holds the text."
         }
       ],
       "examples": [
@@ -2793,7 +2889,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2885,7 +2983,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -2961,7 +3061,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -3032,7 +3134,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -3156,7 +3260,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -3257,7 +3363,9 @@
       "PosixAccountCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -3343,7 +3451,10 @@
     "requiredCapabilities": [
       "CatalystAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3392,7 +3503,10 @@
     "requiredCapabilities": [
       "CatalystAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3452,7 +3566,10 @@
     "requiredCapabilities": [
       "CatalystAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3499,7 +3616,10 @@
     "requiredCapabilities": [
       "CatalystAPICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3543,7 +3663,10 @@
     "requiredCapabilities": [
       "NetworkCLICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3560,7 +3683,8 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "The single CLI line to run, e.g. \"show version\"."
+          "description": "The single CLI line to run, e.g. \"show version\".",
+          "format": "command"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -3596,7 +3720,10 @@
     "requiredCapabilities": [
       "NetworkCLICapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3613,7 +3740,8 @@
           "name": "config",
           "type": "string",
           "required": true,
-          "description": "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own."
+          "description": "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own.",
+          "format": "command"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -3641,7 +3769,10 @@
     "requiredCapabilities": [
       "AristaEOSCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
@@ -3659,7 +3790,10 @@
     "requiredCapabilities": [
       "CiscoIOSCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3676,7 +3810,8 @@
           "name": "lines",
           "type": "list of string",
           "required": true,
-          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself."
+          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.",
+          "format": "command"
         },
         {
           "name": "backup",
@@ -3718,7 +3853,10 @@
     "requiredCapabilities": [
       "CiscoIOSCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3818,7 +3956,10 @@
     "requiredCapabilities": [
       "CiscoIOSCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3835,7 +3976,8 @@
           "name": "dest",
           "type": "string",
           "required": true,
-          "description": "The address or hostname to ping from the device."
+          "description": "The address or hostname to ping from the device.",
+          "format": "command"
         },
         {
           "name": "count",
@@ -3846,12 +3988,14 @@
         {
           "name": "source",
           "type": "string",
-          "description": "Source address or interface for the ping, passed to IOS as \"source\"."
+          "description": "Source address or interface for the ping, passed to IOS as \"source\".",
+          "format": "command"
         },
         {
           "name": "vrf",
           "type": "string",
-          "description": "VRF to ping from, passed to IOS as \"vrf\"."
+          "description": "VRF to ping from, passed to IOS as \"vrf\".",
+          "format": "command"
         },
         {
           "name": "state",
@@ -3915,7 +4059,10 @@
     "requiredCapabilities": [
       "CiscoIOSCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -3960,7 +4107,10 @@
     "requiredCapabilities": [
       "JunosCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "declared",
     "reversibility": {
@@ -3979,7 +4129,10 @@
       "NetconfCapable",
       "SSHTransportCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -4073,7 +4226,10 @@
     "requiredCapabilities": [
       "SSHTransportCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -4109,7 +4265,9 @@
       "AptCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4194,7 +4352,9 @@
       "AptCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4271,7 +4431,9 @@
       "AptCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4339,7 +4501,9 @@
       "DnfCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4424,7 +4588,9 @@
       "DnfCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4501,7 +4667,9 @@
       "DnfCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4566,7 +4734,9 @@
       "PackageManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4650,7 +4820,9 @@
       "PackageManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4736,7 +4908,9 @@
       "PackageManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -4808,7 +4982,10 @@
     "requiredCapabilities": [
       "SSHTransportCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -4841,7 +5018,10 @@
     "requiredCapabilities": [
       "NetworkAddressableCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -4954,7 +5134,9 @@
       "ServiceManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5026,7 +5208,9 @@
       "ServiceManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5098,7 +5282,9 @@
       "ServiceManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5156,7 +5342,9 @@
       "ServiceManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5229,7 +5417,9 @@
       "ServiceManagerCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5304,7 +5494,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5344,7 +5536,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5413,7 +5607,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5482,7 +5678,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5543,7 +5741,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5617,7 +5817,9 @@
       "SystemdCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5690,7 +5892,9 @@
       "WindowsServiceCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5757,7 +5961,9 @@
       "WindowsServiceCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5820,7 +6026,9 @@
       "WindowsServiceCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5875,7 +6083,9 @@
       "WindowsServiceCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -5943,7 +6153,9 @@
       "WindowsServiceCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -6009,7 +6221,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6071,7 +6286,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6128,7 +6346,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6201,7 +6422,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6254,7 +6478,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6412,7 +6639,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6469,7 +6699,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6528,7 +6761,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6580,7 +6816,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6678,7 +6917,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6746,7 +6988,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6841,7 +7086,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -6972,7 +7220,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7011,7 +7262,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7075,7 +7329,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7176,7 +7433,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7246,7 +7506,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7297,7 +7560,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7363,7 +7629,10 @@
     "requiredCapabilities": [
       "VirtualBoxCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7443,7 +7712,10 @@
     "requiredCapabilities": [
       "NetworkAddressableCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7532,7 +7804,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7636,7 +7911,10 @@
     "requiredCapabilities": [
       "POSIXFileSystemCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7764,7 +8042,10 @@
     "requiredCapabilities": [
       "WindowsShellCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7848,7 +8129,9 @@
       "WindowsFeatureCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -7915,7 +8198,9 @@
       "WindowsFeatureCapable"
     ],
     "executionContext": {
-      "requiresElevation": true
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
     },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
@@ -7981,7 +8266,10 @@
     "requiredCapabilities": [
       "WindowsShellCapable"
     ],
-    "executionContext": {},
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
@@ -7997,7 +8285,8 @@
           "name": "url",
           "type": "string",
           "required": true,
-          "description": "The https:// URL to fetch. It may not hold a quote, a space or a control character."
+          "description": "The https:// URL to fetch. It may not hold a quote, a space or a control character.",
+          "format": "url"
         },
         {
           "name": "path",

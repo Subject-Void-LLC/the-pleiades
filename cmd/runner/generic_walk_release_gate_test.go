@@ -61,18 +61,31 @@ func (w *jobWatch) untilCompleted(t *testing.T, within time.Duration) ([]wire.Jo
 // is srv, reached with its pinned certificate and a bearer credential.
 func apiDispatch(srv *httptest.Server, extra map[string]any) wire.DispatchPayload {
 	props := map[string]any{
-		generic.BaseURLProperty:      srv.URL + "/api",
-		generic.HTTPAuthProperty:     "bearer",
-		devicetls.CAPEMProperty:      string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
-		inventory.DiscoveredProperty: inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}.Property(),
+		generic.BaseURLProperty:  srv.URL + "/api",
+		generic.HTTPAuthProperty: "bearer",
+		devicetls.CAPEMProperty:  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
 	}
 	for k, v := range extra {
 		props[k] = v
 	}
+	// Bound to the dispatched properties, extra included, as the
+	// Controller's stored, onboarded discovery is.
+	found := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	found.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	if _, overridden := extra[inventory.DiscoveredProperty]; !overridden {
+		props[inventory.DiscoveredProperty] = found.Property()
+	}
+	jobID := uuid.New().String()
 	return wire.DispatchPayload{
-		JobID:            uuid.New().String(),
-		RunbookID:        "api",
-		DeviceID:         "api-gate-device",
+		JobID:     jobID,
+		RunbookID: "api",
+		// A device of its own per dispatch. The address-only dispatch
+		// below fails on purpose, and the Runner retries a failed dispatch
+		// under the device's lock; a later dispatch of the same device
+		// then races those retries for the lock and can lose all five of
+		// its deliveries, which strands the job (FAILURE_PATTERNS 396).
+		// That is a real defect, and not the one this gate is about.
+		DeviceID:         "api-gate-" + jobID[:8],
 		DeviceName:       "api1",
 		DeviceHost:       "127.0.0.1",
 		Capabilities:     []capability.Name{capability.NameNetworkAddressable, capability.NameHTTPAPI},

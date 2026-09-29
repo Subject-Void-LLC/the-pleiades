@@ -1,0 +1,1 @@
+`pleiades run` now masks a device's credential out of a Collection method's reported results and errors, as it already did for a command's output, so an API that echoes the token back no longer prints it in the run's report or its `--json` output.

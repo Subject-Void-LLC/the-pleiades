@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -39,11 +40,44 @@ type TargetResolver interface {
 // (FAILURE_PATTERNS.md #11). The type check below still stands for a DAG
 // assembled by hand, which the builder never saw, and treats such a value
 // as absent.
+//
+// A call that acts on no device (Phase 117a, PLAN.md Section 14's
+// execution context) does not take dag.Hosts: its method uses no device,
+// or uses one only for some calls and says this call needs none
+// (collection.Descriptor.NeedsDevice). So a full-URL http.request under
+// hosts: runs once rather than once per host, while one with a path on a
+// device's API still runs against hosts: as before. On the Walk tier the
+// Runner's resolver still hands such a call its one dispatched device,
+// until segmented dispatch (Phase 117b) gives it a place to run without
+// one.
+//
+// A target rendered from data (Phase 117a) is bounded by the task's
+// within:, and before it renders TaskTarget returns that bound, so plan-time
+// checks cover every device the data could name. At dispatch the executor
+// resolves the rendered target itself (resolveBounded), never through here.
 func TaskTarget(dag *DAG, task *Task) string {
 	if target, ok := task.Params[collection.TargetParam].(string); ok && target != "" {
+		if task.Within != "" && strings.Contains(target, "{{") {
+			return task.Within
+		}
 		return target
 	}
+	if !callNeedsDevice(task) {
+		return ""
+	}
 	return dag.Hosts
+}
+
+// callNeedsDevice reports whether task's call acts on a device, by its
+// method's declared execution context. A name that is not a registered
+// Collection method (an engine builtin such as noop) keeps the behavior
+// every task had before the execution context existed: it needs one.
+func callNeedsDevice(task *Task) bool {
+	desc, ok := collection.Lookup(task.FQCN)
+	if !ok {
+		return true
+	}
+	return desc.NeedsDevice(task.Params)
 }
 
 // ActionResult is what one fqcn action reports after running once,
@@ -72,6 +106,15 @@ type ActionResult struct {
 	// Task.FQCN itself to make that decision, keeping Executor fqcn
 	// agnostic (it contains no fqcn string literal anywhere else).
 	IsMetadata bool
+
+	// Secrets are values this action was handed that every output boundary
+	// must mask: the credential a Collection method received through
+	// sdk.RunbookContext.InjectSecrets. An executor returns them even with
+	// an error, since a method's error text is the likeliest place for one
+	// to be echoed, and the executor adds them to the run's masking set
+	// (RunResult.Secrets) either way. Before Phase 117a nothing did, so the
+	// Crawl tier printed a method's echoed credential as it was.
+	Secrets []string
 }
 
 // ActionExecutor runs one task's fqcn action. It is the seam Phase W6

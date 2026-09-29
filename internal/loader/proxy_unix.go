@@ -62,7 +62,7 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	defer func() { _ = prog.Close() }()
 
 	req := buildRequest(fqcn, mode, params, device, rc.InjectSecrets())
-	secrets := secretValues(req.Secrets)
+	secrets := redact.MapValues(req.Secrets)
 	body, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("external collection method %q: failed to encode its request: %w", fqcn, err)
@@ -135,17 +135,6 @@ func buildRequest(fqcn string, mode collection.Mode, params map[string]any, devi
 		}
 	}
 	return req
-}
-
-// secretValues returns every value in secrets, the shape redact.Text
-// takes: masking needs to know which strings must never appear, not which
-// credential field each one was.
-func secretValues(secrets map[string]string) []string {
-	values := make([]string, 0, len(secrets))
-	for _, v := range secrets {
-		values = append(values, v)
-	}
-	return values
 }
 
 // runOutcome is everything one run produced, gathered before any of it is

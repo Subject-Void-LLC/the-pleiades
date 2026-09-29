@@ -58,8 +58,9 @@ func taskSchema() map[string]any {
 		"properties": map[string]any{
 			"name":          map[string]any{"type": "string", "description": "Free-form label."},
 			"fqcn":          map[string]any{"type": "string", "description": "The action this task performs: an engine keyword or a namespaced Collection method."},
-			"params":        map[string]any{"type": "object", "description": "Arguments passed to fqcn. Never templated."},
+			"params":        map[string]any{"type": "object", "description": "Arguments passed to fqcn. A string holding {{ }} renders when the task runs, reading vars, nodes and result."},
 			"register":      map[string]any{"type": "string", "description": "Name to store this task's result under."},
+			"within":        map[string]any{"type": "string", "description": "The device name or tag a target rendered from data must stay inside. Required beside a params.target holding {{ }}, refused anywhere else, and written literally."},
 			"check_mode":    checkModeSchema("Run this task (and, on a block, its block, rescue and always tasks) in check mode, even in a real run. Only true; false is refused."),
 			"when":          stringOrList("Ansible-compatible conditional, ANDed if a list."),
 			"when_or":       stringOrList("Conditional, ORed if a list. No Ansible equivalent."),

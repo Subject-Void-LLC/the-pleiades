@@ -26,6 +26,8 @@ func init() {
 			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			// TODO(forge): PlatformTargets narrows this manifest to a
 			// specific vendor, model, firmware range, or deployment
@@ -49,10 +51,10 @@ func init() {
 				Summary:     "Runs a ping from a Cisco IOS device and reports the result.",
 				Description: "Answers a different question from net.ssh.ping, and the difference is the point: net.ssh.ping proves this platform can reach the device, while this method proves the DEVICE can reach somewhere else, which is the question that actually matters when a routing or ACL change is under review. Runs IOS's own ping from an interactive PTY session and parses its \"Success rate is N percent (rx/tx)\" line, including the trailing \"round-trip min/avg/max = a/b/c ms\" clause that IOS omits entirely when nothing came back. Nothing is changed on the device, so this always reports no change. Use state to turn the result into a gate: state present (the default) fails the task when every packet is lost, and state absent fails it when anything answers, so a runbook can assert reachability or its absence without a separate condition.",
 				Params: []collection.Param{
-					{Name: "dest", Type: "string", Required: true, Description: "The address or hostname to ping from the device."},
+					{Name: "dest", Type: "string", Required: true, Description: "The address or hostname to ping from the device.", Format: collection.ParamFormatCommand},
 					{Name: "count", Type: "int", Default: "5", Description: "How many echoes to send, passed to IOS as \"repeat\"."},
-					{Name: "source", Type: "string", Description: "Source address or interface for the ping, passed to IOS as \"source\"."},
-					{Name: "vrf", Type: "string", Description: "VRF to ping from, passed to IOS as \"vrf\"."},
+					{Name: "source", Type: "string", Description: "Source address or interface for the ping, passed to IOS as \"source\".", Format: collection.ParamFormatCommand},
+					{Name: "vrf", Type: "string", Description: "VRF to ping from, passed to IOS as \"vrf\".", Format: collection.ParamFormatCommand},
 					{Name: "state", Type: "string", Default: "present", Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 				},

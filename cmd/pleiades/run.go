@@ -42,17 +42,23 @@ func runRunbook(args []string) error {
 	// runbook path is the thing a person types first.
 	runbook, rest, err := splitPositional(args, runBoolFlags)
 	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--forks 5] [--persist-connections=false] [--verbose] [--json] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--forks 5] [--persist-connections=false] [--extra-vars key=value|@file.yaml ...] [--verbose] [--json] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags := addRunFlags(fs)
 	selection := tagFlags(fs)
+	extraVars := &extraVarsFlag{}
+	fs.Var(extraVars, "extra-vars", "a variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.<name>")
+	fs.Var(extraVars, "e", "shorthand for --extra-vars")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	opts, err := flags.options()
 	if err != nil {
+		return err
+	}
+	if opts.variables, err = extraVars.variables(); err != nil {
 		return err
 	}
 	return runPipeline(opts, runSource{label: runbook, path: runbook, selection: *selection})

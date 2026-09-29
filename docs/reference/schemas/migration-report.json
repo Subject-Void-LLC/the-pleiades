@@ -91,6 +91,7 @@
             "keyword.ignore_errors",
             "keyword.ignore_unreachable",
             "keyword.local_action",
+            "keyword.local_satisfied",
             "keyword.module_defaults",
             "keyword.no_log",
             "keyword.notify",

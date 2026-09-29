@@ -15,6 +15,7 @@ Calls a URL from wherever the task runs, not from the target device, and records
 | Capabilities | - |
 | Transports | - |
 | Requires elevation | no |
+| Runs | in the host process (the CLI or a Runner); acts on a device only for some calls, and a call that needs none skips the runbook's hosts: and runs once |
 | Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
 | Engine version | `>=0.2.0` |
 
@@ -35,11 +36,12 @@ Calls a URL from wherever the task runs, not from the target device, and records
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `status` | `int` | always | The status code the server answered with, recorded even when it is not one of the expected ones. |
-| `content` | `string` | always | The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file. |
+| `content` | `string` | always | The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file: a body over 16 MiB fails the task. |
 | `headers` | `dict` | always | The response headers, names lower-cased, with a header sent more than once joined by a comma and a space. |
 | `url` | `string` | always | The URL the response actually came from, which differs from the one asked for when redirects were followed. |
 | `elapsed` | `float` | always | How long the request took, in seconds, with its fraction kept. Ansible reports whole seconds here, which is zero for every call that went well. |
 | `msg` | `string` | always | The status line, for example "404 Not Found", for a person reading a run log. |
+| `json` | `any` | when the response is JSON | A JSON response body, decoded, so a later task can read one field of it (Ansible uri's own key). Recorded only when the response says its content is JSON (application/json, or a type ending in +json), the body parses as JSON and it is at most 1 MiB; otherwise the key is left out and content still holds the text. |
 
 ## Undoing this
 

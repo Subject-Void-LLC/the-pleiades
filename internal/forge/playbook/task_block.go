@@ -48,6 +48,13 @@ func (t *translator) translateBlock(node *yaml.Node, entries []entry, name strin
 			if !literalFalse(e.value) {
 				cites = append(cites, t.raise(rule.code, keyAt, name, e.key+" dropped from a block and every task in it"))
 			}
+		case isDelegation(e.key):
+			// A task decides delegate_to: localhost by its own native
+			// method (localRun); a block's applies to tasks with different
+			// methods, so it still blocks them, as it always did.
+			if !literalFalse(e.value) {
+				inner.blockers = append(inner.blockers, t.raise(delegationCode(e.key), keyAt, name, e.key+" on a block applies to every task in it"))
+			}
 		case known && rule.handling == kwBlock:
 			if !literalFalse(e.value) {
 				inner.blockers = append(inner.blockers, t.raise(rule.code, keyAt, name, e.key+" on a block applies to every task in it"))

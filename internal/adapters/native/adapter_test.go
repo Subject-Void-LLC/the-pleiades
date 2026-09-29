@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -200,6 +201,113 @@ func TestAdapter_Execute_ExtraVarsReachWhenCEL(t *testing.T) {
 	none := run(nil)
 	if none.Status != "ok" {
 		t.Errorf("no ExtraVars at all: final status = %q, want %q (has(vars.env) should read false, not error the run)", none.Status, "ok")
+	}
+}
+
+// TestAdapter_Execute_AnInjectedSecretIsNotReadableByWhenCEL is Phase
+// 117a's S3 through the real adapter and engine: before the fix a runbook
+// could branch on a bound credential's secret variable, one bit per task,
+// which masking cannot hide because it scrubs text and not control flow.
+// The secret variable is absent from vars, a non-secret one is still there,
+// and the job's log names the withheld variable without its value.
+func TestAdapter_Execute_AnInjectedSecretIsNotReadableByWhenCEL(t *testing.T) {
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: reads the secret\n    noop:\n      changed: true\n    when_cel: \"has(vars.token)\"\n  - name: reads the region\n    noop:\n      changed: false\n    when_cel: \"has(vars.region)\"\n    register: region\n")
+	bus := &mockBus{}
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	payload := wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
+		Injected: &wire.Injected{
+			ExtraVars: map[string]any{"token": "a-real-bearer-token", "region": "us-east-1"},
+			Mask:      []string{"a-real-bearer-token"},
+		},
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
+		t.Fatalf("Execute() returned unexpected error: %v", err)
+	}
+	// Only the task reading the secret would report changed, so an ok run
+	// is the proof that has(vars.token) read false.
+	if got := bus.lastJobEvent(t); got.Status != "ok" {
+		t.Errorf("final status = %q, want ok: a condition read the injected secret", got.Status)
+	}
+	var warned bool
+	for _, evt := range bus.logEvents("job-1") {
+		body := string(evt.Data)
+		if strings.Contains(body, "a-real-bearer-token") {
+			t.Fatalf("the job's log carries the secret: %s", body)
+		}
+		if strings.Contains(body, "task.warning") && strings.Contains(body, `\"token\"`) {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("the job's log does not name the withheld variable")
+	}
+}
+
+// TestAdapter_Execute_RendersTaskParamsThroughItsRenderer: a dispatched
+// task's templated param renders through the renderer the Runner hands in
+// (WithRenderer), reading the launch's variables with the value's type
+// kept, so a rendered true reaches noop as a bool. With no renderer the
+// same dispatch fails at the render stage rather than handing the method
+// the literal text.
+func TestAdapter_Execute_RendersTaskParamsThroughItsRenderer(t *testing.T) {
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    noop:\n      changed: \"{{ vars.flip }}\"\n")
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1", ExtraVars: map[string]any{"flip": true}}
+
+	bus := &mockBus{}
+	adapter, err := NewAdapter(bus, runbooks, nil, WithRenderer(render.New()))
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
+		t.Fatalf("Execute() with a renderer: %v", err)
+	}
+	if got := bus.lastJobEvent(t); got.Status != "changed" {
+		t.Errorf("final status = %q, want changed: the rendered param did not reach the task", got.Status)
+	}
+
+	bare := &mockBus{}
+	adapter, err = NewAdapter(bare, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err == nil || !strings.Contains(err.Error(), "no template renderer") {
+		t.Fatalf("Execute() without a renderer = %v, want the render refusal", err)
+	}
+	if got := bare.lastJobEvent(t); got.Status != "failed" {
+		t.Errorf("final status without a renderer = %q, want failed", got.Status)
+	}
+}
+
+// warningFailingBus publishes every job event but a warning, whose
+// publish fails, so a test reaches the warning past the started event.
+type warningFailingBus struct{ mockBus }
+
+func (b *warningFailingBus) Publish(ctx context.Context, topic string, evt event.Event) error {
+	if strings.Contains(string(evt.Data), "task.warning") {
+		return errors.New("deliberate warning publish failure")
+	}
+	return b.mockBus.Publish(ctx, topic, evt)
+}
+
+// TestAdapter_Execute_PropagatesAWarningPublishFailure: the warning that
+// names a withheld secret variable is a job event like any other, and a
+// failure to publish it stops the run rather than going unreported.
+func TestAdapter_Execute_PropagatesAWarningPublishFailure(t *testing.T) {
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    noop:\n      changed: false\n")
+	adapter, err := NewAdapter(&warningFailingBus{}, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	payload := wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
+		Injected: &wire.Injected{ExtraVars: map[string]any{"token": "a-real-bearer-token"}, Mask: []string{"a-real-bearer-token"}},
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err == nil || !strings.Contains(err.Error(), "failed to publish a warning") {
+		t.Fatalf("Execute() = %v, want the warning's publish failure", err)
 	}
 }
 

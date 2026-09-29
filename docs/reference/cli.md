@@ -147,8 +147,12 @@ build, validate, and run a runbook
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
+| --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, and a name given twice is refused |
+| --e | `string` | - | shorthand for --extra-vars |
 
 `pleiades run runbooks/site.yaml`
+
+`pleiades run runbooks/ticket.yaml -e ticket=INC0010001`
 
 `pleiades run runbooks/site.yaml --verbose`
 
@@ -375,6 +379,8 @@ generate a new namespaced Collection method package
 | --capabilities | `string` | - | comma-separated required capability names (e.g. AptCapable) |
 | --transports | `string` | - | comma-separated supported transport names (e.g. ssh) |
 | --requires-elevation | `bool` | `false` | whether this method needs elevated privileges on the target device |
+| --site | `string` | `target` | where the method's code runs: target (on or against the device), controller (in the host process) or hybrid |
+| --device | `string` | `required` | whether the method acts on a device: required, optional (decided per call by a DeviceCall the generated file stubs) or none |
 | --engine-version | `string` | - | minimum core engine version constraint (unparsed, e.g. >=1.0.0) |
 | --doc-json | `string` | - | reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file |
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
