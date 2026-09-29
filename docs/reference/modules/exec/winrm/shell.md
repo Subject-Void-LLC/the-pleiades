@@ -15,6 +15,7 @@ Runs a command on a Windows host over WinRM, naming how it runs. This is exec.sh
 | Capabilities | `WinRMCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since a PowerShell or cmd script can change anything the account can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read |
 | Engine version | `>=0.2.0` |
 

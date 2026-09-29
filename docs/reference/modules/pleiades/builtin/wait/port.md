@@ -15,6 +15,7 @@ Holds the runbook until a TCP port accepts a connection, or until it stops accep
 | Capabilities | `NetworkAddressableCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds |
 | Engine version | `>=0.2.0` |
 

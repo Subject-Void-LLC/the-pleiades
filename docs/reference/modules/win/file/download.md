@@ -15,6 +15,7 @@ Makes sure path on the host holds the file url serves, verified by sha256. This 
 | Capabilities | `WindowsShellCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

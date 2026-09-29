@@ -15,6 +15,7 @@ Makes sure a VM has a snapshot with this name. A snapshot already under the name
 | Capabilities | `VirtualBoxCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

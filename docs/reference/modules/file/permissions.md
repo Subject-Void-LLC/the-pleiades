@@ -15,6 +15,7 @@ Sets the mode, owner and group of a path that already exists, changing only the 
 | Capabilities | `POSIXFileSystemCapable` |
 | Transports | `ssh` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

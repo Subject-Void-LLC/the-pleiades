@@ -15,6 +15,7 @@ Makes sure a VM has no snapshot with this name. None under the name reports no c
 | Capabilities | `VirtualBoxCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

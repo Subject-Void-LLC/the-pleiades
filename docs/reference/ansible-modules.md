@@ -531,12 +531,13 @@ Every finding in a migration report carries one of these codes. The set is close
 | `keyword.check_mode` | blocked | check_mode: true on a method that cannot be checked. | - |
 | `keyword.check_mode_false` | review | check_mode: false dropped: the task now respects a check instead of running for real inside one. | - |
 | `keyword.connection` | review | connection dropped: the transport comes from the device's capabilities. | - |
-| `keyword.delegate_to` | blocked | delegate_to would run the task on another host. | - |
+| `keyword.delegate_to` | blocked | delegate_to would run the task on another host, or on the controller with a native method that runs on the device. | Delegating to localhost converts when the native method runs in the host process. |
 | `keyword.environment` | blocked | environment would change what the command sees. | - |
 | `keyword.failed_when` | blocked | failed_when would make the task fail where the native one passes. | Check the result in a later task's when, or wait for failed_when. |
 | `keyword.ignore_errors` | review | ignore_errors dropped: a failure ends the run instead of continuing. | - |
 | `keyword.ignore_unreachable` | review | ignore_unreachable dropped: an unreachable device fails the run. | - |
-| `keyword.local_action` | blocked | local_action runs on the controller, not the device. | - |
+| `keyword.local_action` | blocked | local_action or connection: local runs the task on the controller, and the native method runs on the device. | - |
+| `keyword.local_satisfied` | info | delegate_to: localhost, local_action or connection: local dropped: the native method already runs in the host process. | - |
 | `keyword.module_defaults` | blocked | module_defaults would change the call's arguments. | - |
 | `keyword.no_log` | blocked | no_log hides output; dropping it could show a secret. | Use register_mask or secret_mask on the fields that hold the secret. |
 | `keyword.notify` | review | notify dropped: the handler will not run. | Run the handler's task explicitly after the change, guarded by when. |

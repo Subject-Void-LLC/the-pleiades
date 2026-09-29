@@ -50,7 +50,7 @@
           "type": "array"
         },
         "params": {
-          "description": "Arguments passed to fqcn. Never templated.",
+          "description": "Arguments passed to fqcn. A string holding {{ }} renders when the task runs, reading vars, nodes and result.",
           "type": "object"
         },
         "register": {
@@ -163,6 +163,10 @@
               "type": "array"
             }
           ]
+        },
+        "within": {
+          "description": "The device name or tag a target rendered from data must stay inside. Required beside a params.target holding {{ }}, refused anywhere else, and written literally.",
+          "type": "string"
         }
       },
       "type": "object"

@@ -290,6 +290,9 @@ story, per `.AGENTS/AGENTS.md`.
 255. **A check predicts each task against the device as it is now; answer "could not check", never a predicted failure, for state an earlier task in the same run may change (2026-09-28).**
 256. **A history read to decide "is this done" must let each step's latest attempt decide, since resume makes retries normal (2026-09-28).**
 257. **Run a recovery feature end to end on real infrastructure, in its awkward orders, before calling it done; the lab found what the container gates could not (2026-09-28).**
+258. **Check a proof about a remote endpoint where the proof is read, against the properties that name the endpoint (2026-09-29).**
+259. **A rule that keeps data out of a command or a host is held at plan time and again at the moment of use (2026-09-29).**
+260. **Give a data-chosen value a literal bound its author wrote, and let the data name only members (2026-09-29).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

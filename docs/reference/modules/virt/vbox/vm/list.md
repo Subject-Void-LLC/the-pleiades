@@ -15,6 +15,7 @@ Reports every VM registered on the host for the account Pleiades reaches it as: 
 | Capabilities | `VirtualBoxCapable` |
 | Transports | `winrm` |
 | Requires elevation | no |
+| Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.2.0` |
 

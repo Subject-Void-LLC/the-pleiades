@@ -138,6 +138,20 @@ an `Invoke` function matching:
 func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error)
 ```
 
+The execution context says two things about where a method runs, and a built-in method
+states both (`internal/archtest` requires it). `Site` is `collection.SiteTarget` for a
+method that acts on or against the device over its connection, `collection.SiteController`
+for one whose code runs in the process running the task (an API call, a local program), and
+`collection.SiteHybrid` for both. `Device` is `collection.DeviceRequired`,
+`collection.DeviceNone`, or `collection.DeviceOptional` with a `Descriptor.DeviceCall` that
+reads the call's params and says whether this call acts on a device, as `http.request`'s does
+(a path on a device's API does, a full URL does not). A call that acts on no device does not
+take its runbook's `hosts:` and runs once, with no device and no credential. `pleiades forge
+new-collection` takes `--site` and `--device`, and an optional device gets a `DeviceCall`
+stub to replace. A parameter whose text lands on a command line or is a URL sets
+`collection.Param.Format` to `ParamFormatCommand` or `ParamFormatURL`, and a runbook that
+renders into it is then held to the matching rule.
+
 A method may also carry a `Check` function with the same signature, declared by
 setting `Manifest.SupportsCheck`. It is what `pleiades run --mode check` calls in
 place of `Invoke`: it reads the device, works out whether a real run would change
