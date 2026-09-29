@@ -105,6 +105,17 @@ type Descriptor struct {
 	// arrives from its Check at run time instead.
 	CheckCall func(params map[string]any) error
 
+	// DeviceCall is, for a method whose device is optional
+	// (ExecutionContext.Device is DeviceOptional), the answer to whether a
+	// call with params acts on a device: http.request with a path on a
+	// device's API does, and with a full URL does not. It reads nothing
+	// but the parameters, so validation can ask it before a run, and it is
+	// nil for every other method. It follows CheckCall's precedent: a
+	// question about a call answered from the call alone. Register refuses
+	// it on a method whose device is not optional, and refuses an optional
+	// device without it (checkExecutionContext).
+	DeviceCall func(params map[string]any) bool
+
 	// Provider is nil for a method compiled into this binary. For a method
 	// an external Collection program provides, it names that program. Only
 	// the loader that runs the program sets it, when it registers the
@@ -199,6 +210,10 @@ func Register(d Descriptor) error {
 	}
 
 	if err := checkSeedsLogin(d); err != nil {
+		return err
+	}
+
+	if err := checkExecutionContext(d); err != nil {
 		return err
 	}
 

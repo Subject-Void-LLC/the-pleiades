@@ -32,6 +32,13 @@ type templateData struct {
 	RequiresElevation bool
 	EngineVersion     string
 
+	// Site and Device are the pkg/collection constant names the manifest's
+	// execution context states, and DeviceCall is whether an optional
+	// device needs its DeviceCall stub.
+	Site       string
+	Device     string
+	DeviceCall bool
+
 	// Doc is the already-rendered Go source for the manifest's Doc
 	// field (see renderDoc), spliced into the template verbatim, or the
 	// empty string when there is no documentation to emit.
@@ -73,6 +80,9 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		Transports:        cfg.Transports,
 		RequiresElevation: cfg.RequiresElevation,
 		EngineVersion:     engineVersionOrDefault(cfg.EngineVersion),
+		Site:              cfg.siteIdentifier(),
+		Device:            cfg.deviceIdentifier(),
+		DeviceCall:        cfg.needsDeviceCall(),
 		Doc:               renderDoc(cfg.Doc),
 	}
 	for _, c := range cfg.Capabilities {

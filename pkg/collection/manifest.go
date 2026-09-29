@@ -56,6 +56,17 @@ type ExecutionContext struct {
 	// RequiresElevation reports whether this method needs elevated
 	// (root/administrator) privileges on the target device.
 	RequiresElevation bool `json:"requiresElevation,omitempty"`
+
+	// Site is where the method's code runs: on or against the device, in
+	// the host process (the CLI, or a Runner), or both. Empty reads as SiteTarget, which is what every
+	// method was before the field existed; every built-in method states it
+	// (internal/archtest).
+	Site Site `json:"site,omitempty"`
+
+	// Device says whether the method acts on a device at all. It decides
+	// whether a task inherits its runbook's hosts: (see Descriptor.NeedsDevice).
+	// Empty reads as DeviceRequired; every built-in method states it.
+	Device DeviceUse `json:"device,omitempty"`
 }
 
 // Reversibility is a method's static answer to one question: can this

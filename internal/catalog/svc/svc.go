@@ -178,7 +178,7 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		// host and a Windows one do not agree on the answer.
 		SupportedTransports:  nil,
 		RequiredCapabilities: []capability.Name{capability.NameServiceManager},
-		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
+		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 		PlatformTargets:      nil,
 		EngineVersion:        ">=0.2.0",
 		Status:               collection.StatusImplemented,

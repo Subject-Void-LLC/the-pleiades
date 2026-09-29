@@ -33,8 +33,10 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	nethttp "net/http"
 	"net/url"
 	"strconv"
@@ -82,6 +84,7 @@ const (
 	requestStatURL     = "url"
 	requestStatElapsed = "elapsed"
 	requestStatMessage = "msg"
+	requestStatJSON    = "json"
 )
 
 // Defaults, each matching ansible.builtin.uri's own.
@@ -117,6 +120,8 @@ func init() {
 			RequiredCapabilities: []capability.Name{},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteController,
+				Device:            collection.DeviceOptional,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
@@ -142,6 +147,9 @@ func init() {
 		Invoke:    Request,
 		Check:     CheckRequest,
 		CheckCall: requestCheckCall,
+		// A path on a device's API needs its target; a full URL needs none,
+		// so such a call skips hosts: and runs once (Phase 117a).
+		DeviceCall: requestDeviceCall,
 	})
 }
 
@@ -193,7 +201,7 @@ func requestDoc() collection.Doc {
 		Summary:     "Makes an HTTP request and reports its status code and body.",
 		Description: "Calls a URL from wherever the task runs, not from the target device, and records the status, body and response headers. A response whose status is not one of the expected ones fails the task, after recording what came back, since the body is usually the only thing that explains the failure. Certificates are verified unless a task says otherwise in its own text. Reporting changed follows the verb: GET, HEAD, OPTIONS and TRACE are read-only by HTTP's own definition and report no change, while any other verb reports a change, because what it did to the far side cannot be inspected from here. That is a deliberate difference from ansible.builtin.uri, which never reports changed at all. Four of that module's parameters are absent rather than accepted and ignored: body_format (the body is sent exactly as written, so set Content-Type in headers), return_content (the body is always recorded), follow_redirects (redirects are always followed), and the url_username and url_password pair (a credential belongs in the credential store, not in a runbook file). Only a request in a safe method (GET, HEAD, OPTIONS or TRACE) can be checked, and a check sends it for real, since reading is all it does. Any other method may change something on the server, so such a call is named as unchecked and sends nothing, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
-			{Name: requestParamURL, Type: "string", Required: true, Description: "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it."},
+			{Name: requestParamURL, Type: "string", Required: true, Description: "The URL to call. It must be http or https: any other scheme is refused rather than attempted, since this method speaks one protocol and a file or ftp URL is a mistake in the runbook rather than a request this could make. A path beginning with one / instead calls the target device's own API: it is joined to the base URL of a generic_http device that onboarding proved (HTTPAPICapable), and only such a request carries a credential, the device's own from the credential store, sent as its http_auth property says. It cannot leave that origin: a scheme, a host, a second leading / and a .. segment are refused, a redirect elsewhere is not followed, and the task may set neither Authorization nor Host. It speaks the device's own TLS (its pinned authority, its client certificate, and any weakening its record allows, reported as a warning), so validate_certs false is refused for it.", Format: collection.ParamFormatURL},
 			{Name: requestParamMethod, Type: "string", Default: "GET", Description: "The HTTP method. It is upper-cased before being sent, because HTTP method names are case sensitive and a server given get will answer 501 rather than doing what the author meant."},
 			{Name: requestParamBody, Type: "string", Description: "The request body, sent exactly as written. Set its Content-Type through headers: nothing here inspects the body or guesses a type for it."},
 			{Name: requestParamHeaders, Type: "dict", Description: "Request headers as a mapping of name to value. Every value must be text, so a numeric one is quoted in the runbook. A Host header is honored as the request's real Host rather than added as an ordinary header, which is what makes name-based routing testable against an address."},
@@ -203,11 +211,12 @@ func requestDoc() collection.Doc {
 		},
 		Returns: []collection.ReturnField{
 			{Name: requestStatStatus, Type: "int", Returned: "always", Description: "The status code the server answered with, recorded even when it is not one of the expected ones."},
-			{Name: requestStatContent, Type: "string", Returned: "always", Description: "The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file."},
+			{Name: requestStatContent, Type: "string", Returned: "always", Description: "The whole response body as text. Held in memory, so this method is for calling an API rather than for fetching a large file: a body over 16 MiB fails the task."},
 			{Name: requestStatHeaders, Type: "dict", Returned: "always", Description: "The response headers, names lower-cased, with a header sent more than once joined by a comma and a space."},
 			{Name: requestStatURL, Type: "string", Returned: "always", Description: "The URL the response actually came from, which differs from the one asked for when redirects were followed."},
 			{Name: requestStatElapsed, Type: "float", Returned: "always", Description: "How long the request took, in seconds, with its fraction kept. Ansible reports whole seconds here, which is zero for every call that went well."},
 			{Name: requestStatMessage, Type: "string", Returned: "always", Description: "The status line, for example \"404 Not Found\", for a person reading a run log."},
+			{Name: requestStatJSON, Type: "any", Returned: "when the response is JSON", Description: "A JSON response body, decoded, so a later task can read one field of it (Ansible uri's own key). Recorded only when the response says its content is JSON (application/json, or a type ending in +json), the body parses as JSON and it is at most 1 MiB; otherwise the key is left out and content still holds the text."},
 		},
 		Examples: []collection.Example{
 			{
@@ -293,12 +302,20 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	content, err := io.ReadAll(resp.Body)
+	// One byte past the bound is read, so a body exactly at it is accepted
+	// and one over it is known to be over without reading the rest.
+	content, err := io.ReadAll(io.LimitReader(resp.Body, requestMaxBodyBytes+1))
 	if err != nil {
 		// A body that stopped arriving partway is a failed request, not a
 		// short one. Reporting the bytes that did arrive as the content
 		// would hand a later condition a truncated document that parses.
 		return collection.Result{}, fmt.Errorf("%s: %s %s: reading the response body: %w", fqcn, spec.method, spec.url, err)
+	}
+	if len(content) > requestMaxBodyBytes {
+		// Refused rather than truncated, for the reason above: a cut body is
+		// a document that may still parse and says something it does not.
+		return collection.Result{}, fmt.Errorf("%s: %s %s: the response body is larger than %d MiB, which this method does not read: it calls an API, it does not fetch a large file",
+			fqcn, spec.method, spec.url, requestMaxBodyBytes>>20)
 	}
 
 	if err := requestRecord(rc, resp, content, elapsed); err != nil {
@@ -693,5 +710,46 @@ func requestRecord(rc sdk.RunbookContext, resp *nethttp.Response, content []byte
 			return err
 		}
 	}
+	// A JSON body is also recorded decoded, so a later task can read one
+	// field of a ticket rather than the whole text (Phase 117a).
+	if decoded, ok := requestJSON(resp.Header.Get("Content-Type"), content); ok {
+		if err := rc.SetStat(requestStatJSON, decoded); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// requestMaxBodyBytes bounds the response body this method reads into
+// memory. The body used to be read with no bound at all, so an API that
+// answered with gigabytes exhausted the memory of the CLI or of the Runner's
+// per-task child (Phase 117a, found while bounding the json stat). A body
+// over it fails the task rather than being cut short.
+const requestMaxBodyBytes = 16 << 20
+
+// requestJSONMaxBytes bounds the body requestJSON decodes. A decoded body
+// is a tree of maps held in memory and carried as a registered value, where
+// the text form is one string, so the bound is the size of a message on the
+// mesh rather than whatever an API chose to send.
+const requestJSONMaxBytes = 1 << 20
+
+// requestJSON decodes content when contentType names JSON
+// (application/json, or any type ending in +json) and it is at most
+// requestJSONMaxBytes, reporting false otherwise. A body that says it is
+// JSON and does not parse is left undecoded rather than failing the task:
+// the status and the text are still recorded, and a task reading json
+// fails on its own absence, naming it.
+func requestJSON(contentType string, content []byte) (any, bool) {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
+		return nil, false
+	}
+	if len(content) == 0 || len(content) > requestJSONMaxBytes {
+		return nil, false
+	}
+	var decoded any
+	if err := json.Unmarshal(content, &decoded); err != nil {
+		return nil, false
+	}
+	return decoded, true
 }

@@ -30,6 +30,8 @@ func init() {
 			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			// TODO(forge): PlatformTargets narrows this manifest to a
 			// specific vendor, model, firmware range, or deployment

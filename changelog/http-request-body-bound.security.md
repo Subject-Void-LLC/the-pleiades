@@ -1,0 +1,1 @@
+`http.request` now refuses a response body over 16 MiB instead of reading it into memory whole, so an API answering with an enormous body can no longer exhaust the memory of `pleiades run` or a Runner. A body over the bound fails the task rather than being cut short.

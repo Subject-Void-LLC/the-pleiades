@@ -331,7 +331,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Description: "Runs cmd inside the container named name, through /bin/sh -c on the daemon's own exec endpoints (pkg/dockerexec), never over SSH. The container must already be running; this method does not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The running container to exec into."},
-				{Name: "cmd", Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them."},
+				{Name: "cmd", Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them.", Format: collection.ParamFormatCommand},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The container this task acted on."},
@@ -347,6 +347,8 @@ var extendedCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "cloud.aws.ec2.create",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceRequired,
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
@@ -379,6 +381,8 @@ var extendedCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "cloud.aws.ec2.terminate",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceRequired,
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
@@ -405,6 +409,8 @@ var extendedCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "cloud.aws.s3.create_bucket",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceRequired,
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
@@ -434,6 +440,8 @@ var extendedCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "cloud.aws.s3.delete_bucket",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceRequired,
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{

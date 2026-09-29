@@ -47,6 +47,8 @@ func init() {
 			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
@@ -75,7 +77,7 @@ func shellDoc() collection.Doc {
 		Summary:     "Runs a command through the target's shell, so pipes and redirects work.",
 		Description: "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the line would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
-			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them."},
+			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them.", Format: collection.ParamFormatCommand},
 			{Name: paramExecutable, Type: "string", Description: "The shell to run the command with, invoked as `<executable> -c <cmd>`. Defaults to the shell the device declares, or /bin/sh."},
 			{Name: paramChdir, Type: "string", Description: "Change into this directory before running, and resolve a relative creates or removes against it too. The command does not run at all if the directory does not exist. Defaults to the device's own working directory, or to wherever the account lands on login."},
 			{Name: paramCreates, Type: "string", Description: "A path whose existence on the target means this work is already done. When it exists, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."},

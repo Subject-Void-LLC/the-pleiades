@@ -75,6 +75,8 @@ func init() {
 				// would demand privilege from every task that only creates a
 				// directory in its own home.
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",

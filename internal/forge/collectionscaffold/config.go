@@ -33,6 +33,17 @@ type Config struct {
 	// RequiresElevation feeds Manifest.ExecutionContext.RequiresElevation.
 	RequiresElevation bool
 
+	// Site feeds Manifest.ExecutionContext.Site: where the method's code
+	// runs. Empty means collection.SiteTarget, and the generated file always
+	// states it, since internal/archtest requires every built-in to.
+	Site collection.Site
+
+	// Device feeds Manifest.ExecutionContext.Device: whether the method
+	// acts on a device. Empty means collection.DeviceRequired. An optional
+	// device generates a DeviceCall stub that answers yes, to be replaced
+	// by the real per-call answer.
+	Device collection.DeviceUse
+
 	// EngineVersion feeds Manifest.EngineVersion, an unparsed constraint
 	// string (see pkg/collection.Manifest's own doc comment for why no
 	// semver library is involved).
@@ -114,6 +125,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("collectionscaffold: empty transport in --transports")
 		}
 	}
+	if err := c.validateExecutionContext(); err != nil {
+		return err
+	}
 	for _, p := range c.Doc.Params {
 		// collection.Register refuses this at process start, which for a
 		// scaffolded file means every binary importing it panics. Saying
@@ -123,4 +137,57 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// validateExecutionContext refuses a site or device use that is not one of
+// pkg/collection's values, and a target-side method that claims an optional
+// device or none, which collection.Register refuses at process start: said
+// here, before a file is written, it is the same rule moved left.
+func (c Config) validateExecutionContext() error {
+	switch c.Site {
+	case "", collection.SiteTarget, collection.SiteController, collection.SiteHybrid:
+	default:
+		return fmt.Errorf("collectionscaffold: site %q is not %s, %s or %s", c.Site, collection.SiteTarget, collection.SiteController, collection.SiteHybrid)
+	}
+	switch c.Device {
+	case "", collection.DeviceRequired, collection.DeviceOptional, collection.DeviceNone:
+	default:
+		return fmt.Errorf("collectionscaffold: device %q is not %s, %s or %s", c.Device, collection.DeviceRequired, collection.DeviceOptional, collection.DeviceNone)
+	}
+	if (c.Site == "" || c.Site == collection.SiteTarget) && (c.Device == collection.DeviceOptional || c.Device == collection.DeviceNone) {
+		return fmt.Errorf("collectionscaffold: a target-side method acts on a device on every call, so device %q needs --site controller or hybrid", c.Device)
+	}
+	return nil
+}
+
+// siteIdentifier is the pkg/collection constant naming c.Site, the target
+// constant when it is empty.
+func (c Config) siteIdentifier() string {
+	switch c.Site {
+	case collection.SiteController:
+		return "SiteController"
+	case collection.SiteHybrid:
+		return "SiteHybrid"
+	default:
+		return "SiteTarget"
+	}
+}
+
+// deviceIdentifier is the pkg/collection constant naming c.Device, the
+// required constant when it is empty.
+func (c Config) deviceIdentifier() string {
+	switch c.Device {
+	case collection.DeviceOptional:
+		return "DeviceOptional"
+	case collection.DeviceNone:
+		return "DeviceNone"
+	default:
+		return "DeviceRequired"
+	}
+}
+
+// needsDeviceCall reports whether the generated method needs a DeviceCall,
+// which only an optional device does.
+func (c Config) needsDeviceCall() bool {
+	return c.Device == collection.DeviceOptional
 }

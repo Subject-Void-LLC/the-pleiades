@@ -31,6 +31,8 @@ func init() {
 			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",

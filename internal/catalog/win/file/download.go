@@ -31,6 +31,8 @@ func init() {
 			},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
+				Site:              collection.SiteTarget,
+				Device:            collection.DeviceRequired,
 			},
 			// TODO(forge): PlatformTargets narrows this manifest to a
 			// specific vendor, model, firmware range, or deployment
@@ -46,7 +48,7 @@ func init() {
 				Summary:     "Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches.",
 				Description: "Makes sure path on the host holds the file url serves, verified by sha256. This is ansible.windows.win_get_url with a checksum it will not run without. A file already at path with that digest reports no change and nothing is downloaded. Otherwise the host fetches url with the curl.exe Windows ships, over HTTPS only, redirects included, into a file beside path, and moves it into place only once its digest matches; a mismatch leaves path as it was and fails, naming the digest it got. A file at path with another digest is replaced. The download is the host's own, so url must be reachable from it; nothing passes through the machine running Pleiades. A check reads path's digest and downloads nothing.",
 				Params: []collection.Param{
-					{Name: "url", Type: "string", Required: true, Description: "The https:// URL to fetch. It may not hold a quote, a space or a control character."},
+					{Name: "url", Type: "string", Required: true, Description: "The https:// URL to fetch. It may not hold a quote, a space or a control character.", Format: collection.ParamFormatURL},
 					{Name: "path", Type: "string", Required: true, Description: "The absolute path on the host to write, as G:\\iso\\ubuntu.ova. Its folder must exist. It may not hold a quote, a wildcard or a control character."},
 					{Name: "sha256", Type: "string", Required: true, Description: "The file's SHA-256, 64 hex digits, as the publisher lists it (Ubuntu's SHA256SUMS, for one)."},
 					{Name: "timeout", Type: "int", Default: "1800", Description: "How many seconds the download may take."},

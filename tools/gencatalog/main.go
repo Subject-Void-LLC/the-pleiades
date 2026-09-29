@@ -345,6 +345,12 @@ func newCollectionArgs(cfg collectionscaffold.Config) ([]string, error) {
 	if cfg.RequiresElevation {
 		args = append(args, "--requires-elevation")
 	}
+	if cfg.Site != "" {
+		args = append(args, "--site", string(cfg.Site))
+	}
+	if cfg.Device != "" {
+		args = append(args, "--device", string(cfg.Device))
+	}
 	if cfg.EngineVersion != "" {
 		args = append(args, "--engine-version", cfg.EngineVersion)
 	}

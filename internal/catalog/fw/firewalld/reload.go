@@ -16,7 +16,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports:  []string{"ssh"},
 			RequiredCapabilities: []capability.Name{capability.NameFirewalld},
-			ExecutionContext:     collection.ExecutionContext{RequiresElevation: true},
+			ExecutionContext:     collection.ExecutionContext{RequiresElevation: true, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			PlatformTargets:      nil,
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
