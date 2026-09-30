@@ -56,6 +56,8 @@ func TestNeedsDocker(t *testing.T) { t.Skip("needs Docker: no daemon answered") 
 
 func TestSkipNow(t *testing.T) { t.SkipNow() }
 
+func TestBareSkip(t *testing.T) { t.Skip() }
+
 func TestTable(t *testing.T) {
 	t.Run("windows", func(t *testing.T) { t.Skipf("needs a real Windows host\nset PLEIADES_WINRM_HOST") })
 	t.Run("linux", func(t *testing.T) {})
@@ -99,6 +101,7 @@ func TestSkips_ReadsEveryShapeOfSkip(t *testing.T) {
 	want := map[string]string{
 		"TestNeedsDocker":   "needs Docker: no daemon answered",
 		"TestSkipNow":       "no reason given",
+		"TestBareSkip":      "no reason given",
 		"TestTable/windows": "needs a real Windows host",
 	}
 	if len(got) != len(want) {

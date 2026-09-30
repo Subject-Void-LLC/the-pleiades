@@ -25,8 +25,8 @@ type Skip struct {
 var skipNoise = regexp.MustCompile(`^(=== (RUN|PAUSE|CONT|NAME)|--- SKIP:)`)
 
 // skipLocation is the "file_test.go:12: " prefix t.Skip puts before its
-// message.
-var skipLocation = regexp.MustCompile(`^\S+\.go:\d+: `)
+// message. A bare t.Skip() prints the prefix alone.
+var skipLocation = regexp.MustCompile(`^\S+\.go:\d+:\s*`)
 
 // Skips returns every test the run skipped, in the order they finished,
 // each with the first line of the message its t.Skip gave. A package with
@@ -68,7 +68,11 @@ func skipReason(lines []string) string {
 			if line == "" || skipNoise.MatchString(line) {
 				continue
 			}
-			return skipLocation.ReplaceAllString(line, "")
+			// A bare t.Skip() leaves only its location, which is not a
+			// reason; keep looking, and say so if there is none.
+			if reason := skipLocation.ReplaceAllString(line, ""); reason != "" {
+				return reason
+			}
 		}
 	}
 	return "no reason given"
