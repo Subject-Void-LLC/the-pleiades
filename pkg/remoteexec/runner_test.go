@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 )
 
 // localPipe returns two ends of a real, loopback TCP connection. It is
@@ -238,7 +240,7 @@ func newTestRunner(dial dialFunc, opts Options) *Runner {
 	opts = applyDefaults(opts)
 	return &Runner{
 		opts:    opts,
-		breaker: newCircuitBreaker(opts.BreakerThreshold, opts.BreakerCooldown),
+		breaker: breaker.New(opts.BreakerThreshold, opts.BreakerCooldown),
 		dial:    dial,
 	}
 }
@@ -632,7 +634,7 @@ func TestConnect_OpenCircuitFailsBeforeAnyOtherWork(t *testing.T) {
 			BreakerThreshold: 1,
 			BreakerCooldown:  time.Hour,
 		}),
-		breaker: newCircuitBreaker(1, time.Hour),
+		breaker: breaker.New(1, time.Hour),
 		dial: func(context.Context, string, *ssh.ClientConfig) (*ssh.Client, error) {
 			atomic.AddInt32(&dialCalls, 1)
 			return nil, errors.New("dial should never be reached")
@@ -730,40 +732,6 @@ func TestConnect_ProbeSurvivesToTheDial(t *testing.T) {
 	}
 }
 
-// TestBreakerPermitted_DoesNotConsumeTheProbe pins the distinction the
-// fix rests on, at the breaker itself: looking must not change anything,
-// and claiming must.
-func TestBreakerPermitted_DoesNotConsumeTheProbe(t *testing.T) {
-	const cooldown = 10 * time.Millisecond
-	const key = "host:22"
-
-	b := newCircuitBreaker(1, cooldown)
-	b.RecordFailure(key) // threshold of one, so the circuit is open
-
-	if b.Permitted(key) {
-		t.Error("Permitted reported true inside the cooldown")
-	}
-	time.Sleep(cooldown + 10*time.Millisecond)
-
-	// Any number of looks must all say yes and leave the probe unclaimed.
-	for i := 0; i < 3; i++ {
-		if !b.Permitted(key) {
-			t.Fatalf("look %d: Permitted reported false after the cooldown elapsed, so it consumed something", i)
-		}
-	}
-
-	// The claim then succeeds exactly once.
-	if !b.Allow(key) {
-		t.Fatal("Allow refused the probe that Permitted said was available")
-	}
-	if b.Allow(key) {
-		t.Error("Allow handed out a second probe while the first was still in flight")
-	}
-	if b.Permitted(key) {
-		t.Error("Permitted reported true while a probe was in flight")
-	}
-}
-
 // TestConnect_HostKeySourceFailureIsReported covers the branch between
 // the breaker check and the dial: a known_hosts source that cannot be
 // loaded is a hard refusal, not something Connect proceeds past.
@@ -776,7 +744,7 @@ func TestConnect_HostKeySourceFailureIsReported(t *testing.T) {
 	// A closed circuit, so the breaker cannot be what refuses this.
 	r := &Runner{
 		opts:    applyDefaults(Options{KnownHostsPath: filepath.Join(t.TempDir(), "absent")}),
-		breaker: newCircuitBreaker(5, time.Minute),
+		breaker: breaker.New(5, time.Minute),
 		dial:    dial,
 	}
 
@@ -843,27 +811,5 @@ func TestDialWithRetry_AlreadyCanceledContextNeverDials(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&dialCalls); got != 0 {
 		t.Errorf("expected no dial on an already-canceled context, got %d", got)
-	}
-}
-
-// TestBreakerPermitted_ClosedCircuitAllowsEveryLook covers the ordinary
-// state: a target with no failures on record, and one whose streak a
-// success has cleared.
-func TestBreakerPermitted_ClosedCircuitAllowsEveryLook(t *testing.T) {
-	b := newCircuitBreaker(3, time.Hour)
-	const key = "host:22"
-
-	if !b.Permitted(key) {
-		t.Error("Permitted refused a target with no history at all")
-	}
-
-	b.RecordFailure(key) // one of three, so still closed
-	if !b.Permitted(key) {
-		t.Error("Permitted refused a target below the failure threshold")
-	}
-
-	b.RecordSuccess(key)
-	if !b.Permitted(key) {
-		t.Error("Permitted refused a target whose streak a success cleared")
 	}
 }

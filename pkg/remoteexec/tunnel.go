@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 )
 
@@ -171,18 +172,20 @@ func (c *hopTunneledConn) Close() error {
 type finalDialFunc func(ctx context.Context, addr string) (net.Conn, error)
 
 // dialFinalLegWithRetry mirrors dialWithRetry exactly (the same breaker
-// check, the same jittered exponential backoff, the same errCircuitOpen
+// check, the same jittered exponential backoff, the same breaker.ErrOpen
 // short-circuit that stops the loop immediately instead of exhausting
 // retries against an open circuit), for DialThroughHops' own final leg,
 // which returns a net.Conn rather than a *ssh.Client and so cannot reuse
 // dialWithRetry's own concrete-typed signature directly.
 func (r *Runner) dialFinalLegWithRetry(ctx context.Context, dial finalDialFunc, addr string) (net.Conn, error) {
 	fn := func(ctx context.Context) (net.Conn, error) {
-		if !r.breaker.Allow(addr) {
-			return nil, fmt.Errorf("%w for %s, too many recent failures", errCircuitOpen, addr)
-		}
+		// The context comes first, for the reason dialWithRetry gives
+		// (FAILURE_PATTERNS 398).
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if !r.breaker.Allow(addr) {
+			return nil, fmt.Errorf("%w for %s, too many recent failures", breaker.ErrOpen, addr)
 		}
 
 		conn, err := dial(ctx, addr)
@@ -196,7 +199,7 @@ func (r *Runner) dialFinalLegWithRetry(ctx context.Context, dial finalDialFunc, 
 	delay := func(attempt int) time.Duration {
 		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
 	}
-	retryable := func(err error) bool { return !errors.Is(err, errCircuitOpen) }
+	retryable := func(err error) bool { return !errors.Is(err, breaker.ErrOpen) }
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
 }

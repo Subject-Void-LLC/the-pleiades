@@ -9,13 +9,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 )
-
-// errCircuitOpen is the sentinel dialWithRetry's own retryable predicate
-// checks for: a circuit open refusal must stop the loop immediately,
-// never be treated as just another failed-dial attempt worth retrying.
-var errCircuitOpen = errors.New("circuit open")
 
 // dialFunc dials addr and returns a fully handshaken SSH client, or an
 // error if the TCP connection or the SSH handshake failed.
@@ -124,16 +120,21 @@ func closeOnDone(ctx context.Context, conn net.Conn) (stop func()) {
 // every attempt (each call into fn below is one attempt). A circuit that
 // opens partway through this loop (possible whenever MaxRetries is at
 // least BreakerThreshold) stops dialing at once instead of exhausting the
-// remaining attempts: errCircuitOpen is the one error retryable reports
+// remaining attempts: breaker.ErrOpen is the one error retryable reports
 // false for, so retry.Do returns immediately rather than sleeping and
 // trying again.
 func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	fn := func(ctx context.Context) (*ssh.Client, error) {
-		if !r.breaker.Allow(addr) {
-			return nil, fmt.Errorf("%w for %s, too many recent failures", errCircuitOpen, addr)
-		}
+		// The context comes first. Allow hands out the half-open probe,
+		// and only a recorded outcome gives it back, so a call that
+		// claimed it and then returned for a done context kept it and
+		// latched the circuit half-open for the life of the process
+		// (FAILURE_PATTERNS 398). A done context has nothing to record.
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if !r.breaker.Allow(addr) {
+			return nil, fmt.Errorf("%w for %s, too many recent failures", breaker.ErrOpen, addr)
 		}
 
 		client, err := dial(ctx, addr, config)
@@ -147,7 +148,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 	delay := func(attempt int) time.Duration {
 		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
 	}
-	retryable := func(err error) bool { return !errors.Is(err, errCircuitOpen) }
+	retryable := func(err error) bool { return !errors.Is(err, breaker.ErrOpen) }
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
 }

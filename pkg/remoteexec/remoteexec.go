@@ -51,6 +51,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 )
 
 // Default tuning values, applied by applyDefaults to any Options field
@@ -71,12 +73,13 @@ const (
 	defaultMaxRetries = 3
 
 	// defaultBreakerThreshold is how many consecutive dial failures
-	// against one target open its circuit.
-	defaultBreakerThreshold = 5
+	// against one target open its circuit: pkg/breaker's default, shared
+	// with the WinRM transport.
+	defaultBreakerThreshold = breaker.DefaultThreshold
 
 	// defaultBreakerCooldown is how long an open circuit stays
 	// fast-failing before it allows exactly one half-open probe dial.
-	defaultBreakerCooldown = 30 * time.Second
+	defaultBreakerCooldown = breaker.DefaultCooldown
 
 	// defaultBackoffBase and defaultBackoffMax bound the jittered
 	// exponential backoff (pkg/retry.Backoff) between dial attempts
@@ -215,7 +218,9 @@ type Runner struct {
 	// short-circuits a call while a target's circuit is open. It is
 	// per-Runner, which is why Shared exists: a Runner constructed fresh
 	// for every task would carry a breaker that has never seen a failure.
-	breaker *circuitBreaker
+	// It is unexported on purpose: pkg/breaker is public, but no caller
+	// outside this package may reach a circuit a Runner owns.
+	breaker *breaker.Breaker
 
 	// dial performs the dial plus handshake. New sets this to realDial;
 	// only this package's own tests substitute anything else.
@@ -234,7 +239,7 @@ func New(opts Options) *Runner {
 	opts = applyDefaults(opts)
 	return &Runner{
 		opts:    opts,
-		breaker: newCircuitBreaker(opts.BreakerThreshold, opts.BreakerCooldown),
+		breaker: breaker.New(opts.BreakerThreshold, opts.BreakerCooldown),
 		dial:    realDial,
 	}
 }
@@ -444,7 +449,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		// is where the dial happens, so the loop is where the probe is
 		// claimed.
 		if !r.breaker.Permitted(leg.addr) {
-			return nil, fmt.Errorf("remoteexec: circuit open for %s, too many recent failures", leg.addr)
+			return nil, fmt.Errorf("remoteexec: %w for %s, too many recent failures", breaker.ErrOpen, leg.addr)
 		}
 
 		// Step 2: build this leg's own host key check. A host key source
