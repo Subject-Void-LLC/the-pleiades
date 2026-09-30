@@ -11241,3 +11241,21 @@ reader does not page at all rather than blaming the fixture.
 
 **Lesson.** A test's skip has to distinguish "nothing to check" from "the check found nothing", or its most
 important failure reads as a missing fixture.
+
+## 413. A dependency update moved grpc from a patched release to one that reintroduced a vulnerability, and the gate passed
+
+**Symptom.** 2026-09-30, `chore/dependency-updates` moved every direct module to its latest, grpc among them
+(1.83.2 to 1.84.0), and `make push-gate` passed. Its `govulncheck` summary had changed from 0 to 1
+"vulnerability in packages you import": GO-2026-6443, a server panic in grpc's HTTP/2 transport and xDS routing
+on a request with neither `:authority` nor `Host`. The advisory's ranges: fixed in 1.83.2, reintroduced in
+1.84.0, and since fixed only in an unreleased 1.85 build. Nothing here calls the vulnerable functions; the
+package came in through `internal/inventory/onboard`'s gRPC probe.
+
+**Root cause.** Latest is not the same as fixed: a newer release can lack a patch an older point release
+carries. And `make govulncheck` fails only when this module calls a vulnerable function, so a vulnerable
+package newly imported is a changed number in a summary no step compares with anything.
+
+**Fix.** grpc stays at 1.83.2, with the reason in the commit; the imported count is 0 again.
+
+**Lesson.** After a dependency update, compare `govulncheck`'s imported and required counts with the base
+branch's, not only its exit status. A count that rises is a regression even when nothing calls it yet.
