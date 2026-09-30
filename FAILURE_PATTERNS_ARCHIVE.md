@@ -11276,3 +11276,27 @@ has one is left alone.
 
 **Lesson.** A summary that trims output has to trim toward the evidence, not toward the end; for a test, the
 evidence is what the test's own file said.
+
+## 415. Phase 118's Documentation Gate was ticked while most of what it named still described the old gate
+
+**Symptom.** 2026-09-30, asked "are you updating IMPLEMENTATION.md accurately?", an audit of Phase 118's ticked
+items against the code found the Documentation Gate ticked since 2026-09-29 over documents that still described
+the gate Phase 118 replaced. The Makefile said the pre-push hook runs the gate, that the workflow runs no tests,
+and that `push-gate` swaps in three tolerant targets nothing called any more; `flaky-packages.json`'s header said
+a listed package's failure is a warning; `testgate`'s and `flakegate`'s package comments described the same rule;
+docs/11 listed part of `make ci` as all of it. Three pushes went out on that tick. The same audit found two
+items describing their plan rather than what was built (a `-tier` flag and a `ci-coverage` target, neither of
+which exists), a secrets claim made false by a later change, and a clean-room pass a day older than the code.
+
+**Root cause.** The item was ticked after editing some of the documents it names, not after reading each of
+them against what the code runs. The one phrase changed in the flaky list's header was the one being looked at.
+And nothing re-read a ticked item when later work changed what it claimed.
+
+**Fix.** Every named document was read against the targets and code it describes and corrected
+(`b755584f`, `15b1dba1`); the dead targets and `coverage-check -tolerant` were removed rather than re-described;
+the deviations were written into their items; the clean room was re-run on the committed tip; the Documentation
+Gate was unticked until then and re-ticked with that evidence.
+
+**Lesson.** Tick a documentation item after reading every document it names against the code, not after editing
+the ones in view. Before a push, re-read the ticked items later work touched: a tick records one moment, and a
+push asserts the present.

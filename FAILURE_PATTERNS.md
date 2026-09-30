@@ -417,6 +417,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
 413. A dependency update moved grpc from a patched release to one that reintroduced a vulnerability, and the gate passed
 414. A tolerated failure's printed output was fifteen lines of teardown and not one word of why
+415. Phase 118's Documentation Gate was ticked while most of what it named still described the old gate
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -39,7 +39,10 @@ most, heavy commands under `~/.local/bin/capped`, the lab provisioned by The Ple
 ### Open
 
 1. **`chore/dependency-updates`:** its gate and push (see the final message), then a PR against the Phase
-   118 branch. Offered, not built: make `govulncheck` fail on a vulnerable package this module imports, with a
+   118 branch. It carries Phase 118's last two commits by merge (`4a5dec95`): the tolerant targets nothing
+   called were removed and every document the Documentation Gate names was read against the code and
+   corrected, after an audit found that item ticked over stale documents (FAILURE_PATTERNS 415). Phase 118 is
+   14 of 15; only its Release Gate, which needs the first GitHub run, is open. Offered, not built: make `govulncheck` fail on a vulnerable package this module imports, with a
    waiver file, so a regression like 413 cannot pass silently.
 2. **The first real CI run** needs a pull request, which closes Phase 118's Release Gate item.
 3. Three views' readers ignore paging (`credential-types`, `credentials`, `projects`): a design decision, and the
