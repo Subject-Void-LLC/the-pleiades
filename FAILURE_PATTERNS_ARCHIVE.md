@@ -11064,3 +11064,23 @@ just before it sleeps, so the sleep always meets a done context: eight race-enab
 **Lesson.** A coverage floor of 100% states that every branch runs every time, and a branch reached only by
 winning a timing race breaks that promise on a busier machine. When a floor drops with no code change, find
 the block that moved and write the test that reaches it on purpose, rather than lowering the floor.
+
+## 405. A package's coverage was read from the run where a contended test stopped partway, so contention looked like a coverage drop
+
+**Symptom.** 2026-09-30, the third run of Phase 118's gate: `internal/ent/migrate: 86.2% dropped below its
+floor of 86.5%`. The same run had tolerated `TestApply_APartitionedWinnerReleasesItsClaim` in that package,
+which failed under load and passed when re-run alone.
+
+**Root cause.** The one pass records each package's coverage from the run itself, and a test that fails
+partway runs fewer statements, so a package with a contention failure reports a partial number. The old
+tolerant coverage run avoided this by accident: it dropped a failed package's number, which left that
+package's floor unchecked (FAILURE_PATTERNS 403's shape). Reading the number instead of dropping it was right;
+trusting it was not.
+
+**Fix.** When a failure is judged contention, `testgate` re-runs that whole package alone with the same
+arguments and records its coverage from that run; a package that fails even alone becomes a confirmed
+failure (`remeasure`, proved by `TestRun_ContentionIsReMeasuredAlone`, whose test fails once and then
+passes, so the partial run measures 50% and the re-measure 100%).
+
+**Lesson.** A tolerated failure means the test is fine; it does not make the run's other numbers fine. Any
+measurement taken from a run you have decided to forgive has to be taken again from the run you trust.

@@ -407,6 +407,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 402. testgate named a failing test and never said why it failed
 403. A coverage floor for a package deleted seven weeks earlier was never read, so the ratchet guarded nothing there
 404. A branch covered only when a timer lost a race dropped pkg/retry below its floor once coverage ran under -race
+405. A package's coverage was read from the run where a contended test stopped partway, so contention looked like a coverage drop
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
