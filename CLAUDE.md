@@ -261,8 +261,15 @@ When touching any of the above, do not describe it as more finished than it is -
 ## Common commands
 
 ```bash
-make ci              # the whole gate, run LOCALLY: build vet fmt test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
-make ci-remote       # what GitHub Actions runs: `ci` minus test-race, test-repeat, test-integration and coverage - no tests at all
+make doctor          # what this machine can and cannot verify, and the command that fixes each gap; start here
+make ci              # the whole strict gate: build vet fmt test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+make test-full       # the one test pass (Phase 118): -race, -tags integration, -cover, -count=1, strict; records coverage in .coverage/
+make ci-fast         # every container-free package, tolerant, then test-repeat: the fast loop, needs no Docker (a CI job)
+make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
+make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
+make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
+make ci-remote       # the static checks: `ci` minus every test target
+make workflow-lint   # actionlint (pinned) over .github/workflows
 make build            # go build ./...
 make test             # go test ./...
 make test-race        # go test -race ./...   (required before calling anything "verified" per RULE 0)
@@ -275,28 +282,43 @@ make coverage           # go run ./tools/coverage-check - ratchet against covera
 make arch               # go test ./internal/archtest/...  - Section 25 layering rules as a real test
 make docs-lint          # go run ./tools/docs-lint - fails if a gitignored internal doc is cited anywhere a user could see it
 make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
-make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
+make tools              # installs gosec/govulncheck/actionlint at the Makefile's pinned versions; no-op when already correct
 make hooks              # once per clone: point core.hooksPath at .githooks, enabling all three hooks below
 make lsp                # verify gopls answers over MCP for this module (the agent's LSP tooling)
 make commitgate         # go run ./tools/commitgate: the commit-time gate, against whatever is staged right now
-make push-gate           # everything `ci` runs, with test-race/test-integration/coverage swapped for tolerant equivalents; warns instead of failing on flaky-packages.json packages
+make push-gate           # everything `ci` runs, with test-full's tolerant twin: a failure that passes re-run alone is reported, not blocking
 ```
 
-**The test suite runs locally and only locally. GitHub Actions runs no tests.**
-`.github/workflows/ci.yml` checks out, sets up Go from `go.mod`, installs the pinned
-tools and Helm, and runs `make ci-remote` - `ci` minus `test-race`, `test-repeat`,
-`test-integration` and `coverage`, i.e. compilation on three operating systems, `vet`
-under both tag sets, `gofmt`, `go mod tidy -diff`, `gosec`, `govulncheck`, the
-docs/`templ` regeneration checks and the Helm chart lint. Nothing there proves a single
-test passes. The reason is that the full job never once went green on a hosted runner:
-around twenty packages provision real ephemeral containers through `testcontainers-go`,
-`make ci` runs the suite three times over plus a fourth pass inside
-`tools/coverage-check`, and several of those packages are deliberately
-timing-sensitive (`internal/event`'s Phase 96a gate severs a real broker for 150
-seconds). A permanently red gate gates nothing. So `make ci` is now a gate a human runs,
-and `.githooks/pre-push` (`make hooks`, once per clone) is what stops an ungated commit
-being pushed: it verifies the receipt that run left behind, rather than running the gate
-itself. See below for why that distinction is load bearing.
+**Tests run in GitHub Actions again (Phase 118), split by what they need.** Until then the
+workflow ran no tests, because `make ci` never went green on a hosted runner: it ran the
+suite three and a half times in one job (test-race, test-repeat, test-integration, which
+reran every ordinary test under the tag, and a fourth run inside `tools/coverage-check`),
+pulled every image anonymously from Docker Hub, and ran on two cores. Now `ci.yml` has
+jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast`, Ubuntu
+required, macOS advisory until it has passed once), `containers` (`make ci-containers`,
+four shards, images restored from a cache keyed on `tools/testimages`' list, with an
+optional read-only `DOCKERHUB_TOKEN`), `coverage` (`make coverage-measured` over the
+numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance) and an
+experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
+make target, so there is still no CI-only step. The pull-request jobs use push-gate's
+rule (a failure that passes re-run alone is contention, named in the job summary); the
+nightly job does not, so a real concurrency bug that the rule cannot tell from contention
+is still counted. Every `tools/testgate` run ends with a skip ledger (each skipped test and
+its reason), because a skipped gate and a passing one used to print the same nothing.
+
+**One test pass instead of three.** `make test-full` runs `go test -tags integration -race
+-cover -count=1` once, through `tools/testgate`, container-free packages together and
+container packages `DOCKER_TEST_PARALLELISM` at a time, and writes each package's coverage
+to `.coverage/`; `make coverage-measured` checks the floors from those numbers and fails a
+floored package with no number (its tests failed or never ran). It is safe only while no
+file is tagged `!integration`, which `tools/internal/flakegate`'s
+`TestNothingIsExcludedByTheIntegrationTag` holds true. The old `test-race`,
+`test-integration` and `coverage` targets stay for a developer who wants one alone.
+
+The local receipt still exists: `.githooks/pre-push` (`make hooks`, once per clone)
+verifies the receipt `make push-gate` or `make ci` left behind rather than running the
+gate itself. See below for why that distinction is load bearing. What CI proves and the
+receipt proves now overlap; the receipt is the personal safety net, CI is what others see.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
@@ -373,11 +395,10 @@ receipt used to name HEAD as it was when the gate's last line ran, twenty minute
 first, so a commit made in that window collected a receipt for a tree nothing had examined
 and nothing could notice, since committing leaves the tree clean.
 
-`push-gate` itself is every check `ci` runs, with `test-race`/`test-integration` swapped for `tools/testgate`'s own
-invocations and `coverage` swapped for `go run ./tools/coverage-check -tolerant` (that
-tool runs its own separate full `go test ./... -cover` internally, so it needed the
-identical tolerance applied a second time, not just once at the test-race/
-test-integration layer). Both re-run every failure **alone** and decide on that: a test
+`push-gate` itself is every check `ci` runs, with `test-full` swapped for `push-gate-full`,
+the same one pass through `tools/testgate` without `-strict`; coverage comes from that pass
+(`coverage-measured`), so it no longer needs a tolerant run of its own. It re-runs every
+failure **alone** and decides on that: a test
 that passes by itself lost a race and is printed as a warning, a test that fails again
 fails the push, and more failures than `flakegate.MaxIsolationRetries` distinct tests fails
 without re-running anything, because that many at once is a change that broke something
@@ -390,17 +411,16 @@ This exists because packages that provision real ephemeral Docker containers or 
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
 flake under this kind of sandboxed environment's full parallel `-race` load -
-`FAILURE_PATTERNS.md` #61 - and pass individually every time. `make ci` itself is
-completely unaffected by any of this and stays exactly as strict. A build failure still
+`FAILURE_PATTERNS.md` #61 - and pass individually every time. `make ci` runs the same pass
+with `-strict`, which re-runs nothing, and stays exactly as strict. A build failure still
 fails `push-gate` exactly like `ci`, and so does any test that fails a second time on its
 own.
 
-Read that tolerance more carefully now than you would have before: there is no stricter
-run waiting downstream of a push any more. `push-gate` used to be a preview of a gate
-GitHub would apply again in full; it is now the last automatic check anything gets. A
-package listed in `flaky-packages.json` without a real, written, observed reason is a
-package nothing checks anywhere, so run `make ci` itself - not just `push-gate` - before
-calling work verified.
+Read that tolerance carefully all the same. The pull-request CI jobs apply the same rule,
+so the only strict runs are `make ci` and the nightly CI job, and a real concurrency bug
+fails together and passes alone exactly like contention. Watch the tolerated failures each
+job summary names: a test that appears there run after run is not contention. Run `make ci`
+itself, not just `push-gate`, before calling work verified.
 
 Single test / single package:
 

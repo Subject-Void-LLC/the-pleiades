@@ -972,7 +972,7 @@ the refusal. That test is also how you find out whether your requirement is the
 right one, which is not obvious until something is checking it.
 
 Beyond that, follow this repository's own
-`make ci` (`build vet fmt test-race gosec govulncheck coverage docs-lint
-docs-gen-check`) and `coverage-floor.json`'s ratchet: a new package starts
+`make ci` (`build vet fmt test-full gosec govulncheck coverage-measured docs-lint
+docs-gen-check`, and `make ci-fast` while you work) and `coverage-floor.json`'s ratchet: a new package starts
 untracked (informational, not a failing gate) and is expected to get a real floor
 entry soon after, per that file's own stated convention.

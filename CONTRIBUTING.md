@@ -11,10 +11,18 @@ contributions land against a moving DSL and catalog.
 Once per clone:
 
 ```bash
+make doctor                                  # what this machine can verify, and how to fix each gap
+make tools                                   # the pinned gosec, govulncheck and actionlint
+make hooks                                   # the commit and push hooks
 go install golang.org/x/tools/gopls@latest   # editor/LSP tooling; not run by CI
 make lsp                                     # check that language server works on this tree
-make hooks                                   # run make ci automatically before each push
 ```
+
+`make doctor` takes seconds and answers the questions that used to surface an hour into a
+gate run: whether your Go toolchain is the one `go.mod` asks for, whether a Docker daemon
+answers, whether the pinned scanners and hooks are installed, and which optional gates
+(a real Windows host, the VirtualBox lab, pywinrm) this machine will skip. Each line that
+needs attention names the command that fixes it.
 
 `make lsp` is worth running even if you never open an editor here. The repository's
 `.mcp.json` exposes `gopls mcp`, the language server's headless mode, to AI coding
@@ -28,15 +36,29 @@ version `go.mod` asks for. It takes about a second once the build cache is warm.
 Then, to check a change:
 
 ```bash
-make ci
+make ci-fast   # every package that starts no container: minutes, and needs no Docker
+make ci        # everything, strictly: needs Docker, and takes a while
 ```
 
-`make ci` runs everything a pull request must pass: build, `go vet`, `gofmt` (a hard
-failure, not an auto-fix, so a PR is expected to already be formatted), `go test -race
-./...`, `gosec`, `govulncheck`, the coverage ratchet, `docs-lint`, and `docs-gen-check`.
+`make ci-fast` is the loop to run while you work. It is also exactly what the `fast` CI
+job runs, so a pass here is a pass there. `make ci` runs everything a pull request must
+pass: build, `go vet`, `gofmt` (a hard failure, not an auto-fix, so a PR is expected to
+already be formatted), the whole test suite once (`make test-full`: race detector,
+integration tag, coverage recorded), `gosec`, `govulncheck`, the coverage ratchet from
+the numbers that run recorded, `docs-lint`, `docs-gen-check`, and a lint of the CI
+workflow itself.
 
-Do not install `gosec` or `govulncheck` by hand. `make ci` installs them itself, at the
-versions pinned in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`), and the CI
+Every test run ends with a list of the tests it skipped and why. A test that needs Docker,
+a real Windows host or a tool you do not have skips rather than fails, so read that list
+before reading a green run as "everything passed".
+
+`make test-clean-room` runs the fast tier inside a pinned Go container, as an
+unprivileged user with an empty home directory and no git identity, from a fresh clone of
+your last commit. It is the closest this repository gets to "does it work on someone
+else's machine", and it is how a test that quietly depends on your environment is found.
+
+Do not install `gosec`, `govulncheck` or `actionlint` by hand. `make ci` installs them itself, at the
+versions pinned in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`, `ACTIONLINT_VERSION`), and the CI
 workflow installs them by calling the same `make tools` target. That is what makes a
 local `make ci` and the CI job run byte-identical scanners, so a pass here means
 something about what will happen there. Installing your own `@latest` copy defeats it:
@@ -71,9 +93,25 @@ push with `git push --no-verify`.
 Do not read a local pass as a CI pass, in either direction. `govulncheck` queries a live
 vulnerability database, so a newly published advisory can turn a commit red hours after it
 passed here; the version pin closes the gap under this project's control and does not
-pretend to eliminate it. In the other direction, the hosted job runs `make ci-remote`,
-which runs no tests at all, so every test result this project has comes from a run like
-the one above.
+pretend to eliminate it. In the other direction, the pull-request jobs tolerate a failure
+that passes when re-run alone, as `make push-gate` does, while `make ci` and the nightly
+job do not.
+
+### What CI runs
+
+Every job calls a `make` target, so you can run exactly what a job ran:
+
+| Job | Target | What it proves |
+| --- | --- | --- |
+| `ci` | `make ci-remote` | build, vet, format, scanners, generated files, on Linux, macOS and Windows |
+| `fast` | `make ci-fast` | every container-free package, and each three times over |
+| `containers` | `make ci-containers SHARD=k/4` | the container packages, in four shards |
+| `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded |
+| `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |
+
+The `containers` job restores its images from a cache and only pulls on a miss. A
+maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
+raise Docker Hub's pull limit; a pull request from a fork runs without it.
 
 ### Coverage
 
