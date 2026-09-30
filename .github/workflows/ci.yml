@@ -136,6 +136,12 @@ jobs:
       - name: Allow unprivileged user namespaces
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      # The serial-over-PTY tests skip without socat, which the runner image
+      # does not ship; the clean room's skip ledger is what showed six of
+      # them never running.
+      - name: Install socat for the PTY-backed serial tests
+        if: runner.os == 'Linux'
+        run: sudo apt-get install --yes --no-install-recommends socat
       - name: make ci-fast
         env:
           PLEIADES_TEST_REQUIRE: ${{ runner.os == 'Linux' && 'userns' || '' }}
