@@ -131,6 +131,12 @@ names the floor as unchecked instead of failing a change that never touched it. 
 recorded on a machine with LocalStack cannot be checked on one without it, and saying so
 is the honest answer; `PLEIADES_TEST_REQUIRE` makes a need mandatory for a run.
 
+A test container is ready when it answers through its mapped host port, not when it logs
+that it started: wait for the log line and then `testsupport.ForGreeting` (`SSHGreeting` for
+an SSH server), or `wait.ForHTTP` for an HTTP one. A log line is said inside the container,
+before Docker may be forwarding the port, and a test whose first call does not retry fails in
+that gap.
+
 ### Security findings
 
 `gosec-waivers.json` accepts a finding only with an individually written reason, never

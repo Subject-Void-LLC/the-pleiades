@@ -2,11 +2,7 @@
 package testsupport
 
 import (
-	"bufio"
 	"fmt"
-	"io"
-	"net"
-	"strings"
 	"time"
 )
 
@@ -40,22 +36,7 @@ func waitForNATSGreeting(addr string, within, attempt time.Duration) error {
 }
 
 // readNATSGreeting makes one connection to addr, under a deadline of
-// timeout, and reads its first line.
+// timeout, and reads its first line, which must be a NATS greeting.
 func readNATSGreeting(addr string, timeout time.Duration) error {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = conn.Close() }()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-		return err
-	}
-	line, err := bufio.NewReader(io.LimitReader(conn, 64<<10)).ReadString('\n')
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(line, "INFO ") {
-		return fmt.Errorf("the server there opened with %q, not a NATS greeting", strings.TrimSpace(line[:min(len(line), 40)]))
-	}
-	return nil
+	return readGreeting(addr, "INFO ", "NATS", timeout)
 }

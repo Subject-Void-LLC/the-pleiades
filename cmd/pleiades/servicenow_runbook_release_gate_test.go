@@ -109,7 +109,15 @@ func startServiceNo(t *testing.T) snowInstance {
 			},
 			Cmd: []string{"python3", "/serviceno/serviceno.py", "--port", "8443", "--password", serviceNoPassword,
 				"--tls-cert", "/serviceno/cert.pem", "--tls-key", "/serviceno/key.pem"},
-			WaitingFor: wait.ForLog("ServiceNo! listening").WithStartupTimeout(2 * time.Minute),
+			// Any HTTP answer through the mapped port will do (the mock
+			// refuses an unauthenticated request); the log line alone is
+			// said inside the container (FAILURE_PATTERNS 408).
+			WaitingFor: wait.ForAll(
+				wait.ForLog("ServiceNo! listening").WithStartupTimeout(2*time.Minute),
+				wait.ForHTTP("/").WithPort("8443/tcp").WithTLS(true).WithAllowInsecure(true).
+					WithStatusCodeMatcher(func(int) bool { return true }).
+					WithStartupTimeout(2*time.Minute),
+			),
 		},
 		Started: true,
 	})

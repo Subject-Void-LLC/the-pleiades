@@ -72,8 +72,11 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 			ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
 			FileMode:          0o644,
 		}},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
-		Networks:   []string{nw.Name},
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
+		),
+		Networks: []string{nw.Name},
 		NetworkAliases: map[string][]string{
 			nw.Name: {"sshbastion"},
 		},

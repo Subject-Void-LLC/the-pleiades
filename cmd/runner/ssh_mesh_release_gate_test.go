@@ -84,7 +84,10 @@ func startSSHContainer(t *testing.T) (testcontainers.Container, string, int) {
 			"USER_NAME":       releaseGateSSHUser,
 			"USER_PASSWORD":   releaseGateSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
+		),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
