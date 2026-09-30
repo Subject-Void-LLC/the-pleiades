@@ -40,12 +40,9 @@ func TestGoTestTimeoutMatchesMakefile(t *testing.T) {
 	}
 }
 
-// TestParseCoverageOutput_HandlesPassAndFailLines proves the shared
-// scanner both measureCoverage (fed a real go test invocation's raw
-// stdout) and measureCoverageTolerant (fed a reconstruction of go test
-// -json's own Output fields, empirically verified to carry the identical
-// lines) rely on reads a package's percentage regardless of whether that
-// package's own tests passed, matching the real behavior verified
+// TestParseCoverageOutput_HandlesPassAndFailLines proves the scanner
+// measureCoverage relies on reads a package's percentage regardless of
+// whether that package's own tests passed, matching the real behavior verified
 // directly against `go test -json -cover` on a deliberately failing
 // package: go test still prints "coverage: X% of statements" for a
 // package whose tests failed.
