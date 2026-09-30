@@ -116,8 +116,9 @@ func run(o options) error {
 	// the measurement it made; coverage-check never runs after a failed
 	// gate step, so this cannot turn a failure into a pass.
 	coverage := flakegate.Coverage(events)
+	missing := flakegate.Missing(skips)
 	if o.coverageOut != "" {
-		if err := writeCoverage(o.coverageOut, coverage); err != nil {
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
 			return err
 		}
 	}
@@ -158,7 +159,7 @@ func run(o options) error {
 	if o.coverageOut != "" && len(contention) > 0 {
 		failedAgain := remeasure(args, contention, coverage)
 		confirmed = append(confirmed, failedAgain...)
-		if err := writeCoverage(o.coverageOut, coverage); err != nil {
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
 			return err
 		}
 	}

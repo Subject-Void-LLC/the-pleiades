@@ -57,6 +57,32 @@ func TestRequire(t *testing.T) {
 	}
 }
 
+// TestLocalStackToken covers the token helper's three answers: a token is
+// returned, its absence skips naming localstack (the reason a gate reads
+// to tell a package measured without it), and its absence fails a run
+// that requires it.
+func TestLocalStackToken(t *testing.T) {
+	t.Setenv(RequireEnv, "")
+	t.Setenv(LocalStackTokenEnv, "not-a-real-token")
+	if got := LocalStackToken(&recordingTB{}); got != "not-a-real-token" {
+		t.Errorf("LocalStackToken = %q, want the variable's value", got)
+	}
+
+	t.Setenv(LocalStackTokenEnv, "")
+	r := &recordingTB{}
+	LocalStackToken(r)
+	if !strings.HasPrefix(r.skip, "needs localstack: ") || !strings.Contains(r.skip, LocalStackTokenEnv) {
+		t.Errorf("skip %q does not name localstack and the variable to set", r.skip)
+	}
+
+	t.Setenv(RequireEnv, "localstack")
+	r = &recordingTB{}
+	LocalStackToken(r)
+	if !strings.Contains(r.fatal, "requires localstack") {
+		t.Errorf("failure %q does not say the run requires localstack", r.fatal)
+	}
+}
+
 // TestUserNamespaces_AnswersConsistently proves the probe answers the same
 // every time it is asked, with a reason exactly when the answer is no.
 func TestUserNamespaces_AnswersConsistently(t *testing.T) {

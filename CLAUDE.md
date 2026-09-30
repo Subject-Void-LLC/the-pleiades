@@ -297,7 +297,8 @@ pulled every image anonymously from Docker Hub, and ran on two cores. Now `ci.ym
 jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast`, Ubuntu
 required, macOS advisory until it has passed once), `containers` (`make ci-containers`,
 four shards, images restored from a cache keyed on `tools/testimages`' list, with an
-optional read-only `DOCKERHUB_TOKEN`), `coverage` (`make coverage-measured` over the
+optional read-only `DOCKERHUB_TOKEN` and an optional `LOCALSTACK_AUTH_TOKEN`, which,
+when set, the job also requires), `coverage` (`make coverage-measured` over the
 numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance) and an
 experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
 make target, so there is still no CI-only step. The pull-request jobs use push-gate's
@@ -310,7 +311,10 @@ its reason), because a skipped gate and a passing one used to print the same not
 -cover -count=1` once, through `tools/testgate`, container-free packages together and
 container packages `DOCKER_TEST_PARALLELISM` at a time, and writes each package's coverage
 to `.coverage/`; `make coverage-measured` checks the floors from those numbers and fails a
-floored package with no number (its tests failed or never ran). It is safe only while no
+floored package with no number (its tests failed or never ran). Each file also records what
+each package's tests skipped for lacking (`testsupport.Require`'s `needs <what>:` skips), and
+a package below its floor that lacked something is named as unchecked rather than failed: a
+floor recorded where LocalStack ran cannot be checked by a run without it. It is safe only while no
 file is tagged `!integration`, which `tools/internal/flakegate`'s
 `TestNothingIsExcludedByTheIntegrationTag` holds true. The old `test-race`,
 `test-integration` and `coverage` targets stay for a developer who wants one alone.

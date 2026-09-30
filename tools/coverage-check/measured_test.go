@@ -2,6 +2,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,8 +38,8 @@ const floors = `{"floors": {"example/a": 90.0, "example/b": 80.0}, "excluded": {
 func TestMeasured_MergesShardsAndChecksFloors(t *testing.T) {
 	inDir(t, map[string]string{
 		"coverage-floor.json": floors,
-		"fast.json":           `{"example/a": 91.0}`,
-		"shard1.json":         `{"example/b": 80.0, "example/new": 12.0}`,
+		"fast.json":           `{"coverage": {"example/a": 91.0}}`,
+		"shard1.json":         `{"coverage": {"example/b": 80.0, "example/new": 12.0}}`,
 	})
 	if err := run(false, []string{"fast.json", "shard1.json"}); err != nil {
 		t.Fatalf("run: %v", err)
@@ -53,11 +54,14 @@ func TestMeasured_Refusals(t *testing.T) {
 		args    []string
 		wantErr string
 	}{
-		{"below its floor", map[string]string{"c.json": `{"example/a": 85.0, "example/b": 80.0}`}, []string{"c.json"}, "regressed"},
-		{"a floored package with no number", map[string]string{"c.json": `{"example/a": 95.0}`}, []string{"c.json"}, "regressed"},
-		{"a package measured twice", map[string]string{"x.json": `{"example/a": 95.0}`, "y.json": `{"example/a": 96.0, "example/b": 90.0}`}, []string{"x.json", "y.json"}, "measured in both"},
+		{"below its floor", map[string]string{"c.json": `{"coverage": {"example/a": 85.0, "example/b": 80.0}}`}, []string{"c.json"}, "regressed"},
+		{"a floored package with no number", map[string]string{"c.json": `{"coverage": {"example/a": 95.0}}`}, []string{"c.json"}, "regressed"},
+		{"a package measured twice", map[string]string{"x.json": `{"coverage": {"example/a": 95.0}}`, "y.json": `{"coverage": {"example/a": 96.0, "example/b": 90.0}}`}, []string{"x.json", "y.json"}, "measured in both"},
 		{"a file that is not there", map[string]string{}, []string{"gone.json"}, "reading gone.json"},
 		{"a file that is not JSON", map[string]string{"c.json": `ok github.com/x 91%`}, []string{"c.json"}, "reading c.json"},
+		{"a file in the old shape", map[string]string{"c.json": `{"example/a": 95.0, "example/b": 90.0}`}, []string{"c.json"}, "older testgate"},
+		{"a file with no coverage", map[string]string{"c.json": `{"missing": {}}`}, []string{"c.json"}, "no \"coverage\""},
+		{"below its floor, another package lacking something", map[string]string{"c.json": `{"coverage": {"example/a": 85.0, "example/b": 80.0}, "missing": {"example/b": ["localstack"]}}`}, []string{"c.json"}, "regressed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -93,4 +97,43 @@ func TestReadMeasured_RefusesNoFiles(t *testing.T) {
 	if _, err := readMeasured(nil); err == nil {
 		t.Fatal("no files was accepted")
 	}
+}
+
+// TestMeasured_AFloorMeasuredWithoutItsRequirementIsNamedNotFailed is the
+// LocalStack case: a floor recorded where LocalStack ran cannot be checked
+// by a run without it, which says so rather than failing a change that
+// never touched the package, or passing it silently.
+func TestMeasured_AFloorMeasuredWithoutItsRequirementIsNamedNotFailed(t *testing.T) {
+	inDir(t, map[string]string{
+		"coverage-floor.json": floors,
+		"c.json":              `{"coverage": {"example/a": 37.6, "example/b": 80.0}, "missing": {"example/a": ["localstack"]}}`,
+	})
+	out := captureStdout(t, func() {
+		if err := run(false, []string{"c.json"}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	})
+	if !strings.Contains(out, "example/a: 37.6%, below its floor of 90.0%, measured without localstack") {
+		t.Fatalf("the uncheckable floor is not named:\n%s", out)
+	}
+}
+
+// captureStdout returns what fn printed to standard output.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = saved }()
+	done := make(chan string)
+	go func() {
+		data, _ := io.ReadAll(r)
+		done <- string(data)
+	}()
+	fn()
+	_ = w.Close()
+	return <-done
 }

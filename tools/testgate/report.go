@@ -16,11 +16,11 @@ import (
 // before counting the rest.
 const ledgerLimit = 8
 
-// writeCoverage writes coverage as JSON to path, for coverage-check
-// -measured to read. The file is the measurement, so it is written whole
-// or not at all.
-func writeCoverage(path string, coverage map[string]float64) error {
-	data, err := json.MarshalIndent(coverage, "", "  ")
+// writeCoverage writes the measurement as JSON to path, for
+// coverage-check -measured to read. The file is the measurement, so it is
+// written whole or not at all.
+func writeCoverage(path string, m flakegate.Measurement) error {
+	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding coverage: %w", err)
 	}

@@ -141,7 +141,7 @@ jobs:
       # them never running.
       - name: Install socat for the PTY-backed serial tests
         if: runner.os == 'Linux'
-        run: sudo apt-get install --yes --no-install-recommends socat
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
       - name: make ci-fast
         env:
           PLEIADES_TEST_REQUIRE: ${{ runner.os == 'Linux' && 'userns' || '' }}
@@ -216,7 +216,15 @@ jobs:
           path: .ci/images.tar
           key: test-images-${{ hashFiles('.ci/images.txt') }}
 
+      # LocalStack needs an auth token, optional here as Docker Hub's is.
+      # Without it the AWS packages' LocalStack tests skip as "needs
+      # localstack", and the coverage job names their floors as unchecked
+      # rather than failing them. With it, the run requires LocalStack, so
+      # a token that stops working fails the job instead of skipping.
       - name: make ci-containers
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          PLEIADES_TEST_REQUIRE: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && 'localstack' || '' }}
         run: make ci-containers SHARD="$SHARD"
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -263,7 +271,8 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: make test-full
         env:
-          PLEIADES_TEST_REQUIRE: userns
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          PLEIADES_TEST_REQUIRE: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && 'userns,localstack' || 'userns' }}
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured

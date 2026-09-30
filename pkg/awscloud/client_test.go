@@ -67,10 +67,7 @@ func TestMain(m *testing.M) {
 // test if a token is set but the container still cannot be started.
 func requireLocalStack(tb testing.TB) string {
 	tb.Helper()
-	token := os.Getenv(localStackTokenEnvVar)
-	if token == "" {
-		tb.Skipf("set %s to run pkg/awscloud's real-LocalStack-backed tests", localStackTokenEnvVar)
-	}
+	token := testsupport.LocalStackToken(tb)
 	sharedContainerOnce.Do(func() {
 		ctx := context.Background()
 		ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,

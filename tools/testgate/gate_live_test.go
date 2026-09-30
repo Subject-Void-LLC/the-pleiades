@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // throwawayModule writes a module with a package that passes and measures
@@ -35,7 +37,8 @@ func throwawayModule(t *testing.T, broken bool) {
 	write("flaky-packages.json", "{}\n")
 	write("good/good.go", "package good\n\n// One returns 1.\nfunc One() int { return 1 }\n")
 	write("good/good_test.go", "package good\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n\tif One() != 1 {\n\t\tt.Fatal(\"wrong\")\n\t}\n}\n")
-	write("skipper/skipper_test.go", "package skipper\n\nimport \"testing\"\n\nfunc TestHost(t *testing.T) { t.Skip(\"needs a real Windows host\") }\n")
+	write("skipper/skipper_test.go", "package skipper\n\nimport \"testing\"\n\nfunc TestHost(t *testing.T) { t.Skip(\"needs a real Windows host\") }\n\n"+
+		"func TestCloud(t *testing.T) { t.Skip(\"needs localstack: set LOCALSTACK_AUTH_TOKEN\") }\n")
 	if broken {
 		write("bad/bad_test.go", "package bad\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { t.Fatal(\"deliberately broken\") }\n")
 	}
@@ -66,12 +69,18 @@ func TestRun_TheOnePassMeasuresAndReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var measured map[string]float64
+	var measured flakegate.Measurement
 	if err := json.Unmarshal(raw, &measured); err != nil {
 		t.Fatal(err)
 	}
-	if measured["gateproof/good"] != 100 {
-		t.Errorf("coverage = %v, want gateproof/good at 100", measured)
+	if measured.Coverage["gateproof/good"] != 100 {
+		t.Errorf("coverage = %v, want gateproof/good at 100", measured.Coverage)
+	}
+	// The skip in testsupport.Require's format is recorded against its
+	// package, which is how the floor check knows the number was taken
+	// without LocalStack; the Windows host skip is an ordinary one.
+	if got := measured.Missing; len(got) != 1 || strings.Join(got["gateproof/skipper"], ",") != "localstack" {
+		t.Errorf("missing = %v, want only gateproof/skipper lacking localstack", got)
 	}
 	page, err := os.ReadFile(summary)
 	if err != nil {
@@ -187,11 +196,11 @@ func TestFirstRunFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var measured map[string]float64
+	var measured flakegate.Measurement
 	if err := json.Unmarshal(raw, &measured); err != nil {
 		t.Fatal(err)
 	}
-	if measured["gateproof/cov"] != 100 {
-		t.Fatalf("coverage = %v, want the re-measured 100, not the partial run's 50", measured)
+	if measured.Coverage["gateproof/cov"] != 100 {
+		t.Fatalf("coverage = %v, want the re-measured 100, not the partial run's 50", measured.Coverage)
 	}
 }

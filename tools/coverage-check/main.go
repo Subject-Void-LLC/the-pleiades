@@ -90,9 +90,12 @@ func run(tolerant bool, measuredFiles []string) error {
 	}
 
 	var measured map[string]float64
+	var missing map[string][]string
 	switch {
 	case len(measuredFiles) > 0:
-		measured, err = readMeasured(measuredFiles)
+		var m flakegate.Measurement
+		m, err = readMeasured(measuredFiles)
+		measured, missing = m.Coverage, m.Missing
 	case tolerant:
 		measured, err = measureCoverageTolerant()
 	default:
@@ -104,6 +107,7 @@ func run(tolerant bool, measuredFiles []string) error {
 
 	var regressions []string
 	var newPackages []string
+	var notComparable []string
 	seen := make(map[string]bool, len(measured))
 
 	pkgs := make([]string, 0, len(measured))
@@ -125,6 +129,14 @@ func run(tolerant bool, measuredFiles []string) error {
 			continue
 		}
 		if pct+tolerance < floor {
+			// Measured without something its tests use, so the number is
+			// lower for a reason that is not this change. Named, never
+			// counted either way; a run that must have it sets
+			// PLEIADES_TEST_REQUIRE, which fails the tests instead.
+			if needs := missing[pkg]; len(needs) > 0 {
+				notComparable = append(notComparable, fmt.Sprintf("%s: %.1f%%, below its floor of %.1f%%, measured without %s", pkg, pct, floor, strings.Join(needs, ", ")))
+				continue
+			}
 			regressions = append(regressions, fmt.Sprintf("%s: %.1f%% dropped below its floor of %.1f%%", pkg, pct, floor))
 		}
 	}
@@ -132,6 +144,13 @@ func run(tolerant bool, measuredFiles []string) error {
 	if len(newPackages) > 0 {
 		fmt.Println("coverage-check: packages with no recorded floor (informational, not a failure):")
 		for _, n := range newPackages {
+			fmt.Println("  " + n)
+		}
+	}
+
+	if len(notComparable) > 0 {
+		fmt.Println("coverage-check: floors this run could not check, because the package's tests skipped for something this machine lacks (not a pass and not a failure):")
+		for _, n := range notComparable {
 			fmt.Println("  " + n)
 		}
 	}
@@ -152,6 +171,10 @@ func run(tolerant bool, measuredFiles []string) error {
 		return fmt.Errorf("%d package(s) regressed", len(regressions))
 	}
 
+	if len(notComparable) > 0 {
+		fmt.Printf("coverage-check: %d package(s) measured, none below their recorded floor except the %d named above\n", len(seen), len(notComparable))
+		return nil
+	}
 	fmt.Printf("coverage-check: %d package(s) measured, none below their recorded floor\n", len(seen))
 	return nil
 }

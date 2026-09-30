@@ -122,6 +122,46 @@ func shortPackage(pkg string) string {
 	return strings.TrimPrefix(pkg, "github.com/Subject-Void-LLC/the-pleiades/")
 }
 
+// requirementSkip matches the reason internal/testsupport.Require gives a
+// skip, "needs <what>: <why>", capturing what the machine lacked.
+// TestMissing_ReadsTheReasonRequireGives holds the two to one format.
+var requirementSkip = regexp.MustCompile(`^needs ([a-z0-9][a-z0-9_-]*): `)
+
+// Missing returns, for each package, what its tests skipped for lacking
+// (testsupport.Require's skips), sorted and without repeats. A package in
+// it was measured without something its tests use, so its coverage is
+// lower for a reason that is not its code: a floor set on a machine with
+// LocalStack cannot be checked by a run without it.
+func Missing(skips []Skip) map[string][]string {
+	seen := map[string]map[string]bool{}
+	for _, s := range skips {
+		m := requirementSkip.FindStringSubmatch(s.Reason)
+		if m == nil {
+			continue
+		}
+		if seen[s.Package] == nil {
+			seen[s.Package] = map[string]bool{}
+		}
+		seen[s.Package][m[1]] = true
+	}
+	out := make(map[string][]string, len(seen))
+	for pkg, needs := range seen {
+		for need := range needs {
+			out[pkg] = append(out[pkg], need)
+		}
+		sort.Strings(out[pkg])
+	}
+	return out
+}
+
+// Measurement is what testgate -coverage-out writes and coverage-check
+// -measured reads: each package's coverage, and what each package's tests
+// lacked while it was measured.
+type Measurement struct {
+	Coverage map[string]float64  `json:"coverage"`
+	Missing  map[string][]string `json:"missing,omitempty"`
+}
+
 // coveragePercent matches go test's "coverage: 91.5% of statements".
 var coveragePercent = regexp.MustCompile(`coverage:\s+([\d.]+)% of statements`)
 

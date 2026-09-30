@@ -111,7 +111,10 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 
 The `containers` job restores its images from a cache and only pulls on a miss. A
 maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
-raise Docker Hub's pull limit; a pull request from a fork runs without it.
+raise Docker Hub's pull limit; a pull request from a fork runs without it. A
+`LOCALSTACK_AUTH_TOKEN` secret is optional in the same way: without it the AWS tests that
+need LocalStack skip, and with it the run requires LocalStack, so a token that stops
+working fails the job rather than skipping.
 
 ### Coverage
 
@@ -119,6 +122,14 @@ raise Docker Hub's pull limit; a pull request from a fork runs without it.
 its recorded floor, and 90% is the target for new and touched code, but the whole
 repository is not held to 90% on day one. A package with no recorded floor is reported
 as new, not failed. See `coverage-floor.json`'s own header for the full policy.
+
+A test that needs something a machine may lack should stop through
+`internal/testsupport`'s `Require` (or a helper built on it, such as `LocalStackToken`),
+not a bare `t.Skip`. Its skip then names the need (`needs localstack: ...`), and when that
+package's coverage falls below its floor in a run that lacked the need, the floor check
+names the floor as unchecked instead of failing a change that never touched it. A floor
+recorded on a machine with LocalStack cannot be checked on one without it, and saying so
+is the honest answer; `PLEIADES_TEST_REQUIRE` makes a need mandatory for a run.
 
 ### Security findings
 

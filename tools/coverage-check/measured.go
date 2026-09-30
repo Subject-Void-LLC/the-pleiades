@@ -10,38 +10,50 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
-// readMeasured merges the coverage files testgate -coverage-out wrote.
+// readMeasured merges the measurements testgate -coverage-out wrote.
 // A package in two files is an error: the tiers and shards partition the
 // packages, so a duplicate means two runs disagree about who owns it, and
-// picking one number would hide that.
-func readMeasured(files []string) (map[string]float64, error) {
+// picking one number would hide that. A file in any other shape is refused
+// rather than read as measuring nothing.
+func readMeasured(files []string) (flakegate.Measurement, error) {
+	merged := flakegate.Measurement{Coverage: map[string]float64{}, Missing: map[string][]string{}}
 	if len(files) == 0 {
-		return nil, errors.New("-measured names no coverage files; a gate that measured nothing has nothing to check")
+		return merged, errors.New("-measured names no coverage files; a gate that measured nothing has nothing to check")
 	}
-	merged := map[string]float64{}
 	from := map[string]string{}
 	for _, file := range files {
 		raw, err := os.ReadFile(file) // #nosec G304 -- a path the Makefile or the workflow names
 		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", file, err)
+			return merged, fmt.Errorf("reading %s: %w", file, err)
 		}
-		var measured map[string]float64
-		if err := json.Unmarshal(raw, &measured); err != nil {
-			return nil, fmt.Errorf("reading %s: %w", file, err)
+		var m flakegate.Measurement
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&m); err != nil {
+			return merged, fmt.Errorf("reading %s: %w (written by an older testgate? run the gate again)", file, err)
 		}
-		for pkg, pct := range measured {
+		if m.Coverage == nil {
+			return merged, fmt.Errorf("reading %s: it holds no \"coverage\" object", file)
+		}
+		for pkg, pct := range m.Coverage {
 			if earlier, dup := from[pkg]; dup {
-				return nil, fmt.Errorf("%s is measured in both %s and %s", pkg, earlier, file)
+				return merged, fmt.Errorf("%s is measured in both %s and %s", pkg, earlier, file)
 			}
-			merged[pkg] = pct
+			merged.Coverage[pkg] = pct
 			from[pkg] = file
+		}
+		for pkg, needs := range m.Missing {
+			merged.Missing[pkg] = append(merged.Missing[pkg], needs...)
 		}
 	}
 	return merged, nil
