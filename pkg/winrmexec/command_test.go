@@ -306,3 +306,39 @@ func FuzzCmdLine(f *testing.F) {
 		}
 	})
 }
+
+// TestCheckCmdEnvReads covers the refusal that keeps a cmd script from
+// reading one of its own values as %NAME%, which cmd.exe expands before it
+// parses the line (measured on Windows 11: a value "a & echo INJECTED"
+// ran the echo). Only a read of the command's own variables is refused,
+// in either expansion form and in any case; !NAME!, the form that stays
+// text, and every variable the command does not set pass.
+func TestCheckCmdEnvReads(t *testing.T) {
+	env := map[string]string{"TOKEN": "a & echo INJECTED"}
+	tests := []struct {
+		name    string
+		script  string
+		env     map[string]string
+		refused bool
+	}{
+		{"read as %NAME%", "echo %TOKEN%", env, true},
+		{"read in another case", "echo %token%", env, true},
+		{"the substring form", "echo %TOKEN:~0,3%", env, true},
+		{"the replace form", "echo %TOKEN:a=b%", env, true},
+		{"read as !NAME!", "echo !TOKEN!", env, false},
+		{"a variable the command does not set", "echo %PATH%", env, false},
+		{"a longer name that starts with it", "echo %TOKENS%", env, false},
+		{"no environment at all", "echo %TOKEN%", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkCmdEnvReads(tt.script, tt.env)
+			if (err != nil) != tt.refused {
+				t.Fatalf("checkCmdEnvReads(%q) = %v, want refused %v", tt.script, err, tt.refused)
+			}
+			if err != nil && !strings.Contains(err.Error(), "!TOKEN!") {
+				t.Errorf("the refusal %q does not say how to read the value instead", err)
+			}
+		})
+	}
+}
