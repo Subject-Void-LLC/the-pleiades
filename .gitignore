@@ -88,3 +88,9 @@ __pycache__/
 # make ci-images); rebuilt every run, never committed.
 /.coverage/
 /.ci/
+
+# A test fixture that is a captured log, not a log this repository writes:
+# pkg/cloudinit's console capture was ignored by *.log above, so a fresh
+# clone lacked it and three tests failed everywhere but the machine that
+# captured it (found by Phase 118's clean room).
+!pkg/cloudinit/testdata/*.log
