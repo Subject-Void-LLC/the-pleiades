@@ -232,9 +232,24 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   again at render. `pleiades run --extra-vars`/`-e`. **Walk caveat:** a Runner still runs every task
   against its one dispatched device (Phase 117b builds segmented dispatch), and the Runner's per-task child
   refuses a call with no device.
-- **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
-  covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
-  capability mismatch only surfaces at run time.
+- **Plan-time checking covers transports; capabilities only for a two-entry table.** Since Phase 75
+  `pleiades validate` refuses a task whose device reaches none of its method's `SupportedTransports`
+  (`internal/validate`'s `TransportRule` and the engine's run-time gate share
+  `collection.CheckTransports`; the vocabulary and the capability reaching each transport are
+  `pkg/capability`'s `ReachedBy`, and `collection.Register` refuses an unknown name). The generic
+  `pkg.*`/`svc.*` dispatchers declare the union of their concrete methods' transports and re-check
+  the concrete one. Required capabilities are still compared at plan time only for `ssh_exec` and
+  `ios_backup` (`internal/engine/action_capability.go`), so a capability mismatch on a reachable
+  device surfaces at run time, refused by the engine before the method runs. `WindowsShellCapable`
+  is a child of `CommandExecCapable`; the transport check is what keeps SSH-only `exec.command` off
+  a Windows server.
+- **One circuit breaker, `pkg/breaker` (Phase 75).** `pkg/remoteexec` (SSH, telnet, serial-over-TCP)
+  and `internal/transport/winrm` share it; every platform instance is an unexported field, and
+  `internal/archtest`'s `TestNoPlatformCircuitIsReachable` refuses one anywhere a Collection could
+  reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
+  WinRM 401 or TLS alert) is neither retried nor counted. The half-open probe is leased, so a lost
+  one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). WinRM Collections that call
+  `pkg/winrmexec` directly (`exec.winrm.shell`, `pkg/winrmsvc`, the waits) have no breaker yet.
 - **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the
   sixth (SSE log viewer) has three defects that stop it reaching a real Controller. This is a
   different thing from `internal/ui`, the server-rendered view registry the Controller actually

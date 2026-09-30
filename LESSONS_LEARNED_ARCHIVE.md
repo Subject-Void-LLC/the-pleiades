@@ -5400,3 +5400,17 @@ wrote. The release gate's negative controls show why each half matters: a ticket
 (`switches`) would otherwise have fanned out to every switch, and a name carrying `; reboot` is simply not a
 member. Falling back to `hosts:` on a bad value, the shape of FAILURE_PATTERNS 11, would have turned every
 refusal into a run somewhere else.
+
+## 261. When a new check starts refusing, look for the tests it made pass for the wrong reason
+
+**Rule.** After adding a refusal, find every negative test near it and confirm each still fails for the
+reason its name gives: assert the specific error expected, never only that some error occurred.
+
+**Why.** Phase 75's transport check refused the generic `svc.*` and `pkg.*` fixtures, which were SSH
+servers that never declared `SSHTransportCapable`; those failures were loud and easy. The dangerous one was
+silent: `TestDispatchesToWindows` asserted that the error named `svc.windows.start` and was not "not
+registered", which the new transport refusal also satisfies, so it kept passing while no longer reaching the
+dial it was written to prove. The same session met a relative of it: `TestSSHContainer_WrongPasswordFails`
+had set `MaxRetries: 1` to get the behavior production did not have, so it stayed green over the defect
+FAILURE_PATTERNS 399 records. A green test after a behavior change is evidence only if the test could still
+have failed.
