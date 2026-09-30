@@ -11084,3 +11084,47 @@ passes, so the partial run measures 50% and the re-measure 100%).
 
 **Lesson.** A tolerated failure means the test is fine; it does not make the run's other numbers fine. Any
 measurement taken from a run you have decided to forgive has to be taken again from the run you trust.
+
+## 406. Coverage floors recorded where LocalStack ran would have failed every CI run, and every `make ci` without a token
+
+**Symptom.** Found 2026-09-30 by reading, before the first pull-request run of Phase 118's workflow, while
+recording floors for new packages. `internal/catalog/cloud/aws/ec2` has a floor of 96.7% and
+`internal/catalog/cloud/aws/s3` one of 98.0%. With `LOCALSTACK_AUTH_TOKEN` unset they measure 37.6% and 47.1%,
+and the workflow never sets it, so the `coverage` job would have failed on every pull request. So would `make
+ci` on any contributor's machine without a LocalStack account, for a reason unrelated to their change. Every
+local gate passed, because the developer's shell had the token.
+
+**Root cause.** A floor is a number measured on one machine, and a skipped test lowers a package's number
+without saying why. The floor check could not tell "this code lost its tests" from "this run could not run
+them", so it could only fail both or pass both. The LocalStack tests skipped with a bare `t.Skip`, which the
+skip ledger listed but nothing else read.
+
+**Fix.** Every LocalStack test stops through `testsupport.LocalStackToken`, which calls `Require("localstack")`,
+so its skip reads `needs localstack: ...`. `testgate` records each package's missing requirements beside its
+coverage (`flakegate.Missing`, `flakegate.Measurement`), and `coverage-check -measured` names a package below
+its floor that lacked something as unchecked, neither pass nor failure. `TestMissing_ReadsTheReasonRequireGives`
+holds the skip format and the parser to one another. Proved through the real tools: `testgate` over `ec2`
+and `s3` without the token, then `coverage-check` over the real `coverage-floor.json`, passes naming both,
+and the same numbers without the missing record fail as before. The workflow passes an optional
+`LOCALSTACK_AUTH_TOKEN` secret and, when it is set, requires LocalStack, so a dead token fails the job
+instead of skipping.
+
+**Lesson.** A measurement is only comparable to a threshold taken under the same conditions. When a check
+compares numbers from two machines, record the conditions with the number, or the check will be wrong on
+whichever machine the threshold was not set on, and it will be wrong silently on the one where it was.
+
+## 407. The view reachability check hand-listed 8 of 22 views, so dropping any of the other 14 passed
+
+**Symptom.** `TestViewConformance_RegisteredAndReachable`, the gate for FAILURE_PATTERNS 52 (a view package
+nothing imports), checked a literal list of eight view names. Fourteen views were added after it was written,
+none to the list. Replacing `labels.Register()` in `internal/ui/resources/registrars.go` with a no-op left the
+test green.
+
+**Root cause.** The check moved the gap it was written to close one step along: a view had to be added to
+`registrars.go` to be reachable, and then to a test's list to be checked, and nothing required the second.
+
+**Fix.** The list is read from source: `viewPackageNames` parses each package under `internal/ui/resources`
+for its `Name` constant, and a package without one fails. The same mutation now fails naming `labels`.
+
+**Lesson.** A completeness check that works from a hand-kept list is only as complete as the list. Derive the
+list from the thing being checked, so that adding the thing adds it to the check.
