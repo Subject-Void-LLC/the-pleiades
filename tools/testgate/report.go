@@ -66,7 +66,8 @@ func summarize(label string, skips []flakegate.Skip, contention []flakegate.Fail
 		fmt.Fprintf(&b, "```\n%s```\n\n", ledger)
 	}
 	// #nosec G304 -- the path is the file GitHub Actions itself provides
-	// for this step's summary.
+	// for this step's summary; gosec's G703 on the same line is waived in
+	// gosec-waivers.json with the reason.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testgate: could not write the job summary: %v\n", err)

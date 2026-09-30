@@ -138,6 +138,12 @@
       "line": "24",
       "rule_id": "G101",
       "reason": "Owned by Phase 101c (mesh identity enforcement). This is the CredentialsEnv constant, the string \"NATS_CREDS_FILE\", and it is the NAME OF AN ENVIRONMENT VARIABLE rather than a credential or any part of one. G101 is a heuristic over identifier and literal text: the identifier begins with \"Credentials\" because the variable it names is where an operator puts the PATH to a credential file, and the literal contains \"CREDS\" for the same reason. Neither is a secret and neither can become one. The value this names is read by topology.CredentialsFromEnv, which takes the path, reads the file and returns its bytes to the caller; the constant itself is compiled into three binaries, a compose overlay and a Helm chart, all of which state it in plain text already because an operator has to set it. It exists as a constant precisely so those six copies cannot drift, which is the opposite of a hardcoded credential: a hardcoded credential is a value that should not be in source, and this is a name that must be identical everywhere it appears. Identical in kind to the internal/auth/scopes.go and pkg/wire/dispatch.go entries above."
+    },
+    {
+      "file": "tools/testgate/report.go",
+      "line": "71",
+      "rule_id": "G703",
+      "reason": "Owned by Phase 118 (verification others can run), added 2026-09-30. tools/testgate is a developer and CI command under tools/: package main, never linked into any cmd/ composition root, never reachable from a network path, never packaged, the same boundary tools/sweep's G703 waivers rest on. This is summarize's os.OpenFile of the path in GITHUB_STEP_SUMMARY, which GitHub Actions sets for each step to the file that step's summary page is built from; gosec traces the environment variable into a filesystem path. The file is only ever opened for appending text this tool wrote, with O_APPEND|O_CREATE|O_WRONLY and mode 0o600, never read, executed or passed to a command. A process whose environment an attacker controls has already lost what this rule protects: the same environment decides PATH, HOME and every tool the job runs. When the variable is unset (every run off GitHub) nothing is opened. Re-review if this path ever comes from anything but GITHUB_STEP_SUMMARY."
     }
   ]
 }
