@@ -10988,3 +10988,40 @@ without sending, and the real listener on the same host is still reached.
 **Lesson.** An error's type is a claim about what happened, and a caller's policy (retry, count, report)
 is built on that claim. When one branch can reach the same error from two different states, it must ask
 which state it is in, especially when the code already knows, as `stopAbandoned` did here.
+
+## 401. A test fixture matched *.log in .gitignore, so it was never committed and its tests failed in every clone but one
+
+**Symptom.** Found 2026-09-29 by Phase 118's clean room, the first run of this repository's tests in a fresh
+clone on a machine other than the one that wrote them: `pkg/cloudinit`'s `TestHostKeys` and
+`internal/catalog/virt/vbox/vm`'s `TestHostKeys` and `TestHostKeys_Refusals` failed with "open
+.../testdata/console-ubuntu-2404.log: no such file or directory". Every one of them had passed on every gate
+run here since 2026-09-27.
+
+**Root cause.** The fixture is a captured VM console log, and `.gitignore` ignores `*.log`, so `git add` of
+the package never picked it up and nothing warned. The file sat in this working tree, the only place any test
+ever ran, so every gate here passed and every clone anywhere else would have failed three tests.
+
+**Fix.** A `.gitignore` exception for `pkg/cloudinit/testdata/*.log`, and the fixture committed after reading
+it for anything secret (a boot log and the lab VM's public host keys). `make test-clean-room` now runs the
+container-free packages in a fresh clone inside a pinned Go container, which is the check that finds this.
+
+**Lesson.** A test suite that has only ever run in the tree that wrote it has not shown that it works for
+anyone else, and a broad ignore rule is the classic reason. Run it from a fresh clone somewhere without your
+home directory, tools or identity, and treat what fails there as defects, not as environment trouble.
+
+## 402. testgate named a failing test and never said why it failed
+
+**Symptom.** Found 2026-09-29 by the same clean-room run: `testgate -strict` printed six failing tests by
+name and no output at all, so learning why meant re-running each test by hand in the same container. In CI,
+where the gate is about to be the shared answer, that means a red job nobody can read.
+
+**Root cause.** `testgate` runs `go test -json` and echoes one line per package, which keeps a whole-suite log
+short (a full event stream once killed a push with SIGPIPE, as `RunGoTestJSON`'s doc records). A test's own
+output lives only in that stream, and nothing printed it back for the tests that failed.
+
+**Fix.** `flakegate.FailureOutput` returns the end of a failure's own output from the run's events, and
+`testgate` prints it for every failure it reports, strict or confirmed in isolation
+(`TestFailureOutput_ShowsWhyATestFailed`).
+
+**Lesson.** Cutting a log's volume is right; cutting the part that explains a failure is not. When a tool
+summarizes, it must keep the evidence for exactly the lines that make it exit non-zero.

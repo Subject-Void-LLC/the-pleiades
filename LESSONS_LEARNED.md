@@ -294,6 +294,7 @@ story, per `.AGENTS/AGENTS.md`.
 259. **A rule that keeps data out of a command or a host is held at plan time and again at the moment of use (2026-09-29).**
 260. **Give a data-chosen value a literal bound its author wrote, and let the data name only members (2026-09-29).**
 261. **When a new check starts refusing, look for the tests it made pass for the wrong reason (2026-09-29).**
+262. **A gate only one machine can pass is evidence for that machine; make it reproducible elsewhere before relying on it (2026-09-29).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

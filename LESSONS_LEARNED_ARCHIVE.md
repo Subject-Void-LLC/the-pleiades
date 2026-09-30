@@ -5414,3 +5414,20 @@ dial it was written to prove. The same session met a relative of it: `TestSSHCon
 had set `MaxRetries: 1` to get the behavior production did not have, so it stayed green over the defect
 FAILURE_PATTERNS 399 records. A green test after a behavior change is evidence only if the test could still
 have failed.
+
+## 262. A gate only one machine can pass is evidence for that machine; make it reproducible elsewhere before relying on it
+
+**Rule.** Evidence other people rely on must be reproducible off the machine that produced it: run the tests
+in CI through the same make targets a developer runs, prove the tree carries everything its tests need by
+running them from a fresh clone in a clean container, and list every skip with its reason so a green run
+says what it did not check.
+
+**Why.** Until Phase 118 every test result this project had came from one WSL machine, through a receipt
+nobody else could produce or check. The first run anywhere else, a fresh clone in a pinned Go container with
+no home directory, tools or git identity, took ten minutes and found three defects that no gate here could
+see: a fixture `.gitignore` had kept out of every commit (FAILURE_PATTERNS 401), three tests that failed on
+any host refusing unprivileged user namespaces (Ubuntu 24.04's default), and a gate that named failures
+without saying why (402). The same run's skip ledger then showed 67 tests that had never been evidence of
+anything in that environment, six of them only because a tool was missing. The old CI attempt had failed for
+reasons that were fixable one by one (three and a half passes in one job, anonymous pulls, two cores), and
+"CI cannot run our tests" had hardened into a design assumption instead.

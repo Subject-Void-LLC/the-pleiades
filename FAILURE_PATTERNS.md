@@ -403,6 +403,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 398. A canceled call took a recovering target's half-open probe and kept it, so the device was never dialed again
 399. The SSH dial retry sent a refused password three times, and counted it against the circuit every other job shared
 400. A WinRM host that never answered was reported as a command that "may still be running", which no retry or breaker could see
+401. A test fixture matched *.log in .gitignore, so it was never committed and its tests failed in every clone but one
+402. testgate named a failing test and never said why it failed
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
