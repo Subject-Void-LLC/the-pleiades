@@ -31,10 +31,7 @@ import (
 func TestViewConformance_RegisteredAndReachable(t *testing.T) {
 	registerViews(t)
 
-	want := []string{
-		"credentials", "dashboard", "devices",
-		"governance", "inventories", "jobs", "runbooks", "templates",
-	}
+	want := viewPackageNames(t)
 	got := view.Names()
 
 	registered := make(map[string]bool, len(got))
