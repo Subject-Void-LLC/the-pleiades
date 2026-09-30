@@ -334,14 +334,29 @@ func sortFailures(fs []Failure) {
 // expected case a caller classifies with Classify rather than treats as a
 // failure to even run the suite.
 func RunGoTestJSON(args []string, echo io.Writer) ([]Event, error) {
+	return RunGoTestJSONPackages(args, []string{"./..."}, echo)
+}
+
+// RunGoTestJSONPackages is RunGoTestJSON over the named packages rather
+// than the whole module, so one test tier (the container-free packages, or
+// one shard of the container ones) can run through the same event stream,
+// the same classification and the same isolation pass as the whole suite.
+// packages must not be empty: an empty list would make go test run the
+// package in the current directory, which is never what a caller means.
+func RunGoTestJSONPackages(args, packages []string, echo io.Writer) ([]Event, error) {
+	if len(packages) == 0 {
+		return nil, errors.New("no packages to test")
+	}
 	full := append([]string{"test"}, args...)
-	full = append(full, "-json", "./...")
+	full = append(full, "-json")
+	full = append(full, packages...)
 
 	// #nosec G204 -- args is always a fixed literal slice built at each
 	// caller's own call site (testgate's main.go, coverage-check's
-	// measureCoverageTolerant), never derived from user input, an
-	// environment variable, or anything else outside this module's own
-	// source; gosec cannot see through the parameter to confirm that.
+	// measureCoverageTolerant), and packages are import paths the Makefile
+	// lists or `go list` printed, never derived from user input or an
+	// environment variable; gosec cannot see through the parameters to
+	// confirm that.
 	cmd := exec.Command("go", full...)
 	cmd.Stderr = os.Stderr
 
