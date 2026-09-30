@@ -11153,3 +11153,51 @@ package's `flaky-packages.json` entry, which called both a lost race rather than
 port it will use, rather than on something the server says about itself inside the container. About fifteen
 other containers here still wait on a log line alone; they are not failing because their callers retry, which
 is luck rather than design.
+
+**Follow-up, the same day.** The pattern is now shared: `testsupport.ForGreeting` (and `SSHGreeting`) reads a
+server's first line through the mapped port, generalizing the NATS greeting wait FAILURE_PATTERNS 353 added,
+and stops at once when the container exits. Every sshd and netopeer2 container that publishes a port waits for
+its log line and then its banner; the generic gRPC device waits for its listening port too, and the ServiceNow
+mock for an HTTPS answer. The Ansible gate's sshd publishes no port and is reached from another container, so
+it keeps its log wait.
+
+## 409. A roadmap item cited `TestCheckCmdEnvReads`, which was never written, and the refusal it named was tested only by a lab gate
+
+**Symptom.** 2026-09-30, the roadmap tracker's missing-test check flagged a finished Phase 75 item, "pass
+runbook data into a shell as data", for citing `TestCheckCmdEnvReads`. No commit ever defined it.
+`checkCmdEnvReads` is the refusal that keeps a cmd script from reading its own environment value as `%NAME%`,
+which cmd.exe expands before it parses the line: measured on Windows 11, a value `a & echo INJECTED` ran the
+echo. The only test that reached it was the WinRM modes Release Gate, which skips on every machine without the
+lab's Windows host.
+
+**Root cause.** The item's evidence was written from the plan when the item closed, not read from the tree,
+and a gate that needs a lab host is green everywhere else by skipping. Nothing compared the two until the
+tracker's check.
+
+**Fix.** `TestCheckCmdEnvReads` exists now: both expansion forms (`%NAME%`, `%NAME:...%`), any case, the
+`!NAME!` form that stays text, a variable the command does not set, and a longer name sharing the prefix.
+`TestRun_RejectsBeforeTouchingCredentials` gained the case through `Execute`, so the refusal is shown to come
+before any credential is read. Dropping the substring branch fails two cases. The tracker's other stale
+citations (a file moved to `pkg/breaker`, three renamed tests, a report built as two files) now name what
+exists, with the history in prose.
+
+**Lesson.** A security refusal proved only by a gate that needs a lab is unproved on every other machine. Give
+it a unit test that runs everywhere, and let the lab gate prove the part only the lab can: that the real shell
+agrees.
+
+## 410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
+
+**Symptom.** `tools/doctor` measured 71.1% here with no floor. Its tests ran the real checks, so a machine with
+Docker, every pinned scanner and pywinrm covered the "ok" branches and none of the "fix" ones, and a bare
+machine the reverse. A floor recorded on one would fail or pass on another for no change at all, and nothing
+proved the fix lines a new contributor most needs.
+
+**Root cause.** Code that asks the machine was only ever tested against the machine running the test.
+
+**Fix.** The checks ask through four replaceable seams (`run`, `lookPath`, `getenv`, `goVersion`), and
+`checks_test.go` describes a machine with everything and one with nothing, plus a scanner at the wrong or an
+unreadable version and a toolchain older than go.mod asks for. Coverage is 82.2% on any machine; the live test
+still asks the real one.
+
+**Lesson.** A test of code that reads its environment has to run against an environment it describes too, or
+its coverage, and any floor set from it, belongs to whoever ran it last.

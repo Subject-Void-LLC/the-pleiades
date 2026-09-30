@@ -411,6 +411,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 406. Coverage floors recorded where LocalStack ran would have failed every CI run, and every `make ci` without a token
 407. The view reachability check hand-listed 8 of 22 views, so dropping any of the other 14 passed
 408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
+409. A roadmap item cited `TestCheckCmdEnvReads`, which was never written, and the refusal it named was tested only by a lab gate
+410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
