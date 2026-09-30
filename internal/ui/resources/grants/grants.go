@@ -62,7 +62,7 @@ func fields(s store) []view.Field {
 	return []view.Field{
 		{
 			Name: "team", Label: "TEAM", Kind: view.KindSelect,
-			Required: true, InList: true, InForm: true, MobilePrimary: true,
+			Required: true, InList: true, InForm: true,
 			References: "teams",
 			Help:       "Roles are granted to teams, never to a person.",
 			Options:    teamOptions(s),
@@ -90,7 +90,10 @@ func fields(s store) []view.Field {
 			Options: staticOptions("allow", "deny"),
 		},
 		{
-			Name: "granted_at", Label: "GRANTED AT", Kind: view.KindReadOnly, InList: true,
+			// The primary field, and not team: a referencing cell links to
+			// what it names, so a team primary linked every row to its team
+			// and none to its grant, whose page holds Edit and Delete.
+			Name: "granted_at", Label: "GRANTED AT", Kind: view.KindReadOnly, InList: true, MobilePrimary: true,
 			Help: "Where this grant sits, in words.",
 		},
 	}

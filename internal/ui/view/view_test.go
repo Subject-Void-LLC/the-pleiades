@@ -197,6 +197,12 @@ func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
 		{"immutable field in no form", func(d *view.Descriptor) {
 			d.Fields[2].Immutable = true
 		}, "appears in no form"},
+		// A referencing cell links to what it names, so a primary that
+		// references another view leaves no row linking to its own record:
+		// the Access list shipped that way, with its grants unreachable.
+		{"primary field that references another view", func(d *view.Descriptor) {
+			d.Fields[0].References = "teams"
+		}, "no row links to its own record"},
 		{"two mobile primaries", func(d *view.Descriptor) {
 			d.Fields[1].MobilePrimary = true
 		}, "MobilePrimary"},
