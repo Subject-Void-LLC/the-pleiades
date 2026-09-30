@@ -83,3 +83,8 @@ obj/
 # tools/genrrulefixtures) leave one beside themselves when imported or
 # compiled, and one was committed that way on 2026-09-24.
 __pycache__/
+
+# Coverage and image lists the Phase 118 test tiers write (make test-full,
+# make ci-images); rebuilt every run, never committed.
+/.coverage/
+/.ci/
