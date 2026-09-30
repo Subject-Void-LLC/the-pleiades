@@ -11044,3 +11044,23 @@ before printing a number, or never ran; all four passed identically. That is FAI
 **Lesson.** A ratchet has two directions to check: every measured package against its floor, and every floor
 against a measurement. Walking only the first lets a floor outlive what it was protecting, and a list of floors
 nobody reads is a list of claims.
+
+## 404. A branch covered only when a timer lost a race dropped pkg/retry below its floor once coverage ran under -race
+
+**Symptom.** 2026-09-30, the second run of Phase 118's gate: `pkg/retry: 97.1% dropped below its floor of
+100.0%` on a run that changed nothing in `pkg/retry`; the first run of the same gate had passed it. Six
+race-enabled runs measured 100.0 five times and 97.1 once, the missing block always `do.go`'s return when the
+context ends during the sleep between attempts.
+
+**Root cause.** `TestDo_UnlimitedRetriesUntilContextDone` reaches that branch only when its 30 ms deadline
+lands inside a sleep rather than inside an attempt. Without the race detector it nearly always did; with it,
+attempts run slower and the deadline sometimes lands inside one. The old coverage pass ran without `-race`, so
+the dependence never showed. Phase 118's one pass measures coverage under `-race`, which the plan named as an
+edge case (a timing-only branch can move) and this is its first real instance.
+
+**Fix.** `TestDo_ContextEndingDuringTheSleepStopsAtOnce` cancels the context inside `delay`, which `Do` calls
+just before it sleeps, so the sleep always meets a done context: eight race-enabled runs, eight at 100.0%.
+
+**Lesson.** A coverage floor of 100% states that every branch runs every time, and a branch reached only by
+winning a timing race breaks that promise on a busier machine. When a floor drops with no code change, find
+the block that moved and write the test that reaches it on purpose, rather than lowering the floor.
