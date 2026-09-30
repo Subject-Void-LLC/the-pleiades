@@ -151,6 +151,43 @@ func TestDo_UnlimitedRetriesUntilContextDone(t *testing.T) {
 	}
 }
 
+// TestDo_ContextEndingDuringTheSleepStopsAtOnce proves a context that ends
+// while Do waits between attempts ends the wait, and the error names both
+// the cancellation and the last attempt's own error.
+//
+// TestDo_UnlimitedRetriesUntilContextDone reaches the same branch only when
+// its deadline happens to land inside a sleep rather than inside an
+// attempt, which under the race detector it sometimes does not; the branch
+// then went uncovered and pkg/retry fell below its 100% floor on a gate
+// run that changed nothing here (Phase 118's one pass runs coverage under
+// -race). Here the cancellation happens inside delay, which Do calls just
+// before it sleeps, so the sleep always meets a done context.
+func TestDo_ContextEndingDuringTheSleepStopsAtOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls int32
+	fn := func(context.Context) (int, error) {
+		atomic.AddInt32(&calls, 1)
+		return 0, errFlaky
+	}
+	delay := func(int) time.Duration {
+		cancel()
+		return time.Hour
+	}
+
+	start := time.Now()
+	_, err := retry.Do(ctx, delay, 3, func(error) bool { return true }, fn)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, errFlaky) {
+		t.Fatalf("err = %v, want it to wrap context.Canceled and the attempt's own error", err)
+	}
+	if calls != 1 {
+		t.Errorf("fn called %d times, want 1: the sleep after the first attempt must end the loop", calls)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("Do took %v; a done context must end the hour-long sleep at once", elapsed)
+	}
+}
+
 // TestDo_ContextAlreadyDoneStopsAfterOneAttempt proves Do does not pre-check
 // ctx before the first call to fn (a caller like pkg/remoteexec's dial loop
 // has its own reasons, a circuit breaker check, for ordering its own ctx
