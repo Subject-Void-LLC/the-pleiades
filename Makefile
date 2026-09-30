@@ -805,7 +805,7 @@ ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-ge
 # run the gate itself (CLAUDE.md says why). The pull-request CI jobs apply
 # the same rule; ci and the nightly job do not.
 push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
-	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
+	@echo "push-gate: all checks passed (a failure listed above as passing when re-run alone was tolerated as contention; one that recurs run after run is not contention)"
 	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # templ-gen regenerates the view layer's templates. templ emits a
