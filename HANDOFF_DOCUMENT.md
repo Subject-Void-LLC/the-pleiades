@@ -30,17 +30,17 @@ most, heavy commands under `~/.local/bin/capped`, the lab provisioned by The Ple
   by id, so following Next skipped schedules in the view and `GET /schedules` (411, fixed, and a deleted cursor
   is now a 400); the Access list linked every row to its team and none to its grant, and the drill-down test
   skipped it (412, fixed, with a registration check and a test that now fails instead of skipping).
-- **Dependencies (`chore/dependency-updates`):** 21 direct modules bumped (x/crypto 0.57, grpc 1.84,
-  testcontainers 0.44, moby api 1.56, aws sdk, nats.go 1.54 and others); build and `make vet` passed.
-  `cel-go` 0.32 moved its module path to `cel.dev/cel-go`: imports rewritten and `go.mod` tidied, not yet built.
-  Nothing on that branch is committed. GO-2026-5932 (`x/crypto/openpgp`) stays as a module-level notice: nothing
+- **Dependencies (`chore/dependency-updates`, stacked on this branch):** 20 direct modules updated (x/crypto
+  0.57, testcontainers 0.44, moby api 1.56, aws sdk, nats.go 1.54 and others) and `cel-go` moved to its new
+  module path, `cel.dev/cel-go`. grpc stays at 1.83.2: 1.84.0 reintroduced GO-2026-6443, which a first gate
+  passed without failing (FAILURE_PATTERNS 413). GO-2026-5932 (`x/crypto/openpgp`) stays as a module-level notice: nothing
   imports it and it has no fix; go-git already uses the ProtonMail fork.
 
 ### Open
 
-1. **`chore/dependency-updates`:** build the cel move, run the tests, commit, rebase onto the Phase 118 tip
-   (it was cut at `cbb9362b`), gate, push both branches, PR against the Phase 118 branch. See the final
-   message for how far this got.
+1. **`chore/dependency-updates`:** its gate and push (see the final message), then a PR against the Phase
+   118 branch. Offered, not built: make `govulncheck` fail on a vulnerable package this module imports, with a
+   waiver file, so a regression like 413 cannot pass silently.
 2. **The first real CI run** needs a pull request, which closes Phase 118's Release Gate item.
 3. Three views' readers ignore paging (`credential-types`, `credentials`, `projects`): a design decision, and the
    paging conformance test now says so in its skip. `fakeRepository.GetGroup` in the UI harness ignores
