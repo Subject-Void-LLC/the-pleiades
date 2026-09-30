@@ -66,24 +66,36 @@ type floorFile struct {
 
 func main() {
 	tolerant := flag.Bool("tolerant", false, "warn instead of fail on a test failure confined to a flaky-packages.json package (used by push-gate, never by ci)")
+	measured := flag.Bool("measured", false, "check floors against the coverage files named as arguments (testgate -full -coverage-out) instead of running the suite")
 	flag.Parse()
 
-	if err := run(*tolerant); err != nil {
+	var files []string
+	if *measured {
+		files = flag.Args()
+		if len(files) == 0 {
+			fmt.Fprintln(os.Stderr, "coverage-check: -measured names no coverage files; a gate that measured nothing has nothing to check")
+			os.Exit(1)
+		}
+	}
+	if err := run(*tolerant, files); err != nil {
 		fmt.Fprintln(os.Stderr, "coverage-check:", err)
 		os.Exit(1)
 	}
 }
 
-func run(tolerant bool) error {
+func run(tolerant bool, measuredFiles []string) error {
 	floors, err := loadFloorFile("coverage-floor.json")
 	if err != nil {
 		return fmt.Errorf("loading coverage-floor.json: %w", err)
 	}
 
 	var measured map[string]float64
-	if tolerant {
+	switch {
+	case len(measuredFiles) > 0:
+		measured, err = readMeasured(measuredFiles)
+	case tolerant:
 		measured, err = measureCoverageTolerant()
-	} else {
+	default:
 		measured, err = measureCoverage()
 	}
 	if err != nil {
@@ -122,6 +134,14 @@ func run(tolerant bool) error {
 		for _, n := range newPackages {
 			fmt.Println("  " + n)
 		}
+	}
+
+	// Only the -measured path can tell "not measured" from "has no
+	// floor": it is handed one whole gate's numbers. A run that measures
+	// itself stops at the first failing test instead (strict) or skips
+	// the packages it could not read (the old tolerant path).
+	if len(measuredFiles) > 0 {
+		regressions = append(regressions, unmeasured(floors, measured)...)
 	}
 
 	if len(regressions) > 0 {
