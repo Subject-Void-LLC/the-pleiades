@@ -45,9 +45,9 @@ func required(need string) bool {
 	return slices.Contains(list, need) || slices.Contains(list, "all")
 }
 
-// LocalStackTokenEnv names the variable holding the auth token the AWS
+// LocalStackEnv names the variable holding the auth token the AWS
 // tests start their LocalStack container with.
-const LocalStackTokenEnv = "LOCALSTACK_AUTH_TOKEN"
+const LocalStackEnv = "LOCALSTACK_AUTH_TOKEN"
 
 // LocalStackToken returns the LocalStack auth token, stopping tb through
 // Require("localstack") when there is none. Going through Require is what
@@ -55,9 +55,9 @@ const LocalStackTokenEnv = "LOCALSTACK_AUTH_TOKEN"
 // coverage fell: its skip reason names the need.
 func LocalStackToken(tb testing.TB) string {
 	tb.Helper()
-	token := os.Getenv(LocalStackTokenEnv)
+	token := os.Getenv(LocalStackEnv)
 	Require(tb, "localstack", token != "",
-		"set "+LocalStackTokenEnv+" to a LocalStack auth token; these tests run against a real LocalStack container")
+		"set "+LocalStackEnv+" to a LocalStack auth token; these tests run against a real LocalStack container")
 	return token
 }
 

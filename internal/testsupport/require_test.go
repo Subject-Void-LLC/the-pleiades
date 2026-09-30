@@ -63,15 +63,15 @@ func TestRequire(t *testing.T) {
 // that requires it.
 func TestLocalStackToken(t *testing.T) {
 	t.Setenv(RequireEnv, "")
-	t.Setenv(LocalStackTokenEnv, "not-a-real-token")
+	t.Setenv(LocalStackEnv, "not-a-real-token")
 	if got := LocalStackToken(&recordingTB{}); got != "not-a-real-token" {
 		t.Errorf("LocalStackToken = %q, want the variable's value", got)
 	}
 
-	t.Setenv(LocalStackTokenEnv, "")
+	t.Setenv(LocalStackEnv, "")
 	r := &recordingTB{}
 	LocalStackToken(r)
-	if !strings.HasPrefix(r.skip, "needs localstack: ") || !strings.Contains(r.skip, LocalStackTokenEnv) {
+	if !strings.HasPrefix(r.skip, "needs localstack: ") || !strings.Contains(r.skip, LocalStackEnv) {
 		t.Errorf("skip %q does not name localstack and the variable to set", r.skip)
 	}
 
