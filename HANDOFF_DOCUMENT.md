@@ -29,11 +29,18 @@ work for others". Rules unchanged (method-as-key runbooks, two agents at most, h
   commit (FAILURE_PATTERNS 401), three user-namespace tests that failed on Ubuntu 24.04 and in containers
   (now skip with the fix, and fail where CI requires `userns`), and `testgate` never printing why a test
   failed (402). Fixed; the second clean-room run is green. LESSONS 262.
+- **The new gate itself found three more on its first runs:** `gosec` G703 on the job-summary file (waived
+  with its reason), a coverage floor for `internal/ansible`, deleted in August and never read since
+  (FAILURE_PATTERNS 403), a branch in `pkg/retry` covered only when a timer lost a race under `-race` (404,
+  now a deterministic test), and a contended package's coverage read from its partial run (405, now
+  re-measured alone). Timing on this machine: the old gate 1 h 34 min; the new one's full passes about
+  64 to 72 min, so the whole gate lands near 1 h 5 to 1 h 10 min. Most of the rest is the 30 container
+  packages running one at a time.
 
 ### Open
 
-1. **The new `make push-gate`** on the Phase 118 tip: its time against the old 1 h 34 min is Phase 118's
-   Fuzz/Stress evidence, and its receipt is what a push needs (see the final message for the outcome).
+1. **The new `make push-gate`'s fourth run**, on the tip that carries every fix above: its receipt is what a
+   push needs (see the final message for the outcome).
 2. **The first real CI run** needs a pull request; the workflow is linted but unproven on GitHub, the
    `winrm` job is experimental, and macOS `fast` is advisory until it has passed once.
 3. Carried: 117a's env-gated ServiceNow gate; Phase 110's strict `make ci`; Phase 113's Pattern Entry Gate;
@@ -54,5 +61,6 @@ New: `tools/doctor`, `tools/testimages`, `tools/testgate/{options,report}.go`,
 their tests, `pkg/cloudinit/testdata/console-ubuntu-2404.log`, changelog `tests-run-in-ci.changed.md`.
 Changed: `Makefile`, `.github/workflows/ci.yml`, `.gitignore`, `flaky-packages.json`'s header,
 `tools/testgate/main.go`, `tools/coverage-check/main.go`, `tools/internal/flakegate/flakegate.go`,
-`internal/testsupport/privateroot.go`, CLAUDE.md, CONTRIBUTING.md, docs/11, FAILURE_PATTERNS 401 to 402,
+`internal/testsupport/privateroot.go`, `pkg/retry`'s tests, `gosec-waivers.json`, `coverage-floor.json`,
+CLAUDE.md, CONTRIBUTING.md, docs/11, FAILURE_PATTERNS 401 to 405,
 LESSONS 262. Local only: the roadmap (Phase 118, 10 of 12).
