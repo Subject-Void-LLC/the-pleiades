@@ -220,6 +220,14 @@ func (h *ScheduleHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	schedules, err := h.schedules.List(r.Context(), schedule.AnyOrganization, after, limit)
 	if err != nil {
+		// The store's not-found here is about the cursor, not the
+		// collection: the schedule the previous page ended on is gone, so
+		// its place in the order is unknown. A 404 would read as "no
+		// schedules" to a client that asked for a list.
+		if after != "" && errors.Is(err, schedule.ErrNotFound) {
+			RespondError(w, r, http.StatusBadRequest, "after: the schedule this page continues from no longer exists; list again from the start")
+			return
+		}
 		h.respondStoreError(w, r, "list", "", err)
 		return
 	}

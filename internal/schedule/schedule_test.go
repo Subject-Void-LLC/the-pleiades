@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,6 +357,57 @@ func TestListPagesAnOrganizationsSchedules(t *testing.T) {
 	}
 	if len(unscoped) != 5 {
 		t.Errorf("AnyOrganization listed %d schedules, want all 5", len(unscoped))
+	}
+}
+
+// TestListFollowsTheCursorInNameOrder pages one schedule at a time through
+// names that sort opposite to the order they were created in. The list is
+// ordered by name, so the cursor has to resume in name order: resuming by
+// id alone skipped every schedule whose name sorted before a newer one's.
+func TestListFollowsTheCursorInNameOrder(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+	names := []string{"zulu", "yankee", "xray", "whiskey", "victor"}
+	for _, name := range names {
+		if _, err := f.store.Create(ctx, f.newSchedule(name), launchable.Everything()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var got []string
+	after := ""
+	for range names {
+		page, err := f.store.List(ctx, f.orgA, after, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		got = append(got, page[0].Name)
+		after = page[0].ScheduleID
+	}
+	if want := "victor whiskey xray yankee zulu"; strings.Join(got, " ") != want {
+		t.Fatalf("paged through %q, want every schedule once in name order, %q", strings.Join(got, " "), want)
+	}
+}
+
+// TestListRefusesACursorThatNoLongerExists proves a page that continues
+// from a deleted schedule is refused rather than guessed: without the row
+// its place in the name order is unknown, and resuming anywhere else would
+// skip or repeat schedules without saying so.
+func TestListRefusesACursorThatNoLongerExists(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+	created, err := f.store.Create(ctx, f.newSchedule("alpha"), launchable.Everything())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Delete(ctx, f.orgA, created.ScheduleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.List(ctx, f.orgA, created.ScheduleID, 1); !errors.Is(err, schedule.ErrNotFound) {
+		t.Fatalf("List after a deleted schedule = %v, want ErrNotFound", err)
 	}
 }
 

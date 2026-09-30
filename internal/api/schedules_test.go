@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -262,6 +263,18 @@ func TestScheduleListRefusesABadLimit(t *testing.T) {
 	w := doScheduleRequest(t, router, http.MethodGet, api.APIVersionPrefix+"/schedules?limit=nope", "")
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("GET with a bad limit = %d, want 400", w.Code)
+	}
+}
+
+// TestScheduleListRefusesACursorWhoseScheduleIsGone proves a page that
+// continues from a deleted schedule is a 400 naming the cursor, not a 404
+// that reads as an empty collection.
+func TestScheduleListRefusesACursorWhoseScheduleIsGone(t *testing.T) {
+	store := newStubScheduleStore()
+	store.listErr = fmt.Errorf("schedule: list after gone: %w", schedule.ErrNotFound)
+	w := doScheduleRequest(t, scheduleRouter(t, store), http.MethodGet, api.APIVersionPrefix+"/schedules?after=gone", "")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "list again from the start") {
+		t.Fatalf("GET after a deleted schedule = %d %s, want 400 saying to list again", w.Code, w.Body.String())
 	}
 }
 

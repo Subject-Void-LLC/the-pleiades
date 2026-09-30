@@ -200,6 +200,13 @@ func (s *entStore) Get(ctx context.Context, orgID int, scheduleID string) (Sched
 }
 
 // List returns a page of an organization's schedules, ordered by name.
+//
+// after is the schedule id the previous page ended on, and the page
+// resumes after that schedule's place in the order, (name, id). Resuming
+// by id alone skipped every schedule whose name sorted before a newer
+// one's. A cursor whose schedule was deleted is refused with ErrNotFound:
+// without it the place is unknown, and resuming anywhere else would skip
+// or repeat schedules without saying so.
 func (s *entStore) List(ctx context.Context, orgID int, after string, limit int) ([]Schedule, error) {
 	limit = clampPageSize(limit)
 	q := scopeToOrg(s.client.Schedule.Query(), orgID).
@@ -209,7 +216,19 @@ func (s *entStore) List(ctx context.Context, orgID int, after string, limit int)
 		Order(ent.Asc(entschedule.FieldName), ent.Asc(entschedule.FieldScheduleID)).
 		Limit(limit)
 	if after != "" {
-		q = q.Where(entschedule.ScheduleIDGT(after))
+		cursor, err := scopeToOrg(s.client.Schedule.Query(), orgID).
+			Where(entschedule.ScheduleIDEQ(after)).
+			Only(ctx)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				return nil, fmt.Errorf("schedule: list after %s, which no longer exists, so its place in the order is unknown; list again from the start: %w", after, ErrNotFound)
+			}
+			return nil, fmt.Errorf("schedule: list: %w", err)
+		}
+		q = q.Where(entschedule.Or(
+			entschedule.NameGT(cursor.Name),
+			entschedule.And(entschedule.NameEQ(cursor.Name), entschedule.ScheduleIDGT(after)),
+		))
 	}
 	rows, err := q.All(ctx)
 	if err != nil {

@@ -1,0 +1,1 @@
+Paging through schedules, in the Schedules view or with `GET /schedules?after=`, no longer skips schedules whose names sort before a newer schedule's. A page that continues from a schedule deleted in the meantime is refused with a 400 that says to list again from the start.
