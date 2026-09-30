@@ -11259,3 +11259,20 @@ package newly imported is a changed number in a summary no step compares with an
 
 **Lesson.** After a dependency update, compare `govulncheck`'s imported and required counts with the base
 branch's, not only its exit status. A count that rises is a regression even when nothing calls it yet.
+
+## 414. A tolerated failure's printed output was fifteen lines of teardown and not one word of why
+
+**Symptom.** 2026-09-30, the dependency branch's gate tolerated `internal/topology`'s
+`TestLockBucketReaderNeverReshapes` (121s under load, 1s alone) and printed "why it failed under load": a NATS
+broker's startup log and four lines of container teardown. The line saying what failed was among the "24 earlier
+line(s) left out".
+
+**Root cause.** FAILURE_PATTERNS 402's fix kept a failure's last lines, and the last lines of a container test
+are what ran after the failure: cleanup, teardown and a helper's log dump.
+
+**Fix.** When none of the kept lines came from the test's own `_test.go` file, `FailureOutput` also keeps the
+last line that did, marked as such (`TestFailureOutput_KeepsTheReasonBehindATailOfTeardown`); a tail that already
+has one is left alone.
+
+**Lesson.** A summary that trims output has to trim toward the evidence, not toward the end; for a test, the
+evidence is what the test's own file said.
