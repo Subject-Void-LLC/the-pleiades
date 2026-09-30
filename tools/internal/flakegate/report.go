@@ -144,3 +144,22 @@ func Coverage(events []Event) map[string]float64 {
 	}
 	return out
 }
+
+// FailureOutput returns the last maxLines lines f's own test printed, or
+// for a package-level failure (a build failure, a timeout, a crash) what
+// the package printed outside any test. A gate that names a failure
+// without it sends the reader to rerun the test just to learn why, which
+// on a CI runner they cannot do.
+func FailureOutput(events []Event, f Failure, maxLines int) string {
+	var lines []string
+	for _, evt := range events {
+		if evt.Action != "output" || evt.Package != f.Package || evt.Test != f.Test {
+			continue
+		}
+		lines = append(lines, strings.TrimRight(evt.Output, "\n"))
+	}
+	if len(lines) > maxLines {
+		lines = append([]string{fmt.Sprintf("... %d earlier line(s) left out", len(lines)-maxLines)}, lines[len(lines)-maxLines:]...)
+	}
+	return strings.Join(lines, "\n")
+}

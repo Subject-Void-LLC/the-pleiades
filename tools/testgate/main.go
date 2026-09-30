@@ -124,7 +124,9 @@ func run(o options) error {
 	listed, warned := flakegate.Classify(events, tolerated)
 	if o.strict {
 		summarize(label, skips, nil)
-		return judgeStrict(append(listed, warned...), waitErr, len(events))
+		failures := append(listed, warned...)
+		printOutput(events, failures)
+		return judgeStrict(failures, waitErr, len(events))
 	}
 
 	// The isolation pass, and it is what decides. Everything that failed
@@ -179,6 +181,7 @@ func run(o options) error {
 	}
 
 	if len(confirmed) > 0 {
+		printOutput(events, confirmed)
 		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) failed AGAIN when re-run alone, or could not be re-run at all:\n\n", len(confirmed))
 		for _, f := range confirmed {
 			if f.Test == "" {
@@ -238,4 +241,20 @@ func judgeStrict(failures []flakegate.Failure, waitErr error, events int) error 
 	}
 	fmt.Println("testgate: all tests passed")
 	return nil
+}
+
+// failureLines is how much of a failure's own output testgate prints: its
+// end, which is where a test states why it failed.
+const failureLines = 40
+
+// printOutput prints each failure's own output from the run, so a failure
+// can be understood from the gate's log alone.
+func printOutput(events []flakegate.Event, failures []flakegate.Failure) {
+	for _, f := range failures {
+		out := flakegate.FailureOutput(events, f, failureLines)
+		if out == "" {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "\n--- %s %s ---\n%s\n", f.Package, f.Test, out)
+	}
 }

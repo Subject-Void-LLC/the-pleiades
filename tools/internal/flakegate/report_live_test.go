@@ -161,3 +161,34 @@ func TestRunGoTestJSONPackages_RefusesAnEmptyList(t *testing.T) {
 		t.Fatal("an empty package list was accepted")
 	}
 }
+
+// TestFailureOutput_ShowsWhyATestFailed proves a failing test's own
+// message comes back, from a real run, and that a long output is cut to
+// its end, where the failure is.
+func TestFailureOutput_ShowsWhyATestFailed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module gateproof\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := "package gateproof\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) {\n\tfor i := 0; i < 30; i++ {\n\t\tt.Log(\"noise\")\n\t}\n\tt.Fatal(\"the real reason\")\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "x_test.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restore, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+	events, _ := RunGoTestJSONPackages([]string{"-count=1"}, []string{"./..."}, nil)
+
+	out := FailureOutput(events, Failure{Package: "gateproof", Test: "TestBroken"}, 5)
+	if !strings.Contains(out, "the real reason") {
+		t.Fatalf("output lacks the failure's own message:\n%s", out)
+	}
+	if !strings.Contains(out, "earlier line(s) left out") || strings.Count(out, "\n") > 5 {
+		t.Fatalf("output was not cut to its last lines:\n%s", out)
+	}
+}
