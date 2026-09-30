@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/ext"
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/ext"
 )
 
 // Evaluator defines a contract for compiling and evaluating dynamic CEL expressions.

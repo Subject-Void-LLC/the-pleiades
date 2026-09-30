@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
 )
 
 // TestCelToXHelpers directly exercises celToString/celToInt/celToBool/
