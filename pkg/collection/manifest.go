@@ -153,12 +153,16 @@ type Reversibility struct {
 // requirement may narrow that constraint further, via intersection, but
 // can never loosen it.
 type Manifest struct {
-	// SupportedTransports names the transports this method can run over
-	// (for example "ssh" or "winrm"). It is a plain string set rather
-	// than a reference to a concrete transport type: several transports
-	// exist, but no phase has yet claimed typing this field against them.
-	// Nothing checks it against a device either, so today it documents a
-	// method rather than gating one; RequiredCapabilities is what gates.
+	// SupportedTransports names the transports this method reaches its
+	// device over (for example "ssh" or "winrm"), from the vocabulary in
+	// pkg/capability (capability.Transports). A device must reach at
+	// least one of them, which pleiades validate checks at plan time and
+	// the engine checks again before the method runs (CheckTransports);
+	// Register refuses a name outside the vocabulary. Leave it empty for a
+	// method that reaches an API rather than its device. It is a plain
+	// string set rather than a named type because a manifest travels as
+	// JSON to and from external programs, and no phase has claimed typing
+	// it.
 	SupportedTransports []string `json:"supportedTransports,omitempty"`
 
 	// RequiredCapabilities is what a device must structurally implement

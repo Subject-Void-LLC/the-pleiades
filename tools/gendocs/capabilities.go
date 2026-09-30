@@ -41,17 +41,19 @@ func generateCapabilities(outDir string) error {
 		"interface.\n\n")
 
 	// Honesty paragraph, hand written rather than derived: the vocabulary
-	// below is real and registered, but nothing validates a Collection
-	// method's RequiredCapabilities against a target device.
-	// internal/validate.CapabilityRule reads engine.ActionCapability, a
-	// two-entry table holding only "ssh_exec" and "ios_backup", and skips
-	// every other fqcn. Delete this paragraph when that is wired up, and not
-	// before: without it this page promises a plan-time check that does not
-	// run for any of the catalog's methods.
-	b.WriteString("**Nothing compares these to your inventory before a run yet.** `pleiades validate` " +
-		"checks a target device's capabilities for exactly two legacy action names, `ssh_exec` and " +
-		"`ios_backup`. For every catalog FQCN the required capability is documentation only: a mismatch " +
-		"surfaces during the run, not at plan time. See " +
+	// below is real and registered, and a method's RequiredCapabilities is
+	// checked against its device before the method runs
+	// (engine.checkMethodCapabilities), but not by pleiades validate, whose
+	// CapabilityRule reads engine.ActionCapability, a table of the legacy
+	// action names only. Transports are the exception since Phase 75:
+	// validate's TransportRule checks them at plan time. Delete the
+	// capability half when validate checks RequiredCapabilities too, and
+	// not before.
+	b.WriteString("**When these are checked.** A method's required capabilities are checked against " +
+		"its device before the method runs, on the CLI and on a Runner, so a mismatch stops the task " +
+		"rather than reaching the device. `pleiades validate` does not check them yet, except for the " +
+		"legacy action names `ssh_exec` and `ios_backup`. A method's transports (below) are checked " +
+		"at plan time: `pleiades validate` refuses a task whose device reaches none of them. See " +
 		"[Implementation status](../01-start-here.md#implementation-status).\n\n")
 
 	rows := make([][]string, 0, len(names))
@@ -70,6 +72,24 @@ func generateCapabilities(outDir string) error {
 	}
 	b.WriteString(table([]string{"Capability", "Parent", "Children"}, rows))
 	b.WriteString(fmt.Sprintf("\n%d capabilities registered.\n", len(names)))
+
+	// The transport table, read from the same vocabulary collection.Register
+	// checks a method's SupportedTransports against.
+	b.WriteString("\n## Transports\n\n")
+	b.WriteString("How a method's work reaches its device. A method lists the transports it uses; a device " +
+		"reaches a transport when it has any one of the capabilities beside it. `pleiades validate`, and the " +
+		"engine again before the method runs, refuse a task whose device reaches none of its method's " +
+		"transports. A method that calls an API rather than its device lists none.\n\n")
+	transportRows := make([][]string, 0, len(capability.Transports()))
+	for _, transport := range capability.Transports() {
+		reached, _ := capability.ReachedBy(transport)
+		names := make([]string, 0, len(reached))
+		for _, name := range reached {
+			names = append(names, string(name))
+		}
+		transportRows = append(transportRows, []string{code(transport), quoteList(names)})
+	}
+	b.WriteString(table([]string{"Transport", "Reached by any of"}, transportRows))
 
 	return os.WriteFile(filepath.Join(outDir, "capabilities.md"), []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
 }

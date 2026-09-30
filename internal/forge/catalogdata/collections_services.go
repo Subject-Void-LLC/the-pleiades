@@ -17,6 +17,7 @@ var servicesCollections = []collectionscaffold.Config{
 	{
 		Name:              "svc.start",
 		Capabilities:      []capability.Name{capability.NameServiceManager},
+		Transports:        []string{"ssh", "winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
@@ -39,6 +40,7 @@ var servicesCollections = []collectionscaffold.Config{
 	{
 		Name:              "svc.stop",
 		Capabilities:      []capability.Name{capability.NameServiceManager},
+		Transports:        []string{"ssh", "winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
@@ -61,6 +63,7 @@ var servicesCollections = []collectionscaffold.Config{
 	{
 		Name:              "svc.restart",
 		Capabilities:      []capability.Name{capability.NameServiceManager},
+		Transports:        []string{"ssh", "winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
@@ -83,6 +86,7 @@ var servicesCollections = []collectionscaffold.Config{
 	{
 		Name:              "svc.enable",
 		Capabilities:      []capability.Name{capability.NameServiceManager},
+		Transports:        []string{"ssh", "winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
@@ -105,6 +109,7 @@ var servicesCollections = []collectionscaffold.Config{
 	{
 		Name:              "svc.disable",
 		Capabilities:      []capability.Name{capability.NameServiceManager},
+		Transports:        []string{"ssh", "winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{

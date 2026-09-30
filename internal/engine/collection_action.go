@@ -188,6 +188,14 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if err := checkMethodCapabilities(desc, task.FQCN, device); err != nil {
 		return ActionResult{}, err
 	}
+	// The same transport check pleiades validate makes (TransportRule),
+	// again here for the reason checkMethodCapabilities gives: a plan can
+	// run against an inventory that changed after it was checked. It is
+	// what keeps exec.command, an SSH method, off a Windows server that
+	// has CommandExecCapable through WindowsShellCapable.
+	if err := collection.CheckTransports(device, task.FQCN, desc.Manifest); err != nil {
+		return ActionResult{}, err
+	}
 
 	// The method's own declared answer, resolved once, before any
 	// credential is read or subprocess spawned. A method with no check
