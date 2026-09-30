@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -120,9 +121,17 @@ func closeOnDone(ctx context.Context, conn net.Conn) (stop func()) {
 // every attempt (each call into fn below is one attempt). A circuit that
 // opens partway through this loop (possible whenever MaxRetries is at
 // least BreakerThreshold) stops dialing at once instead of exhausting the
-// remaining attempts: breaker.ErrOpen is the one error retryable reports
-// false for, so retry.Do returns immediately rather than sleeping and
-// trying again.
+// remaining attempts: breaker.ErrOpen is one of the two errors
+// retryable reports false for, so retry.Do returns immediately rather
+// than sleeping and trying again.
+//
+// The other is a credential the server refused (authRejected). That is
+// the server answering, not the network failing: it is neither retried,
+// since the same credential gets the same answer and every repeat is one
+// more failed login toward the account's lockout, nor counted against the
+// circuit, which belongs to every caller of this Runner and not to the
+// one holding a wrong password. It proves the address is reachable, so it
+// is recorded as the success it is for the breaker's purpose.
 func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	fn := func(ctx context.Context) (*ssh.Client, error) {
 		// The context comes first. Allow hands out the half-open probe,
@@ -139,6 +148,10 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 
 		client, err := dial(ctx, addr, config)
 		if err != nil {
+			if authRejected(err) {
+				r.breaker.RecordSuccess(addr)
+				return nil, err
+			}
 			r.breaker.RecordFailure(addr)
 			return nil, err
 		}
@@ -148,7 +161,23 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 	delay := func(attempt int) time.Duration {
 		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
 	}
-	retryable := func(err error) bool { return !errors.Is(err, breaker.ErrOpen) }
+	retryable := func(err error) bool { return !errors.Is(err, breaker.ErrOpen) && !authRejected(err) }
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
+}
+
+// authRejectedText is what golang.org/x/crypto/ssh's client returns when
+// the server refused every authentication method it offered. The library
+// has no error type or sentinel for it (client_auth.go builds it with
+// fmt.Errorf), so this text is the only signal there is.
+// TestConnect_ARejectedPasswordIsPresentedOnce runs the real client
+// against a real server that refuses a password, so a library upgrade
+// that rewords it fails that test rather than quietly bringing back the
+// retry.
+const authRejectedText = "ssh: unable to authenticate"
+
+// authRejected reports whether err is the server refusing the credential:
+// it answered the connection and turned down every method offered.
+func authRejected(err error) bool {
+	return strings.Contains(err.Error(), authRejectedText)
 }

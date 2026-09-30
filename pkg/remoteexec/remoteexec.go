@@ -170,7 +170,9 @@ type Options struct {
 	// MaxRetries is the total number of dial attempts against one target
 	// before giving up, with backoff and jitter in between. It bounds the
 	// dial phase ONLY. A command already sent to the remote side is never
-	// retried no matter what this is set to.
+	// retried no matter what this is set to, and neither is a credential
+	// the server refused: repeating it gets the same answer and counts
+	// toward the account's lockout.
 	MaxRetries int
 
 	// BreakerThreshold is how many consecutive dial failures against one

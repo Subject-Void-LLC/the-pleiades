@@ -222,10 +222,10 @@ func TestSSHContainer_NonZeroExitCode(t *testing.T) {
 
 // TestSSHContainer_WrongPasswordFails proves a wrong password is
 // rejected by the real server with a genuine auth error, never a false
-// success. MaxRetries is set to 1: an auth rejection is not a transient
-// condition retrying would fix, so this keeps the test fast rather than
-// waiting out the default retry budget for an outcome that cannot
-// change.
+// success. It runs the shipped retry budget: a refused credential is
+// never retried (TestSSHContainer_ARejectedPasswordIsPresentedOnce), so
+// the default costs one failed login, and this test used to have to set
+// MaxRetries to 1 to get what production now does on its own.
 func TestSSHContainer_WrongPasswordFails(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSH container integration test in short mode")
@@ -233,7 +233,7 @@ func TestSSHContainer_WrongPasswordFails(t *testing.T) {
 	target := containerTarget(t)
 	defer verifyNoLeaks(t)
 
-	tr := New(Options{InsecureSkipHostKeyVerify: true, DialTimeout: 5 * time.Second, MaxRetries: 1})
+	tr := New(Options{InsecureSkipHostKeyVerify: true, DialTimeout: 5 * time.Second})
 
 	badCred := credential.Credential{Username: containerSSHUser, Password: "definitely-the-wrong-password"}
 	_, err := tr.Exec(context.Background(), target, badCred, "echo hello")
