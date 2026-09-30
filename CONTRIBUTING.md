@@ -78,7 +78,7 @@ separate step you run on your own schedule, and it leaves a receipt naming the c
 verified:
 
 ```bash
-make push-gate     # or make ci, which is stricter; minutes, and needs Docker up
+make push-gate     # or make ci, which is stricter; about an hour, and needs Docker up
 git push           # the hook reads the receipt back, in about a second
 ```
 

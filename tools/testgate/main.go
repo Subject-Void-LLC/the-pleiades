@@ -1,16 +1,15 @@
-// Command testgate runs the same `go test -race ./...` (or, with
-// -integration, the same `go test -tags integration -race -count=1
-// ./...`) the Makefile's own test-race/test-integration targets run, and
-// fails only on a test failure outside the packages listed, each with a
-// written reason, in flaky-packages.json at the repo root. See
-// tools/internal/flakegate's own doc comment for the classification rule
-// this tool and tools/coverage-check's -tolerant mode share, and
-// flaky-packages.json's own header comment for the full policy.
+// Command testgate runs the repository's tests through one policy for a
+// failure. With -strict it fails on any failure. Without it, every failure
+// is re-run alone (tools/internal/flakegate.Isolate): one that passes alone
+// lost a race and is reported as contention, one that fails alone fails,
+// and more distinct failures than flakegate.MaxIsolationRetries fail
+// without a re-run. flaky-packages.json decides nothing; its reasons are
+// printed beside a tolerated failure in a package it lists.
 //
 // Since Phase 118 it is part of every gate. `make ci` runs it with
 // -strict, which re-runs nothing and fails on any failure; `make push-gate`
 // and the pull-request CI jobs run it without, applying the re-run-alone
-// rule below; and the nightly CI run is strict again, so what the tolerant
+// rule above; and the nightly CI run is strict again, so what the tolerant
 // runs forgive as contention is still counted somewhere. The receipt a
 // local gate writes records which gate ran, so a pass tolerated here is
 // never read as one `make ci` gave.

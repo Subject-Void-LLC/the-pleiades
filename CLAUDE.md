@@ -347,7 +347,7 @@ still cannot predict is `govulncheck`'s live advisory database.
 process you run on its own schedule, and the push is a separate action:
 
 ```bash
-make push-gate     # or make ci, which is stricter; ~20 minutes
+make push-gate     # or make ci, which is stricter; about an hour on a 20-core machine
 git push           # the hook verifies in about a second
 ```
 
@@ -410,7 +410,8 @@ rather than a busy machine. `flaky-packages.json` (each entry with a written rea
 mirroring `gosec-waivers.json`'s per-finding convention) no longer decides anything: a
 listed package gets **no protection from a real defect**, and an unlisted one is tolerated
 anyway when the re-run says contention. Its entries supply the reason printed beside a
-tolerated failure. Both tools share `tools/internal/flakegate` so they cannot disagree.
+tolerated failure. `coverage-check -measured` reads the `flakegate.Measurement` that pass
+wrote, so the floor check and the tests agree on what ran.
 This exists because packages that provision real ephemeral Docker containers or real
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
