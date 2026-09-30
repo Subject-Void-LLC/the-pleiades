@@ -168,9 +168,20 @@ func TestFirstRunFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(restore) })
 
+	summary := filepath.Join(dir, "summary.md")
+	t.Setenv("GITHUB_STEP_SUMMARY", summary)
 	out := filepath.Join(dir, "coverage.json")
 	if err := run(options{full: true, coverageOut: out, packages: []string{"gateproof/cov"}}); err != nil {
 		t.Fatalf("run: %v; a failure that passes alone is contention", err)
+	}
+	// The job summary carries the tolerated failure's own output, which is
+	// the only way to tell contention from a real race after the fact.
+	page, err := os.ReadFile(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "the first run fails, as a contended one would") {
+		t.Errorf("the job summary does not carry the tolerated failure's output:\n%s", page)
 	}
 	raw, err := os.ReadFile(out)
 	if err != nil {

@@ -124,7 +124,7 @@ func run(o options) error {
 
 	listed, warned := flakegate.Classify(events, tolerated)
 	if o.strict {
-		summarize(label, skips, nil)
+		summarize(label, skips, nil, events)
 		failures := append(listed, warned...)
 		printOutput(events, failures)
 		return judgeStrict(failures, waitErr, len(events))
@@ -176,6 +176,14 @@ func run(o options) error {
 			fmt.Printf("  %s: %s (not listed; tolerated on this run's own evidence)\n", f.Package, f.Test)
 		}
 		fmt.Println()
+		// Why each one failed, since a real concurrency bug also fails
+		// together and passes alone, and only its own output can tell the
+		// two apart.
+		for _, f := range contention {
+			if out := flakegate.FailureOutput(events, f, contentionLines); out != "" {
+				fmt.Printf("  why %s %s failed under load:\n%s\n\n", f.Package, f.Test, indent(out))
+			}
+		}
 	}
 
 	if len(notRun) > 0 {
@@ -227,72 +235,11 @@ func run(o options) error {
 		return fmt.Errorf("go test produced no output at all: %w", waitErr)
 	}
 
-	summarize(label, skips, contention)
+	summarize(label, skips, contention, events)
 	if len(contention) == 0 {
 		fmt.Println("testgate: all tests passed")
 	} else {
 		fmt.Println("testgate: passed (every failure above passed when re-run alone)")
 	}
 	return nil
-}
-
-// judgeStrict is the verdict with no tolerance: any failure fails, and so
-// does a non-zero exit from go test with nothing classified, which is go
-// test refusing to run at all (a package list it could not load, say).
-func judgeStrict(failures []flakegate.Failure, waitErr error, events int) error {
-	if len(failures) > 0 {
-		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s), and -strict re-runs nothing:\n\n", len(failures))
-		for _, f := range failures {
-			if f.Test == "" {
-				fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Kind)
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
-		}
-		return fmt.Errorf("%d failure(s)", len(failures))
-	}
-	if waitErr != nil {
-		return fmt.Errorf("go test exited with %v and %d event(s), none of them a failure it could name", waitErr, events)
-	}
-	fmt.Println("testgate: all tests passed")
-	return nil
-}
-
-// failureLines is how much of a failure's own output testgate prints: its
-// end, which is where a test states why it failed.
-const failureLines = 40
-
-// printOutput prints each failure's own output from the run, so a failure
-// can be understood from the gate's log alone.
-func printOutput(events []flakegate.Event, failures []flakegate.Failure) {
-	for _, f := range failures {
-		out := flakegate.FailureOutput(events, f, failureLines)
-		if out == "" {
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "\n--- %s %s ---\n%s\n", f.Package, f.Test, out)
-	}
-}
-
-// remeasure runs each package that had a contention failure again, whole
-// and alone, and records its coverage from that run in coverage. It
-// returns a package-level failure for each one that fails even alone.
-func remeasure(args []string, contention []flakegate.Failure, coverage map[string]float64) []flakegate.Failure {
-	var failed []flakegate.Failure
-	for pkg := range flakegate.FailedPackages(contention) {
-		fmt.Printf("testgate: re-measuring %s alone, since its coverage came from a run where a test stopped partway\n", pkg)
-		events, _ := flakegate.RunGoTestJSONPackages(args, []string{pkg}, os.Stdout)
-		hard, warned := flakegate.Classify(events, nil)
-		if len(hard)+len(warned) > 0 {
-			printOutput(events, append(hard, warned...))
-			failed = append(failed, flakegate.Failure{Package: pkg, Kind: flakegate.FailedPackage})
-			continue
-		}
-		if pct, ok := flakegate.Coverage(events)[pkg]; ok {
-			coverage[pkg] = pct
-		} else {
-			delete(coverage, pkg)
-		}
-	}
-	return failed
 }

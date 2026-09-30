@@ -41,7 +41,7 @@ func writeCoverage(path string, coverage map[string]float64) error {
 // GITHUB_STEP_SUMMARY is a file path GitHub hands the step. It is only
 // ever opened for appending text this tool wrote, never executed or
 // passed to a command.
-func summarize(label string, skips []flakegate.Skip, contention []flakegate.Failure) {
+func summarize(label string, skips []flakegate.Skip, contention []flakegate.Failure, events []flakegate.Event) {
 	ledger := flakegate.SkipLedger(skips, ledgerLimit)
 	if ledger != "" {
 		fmt.Printf("\ntestgate: %s", ledger)
@@ -57,6 +57,9 @@ func summarize(label string, skips []flakegate.Skip, contention []flakegate.Fail
 		fmt.Fprintf(&b, "**%d failure(s) passed when re-run alone** (tolerated as contention; a real concurrency bug looks the same, so a test that shows up here run after run needs a look):\n\n", len(contention))
 		for _, f := range contention {
 			fmt.Fprintf(&b, "- `%s` %s\n", f.Package, f.Test)
+			if out := flakegate.FailureOutput(events, f, failureLines); out != "" {
+				fmt.Fprintf(&b, "\n  <details><summary>its output</summary>\n\n```\n%s\n```\n\n  </details>\n\n", out)
+			}
 		}
 		b.WriteString("\n")
 	}
