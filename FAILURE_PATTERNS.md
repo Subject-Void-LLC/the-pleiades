@@ -405,6 +405,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 400. A WinRM host that never answered was reported as a command that "may still be running", which no retry or breaker could see
 401. A test fixture matched *.log in .gitignore, so it was never committed and its tests failed in every clone but one
 402. testgate named a failing test and never said why it failed
+403. A coverage floor for a package deleted seven weeks earlier was never read, so the ratchet guarded nothing there
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

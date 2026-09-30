@@ -11025,3 +11025,22 @@ output lives only in that stream, and nothing printed it back for the tests that
 
 **Lesson.** Cutting a log's volume is right; cutting the part that explains a failure is not. When a tool
 summarizes, it must keep the evidence for exactly the lines that make it exit non-zero.
+
+## 403. A coverage floor for a package deleted seven weeks earlier was never read, so the ratchet guarded nothing there
+
+**Symptom.** Found 2026-09-30 by `coverage-check -measured` on its first real run (Phase 118's gate):
+`internal/ansible: floor 87.2%, no coverage number in this run`. The package had been removed on 2026-08-10
+(commit 8483cca1, Phase 17, in favor of `internal/adapters/legacy`), and every gate since had reported its
+coverage check green.
+
+**Root cause.** The old check walked the packages a run measured and compared each against its floor. A floor
+with no measured package behind it was simply never visited, whether its package was deleted, renamed, failed
+before printing a number, or never ran; all four passed identically. That is FAILURE_PATTERNS 397's shape
+(a check that measured nothing reported nothing wrong) in the floor file itself.
+
+**Fix.** The stale floor is removed, with the reason in `coverage-floor.json`'s header. `coverage-check
+-measured` fails any floored package with no number, naming the three things that cause it.
+
+**Lesson.** A ratchet has two directions to check: every measured package against its floor, and every floor
+against a measurement. Walking only the first lets a floor outlive what it was protecting, and a list of floors
+nobody reads is a list of claims.
