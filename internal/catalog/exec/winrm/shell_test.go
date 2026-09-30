@@ -388,7 +388,10 @@ func TestUsesTheDevicesPinnedAuthority(t *testing.T) {
 		keyPEM:  string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
 
 	desc, _ := collection.Lookup("exec.winrm.shell")
-	params := map[string]any{"command": "hostname", "shell": "powershell", "timeout": 10}
+	// No timeout of its own: both outcomes arrive in milliseconds, and a
+	// short one only adds a way to fail under a loaded gate that says
+	// nothing about which authority was used.
+	params := map[string]any{"command": "hostname", "shell": "powershell"}
 	base := &winrmDevice{Stub: device().Stub, host: host, port: port}
 
 	pinned, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM}))

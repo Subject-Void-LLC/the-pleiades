@@ -42,7 +42,7 @@ func FuzzInjectDeclaresEverySecretItRenders(f *testing.F) {
 		// and shapes rather than on the renderer's own size limits, which
 		// internal/render's own fuzz target already covers.
 		if len(secretTemplate) > 256 || len(plainTemplate) > 256 {
-			t.Skip()
+			t.Skip("a template past the 256-byte bound this target keeps to")
 		}
 
 		in, err := credtype.NewInjector(render.New(), credtype.WithLiterals(isolatedLiterals(t)))
@@ -122,7 +122,7 @@ func FuzzCombineNeverSilentlyPicksAWinner(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, firstName, firstValue, secondName, secondValue string) {
 		if !validEnvName(firstName) || !validEnvName(secondName) {
-			t.Skip()
+			t.Skip("a variable name the injector refuses, which injectors_fuzz_test.go covers")
 		}
 
 		in, err := credtype.NewInjector(render.New(), credtype.WithLiterals(isolatedLiterals(t)))
