@@ -82,8 +82,9 @@ func RunWithStdin(ctx context.Context, target Target, auth Auth, shell Shell, sc
 // error contract is Run's.
 //
 // A *NotStartedError means nothing ran on the device, so retrying it
-// cannot run anything twice. Any other error may have come after the
-// command started.
+// cannot run anything twice: that includes the operation's deadline
+// passing before a shell opened, which wraps context.DeadlineExceeded.
+// Any other error may have come after the command started.
 func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Options) (Result, error) {
 	if cmd.Script == "" {
 		return Result{}, fmt.Errorf("winrm: empty script")
@@ -160,6 +161,18 @@ func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Op
 		}
 		return out.res, out.err
 	case <-ctx.Done():
+		// No shell opened, so the command was never sent: the host did not
+		// answer in time, which is a failure before anything ran and says
+		// so with the same type every other such failure has. A host that
+		// silently drops packets arrives here whenever the bound is
+		// shorter than the operating system's own connect timeout, and
+		// reporting that as "may still be running" was both wrong (nothing
+		// could be) and invisible to a retry or a circuit breaker.
+		if shellID, _ := x.started(); shellID == "" {
+			return Result{}, &NotStartedError{Err: fmt.Errorf(
+				"%w: no shell opened on %s within %s, so the command was never sent",
+				ctx.Err(), target.Host, describeTimeout(opts.Timeout))}
+		}
 		if !opts.LeaveRunningOnTimeout && stopAbandoned(x, target, auth, opts) {
 			return Result{}, fmt.Errorf(
 				"winrm: %s: gave up waiting for %s after %s, then stopped the command and closed its shell; anything it "+

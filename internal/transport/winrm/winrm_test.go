@@ -17,10 +17,12 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,15 +46,15 @@ type call struct {
 }
 
 // recording returns a transport whose execute records each call and
-// answers with the next of results (the last repeats).
+// answers with the next of results (the last repeats). It is built by
+// the same constructor New uses, so it carries a real circuit breaker.
 func recording(results ...func() (winrmexec.Result, error)) (*winrmTransport, *[]call) {
 	var calls []call
-	tr := &winrmTransport{opts: winrmexec.Options{Timeout: 5}}
-	tr.execute = func(_ context.Context, target winrmexec.Target, auth winrmexec.Auth, cmd winrmexec.Command, opts winrmexec.Options) (winrmexec.Result, error) {
+	tr := newTransport(winrmexec.Options{Timeout: 5}, func(_ context.Context, target winrmexec.Target, auth winrmexec.Auth, cmd winrmexec.Command, opts winrmexec.Options) (winrmexec.Result, error) {
 		calls = append(calls, call{target, auth, cmd, opts})
 		next := results[min(len(calls), len(results))-1]
 		return next()
-	}
+	})
 	return tr, &calls
 }
 
@@ -130,10 +132,37 @@ func TestExecShell_Refusals(t *testing.T) {
 	}
 }
 
+// The failures the retry and breaker tests below sort, one of each kind.
+var (
+	// refused is a network failure before the command started.
+	refused = &winrmexec.NotStartedError{Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}}
+	// timedOut is a network timeout before the command started.
+	timedOut = &winrmexec.NotStartedError{Err: &url.Error{Op: "Post", URL: "https://win1:5986/wsman", Err: timeoutErr{}}}
+	// badCredential is the service refusing the credential.
+	badCredential = &winrmexec.NotStartedError{Err: errors.New("http error 401")}
+	// tlsAlert is a client certificate the host refused during the TLS
+	// handshake, which Go reports as a *net.OpError from the peer.
+	tlsAlert = &winrmexec.NotStartedError{Err: &url.Error{Op: "Post", URL: "https://win1:5986/wsman", Err: &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}}}
+	// midCommand is a failure after the command started.
+	midCommand = errors.New("winrm: receiving output: connection reset")
+	// authorMistake is a task the package refused before any traffic.
+	authorMistake = errors.New("winrm: empty script")
+	// silentHost is the operation's deadline passing before any shell
+	// opened: a host dropping packets.
+	silentHost = &winrmexec.NotStartedError{Err: fmt.Errorf("%w: no shell opened on win1 within 5s, so the command was never sent", context.DeadlineExceeded)}
+	// canceledBeforeShell is the caller giving up before any shell opened,
+	// which says nothing about the network.
+	canceledBeforeShell = &winrmexec.NotStartedError{Err: fmt.Errorf("%w: no shell opened on win1 within 5s, so the command was never sent", context.Canceled)}
+)
+
+// timeoutErr is a net.Error that says it timed out.
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
 func TestRetry(t *testing.T) {
-	refused := &winrmexec.NotStartedError{Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}}
-	badCredential := &winrmexec.NotStartedError{Err: errors.New("http error 401")}
-	midCommand := errors.New("winrm: receiving output: connection reset")
 
 	tests := []struct {
 		name      string
@@ -144,6 +173,10 @@ func TestRetry(t *testing.T) {
 		{name: "network failure before start is retried until it succeeds", results: []func() (winrmexec.Result, error){fails(refused), ok("", 0)}, wantCalls: 2},
 		{name: "network failure before start gives up after three", results: []func() (winrmexec.Result, error){fails(refused)}, wantCalls: 3, wantErr: true},
 		{name: "a rejected credential is not retried", results: []func() (winrmexec.Result, error){fails(badCredential)}, wantCalls: 1, wantErr: true},
+		{name: "a certificate refused by a TLS alert is not retried", results: []func() (winrmexec.Result, error){fails(tlsAlert)}, wantCalls: 1, wantErr: true},
+		{name: "a network timeout before start is retried", results: []func() (winrmexec.Result, error){fails(timedOut), ok("", 0)}, wantCalls: 2},
+		{name: "a deadline before any shell opened is retried", results: []func() (winrmexec.Result, error){fails(silentHost), ok("", 0)}, wantCalls: 2},
+		{name: "a cancellation before any shell opened is not retried", results: []func() (winrmexec.Result, error){fails(canceledBeforeShell)}, wantCalls: 1, wantErr: true},
 		{name: "a failure after the command started is not retried", results: []func() (winrmexec.Result, error){fails(midCommand)}, wantCalls: 1, wantErr: true},
 	}
 	for _, tt := range tests {
@@ -164,6 +197,9 @@ func TestNew_UsesWinrmexec(t *testing.T) {
 	tr, ok := New(winrmexec.Options{}).(*winrmTransport)
 	if !ok || tr.execute == nil {
 		t.Fatal("New must wire winrmexec.Execute")
+	}
+	if tr.breaker == nil {
+		t.Fatal("New must give the transport a circuit breaker")
 	}
 }
 

@@ -19,9 +19,10 @@
 // SCOPE, because this is easy to overclaim: these options govern the
 // CONTROL plane only, which is Controller to NATS to Runner. They have
 // nothing to do with the execution plane, the Runner's own connection to
-// a managed device over SSH, serial or WinRM, whose retry and circuit
-// breaker live in pkg/remoteexec and whose deliberate rule is that a
-// command already sent is never retried. A Runner that survives a
+// a managed device over SSH, serial or WinRM, whose dial retry lives in
+// pkg/remoteexec and internal/transport/winrm, whose circuit breaker is
+// pkg/breaker, and whose deliberate rule is that a command already sent
+// is never retried. A Runner that survives a
 // two-hour control-plane outage still cannot resume an SSH session that
 // died mid-command.
 //

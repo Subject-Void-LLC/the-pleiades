@@ -50,6 +50,8 @@ package winrmexec
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -307,6 +309,22 @@ func ResolvePort(targetPort int, https bool) int {
 		return DefaultPortHTTPS
 	}
 	return DefaultPort
+}
+
+// Addr returns the "host:port" a call with this target, credential and
+// options really dials, after every rule that decides it: certificate
+// authentication forcing HTTPS, the scheme's default port standing in for
+// an unset one, and a bracketed IPv6 literal meaning the same host as a
+// bare one.
+//
+// It exists so a caller that keys state by address, a circuit breaker
+// being the case in point, uses the address Execute uses rather than
+// repeating those rules and drifting from them. Two spellings of one
+// device then share one key, and a device reached on two ports keeps two.
+func Addr(target Target, auth Auth, opts Options) string {
+	opts = opts.resolve(auth)
+	port := ResolvePort(target.Port, opts.HTTPS)
+	return net.JoinHostPort(unbracket(target.Host), strconv.Itoa(port))
 }
 
 // unbracket strips the brackets from a bracketed IPv6 literal, leaving

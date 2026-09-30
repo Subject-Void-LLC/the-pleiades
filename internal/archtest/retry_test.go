@@ -9,9 +9,14 @@ import "testing"
 // acquireWithContention, nats.go's CAS loops) and pkg/remoteexec
 // (dial.go's dialWithRetry) each hand-rolled their own retry loop around
 // the shared pkg/retry.Backoff delay math; this asserts both still
-// import the shared pkg/retry.Do/Sleep loop pkg/remoteexec's own circuit
-// breaker (pkg/remoteexec/breaker.go, unexported) sits behind, rather
-// than a private copy silently regrowing in either package.
+// import the shared pkg/retry.Do/Sleep loop, rather than a private copy
+// silently regrowing in either package.
+//
+// The breaker half of the name is checked the same way. Phase 75 moved
+// the circuit breaker out of pkg/remoteexec into pkg/breaker so the WinRM
+// transport could use the same one, and every package that dials behind a
+// breaker must import it from there. TestNoPlatformCircuitIsReachable is
+// the other half: it refuses a breaker-shaped type declared anywhere else.
 //
 // This is an import-graph check, in TestOnlyDesignatedAdaptersImportConcreteDrivers's
 // own style, not an AST inspection for "does this file contain a for
@@ -37,6 +42,9 @@ func TestNoSecondRetryLoopOrCircuitBreaker(t *testing.T) {
 		modulePath + "/pkg/remoteexec",
 		modulePath + "/internal/topology",
 		modulePath + "/internal/event",
+		// Phase 75: WinRM retries a network failure before its command
+		// starts through the same loop.
+		modulePath + "/internal/transport/winrm",
 	} {
 		pkgs := goList(t, false, importPath)
 		if len(pkgs) != 1 {
@@ -54,4 +62,29 @@ func TestNoSecondRetryLoopOrCircuitBreaker(t *testing.T) {
 			t.Errorf("%s does not import %s: this package hand-rolled its own retry loop before Phase 72 consolidated it there; if it genuinely no longer retries anything, remove it from this test's list rather than letting the shared loop silently stop covering it", importPath, retryPkg)
 		}
 	}
+
+	for _, importPath := range []string{
+		modulePath + "/pkg/remoteexec",
+		modulePath + "/internal/transport/winrm",
+	} {
+		if !importsPackage(t, importPath, breakerPkg) {
+			t.Errorf("%s does not import %s: it dials behind a circuit breaker, and the platform has exactly one; if it genuinely stopped dialing, remove it from this list", importPath, breakerPkg)
+		}
+	}
+}
+
+// importsPackage reports whether the package at importPath imports want
+// directly.
+func importsPackage(t *testing.T, importPath, want string) bool {
+	t.Helper()
+	pkgs := goList(t, false, importPath)
+	if len(pkgs) != 1 {
+		t.Fatalf("expected exactly one package listed for %s, got %d", importPath, len(pkgs))
+	}
+	for _, imp := range pkgs[0].Imports {
+		if imp == want {
+			return true
+		}
+	}
+	return false
 }
