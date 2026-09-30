@@ -1,10 +1,11 @@
-// Package flakegate classifies a go test -json event stream's failures
-// against flaky-packages.json at the repo root, the shared decision both
-// tools/testgate (test-race/test-integration) and tools/coverage-check's
-// own -tolerant mode use so the two tools cannot silently disagree about
-// which packages are known-flaky or what counts as "never tolerated"
-// (a build failure). See flaky-packages.json's own header comment for the
-// full policy and FAILURE_PATTERNS.md #61 for the incident behind it.
+// Package flakegate reads a go test -json event stream for tools/testgate:
+// its failures, classified and re-run alone (Isolate), which is the one
+// rule for telling contention from a defect; the tests it skipped and why;
+// each package's coverage and what its tests lacked (Measurement, which
+// tools/coverage-check -measured reads). flaky-packages.json at the repo
+// root no longer decides anything; Classify still splits failures by it so
+// a tolerated one prints the reason its entry gives. FAILURE_PATTERNS.md #61
+// is the incident behind the re-run rule.
 //
 // Nothing in this package is reachable from outside this module: it lives
 // under tools/internal, and both callers are themselves tools/ commands

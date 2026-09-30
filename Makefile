@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage test-full push-gate-full coverage-measured ci-fast ci-containers ci-images workflow-lint doctor test-clean-room
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers ci-images workflow-lint doctor test-clean-room
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -449,17 +449,16 @@ test-no-docker:
 # evidence, and those are precisely the packages flaky-packages.json
 # already documents as timing-sensitive under load.
 #
-# That reuse is also what lets this be a bare `go test` in push-gate,
-# where test-race, test-integration and coverage all go through
-# tools/testgate's flaky tolerance instead. Every package
-# flaky-packages.json names is inside the filter above, so this target
-# cannot reach one and the tolerance would be a no-op here. That is a
+# That reuse is also what lets this be a bare `go test` in both gates,
+# where the one pass (test-full, or push-gate-full) goes through
+# tools/testgate instead. Every package flaky-packages.json names is
+# inside the filter above, so this target cannot reach one. That is a
 # claim about two lists nothing else connects, so it is asserted by
 # tools/internal/flakegate's TestEveryFlakyPackageIsExcludedFromTestRepeat
 # rather than trusted to stay true.
 #
-# No -race, deliberately. test-race already covers that axis at -count=1
-# over the same code, and the defect class this target exists for
+# No -race, deliberately. The one pass already covers that axis at
+# -count=1 over the same code, and the defect class this target exists for
 # (process-wide state surviving a test) is not a data race and is not
 # made more visible by the detector, only slower.
 #
@@ -726,26 +725,21 @@ docs-gen-check:
 helm-lint:
 	go run ./tools/helm-lint
 
-# ci is the whole gate, and it is now a LOCAL one. -race, not plain test,
-# is deliberately included here (not just in a separate target) because
-# the Phase 0 item lists `go test -race ./...` as one thing CI must run,
-# and splitting it out would make it easy to land a change that only ran
-# the non-race target.
+# ci is the whole gate, strict. Its tests are the one pass (test-full:
+# -race, the integration tag, coverage and -count=1, through tools/testgate
+# -strict, which re-runs nothing and fails on any failure), then
+# test-repeat, and its floors come from that pass's own numbers
+# (coverage-measured) rather than from another run.
 #
-# It is no longer what .github/workflows/ci.yml runs. That workflow runs
-# ci-remote below -- everything on this line EXCEPT test-race, test-repeat,
-# test-integration and coverage -- because the four it drops need a real
-# Docker daemon for around twenty packages' worth of ephemeral containers
-# and have never produced a green result on a hosted runner. The evidence
-# those four produce is real and still required; it is produced here,
-# before a push, rather than after one. See ci-remote's own comment for
-# what that costs and .github/workflows/ci.yml's job comment for the full
-# reasoning.
+# The workflow does not call this target. Its ci job runs ci-remote below
+# (every check here that runs no test), and its fast, containers and
+# coverage jobs run the tests through ci-fast, ci-containers and
+# coverage-measured, split by what a package needs; its nightly job runs
+# test-full. So the checks are the same, divided across jobs.
 #
-# Never make ci itself tolerant of anything: the two targets below
-# (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
-# can run something more forgiving of known local flakiness without this
-# target becoming any less strict.
+# Never make ci tolerant of anything. push-gate is the tolerant twin: the
+# same pass without -strict, where a failure that passes re-run alone is
+# reported rather than blocking.
 # GATE_START_COMMIT and GATE_START_CLEAN are where the gate began, read
 # HERE, while make is still parsing this file, and handed to
 # tools/gatereceipt twenty minutes later when it writes the receipt.
@@ -802,48 +796,14 @@ ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck co
 ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 	@echo "ci-remote: all checks passed (no tests were run; see this target's comment)"
 
-# push-gate-race and push-gate-integration run through tools/testgate
-# instead of a bare `go test`, so a test failure confined to a package
-# flaky-packages.json lists (with a written reason) is printed as a
-# warning rather than blocking. FAILURE_PATTERNS.md #61 is the incident
-# behind this: "the specific package that loses the race changes between
-# runs... is the signature of resource contention, not a code defect,"
-# discovered because a fully clean `go test ./... -race` run and this
-# sandboxed environment's Docker daemon do not reliably coexist once
-# enough packages provision real containers at once. A failure OUTSIDE
-# flaky-packages.json, or any build failure anywhere, still fails these
-# targets exactly like test-race/test-integration do; see
-# tools/testgate's own doc comment for the classification rule in full.
-push-gate-race:
-	go run ./tools/testgate
-
-push-gate-integration:
-	go run ./tools/testgate -integration
-
-# push-gate-coverage is coverage's own tolerant counterpart, for the same
-# reason push-gate-race/push-gate-integration exist: tools/coverage-check
-# runs its own full `go test ./... -cover` internally (measureCoverage),
-# entirely separately from test-race/test-integration, so a container- or
-# timing-contention failure inside THAT run was still an unconditional
-# hard failure even after push-gate-race/push-gate-integration's own
-# tolerance was added -- found by running push-gate for real and watching
-# it fail here specifically, on a flaky-packages.json package, after both
-# test targets above had already passed. -tolerant applies the identical
-# flaky-packages.json classification tools/testgate uses; see
-# tools/coverage-check's own measureCoverageTolerant doc comment for why a
-# package's coverage number is still trustworthy even when one of its
-# tests had a tolerated failure.
-push-gate-coverage:
-	go run ./tools/coverage-check -tolerant
-
-# push-gate is what .githooks/pre-push runs, in place of `make ci`: every
-# check ci runs, in the same order, except test-race/test-integration/
-# coverage are replaced by their tolerant push-gate-race/
-# push-gate-integration/push-gate-coverage counterparts above. GitHub
-# Actions never calls this target, only `make ci` directly (see ci's own
-# comment above), so nothing here weakens what actually gates a merge; it
-# only reduces how much known-flaky local noise a developer has to fight
-# through, and re-run, before a push reaches that real gate.
+# push-gate is every check ci runs, in the same order, with test-full
+# swapped for push-gate-full: the same one pass without -strict, so a
+# failure that passes when re-run alone is reported as contention rather
+# than blocking, and one that fails alone fails. Its floors come from that
+# pass too (coverage-measured). It ends by writing a receipt through
+# tools/gatereceipt, which .githooks/pre-push verifies; the hook does not
+# run the gate itself (CLAUDE.md says why). The pull-request CI jobs apply
+# the same rule; ci and the nightly job do not.
 push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
 	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"

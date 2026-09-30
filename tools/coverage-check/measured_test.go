@@ -41,7 +41,7 @@ func TestMeasured_MergesShardsAndChecksFloors(t *testing.T) {
 		"fast.json":           `{"coverage": {"example/a": 91.0}}`,
 		"shard1.json":         `{"coverage": {"example/b": 80.0, "example/new": 12.0}}`,
 	})
-	if err := run(false, []string{"fast.json", "shard1.json"}); err != nil {
+	if err := run([]string{"fast.json", "shard1.json"}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 }
@@ -70,7 +70,7 @@ func TestMeasured_Refusals(t *testing.T) {
 				files[k] = v
 			}
 			inDir(t, files)
-			err := run(false, tt.args)
+			err := run(tt.args)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("err = %v, want it to contain %q", err, tt.wantErr)
 			}
@@ -109,7 +109,7 @@ func TestMeasured_AFloorMeasuredWithoutItsRequirementIsNamedNotFailed(t *testing
 		"c.json":              `{"coverage": {"example/a": 37.6, "example/b": 80.0}, "missing": {"example/a": ["localstack"]}}`,
 	})
 	out := captureStdout(t, func() {
-		if err := run(false, []string{"c.json"}); err != nil {
+		if err := run([]string{"c.json"}); err != nil {
 			t.Fatalf("run: %v", err)
 		}
 	})
