@@ -7,15 +7,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // TestPullAll_NamesAnImageThatNeverArrived proves a failed pull is retried
 // and then reported by name. The waits are shortened for the test; the
 // image cannot exist, so no registry can answer it.
 func TestPullAll_NamesAnImageThatNeverArrived(t *testing.T) {
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skip("needs a Docker daemon: docker info failed")
-	}
+	daemon := exec.Command("docker", "info").Run()
+	testsupport.Require(t, "docker", daemon == nil, "no Docker daemon answered docker info")
 	saved := pullBackoff
 	pullBackoff = []time.Duration{time.Millisecond}
 	t.Cleanup(func() { pullBackoff = saved })

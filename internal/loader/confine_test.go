@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -163,9 +164,9 @@ func TestConfinement_AProgramReachesOnlyWhatItWasHanded(t *testing.T) {
 // and reads the answer back. Restricting the main thread would put the
 // parent inside the program's own domain, and the signal would land.
 func TestConfinement_NeverOnTheMainThread(t *testing.T) {
-	if abi, err := probeLandlock(); err != nil || abi < 6 {
-		t.Skipf("Landlock ABI %d has no signal scoping", abi)
-	}
+	abi, err := probeLandlock()
+	testsupport.Require(t, "landlock-scoping", err == nil && abi >= 6,
+		fmt.Sprintf("Landlock ABI %d has no signal scoping, which Linux 6.12 added (ABI 6)", abi))
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(os.Environ(), mainThreadProbeEnv+"=1")
 	out, err := cmd.CombinedOutput()

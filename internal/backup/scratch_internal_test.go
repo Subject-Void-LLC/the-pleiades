@@ -28,9 +28,8 @@ func loadedScratch(t *testing.T) *scratch {
 		t.Skip("starts a postgres container")
 	}
 	for _, name := range []string{"pg_dump", "pg_restore"} {
-		if _, err := exec.LookPath(name); err != nil {
-			t.Skipf("%s is not on PATH", name)
-		}
+		_, err := exec.LookPath(name)
+		testsupport.Require(t, name, err == nil, name+" is not on PATH")
 	}
 	ctx := context.Background()
 	pg, err := testpg.Run(ctx, testsupport.PostgresImage,
