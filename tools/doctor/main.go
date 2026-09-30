@@ -57,6 +57,17 @@ func main() {
 	fmt.Println("doctor: this machine can run the gate. `make ci-fast` needs no Docker; `make push-gate` runs everything.")
 }
 
+// run, lookPath, getenv and goVersion are how the checks ask the machine. Tests
+// replace them to answer both ways, so every branch is proved on whatever
+// machine runs the tests, not only the branches that machine happens to
+// take.
+var (
+	run       = output
+	lookPath  = exec.LookPath
+	getenv    = os.Getenv
+	goVersion = runtime.Version
+)
+
 // output runs a command with a short deadline and returns its trimmed
 // standard output, so one hung daemon cannot hang the doctor.
 func output(name string, args ...string) (string, error) {
@@ -74,7 +85,7 @@ func checkGo() []line {
 		return []line{{"fix", "go.mod", "run this from the repository root: " + err.Error()}}
 	}
 	need := requiredToolchain(string(raw))
-	have := runtime.Version()
+	have := goVersion()
 	if !atLeast(have, need) {
 		return []line{{"fix", "Go toolchain", fmt.Sprintf("%s, and go.mod asks for %s: install it, or leave GOTOOLCHAIN=auto so go fetches it", have, need)}}
 	}
@@ -85,7 +96,7 @@ func checkGo() []line {
 // tier cannot run, which is a fix for the full gate and not for the fast
 // tier, so it says both.
 func checkDocker() line {
-	version, err := output("docker", "info", "--format", "{{.ServerVersion}}")
+	version, err := run("docker", "info", "--format", "{{.ServerVersion}}")
 	if err != nil || version == "" {
 		return line{"fix", "Docker daemon", "not reachable, so the 31 container packages cannot run: start Docker, or use `make ci-fast`, which needs none"}
 	}
@@ -102,12 +113,12 @@ func checkTools() []line {
 	var out []line
 	for _, tool := range []string{"gosec", "govulncheck", "actionlint"} {
 		want := pins[tool]
-		path, err := exec.LookPath(tool)
+		path, err := lookPath(tool)
 		if err != nil {
 			out = append(out, line{"fix", tool, fmt.Sprintf("not on PATH: run `make tools` (pinned %s), and put $(go env GOPATH)/bin on PATH", want)})
 			continue
 		}
-		modinfo, _ := output("go", "version", "-m", path)
+		modinfo, _ := run("go", "version", "-m", path)
 		have := moduleVersion(modinfo)
 		if have != want {
 			out = append(out, line{"fix", tool, fmt.Sprintf("%s, pinned %s: run `make tools`", orNone(have), want)})
@@ -120,7 +131,7 @@ func checkTools() []line {
 
 // checkHooks asks whether this clone's hooks are the repository's.
 func checkHooks() line {
-	path, _ := output("git", "config", "core.hooksPath")
+	path, _ := run("git", "config", "core.hooksPath")
 	if path != ".githooks" {
 		return line{"fix", "git hooks", "not installed, so commits and pushes are unchecked here: run `make hooks`"}
 	}
@@ -131,18 +142,18 @@ func checkHooks() line {
 // each one. None of these fails the doctor.
 func checkOptional() []line {
 	var out []line
-	if _, err := output("gopls", "version"); err != nil {
+	if _, err := run("gopls", "version"); err != nil {
 		out = append(out, line{"info", "gopls", "not installed; agents working here need it (go install golang.org/x/tools/gopls@latest, then make lsp)"})
 	} else {
 		out = append(out, line{"ok", "gopls", "installed"})
 	}
-	if _, err := output("python3", "-c", "import winrm"); err != nil {
+	if _, err := run("python3", "-c", "import winrm"); err != nil {
 		out = append(out, line{"info", "pywinrm", "absent: the WinRM comparison against pywinrm and Ansible skips (python3 -m pip install --user pywinrm)"})
 	} else {
 		out = append(out, line{"ok", "pywinrm", "the WinRM comparison can run"})
 	}
 	for _, gate := range realHostGates {
-		if os.Getenv(gate.env) == "" {
+		if getenv(gate.env) == "" {
 			out = append(out, line{"info", gate.name, "skips: set " + gate.env + " (" + gate.what + ")"})
 		} else {
 			out = append(out, line{"ok", gate.name, gate.env + " is set"})
