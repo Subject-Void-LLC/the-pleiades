@@ -13,7 +13,7 @@ Makes sure a package is installed, without caring which package manager the devi
 |  |  |
 | --- | --- |
 | Capabilities | `PackageManagerCapable` |
-| Transports | - |
+| Transports | `ssh` |
 | Requires elevation | yes |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |

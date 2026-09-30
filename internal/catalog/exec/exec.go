@@ -63,14 +63,14 @@ const (
 // purpose, and the reason is worth stating accurately because an earlier
 // version of this comment stated it wrongly.
 //
-// It is NOT that admission already checked the device declares
-// CommandExecCapable. Nothing checks that. A Manifest's
-// RequiredCapabilities is read by the documentation generators and by
-// registration's name-exists check, and by no run-time gate on either
-// tier: the Controller's admission consults engine.ActionCapability,
-// which is a two-entry table naming only ssh_exec and ios_backup, so a
-// runbook of Collection tasks dispatches with no capability requirement
-// at all. That gap is real and is recorded rather than papered over.
+// It is NOT that nothing checks the device declares CommandExecCapable:
+// the engine does, before this method runs, on the CLI and on a Runner
+// alike (engine.checkMethodCapabilities), and it checks the device is
+// reachable over this method's transport too (collection.CheckTransports).
+// That second check is what lets a Windows server have CommandExecCapable,
+// through WindowsShellCapable, without these SSH methods running on it.
+// The Controller's own admission still consults only
+// engine.ActionCapability, so a launch is not refused there.
 //
 // The reason is the second one, which does hold: the Runner's own device
 // adapter carries a declared capability list with no accessors behind

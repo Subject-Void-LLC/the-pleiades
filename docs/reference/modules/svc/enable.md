@@ -13,7 +13,7 @@ Makes sure a service is set to start at boot, without caring which init system t
 |  |  |
 | --- | --- |
 | Capabilities | `ServiceManagerCapable` |
-| Transports | - |
+| Transports | `ssh`, `winrm` |
 | Requires elevation | yes |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |

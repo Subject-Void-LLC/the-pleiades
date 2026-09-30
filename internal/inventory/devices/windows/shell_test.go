@@ -2,11 +2,13 @@
 package windows_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -54,18 +56,30 @@ func TestServer_ShellPaths(t *testing.T) {
 	}
 }
 
-// TestServer_DoesNotClaimCommandExec pins the deviation
-// capability.WindowsShellCapable's own doc comment explains: a Windows
-// server must not declare CommandExecCapable, because exec.command and
-// exec.shell require it and speak SSH only.
-func TestServer_DoesNotClaimCommandExec(t *testing.T) {
+// TestServer_ClaimsCommandExecAndIsStillRefusedSSHMethods pins the
+// re-parent WindowsShellCapable's doc comment describes. A Windows server
+// can run a command outside any shell, so it has CommandExecCapable
+// through WindowsShellCapable; it has no POSIX shell, so it still lacks
+// ShellExecCapable. And a method that reaches its device over SSH, which
+// is what exec.command requires CommandExecCapable for, is refused by
+// transport rather than admitted by capability.
+func TestServer_ClaimsCommandExecAndIsStillRefusedSSHMethods(t *testing.T) {
 	item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server"})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	for _, name := range []capability.Name{capability.NameCommandExec, capability.NameShellExec} {
-		if item.HasCapability(name) {
-			t.Errorf("HasCapability(%s) = true: SSH-only methods would validate against a Windows host", name)
-		}
+	if !item.HasCapability(capability.NameCommandExec) {
+		t.Error("HasCapability(CommandExecCapable) = false; WindowsShellCapable implies it")
+	}
+	if item.HasCapability(capability.NameShellExec) {
+		t.Error("HasCapability(ShellExecCapable) = true; a Windows server has no POSIX shell")
+	}
+	sshOnly := collection.Manifest{
+		SupportedTransports:  []string{capability.TransportSSH},
+		RequiredCapabilities: []capability.Name{capability.NameCommandExec},
+	}
+	err = collection.CheckTransports(item, "exec.command", sshOnly)
+	if err == nil || !strings.Contains(err.Error(), "reaches only winrm") {
+		t.Errorf("CheckTransports = %v, want an SSH-only method refused for a server reaching only winrm", err)
 	}
 }

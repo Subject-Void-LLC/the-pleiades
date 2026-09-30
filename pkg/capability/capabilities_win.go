@@ -38,18 +38,21 @@ type WindowsFeatureCapable interface {
 // interpreters somewhere other than the stock paths says so here rather
 // than in Go.
 //
-// It deliberately has no registered Parent, although a Windows shell
-// device can also run a command outside any shell. Declaring a child
-// capability declares its parent (Resolves), and the parent,
-// CommandExecCapable, is what exec.command and exec.shell require. Both
-// speak SSH only, and nothing yet checks a method's transports against a
-// device, so a Windows server declaring CommandExecCapable would pass
-// validation for them and fail at run time. WorkingDirectory is written
-// out here rather than embedded for the same reason.
+// Its parent is CommandExecCapable, because a Windows shell device can
+// also run a command outside any shell: WinRM's direct mode (ShellNone)
+// is exactly CommandExecCapable's "an arbitrary command outside of a
+// shell". Declaring this declares that (Resolves). Phase 75 had to
+// register it with no parent at first: CommandExecCapable is what
+// exec.command requires, exec.command speaks SSH only, and nothing then
+// checked a method's transports against a device, so a Windows server
+// would have passed validation for it and failed at run time. The
+// transport check (collection.CheckTransports, at plan time and again
+// before a method runs) is what refuses that now, so the capability says
+// what the device can do and the transport says how it is reached.
 type WindowsShellCapable interface {
-	// WorkingDirectory returns where a command starts, or "" to leave
-	// it to the service.
-	WorkingDirectory() string
+	// CommandExecCapable's WorkingDirectory returns where a command
+	// starts, or "" to leave it to the service.
+	CommandExecCapable
 	// CmdPath returns the absolute path to cmd.exe on the device.
 	CmdPath() string
 	// PowerShellPath returns the absolute path to powershell.exe on the
@@ -72,6 +75,7 @@ func init() {
 	})
 	Register(Descriptor{
 		Name:   NameWindowsShell,
+		Parent: NameCommandExec,
 		Assert: func(item any) bool { _, ok := item.(WindowsShellCapable); return ok },
 	})
 }

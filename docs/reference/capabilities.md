@@ -6,7 +6,7 @@ status: beta
 
 What a device *can do*, not what it *is*. A Collection method declares which capabilities it requires; a device advertises one by structurally implementing the matching Go interface.
 
-**Nothing compares these to your inventory before a run yet.** `pleiades validate` checks a target device's capabilities for exactly two legacy action names, `ssh_exec` and `ios_backup`. For every catalog FQCN the required capability is documentation only: a mismatch surfaces during the run, not at plan time. See [Implementation status](../01-start-here.md#implementation-status).
+**When these are checked.** A method's required capabilities are checked against its device before the method runs, on the CLI and on a Runner, so a mismatch stops the task rather than reaching the device. `pleiades validate` does not check them yet, except for the legacy action names `ssh_exec` and `ios_backup`. A method's transports (below) are checked at plan time: `pleiades validate` refuses a task whose device reaches none of them. See [Implementation status](../01-start-here.md#implementation-status).
 
 | Capability | Parent | Children |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `AristaEOSCapable` | `NetworkCLICapable` | - |
 | `CatalystAPICapable` | - | - |
 | `CiscoIOSCapable` | `NetworkCLICapable` | - |
-| `CommandExecCapable` | - | `ShellExecCapable` |
+| `CommandExecCapable` | - | `ShellExecCapable`, `WindowsShellCapable` |
 | `DnfCapable` | `PackageManagerCapable` | - |
 | `DockerCapable` | - | - |
 | `FactGathererCapable` | - | - |
@@ -44,6 +44,18 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsCapable` | - | - |
 | `WindowsFeatureCapable` | - | - |
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
-| `WindowsShellCapable` | - | - |
+| `WindowsShellCapable` | `CommandExecCapable` | - |
 
 35 capabilities registered.
+
+## Transports
+
+How a method's work reaches its device. A method lists the transports it uses; a device reaches a transport when it has any one of the capabilities beside it. `pleiades validate`, and the engine again before the method runs, refuse a task whose device reaches none of its method's transports. A method that calls an API rather than its device lists none.
+
+| Transport | Reached by any of |
+| --- | --- |
+| `docker` | `DockerCapable` |
+| `https` | `HTTPAPICapable`, `CatalystAPICapable` |
+| `netconf` | `NetconfCapable` |
+| `ssh` | `SSHTransportCapable` |
+| `winrm` | `WinRMCapable` |
