@@ -128,7 +128,17 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+      # Ubuntu 24.04 refuses unprivileged user namespaces through AppArmor,
+      # and three tests re-run themselves as root in one (a real mount, a
+      # real account database). They skip where the host refuses, so this
+      # job allows them and then requires them: a runner that loses the
+      # ability fails the job instead of quietly running three fewer tests.
+      - name: Allow unprivileged user namespaces
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: make ci-fast
+        env:
+          PLEIADES_TEST_REQUIRE: ${{ runner.os == 'Linux' && 'userns' || '' }}
         run: make ci-fast
       - name: Keep the coverage for the floor check
         if: runner.os == 'Linux'
@@ -243,7 +253,11 @@ jobs:
           go-version-file: go.mod
       - name: Pull every container package's images
         run: make ci-images SHARD=1/1 IMAGES=.ci/images.txt PULL=-pull
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: make test-full
+        env:
+          PLEIADES_TEST_REQUIRE: userns
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured
