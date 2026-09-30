@@ -115,8 +115,9 @@ func run(o options) error {
 	// Written before anything is judged, so a run that fails still leaves
 	// the measurement it made; coverage-check never runs after a failed
 	// gate step, so this cannot turn a failure into a pass.
+	coverage := flakegate.Coverage(events)
 	if o.coverageOut != "" {
-		if err := writeCoverage(o.coverageOut, flakegate.Coverage(events)); err != nil {
+		if err := writeCoverage(o.coverageOut, coverage); err != nil {
 			return err
 		}
 	}
@@ -146,6 +147,20 @@ func run(o options) error {
 	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("re-running failures in isolation: %w", err)
+	}
+
+	// A package whose failure was contention has a coverage number from the
+	// run where that test stopped partway, so fewer of its statements ran,
+	// and a floor check would read contention as a coverage drop (it did:
+	// internal/ent/migrate, 2026-09-30). Its real number comes from running
+	// the whole package again, alone; a package that fails even then has
+	// failed, and joins confirmed.
+	if o.coverageOut != "" && len(contention) > 0 {
+		failedAgain := remeasure(args, contention, coverage)
+		confirmed = append(confirmed, failedAgain...)
+		if err := writeCoverage(o.coverageOut, coverage); err != nil {
+			return err
+		}
 	}
 
 	if len(contention) > 0 {
@@ -257,4 +272,27 @@ func printOutput(events []flakegate.Event, failures []flakegate.Failure) {
 		}
 		fmt.Fprintf(os.Stderr, "\n--- %s %s ---\n%s\n", f.Package, f.Test, out)
 	}
+}
+
+// remeasure runs each package that had a contention failure again, whole
+// and alone, and records its coverage from that run in coverage. It
+// returns a package-level failure for each one that fails even alone.
+func remeasure(args []string, contention []flakegate.Failure, coverage map[string]float64) []flakegate.Failure {
+	var failed []flakegate.Failure
+	for pkg := range flakegate.FailedPackages(contention) {
+		fmt.Printf("testgate: re-measuring %s alone, since its coverage came from a run where a test stopped partway\n", pkg)
+		events, _ := flakegate.RunGoTestJSONPackages(args, []string{pkg}, os.Stdout)
+		hard, warned := flakegate.Classify(events, nil)
+		if len(hard)+len(warned) > 0 {
+			printOutput(events, append(hard, warned...))
+			failed = append(failed, flakegate.Failure{Package: pkg, Kind: flakegate.FailedPackage})
+			continue
+		}
+		if pct, ok := flakegate.Coverage(events)[pkg]; ok {
+			coverage[pkg] = pct
+		} else {
+			delete(coverage, pkg)
+		}
+	}
+	return failed
 }

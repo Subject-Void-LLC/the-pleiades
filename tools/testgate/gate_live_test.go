@@ -113,3 +113,74 @@ func TestRun_ShardsTogetherTestEverything(t *testing.T) {
 		t.Errorf("shard 1/2 did not measure gateproof/good: %s", first)
 	}
 }
+
+// TestRun_ContentionIsReMeasuredAlone proves a package whose failure was
+// contention gets its coverage from a whole run alone, not from the run
+// where its test stopped partway.
+//
+// The test fails the first time it runs, as a contended one would, before
+// covering half the package, and passes every time after. The first run
+// therefore measures 50%; the gate must record the 100% its re-run alone
+// measures, or a floor check reads contention as a coverage drop, which is
+// what internal/ent/migrate's did on 2026-09-30.
+func TestRun_ContentionIsReMeasuredAlone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+	dir := t.TempDir()
+	t.Setenv("GATEPROOF_DIR", dir)
+	files := map[string]string{
+		"go.mod":              "module gateproof\n\ngo 1.22\n",
+		"flaky-packages.json": "{}\n",
+		"cov/cov.go":          "package cov\n\n// Early returns 1.\nfunc Early() int { return 1 }\n\n// Late returns 2.\nfunc Late() int { return 2 }\n",
+		"cov/cov_test.go": `package cov
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestFirstRunFails(t *testing.T) {
+	Early()
+	marker := filepath.Join(os.Getenv("GATEPROOF_DIR"), "ran-once")
+	if _, err := os.Stat(marker); err != nil {
+		_ = os.WriteFile(marker, nil, 0o600)
+		t.Fatal("the first run fails, as a contended one would")
+	}
+	Late()
+}
+`,
+	}
+	module := filepath.Join(dir, "module")
+	for name, body := range files {
+		path := filepath.Join(module, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restore, _ := os.Getwd()
+	if err := os.Chdir(module); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+
+	out := filepath.Join(dir, "coverage.json")
+	if err := run(options{full: true, coverageOut: out, packages: []string{"gateproof/cov"}}); err != nil {
+		t.Fatalf("run: %v; a failure that passes alone is contention", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var measured map[string]float64
+	if err := json.Unmarshal(raw, &measured); err != nil {
+		t.Fatal(err)
+	}
+	if measured["gateproof/cov"] != 100 {
+		t.Fatalf("coverage = %v, want the re-measured 100, not the partial run's 50", measured)
+	}
+}
