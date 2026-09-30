@@ -11201,3 +11201,43 @@ still asks the real one.
 
 **Lesson.** A test of code that reads its environment has to run against an environment it describes too, or
 its coverage, and any floor set from it, belongs to whoever ran it last.
+
+## 411. Schedule pages were ordered by name and resumed by id, so following Next skipped schedules
+
+**Symptom.** Found 2026-09-30 by a subagent seeding a second schedule for the view conformance suite, and
+confirmed with a test written before the fix: five schedules named `zulu` through `victor`, created in that
+order and paged one at a time, returned `victor` and then nothing. Four of the five could not be reached by
+paging, through the Schedules view or `GET /schedules`, which share `schedule.Store.List`.
+
+**Root cause.** `List` ordered by `(name, schedule_id)` and resumed with `schedule_id > after`. Schedule ids
+are time-ordered, so any schedule whose name sorted before a newer one's fell behind the cursor. The store's
+own paging test created `sched-0` to `sched-4` in name order, where the two orders agree, and checked only for
+a schedule on both pages, never for one on neither.
+
+**Fix.** The cursor stays a schedule id, which is what an API client passes back, and the page resumes after
+that schedule's place in the order: `name > n OR (name = n AND schedule_id > after)`. A cursor whose schedule
+was deleted is refused with `ErrNotFound`, since its place is unknown and resuming anywhere else would skip or
+repeat without saying so (`TestListFollowsTheCursorInNameOrder`, `TestListRefusesACursorThatNoLongerExists`);
+`GET /schedules` answers that with a 400 naming the cursor rather than a 404, which a client asking for a list
+would read as an empty collection.
+
+**Lesson.** A keyset cursor must compare the same columns the query orders by. A paging test has to create
+records whose orders disagree, and check that every record appears once, not only that none appears twice.
+
+## 412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
+
+**Symptom.** Found the same way. `/ui/access` rendered six grants, and every row's links went to `/ui/teams/<id>`;
+none reached `/ui/access/<id>`, the grant's own page, which holds its Edit and Delete. The conformance drill-down
+and edit-form tests reported "no seeded record to walk into" and skipped.
+
+**Root cause.** The grant's primary field was `team`, which references the Teams view, and a referencing cell
+links to what it names before a primary cell links to its row (`TableModel.CellHref`). The drill-down test
+treated "no record link on the page" as "no records", so the one outcome it exists to catch read as a skip.
+
+**Fix.** `granted_at`, the view's own id field, is the primary field; the team column still links to its team.
+`view.Register` refuses a view whose records open and whose primary list field references another view, and
+the drill-down test fails when the list returns rows and links none of them. The paging test now says when a
+reader does not page at all rather than blaming the fixture.
+
+**Lesson.** A test's skip has to distinguish "nothing to check" from "the check found nothing", or its most
+important failure reads as a missing fixture.

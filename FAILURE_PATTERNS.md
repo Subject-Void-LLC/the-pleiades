@@ -413,6 +413,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
 409. A roadmap item cited `TestCheckCmdEnvReads`, which was never written, and the refusal it named was tested only by a lab gate
 410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
+411. Schedule pages were ordered by name and resumed by id, so following Next skipped schedules
+412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
