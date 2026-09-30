@@ -410,6 +410,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 405. A package's coverage was read from the run where a contended test stopped partway, so contention looked like a coverage drop
 406. Coverage floors recorded where LocalStack ran would have failed every CI run, and every `make ci` without a token
 407. The view reachability check hand-listed 8 of 22 views, so dropping any of the other 14 passed
+408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

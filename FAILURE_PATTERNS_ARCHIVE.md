@@ -11128,3 +11128,28 @@ for its `Name` constant, and a package without one fails. The same mutation now 
 
 **Lesson.** A completeness check that works from a hand-kept list is only as complete as the list. Derive the
 list from the thing being checked, so that adding the thing adds it to the check.
+
+## 408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
+
+**Symptom.** 2026-09-30, `make push-gate` on the Phase 118 tip: `TestReleaseGate_AnInputResolvesOutOfARealVault`
+failed with `writing the secret: Post "http://localhost:43674/...": dial tcp 127.0.0.1:43674: connect:
+connection refused`, 2.00s into the test, and passed when re-run alone. `flaky-packages.json` had carried the
+package since 2026-08-26 as contention. This was the first run that printed a tolerated failure's own output
+(FAILURE_PATTERNS 402's fix), and the output said it was not a lost race at all.
+
+**Root cause.** The container waited for `wait.ForLog("Vault server started!")`, which proves the server is
+listening inside the container. It does not prove Docker is forwarding the mapped host port, and under load
+the gap between the two is long enough for one request to land in it. The test's first request is a single
+`http.DefaultClient` POST with no retry, so it found the gap; the sshd containers that wait on a log line the
+same way reach their port through the SSH dial's retry, which hides the same gap.
+
+**Fix.** The wait is `wait.ForAll` of the log line and an HTTP 200 from `/v1/sys/health` through the mapped
+port, both under `testsupport.ContainerStartupTimeout`. Health answers 200 only once Vault is initialized,
+unsealed and active, and it goes through the same port the test then writes to. The same wait cannot finish
+before the mapped port exists, which also closes the 2026-08-26 symptom (`port "8200/tcp" not found`), so the
+package's `flaky-packages.json` entry, which called both a lost race rather than a defect, is removed.
+
+**Lesson.** A readiness check proves the path it checks. Wait on the path the test will use, through the host
+port it will use, rather than on something the server says about itself inside the container. About fifteen
+other containers here still wait on a log line alone; they are not failing because their callers retry, which
+is luck rather than design.
