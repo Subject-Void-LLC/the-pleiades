@@ -42,14 +42,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -346,54 +343,33 @@ func TestModesReleaseGate(t *testing.T) {
 // or concurrency, and the numbers are the per-command cost on a real host.
 func TestModesStress(t *testing.T) {
 	target, auth, opts := gateHost(t)
-	ctx := context.Background()
 	whoami, err := CommandLine(`C:\Windows\System32\whoami.exe`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	measure := func(t *testing.T, n, workers int, cmd Command) []time.Duration {
-		t.Helper()
-		durations := make([]time.Duration, n)
-		errs := make(chan error, n)
-		jobs := make(chan int)
-		var wg sync.WaitGroup
-		for w := 0; w < workers; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := range jobs {
-					start := time.Now()
-					res, err := Execute(ctx, target, auth, cmd, opts)
-					durations[i] = time.Since(start)
-					if err == nil && res.ExitCode != 0 {
-						err = fmt.Errorf("exit %d: %s", res.ExitCode, res.Stderr)
-					}
-					if err != nil {
-						errs <- err
-					}
-				}
-			}()
-		}
-		for i := 0; i < n; i++ {
-			jobs <- i
-		}
-		close(jobs)
-		wg.Wait()
-		close(errs)
-		for err := range errs {
-			t.Errorf("a command failed: %v", err)
-		}
-		sort.Slice(durations, func(a, b int) bool { return durations[a] < durations[b] })
-		return durations
+	for _, w := range stressWorkloads(whoami) {
+		t.Logf("%-32s %v", w.label, measureExecute(t, target, auth, opts, w.n, w.workers, w.cmd))
 	}
-	report := func(label string, d []time.Duration) {
-		t.Logf("%-32s n=%d  p50=%v  p95=%v  max=%v", label, len(d),
-			d[len(d)/2].Round(time.Millisecond), d[len(d)*95/100].Round(time.Millisecond), d[len(d)-1].Round(time.Millisecond))
+}
+
+// stressWorkload is one row of the stress gate: a command, how many
+// times to run it, and how many at once.
+type stressWorkload struct {
+	label      string
+	n, workers int
+	cmd        Command
+}
+
+// stressWorkloads is the stress gate's table, shared with
+// TestModesComparedToPywinrm so the comparison runs exactly the work the
+// published numbers describe.
+func stressWorkloads(whoami string) []stressWorkload {
+	return []stressWorkload{
+		{"none, sequential", 40, 1, Command{Shell: ShellNone, Script: whoami}},
+		{"none, 4 at a time", 40, 4, Command{Shell: ShellNone, Script: whoami}},
+		{"powershell, sequential", 20, 1, Command{Shell: ShellPowerShell, Script: "$env:USERNAME"}},
+		{"cmd, 4 at a time", 20, 4, Command{Shell: ShellCmd, Script: "ver"}},
 	}
-	report("none, sequential", measure(t, 40, 1, Command{Shell: ShellNone, Script: whoami}))
-	report("none, 4 at a time", measure(t, 40, 4, Command{Shell: ShellNone, Script: whoami}))
-	report("powershell, sequential", measure(t, 20, 1, Command{Shell: ShellPowerShell, Script: "$env:USERNAME"}))
-	report("cmd, 4 at a time", measure(t, 20, 4, Command{Shell: ShellCmd, Script: "ver"}))
 }
 
 // TestModesReleaseGate_ASilentMinute runs a command that writes nothing
