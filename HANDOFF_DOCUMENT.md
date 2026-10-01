@@ -4,66 +4,64 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-75-WinRM-Closeout`, cut from `main` at `e8129b2f` (PR #46, Phase 117a merged),
-2026-09-29. The user's order: "plan Phase 75: WinRM, the Three Execution Modes", then "Cut the branch and
-start"; mid-session, "You can build windows hosts in virtualbox" and "you have bsd too".** Plan approved:
-`/home/noot/.claude/plans/sharded-beaming-rabbit.md`. Nothing is committed; the commit messages are in the
-final message of the session. Rules unchanged (method-as-key runbooks, two agents at most, heavy commands
-under `~/.local/bin/capped`, the lab provisioned by The Pleiades only).
+**Branch `feature/Phase-118-Verification-For-Others`, 2026-09-30.** Phase 118 was pushed at `c1a673f1`
+after `make push-gate` passed with no tolerated failure (1 h 5 min). The user then said "knock out open items";
+that work (`02d764b5` to `9455e4a9`) passed `make push-gate` with no tolerated failure (1 h 4 min) and is
+pushed. This handoff is committed on top and travels with the dependency branch's gate. A second branch,
+`chore/dependency-updates`, is stacked on this one in the worktree `../auto-roboto-deps`. `gh` is not
+authenticated here, so no PR could be opened or CI read. Rules unchanged (method-as-key runbooks, two agents at
+most, heavy commands under `~/.local/bin/capped`, the lab provisioned by The Pleiades only).
 
 ### What was done
 
-- **Phase 75 is 25/25.** Three open items and the commit-message item closed; follow-ups moved to Phase 112
-  (a breaker for WinRM Collections) and Phase 117b (plan-time `RequiredCapabilities`, Controller admission).
-- **One circuit breaker, `pkg/breaker`.** Moved out of `pkg/remoteexec` (Phase 72's "not in `pkg/`" is
-  superseded, recorded in both places and in PATTERNS.md); every platform instance an unexported field,
-  held by `TestNoPlatformCircuitIsReachable`. The WinRM transport now has one, keyed by `winrmexec.Addr`,
-  counting only network failures before a shell opens.
-- **Three defects found and fixed, each with a test that failed first:** FAILURE_PATTERNS 398 (a canceled
-  call kept the half-open probe; the probe is now also leased), 399 (SSH sent a refused password three times
-  and counted it against the shared circuit; measured 3 then 1 "Failed password" against real OpenSSH 10.3,
-  which also blocks the source by `PerSourcePenalties` at the old rate; the user approved the fix as step 2b),
-  400 (a WinRM host that never answered was reported as "may still be running" and seen by no retry or
-  breaker).
-- **Transports checked at plan time and run time.** `pkg/capability/transports.go` (vocabulary and the
-  capability reaching each), `collection.CheckTransports` shared by `validate`'s `TransportRule`, the engine
-  and the `pkg.*`/`svc.*` dispatchers (which now declare their concrete methods' union). `WindowsShellCapable`
-  is a child of `CommandExecCapable`. Proven through the binary and on the real lab inventory (`bsd-lab`,
-  `hosts: lab`).
-- **Industry comparison, on the real host `vengeance`, certificate auth, keys handed over in `memfd` only:**
-  per command at parity with pywinrm 0.5.0 (3 to 7 ms faster at p50); per run `pleiades adhoc` p50 85 ms
-  against `ansible-playbook` `win_command` p50 1.233 s. pywinrm installed with `pip --user` (user's choice).
-- **Verified:** race runs of every touched package (`-count=2` on the breaker packages), the whole
-  `cmd/pleiades` suite, every real-host WinRM gate (package and binary), `make fmt`, `make vet`, `make arch`,
-  `make docs-lint`, `make gosec` (no new findings), doc regeneration stable. Coverage at or above every
-  floor touched; `pkg/breaker` added at 100.0.
+- **Before the push:** the PR's `coverage` job would have failed on every run, because the `ec2` and `s3`
+  floors were recorded with LocalStack and CI has no token. LocalStack tests now stop through
+  `testsupport.LocalStackToken` (`Require("localstack")`), `testgate` records each package's missing
+  requirements beside its coverage, and `coverage-check -measured` names such a floor as unchecked rather than
+  failing it (FAILURE_PATTERNS 406). The view reachability test listed 8 of 22 views and now reads them from
+  source (407). The Vault gate waited on a log line before Docker forwarded its port (408). 33 packages got
+  floors or exclusions.
+- **Open items, after the push:** `TestCheckCmdEnvReads`, cited by a Phase 75 item but never written, now
+  exists (409); `tools/doctor` is tested against described machines (410); every machine-dependent skip in
+  the six packages left without floors goes through `Require`, and all six have floors; `testsupport.ForGreeting`
+  (and `SSHGreeting`) reads a server's first line through the mapped port, and thirteen log-only container waits
+  use it or an equivalent; the tracker's stale citations are fixed (0 items cite a missing test or file).
+- **Found by seeding the conformance fixtures (a subagent):** schedule pages were ordered by name and resumed
+  by id, so following Next skipped schedules in the view and `GET /schedules` (411, fixed, and a deleted cursor
+  is now a 400); the Access list linked every row to its team and none to its grant, and the drill-down test
+  skipped it (412, fixed, with a registration check and a test that now fails instead of skipping).
+- **Dependencies (`chore/dependency-updates`):** 21 direct modules bumped (x/crypto 0.57, grpc 1.84,
+  testcontainers 0.44, moby api 1.56, aws sdk, nats.go 1.54 and others); build and `make vet` passed.
+  `cel-go` 0.32 moved its module path to `cel.dev/cel-go`: imports rewritten and `go.mod` tidied, not yet built.
+  Nothing on that branch is committed. GO-2026-5932 (`x/crypto/openpgp`) stays as a module-level notice: nothing
+  imports it and it has no fix; go-git already uses the ProtonMail fork.
 
 ### Open
 
-1. **The strict gate.** `make ci` / `make push-gate` were not run (the user's go-ahead is needed on this
-   box); `docs-gen-check` passes only once the regenerated pages are committed.
-2. **The WinRM VM route was not needed:** the comparison ran on `vengeance`, the host the stress numbers
-   came from. `win-lab` authenticates by password from the vault, which no test may extract for pywinrm.
-3. Carried from 117a: its env-gated ServiceNow gate against a real instance; Phase 110's strict `make ci`;
-   Phase 113's missing Pattern Entry Gate; Phases 12 and 70 have no Implements line.
+1. **`chore/dependency-updates`:** build the cel move, run the tests, commit, rebase onto the Phase 118 tip
+   (it was cut at `cbb9362b`), gate, push both branches, PR against the Phase 118 branch. See the final
+   message for how far this got.
+2. **The first real CI run** needs a pull request, which closes Phase 118's Release Gate item.
+3. Three views' readers ignore paging (`credential-types`, `credentials`, `projects`): a design decision, and the
+   paging conformance test now says so in its skip. `fakeRepository.GetGroup` in the UI harness ignores
+   `After` and `Limit`.
+4. About the test containers: the Ansible gate's sshd publishes no port and keeps its log wait by design.
+5. Carried: 117a's env-gated ServiceNow gate; Phase 110's strict `make ci`; Phase 113's Pattern Entry Gate;
+   Phases 12 and 70 have no Implements line.
 
 ### Decisions for the user
 
-1. **Behavior change to accept or push back on:** a mixed-fleet runbook (for example `hosts: lab` with an
-   SSH method) is now refused whole by `pleiades validate` when some devices cannot be reached over the
-   method's transport, instead of running and failing on those devices, as the capability and lifecycle
-   rules already do.
-2. Commit (messages provided), run the gate, push; then 117b per the standing order.
-3. No SECURITY_ATTESTATION control maps to outbound login attempts against managed devices (AC-7 is about
-   the platform's own logons); Phase 75 links none. Whether 399 deserves a control is the user's call.
+1. Open the PRs: Phase 75 (pushed), Phase 118, then the dependency branch stacked on 118.
+2. Optional secrets: `LOCALSTACK_AUTH_TOKEN` (CI then requires LocalStack; check LocalStack's terms for CI use)
+   and a read-only `DOCKERHUB_TOKEN`/`DOCKERHUB_USERNAME`.
+3. Once macOS `fast` and `winrm` pass on GitHub, make them required.
+4. Whether the three non-paging views should page.
 
-### Files changed
+### Files changed (since the Phase 118 push)
 
-See `git status`. New: `pkg/breaker`, `pkg/capability/transports.go`, `pkg/collection/transports.go`,
-`internal/validate/transport_rule.go`, `internal/archtest/breaker_test.go`, the WinRM adapter's breaker and
-real-host tests, `pkg/winrmexec` comparison (`compare_release_gate_test.go`, `latency_test.go`,
-`silent_host_test.go`, `testdata/pywinrm_bench.py`), `cmd/pleiades` transport and Ansible comparison gates,
-the SSH refused-credential tests, six changelog fragments. Changed: `pkg/remoteexec` (breaker, both
-fixes), `pkg/winrmexec` (`Addr`, the pre-shell deadline), `internal/transport/winrm`, the engine gate, both
-dispatchers, catalogdata, the scaffold, `WindowsShellCapable`, gendocs and regenerated references, docs 01
-and 11, CLAUDE.md, FAILURE_PATTERNS 398 to 400, LESSONS 261. Local only: the roadmap and PATTERNS.md.
+`pkg/winrmexec` tests; `tools/doctor/{main.go,checks_test.go}`; `Require` in `internal/{backup,setup,loader}`
+and `tools/testimages` tests; `internal/testsupport/{greeting.go,natsready.go,sshd.go}`; the container waits in
+`internal/transport/ssh`, `internal/catalog/file`, `pkg/netconf`, `cmd/runner`, `cmd/pleiades`;
+`internal/schedule/ent_store.go`, `internal/api/schedules.go`; `internal/ui/resources/grants/grants.go`,
+`internal/ui/view/view.go`, the conformance suite and its new `seed_more_test.go`; `coverage-floor.json`;
+CONTRIBUTING.md; two changelog fragments; FAILURE_PATTERNS 409 to 412. Local only: the roadmap's stale citations.

@@ -31,6 +31,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -116,7 +117,10 @@ func TestGenericReleaseGate_SSH(t *testing.T) {
 	host, port := startGateContainer(t, testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{Context: filepath.Join("testdata", "debian-sshd")},
 		ExposedPorts:   []string{"22/tcp"},
-		WaitingFor:     wait.ForListeningPort("22/tcp").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("22/tcp").WithStartupTimeout(3*time.Minute),
+			testsupport.SSHGreeting("22/tcp"),
+		),
 	}, "22/tcp")
 	env := map[string]string{remoteexec.KnownHostsEnv: trustHostKey(t, net.JoinHostPort(host, strconv.Itoa(port)))}
 	dir := t.TempDir()
@@ -201,7 +205,10 @@ func TestGenericReleaseGate_NETCONF(t *testing.T) {
 	host, port := startGateContainer(t, testcontainers.ContainerRequest{
 		Image:        gateNotconfImage,
 		ExposedPorts: []string{"830/tcp"},
-		WaitingFor:   wait.ForLog("Listening on :::830 for SSH connections").WithStartupTimeout(2 * time.Minute),
+		WaitingFor: wait.ForAll(
+			wait.ForLog("Listening on :::830 for SSH connections").WithStartupTimeout(2*time.Minute),
+			testsupport.SSHGreeting("830/tcp"),
+		),
 	}, "830/tcp")
 	knownHosts := trustHostKey(t, net.JoinHostPort(host, strconv.Itoa(port)))
 	env := map[string]string{remoteexec.KnownHostsEnv: knownHosts}
@@ -366,7 +373,12 @@ func TestGenericReleaseGate_GRPC(t *testing.T) {
 		// The server's own line, not the port: Docker Desktop's port proxy
 		// accepts a connection before the JVM listens, and the image has no
 		// shell to check the port from inside.
-		WaitingFor: wait.ForLog("Listening on port 50051").WithStartupTimeout(2 * time.Minute),
+		// gRPC sends no line to read, so the port check stands in for a
+		// greeting: it dials the mapped port as well as checking inside.
+		WaitingFor: wait.ForAll(
+			wait.ForLog("Listening on port 50051").WithStartupTimeout(2*time.Minute),
+			wait.ForListeningPort("50051/tcp").WithStartupTimeout(2*time.Minute),
+		),
 	}, "50051/tcp")
 	dir := t.TempDir()
 	for _, args := range [][]string{

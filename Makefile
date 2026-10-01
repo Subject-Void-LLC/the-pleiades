@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers ci-images workflow-lint doctor test-clean-room
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -43,6 +43,11 @@ LSP_HANDSHAKE_SECONDS ?= 45
 GOSEC_VERSION       ?= v2.28.0
 GOVULNCHECK_VERSION ?= v1.6.0
 
+# actionlint checks .github/workflows before they are pushed, because a
+# workflow error is otherwise found only when GitHub runs it (Phase 118).
+# Pinned and installed exactly like the two scanners above.
+ACTIONLINT_VERSION  ?= v1.7.12
+
 # The container image scanner, pinned the same way and installed by a
 # SEPARATE target: see image-scan below for why it is not part of ci.
 # Unlike the two above, trivy's own --version reports "dev" when built by
@@ -75,6 +80,7 @@ endef
 tools:
 	@$(call ensure-tool,gosec,github.com/securego/gosec/v2/cmd/gosec,$(GOSEC_VERSION))
 	@$(call ensure-tool,govulncheck,golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
+	@$(call ensure-tool,actionlint,github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
 
 # image-tools is separate from tools above because image-scan is separate
 # from ci: nothing in ci builds an image, so nothing in ci has an image to
@@ -443,17 +449,18 @@ test-no-docker:
 # evidence, and those are precisely the packages flaky-packages.json
 # already documents as timing-sensitive under load.
 #
-# That reuse is also what lets this be a bare `go test` in push-gate,
-# where test-race, test-integration and coverage all go through
-# tools/testgate's flaky tolerance instead. Every package
-# flaky-packages.json names is inside the filter above, so this target
-# cannot reach one and the tolerance would be a no-op here. That is a
+# It runs through tools/testgate -repeat 3 -strict: strict in every gate,
+# re-running nothing, because no package flaky-packages.json names is inside
+# the filter above, so nothing here is expected to lose a race. That is a
 # claim about two lists nothing else connects, so it is asserted by
 # tools/internal/flakegate's TestEveryFlakyPackageIsExcludedFromTestRepeat
-# rather than trusted to stay true.
+# rather than trusted to stay true. testgate rather than a bare `go test`
+# so a failure is written to a CI job's summary with its output, masked:
+# on GitHub the job's log needs admin rights to read, and a bare go test
+# failure appeared nowhere else.
 #
-# No -race, deliberately. test-race already covers that axis at -count=1
-# over the same code, and the defect class this target exists for
+# No -race, deliberately. The one pass already covers that axis at
+# -count=1 over the same code, and the defect class this target exists for
 # (process-wide state surviving a test) is not a data race and is not
 # made more visible by the detector, only slower.
 #
@@ -465,7 +472,7 @@ test-repeat:
 	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
 		packages="$$(echo "$$packages" | grep -v "^$$pkg$$")"; \
 	done; \
-	go test -count=3 -timeout $(GO_TEST_TIMEOUT) $$packages
+	go run ./tools/testgate -repeat 3 -strict $$packages
 
 # test-integration runs everything behind the `integration` build tag:
 # the Grand Integration Test (the real controller and runner binaries
@@ -509,6 +516,125 @@ test-integration:
 		go test -tags integration -race -count=1 -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
 	fi; \
 	exit $$status
+
+# ---- Phase 118: one test pass, tiers, and verification others can run ----
+#
+# COVERAGE_DIR holds the coverage each tested tier recorded, for
+# coverage-measured. It is emptied at the start of every full pass so a
+# number from an earlier run can never be read as this one's.
+COVERAGE_DIR ?= .coverage
+
+# SPLIT_PACKAGES sets three shell variables, all, fast and docker: every
+# package under the integration tag, the ones that start no container, and
+# the ones in DOCKER_DEPENDENT_PACKAGES that exist under the tag. It is the
+# one copy of the split every tiered target below uses. A listed package
+# the tag excludes entirely (internal/ent/migrate/gen) is dropped, the way
+# test-race and test-integration already drop it.
+define SPLIT_PACKAGES
+all="$$(go list -tags integration ./...)"; \
+	fast="$$all"; docker=""; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		if echo "$$all" | grep -q "^$$pkg$$"; then docker="$$docker $$pkg"; fi; \
+		fast="$$(echo "$$fast" | grep -v "^$$pkg$$")"; \
+	done
+endef
+
+# FULL_PASS runs the one pass that replaced test-race, test-integration and
+# coverage's own run: -race, the integration tag, coverage and a fresh run
+# of every test, through tools/testgate, the container-free packages all at
+# once and the container ones $(DOCKER_TEST_PARALLELISM) at a time, each
+# half recording its coverage. $(1) is the tolerance: -strict for ci, empty
+# for push-gate. No file is tagged !integration, so the tagged pass runs
+# every test the untagged one did (tools/internal/flakegate's
+# TestNothingIsExcludedByTheIntegrationTag holds that true).
+define FULL_PASS
+@$(SPLIT_PACKAGES); \
+	rm -rf $(COVERAGE_DIR) && mkdir -p $(COVERAGE_DIR); \
+	status=0; \
+	echo "test-full: $$(echo "$$fast" | wc -w) container-free packages"; \
+	go run ./tools/testgate -full $(1) -coverage-out $(COVERAGE_DIR)/fast.json $$fast || status=1; \
+	echo "test-full: $$(echo "$$docker" | wc -w) container packages, $(DOCKER_TEST_PARALLELISM) at a time"; \
+	go run ./tools/testgate -full $(1) -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/containers.json $$docker || status=1; \
+	exit $$status
+endef
+
+# test-full is what `make ci` runs in place of test-race, test-integration
+# and coverage's own run: the whole suite once, strictly. test-race,
+# test-integration and coverage stay as targets for a developer who wants
+# one of them alone.
+test-full:
+	$(call FULL_PASS,-strict)
+
+# push-gate-full is test-full with push-gate's tolerance: a failure that
+# passes when re-run alone is reported and does not block.
+push-gate-full:
+	$(call FULL_PASS,)
+
+# coverage-measured checks coverage-floor.json against the numbers the
+# pass above recorded, instead of running the suite a fourth time. A
+# package with a floor and no number fails here: its tests failed or never
+# ran, and "not measured" is not a pass (FAILURE_PATTERNS 397).
+coverage-measured:
+	go run ./tools/coverage-check -measured $(COVERAGE_DIR)/*.json
+
+# The CI tiers (.github/workflows/ci.yml). Each is a make target so a
+# developer can run exactly what a CI job ran; there is no CI-only step.
+#
+# ci-fast is every container-free package, once through the full pass with
+# push-gate's tolerance and three times over with test-repeat. It needs no
+# Docker, so it is also the fast loop for a machine without one.
+ci-fast:
+	@$(SPLIT_PACKAGES); \
+	mkdir -p $(COVERAGE_DIR); \
+	go run ./tools/testgate -full -coverage-out $(COVERAGE_DIR)/fast.json $$fast
+	$(MAKE) test-repeat
+
+# ci-containers runs one shard (SHARD=k/n) of the container packages, each
+# package once, with the same tolerance. The shards partition the list, so
+# n jobs together test every container package exactly once.
+SHARD ?= 1/1
+ci-containers:
+	@$(SPLIT_PACKAGES); \
+	mkdir -p $(COVERAGE_DIR); \
+	go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -shard $(SHARD) \
+		-coverage-out $(COVERAGE_DIR)/containers-$(subst /,-of-,$(SHARD)).json $$docker
+
+# ci-images lists, and with PULL=-pull pulls, the images one shard's
+# packages start, so a CI job can restore them from its cache instead of
+# pulling from Docker Hub every run. IMAGES names the list file.
+IMAGES ?= .ci/images.txt
+PULL ?=
+ci-images:
+	@$(SPLIT_PACKAGES); \
+	mkdir -p "$$(dirname $(IMAGES))"; \
+	go run ./tools/testimages $(PULL) $$(go run ./tools/testgate -list -shard $(SHARD) $$docker) > $(IMAGES)
+
+# workflow-lint checks .github/workflows with the pinned actionlint.
+workflow-lint: tools
+	actionlint
+
+# doctor says what this machine can and cannot verify, and how to fix each
+# gap: the Go toolchain, Docker, the pinned tools, the hooks, and which
+# optional real-host gates this environment would run.
+doctor:
+	@go run ./tools/doctor
+
+# test-clean-room runs the container-free packages inside a pinned Go
+# container, as an unprivileged user with an empty home, no git identity,
+# no tools but the image's, and no lab variables: the nearest thing to a
+# stranger's machine this one can produce. It tests a fresh clone of the
+# COMMITTED tree, so commit first; uncommitted changes are not in it.
+# The module cache lives in a named volume so a second run does not
+# download every module again.
+CLEAN_ROOM_IMAGE ?= golang:$(patsubst go%,%,$(shell go env GOVERSION))
+test-clean-room:
+	@$(SPLIT_PACKAGES); \
+	docker volume create pleiades-clean-room-cache >/dev/null; \
+	docker run --rm -v pleiades-clean-room-cache:/cache $(CLEAN_ROOM_IMAGE) chown "$$(id -u):$$(id -g)" /cache; \
+	docker run --rm --memory=4g --cpus=2 --user "$$(id -u):$$(id -g)" \
+		-e HOME=/tmp/home -e GOPATH=/cache/gopath -e GOCACHE=/cache/build -e GOFLAGS=-p=2 \
+		-v "$(CURDIR)":/src:ro -v pleiades-clean-room-cache:/cache \
+		$(CLEAN_ROOM_IMAGE) sh -c 'mkdir -p /tmp/home && git clone -q /src /tmp/work && cd /tmp/work && go run ./tools/testgate -full -strict '"$$(echo $$fast)"
 
 # gosec-check (tools/gosec-check) wraps gosec with the per-finding waiver
 # file (gosec-waivers.json) the Phase 0 CI harness item's pre-existing-
@@ -601,26 +727,21 @@ docs-gen-check:
 helm-lint:
 	go run ./tools/helm-lint
 
-# ci is the whole gate, and it is now a LOCAL one. -race, not plain test,
-# is deliberately included here (not just in a separate target) because
-# the Phase 0 item lists `go test -race ./...` as one thing CI must run,
-# and splitting it out would make it easy to land a change that only ran
-# the non-race target.
+# ci is the whole gate, strict. Its tests are the one pass (test-full:
+# -race, the integration tag, coverage and -count=1, through tools/testgate
+# -strict, which re-runs nothing and fails on any failure), then
+# test-repeat, and its floors come from that pass's own numbers
+# (coverage-measured) rather than from another run.
 #
-# It is no longer what .github/workflows/ci.yml runs. That workflow runs
-# ci-remote below -- everything on this line EXCEPT test-race, test-repeat,
-# test-integration and coverage -- because the four it drops need a real
-# Docker daemon for around twenty packages' worth of ephemeral containers
-# and have never produced a green result on a hosted runner. The evidence
-# those four produce is real and still required; it is produced here,
-# before a push, rather than after one. See ci-remote's own comment for
-# what that costs and .github/workflows/ci.yml's job comment for the full
-# reasoning.
+# The workflow does not call this target. Its ci job runs ci-remote below
+# (every check here that runs no test), and its fast, containers and
+# coverage jobs run the tests through ci-fast, ci-containers and
+# coverage-measured, split by what a package needs; its nightly job runs
+# test-full. So the checks are the same, divided across jobs.
 #
-# Never make ci itself tolerant of anything: the two targets below
-# (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
-# can run something more forgiving of known local flakiness without this
-# target becoming any less strict.
+# Never make ci tolerant of anything. push-gate is the tolerant twin: the
+# same pass without -strict, where a failure that passes re-run alone is
+# reported rather than blocking.
 # GATE_START_COMMIT and GATE_START_CLEAN are where the gate began, read
 # HERE, while make is still parsing this file, and handed to
 # tools/gatereceipt twenty minutes later when it writes the receipt.
@@ -644,82 +765,49 @@ GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
 endif
 
-ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
+ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 	@echo "ci: all checks passed"
 	@go run ./tools/gatereceipt write --target ci --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
-# ci-remote is the subset .github/workflows/ci.yml runs: every check that
-# is cheap, deterministic and needs no infrastructure. It is `ci` minus
-# exactly four targets -- test-race, test-repeat, test-integration and
-# coverage -- and it is written as its own explicit prerequisite list
+# ci-remote is the static subset .github/workflows/ci.yml's ci job runs:
+# every check that is cheap, deterministic and needs no infrastructure. It
+# is `ci` minus exactly its three test targets -- test-full, test-repeat
+# and coverage-measured -- and it is written as its own explicit prerequisite list
 # rather than as a filter over ci's, because a filter would silently drop
 # or silently adopt a target added to ci later, and which of those two
 # happened would depend on a name.
 #
-# The four it omits are the four that provision real containers (NATS,
-# sshd, Postgres, LocalStack, Toxiproxy) or run the full suite again to
-# measure it. Everything remaining is a compiler, a scanner, a formatter
+# The three it omits are the ones that run tests, which provision real
+# containers (NATS, sshd, Postgres, LocalStack, Toxiproxy); the workflow's
+# fast, containers and coverage jobs run them. Everything remaining is a compiler, a scanner, a formatter
 # or a generator over the checked-out tree.
 #
 # What this does not prove, stated here as well as in the workflow because
 # this is the line someone will read first: ci-remote does not run one
 # test. A change that compiles, vets, formats, scans and regenerates
-# cleanly passes it while breaking any behavior in this repository. It is
-# a smoke gate, not a merge gate; the merge gate is `make ci`, run by a
-# human, or `make push-gate` run by .githooks/pre-push.
+# cleanly passes it while breaking any behavior in this repository. Since
+# Phase 118 the tests run in the workflow's other jobs (ci-fast,
+# ci-containers, coverage-measured, and test-full nightly); ci-remote is
+# only the static half.
 #
 # devtools is kept rather than dropped with the other test-running
 # targets: its `go test -tags devtools ./tools/...` pass is seconds long,
 # reaches no container, and is the only thing in this file that compiles
 # the tag-gated developer commands at all, so dropping it would stop
 # building tools/devcert and tools/uidev anywhere in this workflow.
-ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-gen-check helm-lint templ-gen-check
+ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 	@echo "ci-remote: all checks passed (no tests were run; see this target's comment)"
 
-# push-gate-race and push-gate-integration run through tools/testgate
-# instead of a bare `go test`, so a test failure confined to a package
-# flaky-packages.json lists (with a written reason) is printed as a
-# warning rather than blocking. FAILURE_PATTERNS.md #61 is the incident
-# behind this: "the specific package that loses the race changes between
-# runs... is the signature of resource contention, not a code defect,"
-# discovered because a fully clean `go test ./... -race` run and this
-# sandboxed environment's Docker daemon do not reliably coexist once
-# enough packages provision real containers at once. A failure OUTSIDE
-# flaky-packages.json, or any build failure anywhere, still fails these
-# targets exactly like test-race/test-integration do; see
-# tools/testgate's own doc comment for the classification rule in full.
-push-gate-race:
-	go run ./tools/testgate
-
-push-gate-integration:
-	go run ./tools/testgate -integration
-
-# push-gate-coverage is coverage's own tolerant counterpart, for the same
-# reason push-gate-race/push-gate-integration exist: tools/coverage-check
-# runs its own full `go test ./... -cover` internally (measureCoverage),
-# entirely separately from test-race/test-integration, so a container- or
-# timing-contention failure inside THAT run was still an unconditional
-# hard failure even after push-gate-race/push-gate-integration's own
-# tolerance was added -- found by running push-gate for real and watching
-# it fail here specifically, on a flaky-packages.json package, after both
-# test targets above had already passed. -tolerant applies the identical
-# flaky-packages.json classification tools/testgate uses; see
-# tools/coverage-check's own measureCoverageTolerant doc comment for why a
-# package's coverage number is still trustworthy even when one of its
-# tests had a tolerated failure.
-push-gate-coverage:
-	go run ./tools/coverage-check -tolerant
-
-# push-gate is what .githooks/pre-push runs, in place of `make ci`: every
-# check ci runs, in the same order, except test-race/test-integration/
-# coverage are replaced by their tolerant push-gate-race/
-# push-gate-integration/push-gate-coverage counterparts above. GitHub
-# Actions never calls this target, only `make ci` directly (see ci's own
-# comment above), so nothing here weakens what actually gates a merge; it
-# only reduces how much known-flaky local noise a developer has to fight
-# through, and re-run, before a push reaches that real gate.
-push-gate: build devtools vet fmt tidy-check push-gate-race test-repeat push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
-	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
+# push-gate is every check ci runs, in the same order, with test-full
+# swapped for push-gate-full: the same one pass without -strict, so a
+# failure that passes when re-run alone is reported as contention rather
+# than blocking, and one that fails alone fails. Its floors come from that
+# pass too (coverage-measured). It ends by writing a receipt through
+# tools/gatereceipt, which .githooks/pre-push verifies; the hook does not
+# run the gate itself (CLAUDE.md says why). The pull-request CI jobs apply
+# the same rule; ci and the nightly job do not.
+push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+	@echo "push-gate: all checks passed (a failure listed above as passing when re-run alone was tolerated as contention; one that recurs run after run is not contention)"
 	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # templ-gen regenerates the view layer's templates. templ emits a

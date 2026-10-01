@@ -110,6 +110,7 @@ func TestRun_RejectsBeforeTouchingCredentials(t *testing.T) {
 		{name: "invalid UTF-8", shell: ShellNone, script: "ipconfig \xff", wantText: "UTF-8"},
 		{name: "cmd line over cmd.exe's ceiling", shell: ShellCmd, script: "echo " + strings.Repeat("x", MaxCmdLine), wantText: "8191"},
 		{name: "environment variable name", shell: ShellCmd, script: "echo %A%", env: map[string]string{"1BAD": "x"}, wantText: "letters, digits"},
+		{name: "cmd script reading its own value before parsing", shell: ShellCmd, script: "echo %Token%", env: map[string]string{"TOKEN": "a & echo INJECTED"}, wantText: "read it as !TOKEN!"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

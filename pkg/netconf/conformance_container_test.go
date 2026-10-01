@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -101,8 +102,11 @@ func startNotconf(t *testing.T) (host string, port int) {
 			ContainerRequest: testcontainers.ContainerRequest{
 				Image:        notconfImage,
 				ExposedPorts: []string{"830/tcp"},
-				WaitingFor: wait.ForLog("Listening on :::830 for SSH connections").
-					WithStartupTimeout(2 * time.Minute),
+				WaitingFor: wait.ForAll(
+					wait.ForLog("Listening on :::830 for SSH connections").
+						WithStartupTimeout(2*time.Minute),
+					testsupport.SSHGreeting("830/tcp"),
+				),
 			},
 			Started: true,
 		})

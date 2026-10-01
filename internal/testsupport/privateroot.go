@@ -52,9 +52,17 @@ done`
 // shares the namespace.
 //
 // The re-run selects the test by name, so it must be called from a
-// top-level test, never a subtest. It is skipped in short mode. A host
-// that refuses unprivileged user namespaces fails the test rather than
-// skipping it, since a skip would read as a pass.
+// top-level test, never a subtest. It is skipped in short mode.
+//
+// A host that refuses unprivileged user namespaces (Ubuntu 24.04 by
+// default, any container with Docker's default seccomp profile) skips the
+// test with the reason and the fix, through Require, unless the run
+// requires "userns" (PLEIADES_TEST_REQUIRE), when it fails. This used to
+// fail everywhere, on the reasoning that a skip would read as a pass. That
+// stopped being true when every tools/testgate run began listing its skips
+// with their reasons, and CI requires userns, so these tests cannot
+// quietly stop running there; failing on a stranger's machine blamed their
+// kernel policy for nothing in their change (Phase 118's clean room).
 func InPrivateRoot(t *testing.T, setup string) bool {
 	t.Helper()
 	if os.Getenv(privateRootEnv) == t.Name() {
@@ -66,6 +74,8 @@ func InPrivateRoot(t *testing.T, setup string) bool {
 	if testing.Short() {
 		t.Skip("skipping a test that re-runs itself as root in a user namespace, in short mode")
 	}
+	ok, why := UserNamespaces()
+	Require(t, "userns", ok, why)
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatalf("finding this test binary to re-run: %v", err)

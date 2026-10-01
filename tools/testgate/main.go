@@ -1,40 +1,46 @@
-// Command testgate runs the same `go test -race ./...` (or, with
-// -integration, the same `go test -tags integration -race -count=1
-// ./...`) the Makefile's own test-race/test-integration targets run, and
-// fails only on a test failure outside the packages listed, each with a
-// written reason, in flaky-packages.json at the repo root. See
-// tools/internal/flakegate's own doc comment for the classification rule
-// this tool and tools/coverage-check's -tolerant mode share, and
-// flaky-packages.json's own header comment for the full policy.
+// Command testgate runs the repository's tests through one policy for a
+// failure. With -strict it fails on any failure. Without it, every failure
+// is re-run alone (tools/internal/flakegate.Isolate): one that passes alone
+// lost a race and is reported as contention, one that fails alone fails,
+// and more distinct failures than flakegate.MaxIsolationRetries fail
+// without a re-run. flaky-packages.json decides nothing; its reasons are
+// printed beside a tolerated failure in a package it lists.
 //
-// This tool is deliberately not part of `make ci`, and GOSEC_VERSION-style
-// pinning does not apply to it: `make ci` still uses the bare
-// test-race/test-integration targets and hard-fails on anything at all.
-// Only the Makefile's push-gate target calls this tool, so this file
-// changes how much local noise a developer fights through before pushing,
-// never what the strict gate accepts. (.githooks/pre-push runs no gate at
-// all; it reads back the receipt a gate run left behind, and a receipt
-// records WHICH gate ran precisely so a pass tolerated here cannot be read
-// as one `make ci` gave.)
+// Since Phase 118 it is part of every gate. `make ci` runs it with
+// -strict, which re-runs nothing and fails on any failure; `make push-gate`
+// and the pull-request CI jobs run it without, applying the re-run-alone
+// rule above; and the nightly CI run is strict again, so what the tolerant
+// runs forgive as contention is still counted somewhere. The receipt a
+// local gate writes records which gate ran, so a pass tolerated here is
+// never read as one `make ci` gave.
 //
-// That distinction now carries more weight than it did when this was
-// written. .github/workflows/ci.yml no longer runs `make ci`; it runs
-// `make ci-remote`, which runs no tests at all. Every test result this
-// repository has therefore comes from a developer's machine, through
-// either `make ci` or the push-gate this tool serves -- so the tolerance
-// implemented here is applied to the only test run anyone performs, not
-// to a local preview of a stricter run happening elsewhere. Keep the
-// classification narrow accordingly: a package added to
-// flaky-packages.json without a real, written reason is now a package
-// nothing checks.
+// # Tiers, shards and one pass instead of three (Phase 118)
 //
-// Usage: go run ./tools/testgate [-integration]
+// With -full it runs the one pass that replaced test-race,
+// test-integration and coverage's own run: -race, the integration tag,
+// coverage and a fresh run of every test, writing each package's coverage
+// with -coverage-out for coverage-check -measured, so the suite runs once
+// where it used to run three times. It takes an explicit package list, so
+// the Makefile can hand it one tier (the container-free packages, or the
+// container ones) and CI can divide a tier across machines with -shard.
+// -strict turns the re-run-alone tolerance off: `make ci` and the nightly
+// CI run judge that way. Every run ends by listing what it skipped, and on
+// GitHub Actions writes that, the failures that failed the run and the
+// tolerated ones to the job summary, each failure with its own output,
+// whatever the outcome: a skipped gate and a passing one print the same
+// nothing, and a job's log needs admin rights to read where its summary does
+// not. What it prints and writes is masked through internal/redact first
+// (mask.go).
+//
+// Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-p n]
+// [-shard k/n] [-coverage-out file] [-list] [package ...]
 package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
@@ -55,31 +61,80 @@ const goTestTimeout = "30m"
 const flakyPackagesPath = "flaky-packages.json"
 
 func main() {
-	integration := flag.Bool("integration", false, "run with -tags integration -count=1, matching the Makefile's test-integration target")
+	var o options
+	flag.BoolVar(&o.integration, "integration", false, "run with -tags integration -count=1, matching the Makefile's test-integration target")
+	flag.BoolVar(&o.full, "full", false, "the one pass: -race, -tags integration, -cover and -count=1")
+	flag.BoolVar(&o.strict, "strict", false, "fail on any failure, with no re-run alone")
+	flag.IntVar(&o.repeat, "repeat", 0, "run every test this many times in one process, untagged and without -race (test-repeat)")
+	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
+	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
+	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")
+	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
 	flag.Parse()
+	o.packages = flag.Args()
 
-	if err := run(*integration); err != nil {
+	// -list answers "which packages does this shard own?" for a step that
+	// needs the answer without running the tests, such as pulling the
+	// images a shard starts.
+	if *list {
+		packages, err := o.selected()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		fmt.Println(strings.Join(packages, "\n"))
+		return
+	}
+
+	if err := run(o); err != nil {
 		fmt.Fprintln(os.Stderr, "testgate:", err)
 		os.Exit(1)
 	}
 }
 
-func run(integration bool) error {
+func run(o options) error {
+	if err := o.validate(); err != nil {
+		return err
+	}
+	maskEnvironment()
+	packages, err := o.selected()
+	if err != nil {
+		return err
+	}
 	tolerated, err := flakegate.LoadTolerated(flakyPackagesPath)
 	if err != nil {
 		return fmt.Errorf("loading %s: %w", flakyPackagesPath, err)
 	}
-
-	args := []string{"-race", "-timeout", goTestTimeout}
-	if integration {
-		args = append(args, "-tags", "integration", "-count=1")
+	args := o.goTestArgs()
+	label := fmt.Sprintf("testgate %s", strings.Join(args, " "))
+	if o.shard != "" {
+		label += fmt.Sprintf(", shard %s (%d packages)", o.shard, len(packages))
 	}
 
 	// Every raw JSON line is echoed to this process's own stdout as it is
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
-	events, waitErr := flakegate.RunGoTestJSON(args, os.Stdout)
+	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
+	skips := flakegate.Skips(events)
+
+	// Written before anything is judged, so a run that fails still leaves
+	// the measurement it made; coverage-check never runs after a failed
+	// gate step, so this cannot turn a failure into a pass.
+	coverage := flakegate.Coverage(events)
+	missing := flakegate.Missing(skips)
+	if o.coverageOut != "" {
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
+			return err
+		}
+	}
+
 	listed, warned := flakegate.Classify(events, tolerated)
+	if o.strict {
+		failures := append(listed, warned...)
+		summarize(label, skips, nil, failures, events)
+		printOutput(events, failures)
+		return judgeStrict(failures, waitErr, len(events))
+	}
 
 	// The isolation pass, and it is what decides. Everything that failed
 	// goes through it -- the failures the list would have tolerated as
@@ -95,9 +150,23 @@ func run(integration bool) error {
 	// consecutive runs and were warned about every time, and the defect
 	// behind them was a total outage.
 	failures := append(append([]flakegate.Failure{}, listed...), warned...)
-	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, os.Stdout)
+	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, testOutput)
 	if err != nil {
 		return fmt.Errorf("re-running failures in isolation: %w", err)
+	}
+
+	// A package whose failure was contention has a coverage number from the
+	// run where that test stopped partway, so fewer of its statements ran,
+	// and a floor check would read contention as a coverage drop (it did:
+	// internal/ent/migrate, 2026-09-30). Its real number comes from running
+	// the whole package again, alone; a package that fails even then has
+	// failed, and joins confirmed.
+	if o.coverageOut != "" && len(contention) > 0 {
+		failedAgain := remeasure(args, contention, coverage)
+		confirmed = append(confirmed, failedAgain...)
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
+			return err
+		}
 	}
 
 	if len(contention) > 0 {
@@ -113,9 +182,18 @@ func run(integration bool) error {
 			fmt.Printf("  %s: %s (not listed; tolerated on this run's own evidence)\n", f.Package, f.Test)
 		}
 		fmt.Println()
+		// Why each one failed, since a real concurrency bug also fails
+		// together and passes alone, and only its own output can tell the
+		// two apart.
+		for _, f := range contention {
+			if out := flakegate.FailureOutput(events, f, contentionLines); out != "" {
+				fmt.Printf("  why %s %s failed under load:\n%s\n\n", f.Package, f.Test, indent(scrub(out)))
+			}
+		}
 	}
 
 	if len(notRun) > 0 {
+		summarize(label, skips, contention, notRun, events)
 		// Their own heading, because they were never asked twice. Saying
 		// they failed again would be the gate reporting a check it did not
 		// perform, which is worse than having no isolation pass at all.
@@ -133,6 +211,8 @@ func run(integration bool) error {
 	}
 
 	if len(confirmed) > 0 {
+		summarize(label, skips, contention, confirmed, events)
+		printOutput(events, confirmed)
 		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) failed AGAIN when re-run alone, or could not be re-run at all:\n\n", len(confirmed))
 		for _, f := range confirmed {
 			if f.Test == "" {
@@ -163,6 +243,7 @@ func run(integration bool) error {
 		return fmt.Errorf("go test produced no output at all: %w", waitErr)
 	}
 
+	summarize(label, skips, contention, nil, events)
 	if len(contention) == 0 {
 		fmt.Println("testgate: all tests passed")
 	} else {

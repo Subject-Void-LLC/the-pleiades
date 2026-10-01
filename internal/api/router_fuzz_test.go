@@ -87,7 +87,7 @@ func FuzzAPIRouter(f *testing.F) {
 		// panic inside the router.
 		req, err := http.NewRequest(method, path, nil)
 		if err != nil {
-			t.Skip()
+			t.Skip("http.NewRequest cannot express this method and path as a request")
 		}
 		if traceparent != "" {
 			req.Header.Set("traceparent", traceparent)

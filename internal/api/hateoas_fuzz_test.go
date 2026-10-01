@@ -76,7 +76,7 @@ func FuzzHrefConstruction(f *testing.F) {
 		if err != nil {
 			// An input that cannot even be expressed as a request URL is
 			// not a finding about this package.
-			t.Skip()
+			t.Skip("http.NewRequest cannot express this name as a request URL")
 		}
 
 		rr := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func FuzzRespondEnvelope(f *testing.F) {
 		// anything else is a programming error in a caller, not a
 		// property of this seam.
 		if status < 100 || status > 599 {
-			t.Skip()
+			t.Skip("a status net/http cannot write")
 		}
 
 		rr := httptest.NewRecorder()

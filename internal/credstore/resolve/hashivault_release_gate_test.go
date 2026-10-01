@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/hashivault"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // Phase 78b's Release Gate: a credential whose input resolves out of a REAL
@@ -75,7 +76,17 @@ func startVault(t *testing.T) string {
 				"VAULT_DEV_ROOT_TOKEN_ID":  vaultRootToken,
 				"VAULT_DEV_LISTEN_ADDRESS": "0.0.0.0:8200",
 			},
-			WaitingFor: wait.ForLog("Vault server started!").WithStartupTimeout(2 * time.Minute),
+			// The log line says the server is up inside the container; it
+			// does not say Docker forwards the mapped port yet, and under
+			// a loaded gate the first write was refused in that gap. The
+			// health check goes through the port the test then uses, and
+			// answers 200 only once Vault is unsealed and active.
+			WaitingFor: wait.ForAll(
+				wait.ForLog("Vault server started!").WithStartupTimeout(testsupport.ContainerStartupTimeout),
+				wait.ForHTTP("/v1/sys/health").WithPort("8200/tcp").
+					WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }).
+					WithStartupTimeout(testsupport.ContainerStartupTimeout),
+			),
 		},
 		Started: true,
 	})

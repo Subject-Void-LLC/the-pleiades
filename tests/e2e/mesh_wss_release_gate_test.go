@@ -125,6 +125,15 @@ func TestMeshTransportReleaseGate_TheRealBinariesReachTheBrokerOverWSSThroughATe
 	}
 	sawExpectedPort := false
 	for published, bindings := range ports {
+		// Docker's port map can list every port the image EXPOSEs, bound
+		// to the host or not, and an exposed port with no binding is no
+		// route from this host. The hosted runner's daemon (28.0.4) listed
+		// 4222 that way, with no bindings, where a developer's (29.8.0) did
+		// not, and reading the map's keys as "published" failed this gate
+		// there and nowhere else (FAILURE_PATTERNS 421).
+		if len(bindings) == 0 {
+			continue
+		}
 		if published.Port() == brokerWebSocketPort {
 			sawExpectedPort = true
 		}

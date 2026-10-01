@@ -115,7 +115,10 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 			// logged only once sshd is already listening. A fixed sleep
 			// would be neither deterministic nor an honest readiness
 			// check.
-			WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			WaitingFor: wait.ForAll(
+				wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+				testsupport.SSHGreeting("2222/tcp"),
+			),
 		}
 		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: req,
@@ -435,7 +438,10 @@ func TestSSHContainer_StoppedContainerRetriesThenBreakerOpens(t *testing.T) {
 			"USER_NAME":       containerSSHUser,
 			"USER_PASSWORD":   containerSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
+		),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

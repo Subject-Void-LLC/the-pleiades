@@ -94,6 +94,7 @@ func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
 		repo := newFakeRepository()
+		sets := newFakeSetStore()
 		accessStore, activityStream := newTestAccessStore(t)
 		conformanceStream = activityStream
 		projectStore := newFakeProjectStore()
@@ -110,6 +111,10 @@ func registerViews(t *testing.T) {
 		// picker lists launchables.
 		templateStore := newTestTemplateStore(t)
 		scheduleStore, launchableStore := newTestScheduleStore(t)
+		// Second records last, once every fixture they build on exists: the
+		// second schedule targets the project the schedule fixture seeds.
+		// See seed_more_test.go for why a view needs two.
+		seedSecondRecords(t, repo, sets, scheduleStore, launchableStore)
 		if err := resources.RegisterAll(resources.Deps{
 			// A real ent-backed store rather than a fake, and the reason is
 			// arithmetic rather than principle: access.Store is twenty
@@ -120,7 +125,7 @@ func registerViews(t *testing.T) {
 			Access:    accessStore,
 			Activity:  activityStream,
 			Inventory: repo,
-			Sets:      newFakeSetStore(),
+			Sets:      sets,
 			Announce:  newFakeAnnouncementStore(),
 			Factory:   inventory.NewItemFactory(),
 			Jobs:      newFakeJobStore(),
@@ -421,8 +426,9 @@ func (s *fakeSessionStore) DeleteForSubject(context.Context, string, string) (in
 	return 0, nil
 }
 
-// fakeSetStore is an in-memory inventory.SetStore holding one inventory,
-// which is enough for a list with a row, a detail page and an edit form.
+// fakeSetStore is an in-memory inventory.SetStore. It starts with one
+// inventory, which is enough for a list with a row, a detail page and an
+// edit form; seedSecondInventory adds a second so the list has a page two.
 type fakeSetStore struct {
 	mu   sync.Mutex
 	sets []inventory.Set
@@ -650,8 +656,9 @@ func (fakeRunbookSource) Get(_ context.Context, id string) (*runbook.Runbook, er
 	}
 }
 
-// fakeRepository is an in-memory inventory.Repository holding one device,
-// which is enough for a list with a row, a detail page, and an edit form.
+// fakeRepository is an in-memory inventory.Repository. It starts with one
+// device, which is enough for a list with a row, a detail page, and an edit
+// form; seedSecondDevice adds a second so the list has a page two.
 type fakeRepository struct {
 	inventory.Repository
 	mu    sync.Mutex

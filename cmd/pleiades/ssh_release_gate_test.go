@@ -76,6 +76,7 @@ func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) 
 		WaitingFor: wait.ForAll(
 			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 			wait.ForListeningPort("2222/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
 		).WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

@@ -65,7 +65,10 @@ func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 				"PUID": "1000", "PGID": "1000", "PASSWORD_ACCESS": "true",
 				"USER_NAME": busyboxSSHUser, "USER_PASSWORD": busyboxSSHPassword,
 			},
-			WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			WaitingFor: wait.ForAll(
+				wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+				testsupport.SSHGreeting("2222/tcp"),
+			),
 		},
 		Started: true,
 	})

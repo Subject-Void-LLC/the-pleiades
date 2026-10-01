@@ -403,6 +403,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 398. A canceled call took a recovering target's half-open probe and kept it, so the device was never dialed again
 399. The SSH dial retry sent a refused password three times, and counted it against the circuit every other job shared
 400. A WinRM host that never answered was reported as a command that "may still be running", which no retry or breaker could see
+401. A test fixture matched *.log in .gitignore, so it was never committed and its tests failed in every clone but one
+402. testgate named a failing test and never said why it failed
+403. A coverage floor for a package deleted seven weeks earlier was never read, so the ratchet guarded nothing there
+404. A branch covered only when a timer lost a race dropped pkg/retry below its floor once coverage ran under -race
+405. A package's coverage was read from the run where a contended test stopped partway, so contention looked like a coverage drop
+406. Coverage floors recorded where LocalStack ran would have failed every CI run, and every `make ci` without a token
+407. The view reachability check hand-listed 8 of 22 views, so dropping any of the other 14 passed
+408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
+409. A roadmap item cited `TestCheckCmdEnvReads`, which was never written, and the refusal it named was tested only by a lab gate
+410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
+411. Schedule pages were ordered by name and resumed by id, so following Next skipped schedules
+412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -148,10 +148,13 @@ func TestPrediction_MatchesWhatApplyDoes(t *testing.T) {
 			linuxOnly: true,
 		},
 		{
-			// A directory is exempt from the kernel's clearing, so its mode
-			// is predictable even with no mode named.
+			// Linux exempts a directory from the clearing (its chown kills
+			// the bits of a regular file only), so its mode is predictable
+			// even with no mode named. Whether the bit survives on a
+			// directory is each kernel's own choice, which POSIX leaves
+			// implementation-defined, and this is Linux's answer.
 			name: "a setgid directory whose group changes with no mode named", kind: remotefile.KindDirectory, mode: 0o2755,
-			want: remotefile.Attributes{Group: otherGroup}, wantChanged: true, wantMode: "2755",
+			want: remotefile.Attributes{Group: otherGroup}, wantChanged: true, wantMode: "2755", linuxOnly: true,
 		},
 	}
 

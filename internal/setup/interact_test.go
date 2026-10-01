@@ -6,6 +6,7 @@ package setup_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/prompt"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -59,9 +61,7 @@ func (b *lockedBuffer) String() string {
 func newRig(t *testing.T) *terminalRig {
 	t.Helper()
 	parent, child, err := pty.Open()
-	if err != nil {
-		t.Skipf("no pseudo terminal available here: %v", err)
-	}
+	testsupport.Require(t, "pty", err == nil, fmt.Sprintf("no pseudo terminal available here: %v", err))
 	t.Cleanup(func() { _ = parent.Close(); _ = child.Close() })
 	shown := &lockedBuffer{}
 	go func() { _, _ = io.Copy(shown, parent) }()

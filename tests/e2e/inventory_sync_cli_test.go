@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -37,10 +36,7 @@ import (
 // composes nothing. It shells out to the binary with the flags a person
 // would type and reads the file they would read afterwards.
 func TestInventorySyncAWSThroughTheRealCLI(t *testing.T) {
-	token := os.Getenv("LOCALSTACK_AUTH_TOKEN")
-	if token == "" {
-		t.Skip("set LOCALSTACK_AUTH_TOKEN to run the aws inventory sync gate")
-	}
+	token := testsupport.LocalStackToken(t)
 
 	ctx := context.Background()
 	ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,
