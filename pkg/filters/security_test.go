@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -102,9 +103,18 @@ func TestSecureCompare(t *testing.T) {
 // loaded CI machine while still catching a gross regression (e.g. a
 // stray "if a[0] != b[0] { return false }" fast path, which would show
 // up as an order-of-magnitude difference, not a rounding error).
+//
+// Each side's time is the fastest of several rounds, taken in turn with
+// the other side's, rather than one round each. A shared runner stops a
+// process whenever it likes, and a stop only ever adds time, so the
+// fastest round is the one nearest the code's own cost, and alternating
+// the two sides means a slow stretch of the machine falls on both. One
+// round each was compared before, and a single stop during one of them
+// failed a hosted run at a ratio of 3.28 (FAILURE_PATTERNS 422).
 func TestSecureCompare_ConstantTime(t *testing.T) {
 	const length = 4096
 	const samples = 2000
+	const rounds = 15
 
 	base := strings.Repeat("x", length)
 	diffAtStart := "y" + base[1:]
@@ -123,8 +133,11 @@ func TestSecureCompare_ConstantTime(t *testing.T) {
 	timeFor(base, diffAtStart)
 	timeFor(base, diffAtEnd)
 
-	earlyDiff := timeFor(base, diffAtStart)
-	lateDiff := timeFor(base, diffAtEnd)
+	earlyDiff, lateDiff := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+	for range rounds {
+		earlyDiff = min(earlyDiff, timeFor(base, diffAtStart))
+		lateDiff = min(lateDiff, timeFor(base, diffAtEnd))
+	}
 
 	ratio := float64(lateDiff) / float64(earlyDiff)
 	if ratio > 3.0 || ratio < 1.0/3.0 {

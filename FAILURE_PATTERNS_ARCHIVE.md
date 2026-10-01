@@ -11432,3 +11432,30 @@ a binding (`5e959438`; the gate passes here in 44 seconds).
 
 **Lesson.** The shape of a daemon's inspect output is a version-dependent fact, and "exposed" and
 "published" are different things. Assert the property (a binding exists), not the presence of a key.
+
+## 422. Two tests measured once and failed a pull request whose change was one handoff document
+
+**Symptom.** Pull request #50's second run, on a commit that changed only `HANDOFF_DOCUMENT.md`, failed both
+`fast` jobs in `test-repeat`, the strict three-times-over pass. Ubuntu: `TestSecureCompare_ConstantTime`, "early-diff
+took 2.617566ms, late-diff took 8.594473ms (ratio 3.28); want within 3x". macOS: `TestProcess_StreamsInBoundedMemory`,
+"heap in use grew by 34504704 bytes while streaming 67108864, want at most 33554432", on the third repeat after two
+passes. The previous run, on the same code and dependencies, passed both.
+
+**Root cause.** Each test took one measurement of a noisy quantity. The timing test compared one round of each
+side, and a shared runner that stops the process during one round adds milliseconds to that side alone. The memory
+test sampled `HeapInuse`, which counts garbage not yet collected and spans not yet swept alongside live data, so it
+measured the collector's pacing on a slow runner as much as the code; its bound had already been loosened once for
+the same reason (25.8 MB against 24 MiB).
+
+**Fix.** The timing test takes each side's fastest of 15 rounds, the two sides alternating: a stop only adds time,
+so the minimum is nearest the code's own cost, and alternating puts a slow stretch on both sides. The memory test
+samples runtime/metrics' `/gc/heap/live:bytes`, what the collector found reachable, which is what buffering would
+inflate and garbage does not, and logs the growth it saw. Each was held to its defect by planting it: a first-byte
+shortcut in `SecureCompare` fails the timing test at a ratio of 890, and reading the whole stream into memory fails
+the memory test at 102 MB against the 32 MB bound. The real code grows the live heap by about 6 MB (under 1 MB with
+`-race`), 15.5 MB at most with 24 busy loops on 20 CPUs, and both tests passed every run under that load (30 and 15).
+A sweep found no other test comparing two timings or asserting on a raw heap counter outside a forced collection.
+
+**Lesson.** On a shared machine, a single measurement is a sample of the machine. Take the minimum of interleaved
+rounds for time, and measure the quantity the claim is about (live data, not heap in use) rather than loosening a
+bound until the noise fits under it.

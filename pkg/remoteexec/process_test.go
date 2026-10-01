@@ -9,6 +9,7 @@ import (
 	"io"
 	"runtime"
 	"runtime/debug"
+	"runtime/metrics"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -260,18 +261,21 @@ func TestProcess_ErrorsNeverCarryTheCommandText(t *testing.T) {
 // TestProcess_StreamsInBoundedMemory is the property that makes a
 // multi-gigabyte image transferable at all: 64 MiB crosses a real SSH
 // exec channel through a real cat and back, generated on the way in and
-// hashed on the way out, and this process's heap never grows by as much
-// as half the payload. A Process that buffered either direction would
-// need at least one whole copy of the 64 MiB resident at once.
+// hashed on the way out, and the live heap never grows by as much as
+// half the payload. A Process that buffered either direction would need
+// at least one whole copy of the 64 MiB resident at once.
 //
-// The bound is deliberately half the payload rather than a tight
-// number. HeapInuse counts garbage the collector has not reclaimed yet
-// alongside live data, so a tight bound would measure the collector's
-// pacing and whatever the rest of the package run left behind (it did:
-// 25.8 MB against a 24 MiB bound in a full run, while passing alone).
-// Half the payload is what separates streaming from buffering, which is
-// the claim. The collector is also run more eagerly for the duration so
-// garbage stays small next to that bound.
+// It measures the LIVE heap, what the collector found reachable
+// (runtime/metrics' /gc/heap/live:bytes), and not HeapInuse. HeapInuse
+// also counts garbage not yet collected and spans not yet swept, so it
+// measured the collector's pacing as much as this code: it reached 25.8
+// MB against an earlier 24 MiB bound in a full run, and on a hosted
+// macOS runner 34.5 MB against this one, on the third of three repeats,
+// while streaming nothing more (FAILURE_PATTERNS 422). Buffering is live
+// data and garbage is not, so this is the number the claim is about. The
+// collector runs more eagerly for the duration, so the live figure is
+// refreshed often while the bytes flow; and the bound stays half the
+// payload, which is what separates streaming from buffering.
 func TestProcess_StreamsInBoundedMemory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("streams 64 MiB through a real shell")
@@ -290,23 +294,20 @@ func TestProcess_StreamsInBoundedMemory(t *testing.T) {
 	defer proc.Close()
 
 	runtime.GC()
-	var base runtime.MemStats
-	runtime.ReadMemStats(&base)
+	base := liveHeap()
 	var peak atomic.Uint64
 	stop := make(chan struct{})
 	var sampling sync.WaitGroup
 	sampling.Add(1)
 	go func() {
 		defer sampling.Done()
-		var m runtime.MemStats
 		for {
 			select {
 			case <-stop:
 				return
 			case <-time.After(20 * time.Millisecond):
-				runtime.ReadMemStats(&m)
-				if m.HeapInuse > peak.Load() {
-					peak.Store(m.HeapInuse)
+				if live := liveHeap(); live > peak.Load() {
+					peak.Store(live)
 				}
 			}
 		}
@@ -342,9 +343,20 @@ func TestProcess_StreamsInBoundedMemory(t *testing.T) {
 		t.Fatalf("Wait() = %d, %v; want 0, nil", code, err)
 	}
 
-	if grew := int64(peak.Load()) - int64(base.HeapInuse); grew > bound {
-		t.Errorf("heap in use grew by %d bytes while streaming %d, want at most %d", grew, payload, bound)
+	grew := int64(peak.Load()) - int64(base)
+	t.Logf("the live heap grew by %d bytes at most while streaming %d", grew, payload)
+	if grew > bound {
+		t.Errorf("the live heap grew by %d bytes while streaming %d, want at most %d", grew, payload, bound)
 	}
+}
+
+// liveHeap is the heap the most recent collection found reachable. It
+// moves only when a collection finishes, which is why the test above
+// lowers GOGC while it samples.
+func liveHeap() uint64 {
+	sample := []metrics.Sample{{Name: "/gc/heap/live:bytes"}}
+	metrics.Read(sample)
+	return sample[0].Value.Uint64()
 }
 
 // patternReader is an endless deterministic byte source, so a large
