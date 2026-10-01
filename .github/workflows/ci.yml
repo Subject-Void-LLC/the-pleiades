@@ -240,15 +240,12 @@ jobs:
           path: .ci/images.tar
           key: test-images-${{ hashFiles('.ci/images.txt') }}
 
-      # LocalStack needs an auth token, optional here as Docker Hub's is.
-      # Without it the AWS packages' LocalStack tests skip as "needs
-      # localstack", and the coverage job names their floors as unchecked
-      # rather than failing them. With it, the run requires LocalStack, so
-      # a token that stops working fails the job instead of skipping.
+      # No LocalStack here: it needs an auth token, and the hosted jobs
+      # carry none, so the AWS packages' LocalStack tests skip as "needs
+      # localstack" and the coverage job names their floors as unchecked
+      # rather than failing them. A developer with a token runs them with
+      # make ci.
       - name: make ci-containers
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-          PLEIADES_TEST_REQUIRE: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && 'localstack' || '' }}
         run: make ci-containers SHARD="$SHARD"
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -302,8 +299,7 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: make test-full
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-          PLEIADES_TEST_REQUIRE: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && 'userns,localstack' || 'userns' }}
+          PLEIADES_TEST_REQUIRE: userns
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured
