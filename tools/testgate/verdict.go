@@ -56,7 +56,7 @@ func printOutput(events []flakegate.Event, failures []flakegate.Failure) {
 		if out == "" {
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "\n--- %s %s ---\n%s\n", f.Package, f.Test, out)
+		fmt.Fprintf(os.Stderr, "\n--- %s %s ---\n%s\n", f.Package, f.Test, scrub(out))
 	}
 }
 
@@ -67,7 +67,7 @@ func remeasure(args []string, contention []flakegate.Failure, coverage map[strin
 	var failed []flakegate.Failure
 	for pkg := range flakegate.FailedPackages(contention) {
 		fmt.Printf("testgate: re-measuring %s alone, since its coverage came from a run where a test stopped partway\n", pkg)
-		events, _ := flakegate.RunGoTestJSONPackages(args, []string{pkg}, os.Stdout)
+		events, _ := flakegate.RunGoTestJSONPackages(args, []string{pkg}, testOutput)
 		hard, warned := flakegate.Classify(events, nil)
 		if len(hard)+len(warned) > 0 {
 			printOutput(events, append(hard, warned...))

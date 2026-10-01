@@ -25,8 +25,12 @@
 // container ones) and CI can divide a tier across machines with -shard.
 // -strict turns the re-run-alone tolerance off: `make ci` and the nightly
 // CI run judge that way. Every run ends by listing what it skipped, and on
-// GitHub Actions writes that and any tolerated failure to the job summary,
-// because a skipped gate and a passing one print the same nothing.
+// GitHub Actions writes that, the failures that failed the run and the
+// tolerated ones to the job summary, each failure with its own output,
+// whatever the outcome: a skipped gate and a passing one print the same
+// nothing, and a job's log needs admin rights to read where its summary does
+// not. What it prints and writes is masked through internal/redact first
+// (mask.go).
 //
 // Usage: go run ./tools/testgate [-integration | -full] [-strict] [-p n]
 // [-shard k/n] [-coverage-out file] [-list] [package ...]
@@ -91,6 +95,7 @@ func run(o options) error {
 	if err := o.validate(); err != nil {
 		return err
 	}
+	maskEnvironment()
 	packages, err := o.selected()
 	if err != nil {
 		return err
@@ -108,7 +113,7 @@ func run(o options) error {
 	// Every raw JSON line is echoed to this process's own stdout as it is
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
-	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, os.Stdout)
+	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
 	skips := flakegate.Skips(events)
 
 	// Written before anything is judged, so a run that fails still leaves
@@ -124,8 +129,8 @@ func run(o options) error {
 
 	listed, warned := flakegate.Classify(events, tolerated)
 	if o.strict {
-		summarize(label, skips, nil, events)
 		failures := append(listed, warned...)
+		summarize(label, skips, nil, failures, events)
 		printOutput(events, failures)
 		return judgeStrict(failures, waitErr, len(events))
 	}
@@ -144,7 +149,7 @@ func run(o options) error {
 	// consecutive runs and were warned about every time, and the defect
 	// behind them was a total outage.
 	failures := append(append([]flakegate.Failure{}, listed...), warned...)
-	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, os.Stdout)
+	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, testOutput)
 	if err != nil {
 		return fmt.Errorf("re-running failures in isolation: %w", err)
 	}
@@ -181,12 +186,13 @@ func run(o options) error {
 		// two apart.
 		for _, f := range contention {
 			if out := flakegate.FailureOutput(events, f, contentionLines); out != "" {
-				fmt.Printf("  why %s %s failed under load:\n%s\n\n", f.Package, f.Test, indent(out))
+				fmt.Printf("  why %s %s failed under load:\n%s\n\n", f.Package, f.Test, indent(scrub(out)))
 			}
 		}
 	}
 
 	if len(notRun) > 0 {
+		summarize(label, skips, contention, notRun, events)
 		// Their own heading, because they were never asked twice. Saying
 		// they failed again would be the gate reporting a check it did not
 		// perform, which is worse than having no isolation pass at all.
@@ -204,6 +210,7 @@ func run(o options) error {
 	}
 
 	if len(confirmed) > 0 {
+		summarize(label, skips, contention, confirmed, events)
 		printOutput(events, confirmed)
 		fmt.Fprintf(os.Stderr, "\ntestgate: %d failure(s) failed AGAIN when re-run alone, or could not be re-run at all:\n\n", len(confirmed))
 		for _, f := range confirmed {
@@ -235,7 +242,7 @@ func run(o options) error {
 		return fmt.Errorf("go test produced no output at all: %w", waitErr)
 	}
 
-	summarize(label, skips, contention, events)
+	summarize(label, skips, contention, nil, events)
 	if len(contention) == 0 {
 		fmt.Println("testgate: all tests passed")
 	} else {

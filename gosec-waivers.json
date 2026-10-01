@@ -141,7 +141,7 @@
     },
     {
       "file": "tools/testgate/report.go",
-      "line": "74",
+      "line": "92",
       "rule_id": "G703",
       "reason": "Owned by Phase 118 (verification others can run), added 2026-09-30. tools/testgate is a developer and CI command under tools/: package main, never linked into any cmd/ composition root, never reachable from a network path, never packaged, the same boundary tools/sweep's G703 waivers rest on. This is summarize's os.OpenFile of the path in GITHUB_STEP_SUMMARY, which GitHub Actions sets for each step to the file that step's summary page is built from; gosec traces the environment variable into a filesystem path. The file is only ever opened for appending text this tool wrote, with O_APPEND|O_CREATE|O_WRONLY and mode 0o600, never read, executed or passed to a command. A process whose environment an attacker controls has already lost what this rule protects: the same environment decides PATH, HOME and every tool the job runs. When the variable is unset (every run off GitHub) nothing is opened. Re-review if this path ever comes from anything but GITHUB_STEP_SUMMARY."
     }

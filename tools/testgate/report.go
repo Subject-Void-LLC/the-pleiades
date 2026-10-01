@@ -35,16 +35,20 @@ func writeCoverage(path string, m flakegate.Measurement) error {
 }
 
 // summarize prints the skip ledger and, when the run is on GitHub Actions,
-// appends it and the tolerated failures to the job's summary page, which
-// is where a reviewer reads a run without opening its log.
+// appends to the job's summary page the failures that failed the run, the
+// tolerated ones and the ledger, each failure with its own output. That page
+// is where a reviewer reads a run without opening its log, and on a public
+// repository it is all a reader without admin rights can read: job logs
+// need them. A failed run is the one that most needs it, so every outcome
+// writes it.
 //
 // GITHUB_STEP_SUMMARY is a file path GitHub hands the step. It is only
 // ever opened for appending text this tool wrote, never executed or
 // passed to a command.
-func summarize(label string, skips []flakegate.Skip, contention []flakegate.Failure, events []flakegate.Event) {
+func summarize(label string, skips []flakegate.Skip, contention, failed []flakegate.Failure, events []flakegate.Event) {
 	ledger := flakegate.SkipLedger(skips, ledgerLimit)
 	if ledger != "" {
-		fmt.Printf("\ntestgate: %s", ledger)
+		fmt.Printf("\ntestgate: %s", scrub(ledger))
 	}
 
 	path := os.Getenv("GITHUB_STEP_SUMMARY")
@@ -53,6 +57,20 @@ func summarize(label string, skips []flakegate.Skip, contention []flakegate.Fail
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "### %s\n\n", label)
+	if len(failed) > 0 {
+		fmt.Fprintf(&b, "**%d failure(s) failed this run:**\n\n", len(failed))
+		for _, f := range failed {
+			name := f.Test
+			if name == "" {
+				name = f.Kind.String()
+			}
+			fmt.Fprintf(&b, "- `%s` %s\n", f.Package, name)
+			if out := flakegate.FailureOutput(events, f, failureLines); out != "" {
+				fmt.Fprintf(&b, "\n  <details><summary>its output</summary>\n\n```\n%s\n```\n\n  </details>\n\n", out)
+			}
+		}
+		b.WriteString("\n")
+	}
 	if len(contention) > 0 {
 		fmt.Fprintf(&b, "**%d failure(s) passed when re-run alone** (tolerated as contention; a real concurrency bug looks the same, so a test that shows up here run after run needs a look):\n\n", len(contention))
 		for _, f := range contention {
@@ -77,7 +95,7 @@ func summarize(label string, skips []flakegate.Skip, contention []flakegate.Fail
 		return
 	}
 	defer f.Close()
-	if _, err := f.WriteString(b.String()); err != nil {
+	if _, err := f.WriteString(scrub(b.String())); err != nil {
 		fmt.Fprintf(os.Stderr, "testgate: could not write the job summary: %v\n", err)
 	}
 }
