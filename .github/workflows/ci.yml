@@ -61,7 +61,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             required: true
           - os: macos-latest
             required: true
@@ -113,7 +113,11 @@ jobs:
     # needs this one, so it holds only required work: macOS is its own job
     # below, which nothing needs.
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    # 24.04 by name, not ubuntu-latest, which becomes Ubuntu 26 on
+    # 2026-10-19: the user namespace step below is 24.04's AppArmor
+    # setting, and the job requires those tests, so a new release is a
+    # change to make on purpose rather than one that turns this red.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -173,7 +177,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       SHARD: ${{ matrix.shard }}/4
@@ -256,7 +260,7 @@ jobs:
     # measurement, and a floored package with no number fails here.
     if: github.event_name != 'schedule'
     needs: [fast, containers]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -275,7 +279,7 @@ jobs:
     # The whole suite in one strict pass, with no tolerance, on the default
     # branch. What the pull-request jobs forgive as contention, this counts.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - name: Free disk space
