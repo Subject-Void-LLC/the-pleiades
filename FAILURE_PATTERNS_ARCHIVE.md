@@ -11345,3 +11345,90 @@ while the failure is still named (with masking disabled the test fails, token vi
 **Lesson.** A report is most needed by the run that failed, so write it on every path. And a new place that
 shows a test's output is a new place a secret can land: mask it there with this repository's own ruleset, not on
 the strength of someone else's.
+
+## 418. A pull request's checkout had no `main`, so the upgrade gates could not find the previous release, and test-repeat failed where nothing could read it
+
+**Symptom.** The second GitHub run of pull request #48: containers shard 2 failed both upgrade gates on
+`git merge-base HEAD main: fatal: Not a valid object name main`. In the same run Ubuntu `fast` passed every
+package through `testgate` and then failed, and nothing said where: `make ci-fast`'s last step, `test-repeat`,
+was a bare `go test -count=3` outside `testgate`, so its failure reached no job summary, and the log needs
+admin rights to read.
+
+**Root cause.** `actions/checkout` fetches one commit, detached, with no local `main`, and the gates asked for
+`main` by name; a developer's clone always has one. And `test-repeat` predated `testgate`, so it was the one
+test step whose output had no path to the summary.
+
+**Fix.** `tests/e2e`'s `mainBranch` uses `main` where it exists and `origin/main` otherwise, with a message
+naming `fetch-depth: 0` when neither exists, and the containers and nightly jobs fetch full history
+(`1a35d0a6`, proved in a clone shaped like CI's checkout). `testgate -repeat n` runs the repeats and `make
+test-repeat` is `go run ./tools/testgate -repeat 3 -strict` (`3070a8f1`), so the next run's summary named the
+failing test (419).
+
+**Lesson.** A CI checkout is not a clone: it has one commit and no branches, so anything that names a ref by
+its local name has to be proved in a checkout shaped like CI's. And every test step belongs behind the one
+reporter, because the step outside it is the one that fails unreadably.
+
+## 419. The dispatcher gate's own watcher starved the fan-out it was waiting on
+
+**Symptom.** Ubuntu `fast`'s `test-repeat` failed `TestDispatcher_ReleaseGate`: the job was still
+`fanning_out` after 60 seconds. The same test had passed in the same job's `-race` pass minutes earlier, and
+passes here in 7 seconds on four cores.
+
+**Root cause.** `pollJobUntilTerminal` called `store.Get` every 5 ms, and `Get` eager-loads every JobTask row
+recorded so far through the single SQLite connection `newSerializedSQLiteClient` allows. Each poll held the
+connection the Worker needed for its next insert for as long as reading thousands of rows took, so the
+watcher was most of the gate's cost, and on a hosted runner sharing four slow cores with three other test
+binaries it was more than the budget. The race pass passed only because `raceTimeScale` gave it ten times
+the budget.
+
+**Fix.** The poll is 250 ms apart (3.2 seconds for the fan-out on the same four cores, identical across
+three repeats), the failure message counts the rows recorded so far, and the budget is 120 seconds, written
+for the slowest machine that judges it (`1ec9bd39`).
+
+**Lesson.** A watcher that shares a resource with the work it watches is part of the work. Poll at the pace
+the answer matters, not the pace the loop can run, and when a liveness bound fails, print how far the work
+got.
+
+## 420. The fast tier assumed Linux, and the first macOS run failed 43 tests that had nothing wrong
+
+**Symptom.** `fast-macos` failed 43 tests across five packages: 35 in `internal/loader`, every one that loads
+a program; 5 of `internal/catalog/http`'s device tests, each failing a TLS handshake with an unknown
+authority; and one each in `internal/catalog/facts`, `internal/inventory/onboard` and `pkg/remotefile`. The
+skip ledger told the macOS run to install `unshare` and change an Ubuntu sysctl.
+
+**Root cause.** Each was a Linux fact assumed as a universal one. `Load` refuses every program where there is
+no Landlock, so a test that loads one can only run on Linux, and said nothing about it. The test authority
+was trusted through `SSL_CERT_FILE`, which Go's verifier reads only on Linux and the BSDs; macOS and Windows
+ask the platform's store, so the variable did nothing. The facts and onboard harnesses run the method
+against this machine and assert Linux's answers. Linux keeps a directory's setgid bit through a chgrp, which
+POSIX leaves to the implementation. And `UserNamespaces` diagnosed a missing Linux tool on a kernel that has
+no namespaces.
+
+**Fix.** `b947d97a`: the loader's tests require `landlock` through `testsupport.Require` wherever `Load` is
+called (`loadOne`, `tryLoad` and the tests calling it themselves, not `programDir`, which the approval tests
+use without loading); the http tests pin the authority as the device's own `tls_ca_pem`, the product's way to
+trust a private authority on any platform, and the full-URL test takes the old path's `validate_certs:
+false`; facts and onboard require `linux`; the remotefile case is marked `linuxOnly`; and off Linux
+`UserNamespaces` says the kernel has no such thing. Reasoned from the code and the pasted failures, since
+macOS cannot run here; the fourth run is the test.
+
+**Lesson.** "Works for others" includes the developer on a Mac. A test that needs the host to be Linux says
+so through `Require`, so the ledger shows the want, and a fixture's trust should go through the product's own
+mechanism, which is portable because it has to be.
+
+## 421. Docker's port map lists an exposed port with no binding, and the mesh gate read every key as "published"
+
+**Symptom.** Containers shard 2's mesh WSS gate failed, alone and again when re-run alone: "the broker
+container published 4222 (the plain NATS client port) on []". The same gate passed here on every run.
+
+**Root cause.** The gate asserts that this host has no route to the broker's plain client port by scanning
+`Container.Ports` for forbidden keys. The runner's Docker 28.0.4 lists every port the image EXPOSEs in
+`NetworkSettings.Ports`, bound to the host or not, so 4222 appeared with no bindings; Docker 29.8.0 here
+lists only bound ports (checked by inspecting a `nats:2.14.4` container started with one `-p`: four exposed,
+one listed). A key with an empty binding list is the image's EXPOSE, not a route.
+
+**Fix.** A port with no binding is skipped, and the positive control still demands the websocket port with
+a binding (`5e959438`; the gate passes here in 44 seconds).
+
+**Lesson.** The shape of a daemon's inspect output is a version-dependent fact, and "exposed" and
+"published" are different things. Assert the property (a binding exists), not the presence of a key.
