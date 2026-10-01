@@ -104,7 +104,8 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 | Job | Target | What it proves |
 | --- | --- | --- |
 | `ci` | `make ci-remote` | build, vet, format, scanners, generated files, on Linux, macOS and Windows |
-| `fast` | `make ci-fast` | every container-free package, and each three times over |
+| `fast` | `make ci-fast` | every container-free package, and each three times over, on Linux |
+| `fast-macos` | `make ci-fast` | the same on macOS; advisory until it has passed once |
 | `containers` | `make ci-containers SHARD=k/4` | the container packages, in four shards |
 | `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded |
 | `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |

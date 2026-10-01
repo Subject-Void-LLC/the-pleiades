@@ -294,8 +294,9 @@ workflow ran no tests, because `make ci` never went green on a hosted runner: it
 suite three and a half times in one job (test-race, test-repeat, test-integration, which
 reran every ordinary test under the tag, and a fourth run inside `tools/coverage-check`),
 pulled every image anonymously from Docker Hub, and ran on two cores. Now `ci.yml` has
-jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast`, Ubuntu
-required, macOS advisory until it has passed once), `containers` (`make ci-containers`,
+jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast` on Ubuntu)
+and `fast-macos` (the same, advisory until it has passed once, and a job of its own so it
+cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
 four shards, images restored from a cache keyed on `tools/testimages`' list, with an
 optional read-only `DOCKERHUB_TOKEN` and an optional `LOCALSTACK_AUTH_TOKEN`, which,
 when set, the job also requires), `coverage` (`make coverage-measured` over the
