@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // imageRef is the shape of a pullable reference: a name, then a tag, a
@@ -85,7 +86,23 @@ func pullable(expr ast.Expr) (string, bool) {
 	if strings.HasPrefix(ref, "pleiades/") {
 		return "", false
 	}
+	// A name with no letter is not an image, whatever its shape: "65532:65532"
+	// is a uid:gid pair (tests/e2e's packagingImageUID), and CI's pull step
+	// asked Docker Hub for a repository called 65532.
+	if !strings.ContainsFunc(repository(ref), unicode.IsLetter) {
+		return "", false
+	}
 	return ref, true
+}
+
+// repository is ref without its digest or tag. A tag follows the last
+// colon after the last slash, so a registry's port is not taken for one.
+func repository(ref string) string {
+	name, _, _ := strings.Cut(ref, "@")
+	if i := strings.LastIndex(name, ":"); i > strings.LastIndex(name, "/") {
+		name = name[:i]
+	}
+	return name
 }
 
 // sortedKeys returns set's keys in order.
