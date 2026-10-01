@@ -306,7 +306,10 @@ make target, so there is still no CI-only step. The pull-request jobs use push-g
 rule (a failure that passes re-run alone is contention, named in the job summary); the
 nightly job does not, so a real concurrency bug that the rule cannot tell from contention
 is still counted. Every `tools/testgate` run ends with a skip ledger (each skipped test and
-its reason), because a skipped gate and a passing one used to print the same nothing.
+its reason), because a skipped gate and a passing one used to print the same nothing, and on
+GitHub writes it to the job summary with every failure and its output, pass or fail, since a
+job's log needs admin rights to read. Test output is masked through `internal/redact` (by the
+value of any secret-named environment variable, and by shape) before it is printed or written.
 
 **One test pass instead of three.** `make test-full` runs `go test -tags integration -race
 -cover -count=1` once, through `tools/testgate`, container-free packages together and

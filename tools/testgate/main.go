@@ -25,8 +25,12 @@
 // container ones) and CI can divide a tier across machines with -shard.
 // -strict turns the re-run-alone tolerance off: `make ci` and the nightly
 // CI run judge that way. Every run ends by listing what it skipped, and on
-// GitHub Actions writes that and any tolerated failure to the job summary,
-// because a skipped gate and a passing one print the same nothing.
+// GitHub Actions writes that, the failures that failed the run and the
+// tolerated ones to the job summary, each failure with its own output,
+// whatever the outcome: a skipped gate and a passing one print the same
+// nothing, and a job's log needs admin rights to read where its summary does
+// not. What it prints and writes is masked through internal/redact first
+// (mask.go).
 //
 // Usage: go run ./tools/testgate [-integration | -full] [-strict] [-p n]
 // [-shard k/n] [-coverage-out file] [-list] [package ...]
