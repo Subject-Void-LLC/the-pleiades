@@ -11300,3 +11300,48 @@ Gate was unticked until then and re-ticked with that evidence.
 **Lesson.** Tick a documentation item after reading every document it names against the code, not after editing
 the ones in view. Before a push, re-read the ticked items later work touched: a tick records one moment, and a
 push asserts the present.
+
+## 416. The first pull-request run failed at steps no local gate runs, and reading them against the pinned actions found two more
+
+**Symptom.** 2026-10-01, Phase 118's pull request (#48): every `containers` shard and the Ubuntu `fast` job failed.
+Shard 2's pull step asked Docker Hub for a repository called `65532`. Shards 1, 3 and 4 failed at their upload
+with `No files were found with the provided path: .coverage/*.json`.
+
+**Root cause.** Three CI-only steps no local gate had run. `tools/testimages` keeps the value of any constant whose
+name contains `Image`, and `tests/e2e`'s `packagingImageUID = "65532:65532"` has the shape of `name:tag`.
+`upload-artifact` 4.6.2 skips hidden paths unless told otherwise, and its glob for `.coverage/*.json` starts its
+search at the hidden directory and skips it whole (read in its bundled code at the pinned commit); the single-file
+path in the `fast` job would have worked. And macOS ran as an advisory leg of the `fast` matrix that `coverage`
+needs, so its first failure could keep the ratchet from running. The workflow had been linted, and `actionlint`
+checks a workflow's shape, not what each pinned action does with its inputs.
+
+**Fix.** A reference whose repository has no letter is not an image; every shard's pull and cache save were run
+here as the job runs them. Both uploads set `include-hidden-files: true`. macOS is its own job, which nothing
+needs. The Linux jobs run on `ubuntu-24.04` by name, since `ubuntu-latest` becomes Ubuntu 26 on 2026-10-19 and the
+user-namespace step is 24.04's, and the container and nightly jobs free the disk a runner is promised only 14 GB
+of before pulling up to 4.8 GB of images and writing them again as a cache tar. `make ci-fast` and
+`make ci-containers SHARD=2/4` were run here with CI's environment and wrote the files the uploads expect.
+
+**Lesson.** A step that only CI runs is unverified until it has run somewhere. Run each one locally the way the
+job runs it, and read each pinned action's handling of the inputs the step relies on, before the first run is
+the one that finds out.
+
+## 417. A failed run wrote no job summary, and the summary would have carried test output unmasked
+
+**Symptom.** The same run's Ubuntu `fast` job failed in `make ci-fast` after 13 minutes, and nothing readable said
+why: the job's log needs admin rights on a public repository, and `testgate` returned before writing the summary
+on any failing path, so the summary page was empty exactly when it mattered. Asked whether the summary could leak
+secrets, the answer was that it could: it carries each failure's own output, and the container jobs hand their
+tests `LOCALSTACK_AUTH_TOKEN`.
+
+**Root cause.** The summary was written as the last step of a passing run, and its content was never considered
+as a place a secret could land, because GitHub masks the secrets it was given.
+
+**Fix.** Every outcome writes the summary, failures first with their output. Everything `testgate` prints or writes
+is masked through `internal/redact`, by the value of every secret-named environment variable and by shape;
+`TestRun_MasksASecretATestPrints` runs a failing test that prints the token, and the value reaches neither output
+while the failure is still named (with masking disabled the test fails, token visible).
+
+**Lesson.** A report is most needed by the run that failed, so write it on every path. And a new place that
+shows a test's output is a new place a secret can land: mask it there with this repository's own ruleset, not on
+the strength of someone else's.
