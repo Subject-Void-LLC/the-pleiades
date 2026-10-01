@@ -49,6 +49,7 @@ func TestOpenExisting_SeveredConnectionIsAnErrorNotAnEmptyDatabase(t *testing.T)
 		network.WithNetwork([]string{"postgres"}, nw),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(pg) // a failed start still returns its container
 		t.Fatalf("starting postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(pg) })
@@ -60,6 +61,7 @@ func TestOpenExisting_SeveredConnectionIsAnErrorNotAnEmptyDatabase(t *testing.T)
 		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(toxi) // a failed start still returns its container
 		t.Fatalf("starting toxiproxy: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(toxi) })

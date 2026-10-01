@@ -118,6 +118,7 @@ func startBastionProofOuterJumpHost(t *testing.T, outerNet string) testcontainer
 	}
 	c, err := testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		t.Fatalf("starting outer jump host: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
@@ -156,6 +157,7 @@ func startBastionProofInnerBastion(t *testing.T, outerNet, mgmtNet string) testc
 	}
 	c, err := testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		t.Fatalf("starting inner bastion: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
@@ -200,6 +202,7 @@ func startBastionProofConsoleServer(t *testing.T, mgmtNet string) testcontainers
 	}
 	c, err := testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		t.Fatalf("starting console server: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })

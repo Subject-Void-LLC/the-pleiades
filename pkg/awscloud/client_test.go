@@ -75,6 +75,7 @@ func requireLocalStack(tb testing.TB) string {
 			testsupport.LocalStackReady(),
 		)
 		if err != nil {
+			_ = testcontainers.TerminateContainer(ctr) // a failed start still returns its container
 			sharedContainerErr = fmt.Errorf("failed to start localstack container: %w", err)
 			return
 		}

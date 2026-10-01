@@ -376,6 +376,7 @@ func startTerminatingProxy(tb testing.TB, netName string, cert testsupport.Servi
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		tb.Fatalf("starting the terminating proxy: %v", err)
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(c) })

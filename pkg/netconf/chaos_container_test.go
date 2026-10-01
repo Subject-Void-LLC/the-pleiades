@@ -81,6 +81,7 @@ func TestChaos_SeveringTheConnectionMidSession(t *testing.T) {
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(server) // a failed start still returns its container
 		t.Skipf("could not start the NETCONF container: %v", err)
 	}
 	t.Cleanup(func() { _ = server.Terminate(context.Background()) })
@@ -94,6 +95,7 @@ func TestChaos_SeveringTheConnectionMidSession(t *testing.T) {
 		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(proxyContainer) // a failed start still returns its container
 		t.Skipf("could not start the toxiproxy container: %v", err)
 	}
 	t.Cleanup(func() { _ = proxyContainer.Terminate(context.Background()) })

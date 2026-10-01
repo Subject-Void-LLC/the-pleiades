@@ -388,6 +388,7 @@ func startPostgres(tb testing.TB, ctx context.Context) string {
 		testsupport.PostgresReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		tb.Fatalf("starting the postgres container: %v", err)
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })

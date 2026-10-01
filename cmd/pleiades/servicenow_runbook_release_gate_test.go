@@ -122,6 +122,7 @@ func startServiceNo(t *testing.T) snowInstance {
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(ctr) // a failed start still returns its container
 		t.Fatalf("starting ServiceNo!: %v", err)
 	}
 	t.Cleanup(func() { _ = ctr.Terminate(context.Background()) })

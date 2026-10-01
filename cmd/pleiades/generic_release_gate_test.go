@@ -67,6 +67,7 @@ func startGateContainer(t *testing.T, req testcontainers.ContainerRequest, port 
 	ctx := context.Background()
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		t.Fatalf("starting %s: %v", req.Image, err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })

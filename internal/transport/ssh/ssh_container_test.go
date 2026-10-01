@@ -125,6 +125,7 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 			Started:          true,
 		})
 		if err != nil {
+			_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 			sharedContainerErr = fmt.Errorf("failed to start openssh-server container: %w", err)
 			return
 		}
@@ -448,6 +449,7 @@ func TestSSHContainer_StoppedContainerRetriesThenBreakerOpens(t *testing.T) {
 		Started:          true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		t.Fatalf("failed to start dedicated openssh-server container: %v", err)
 	}
 	defer container.Terminate(ctx) // idempotent alongside the deliberate Stop below

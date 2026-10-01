@@ -36,6 +36,7 @@ func loadedScratch(t *testing.T) *scratch {
 		testpg.WithDatabase("pleiades"), testpg.WithUsername("pleiades"), testpg.WithPassword("password"),
 		testsupport.PostgresReady())
 	if err != nil {
+		_ = testcontainers.TerminateContainer(pg) // a failed start still returns its container
 		t.Fatalf("starting postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(pg) })

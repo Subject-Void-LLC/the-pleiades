@@ -86,6 +86,7 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 		Started:          true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(sshContainer) // a failed start still returns its container
 		t.Fatalf("failed to start sshd container: %v", err)
 	}
 	t.Cleanup(func() { sshContainer.Terminate(context.Background()) })
@@ -110,6 +111,7 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(toxiproxyContainer) // a failed start still returns its container
 		t.Fatalf("failed to start toxiproxy container: %v", err)
 	}
 	t.Cleanup(func() { toxiproxyContainer.Terminate(context.Background()) })
