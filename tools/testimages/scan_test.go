@@ -11,8 +11,10 @@ import (
 
 // TestScanFile_FindsEveryShapeAndNothingElse proves the scanner keeps a
 // pinned constant, a digest, a composite literal's Image field and a
-// variable, and drops a locally built image, prose, a parameter name and a
-// reference with no tag.
+// variable, and drops a locally built image, prose, a parameter name, a
+// reference with no tag, and a value shaped like name:tag whose name has
+// no letter (a uid:gid pair, which tests/e2e names packagingImageUID, and
+// an address), which CI's pull step tried to fetch as an image.
 func TestScanFile_FindsEveryShapeAndNothingElse(t *testing.T) {
 	src := `package x
 
@@ -24,6 +26,8 @@ const paramImage = "image"
 const doc = "an Image sentence: nats:2.14.4"
 var pythonImage = "python:3.12-alpine3.20"
 var untaggedImage = "alpine"
+const packagingImageUID = "65532:65532"
+const registryImageAddr = "127.0.0.1:5000"
 
 type req struct{ Image string }
 
