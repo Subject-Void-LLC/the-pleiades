@@ -40,8 +40,14 @@ made explicit today in `.AGENTS/AGENTS.md`: no AI credit anywhere, including a P
 
 ### Open
 
-1. **The dependency PR into `main`**, opened after this handoff's gate and push. grpc stays at 1.83.2 (413);
-   GO-2026-5932 (`x/crypto/openpgp`) is a module-level notice with no fix and no importer.
+1. **The dependency PR, #50 into `main`.** Its first run passed every job. Its second, on a docs-only commit,
+   failed both `fast` jobs on two tests that measured once (FAILURE_PATTERNS 422, fixed). The gate after that
+   tolerated thirteen `tests/e2e` failures from one leaked goroutine, traced to container starts that were never
+   terminated when they failed: 47 sites, one of them the production Ansible orchestrator, which left
+   `ansible-playbook` running past its job's `timeout` (FAILURE_PATTERNS 423, fixed with a changelog fragment and a
+   guard test). A first reading blamed testcontainers; the user's rule to prove a fix before calling it out caught
+   it, and reproduction showed the library behaves as documented, so nothing was reported upstream. Merge #50 once
+   its run on these fixes is green. grpc stays at 1.83.2 (413); GO-2026-5932 is a notice with no importer.
 2. **Plan the push-gate / release-gate split with the user**, now that the PR is done (their words: "we get
    the pr done then we plan for it"). Proposed and not yet approved: a fast push gate without the container
    packages and the ratchet, the PR jobs as they are, and a strict `make release-gate` (everything `make ci`
