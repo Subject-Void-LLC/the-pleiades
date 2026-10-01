@@ -94,6 +94,13 @@ func (o *DockerOrchestrator) Run(ctx context.Context, spec ContainerSpec) (Conta
 		Started:          true,
 	})
 	if err != nil {
+		// A start cut short still hands back the container: when ctx ends
+		// (a launch's timeout, the Runner stopping) while ansible-playbook
+		// is still working, the wait for its exit fails and the container
+		// keeps running, still changing devices after the job has been
+		// reported over. It is terminated here, nil-safe, on every failed
+		// start (TestDockerOrchestrator_ACanceledRunLeavesNoContainerRunning).
+		_ = testcontainers.TerminateContainer(container)
 		return ContainerResult{}, fmt.Errorf("failed to start container %q: %w", spec.Image, err)
 	}
 	defer func() { _ = container.Terminate(context.Background()) }()

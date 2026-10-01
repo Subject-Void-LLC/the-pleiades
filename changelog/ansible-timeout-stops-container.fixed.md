@@ -1,0 +1,1 @@
+A Walk-tier Ansible job whose run ends early, as when its launch `timeout` passes, now stops its `ansible-playbook` container. Before, the job was reported failed while the container kept running the playbook against its devices until the playbook finished on its own.
