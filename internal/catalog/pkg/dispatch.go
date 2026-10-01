@@ -153,6 +153,11 @@ func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 				fqcn, device.Name(), name, required, target)
 		}
 	}
+	// And its transports, for the same reason: this method declares the
+	// union of every manager's, and the concrete method speaks its own.
+	if err := collection.CheckTransports(device, target, desc.Manifest); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	method, err := desc.MethodFor(mode)
 	if err != nil {
@@ -189,11 +194,13 @@ func genericDoc(summary, description string, examples []collection.Example, seeA
 // methods, which differ only in their documentation and reversibility.
 func genericManifest(reversibility collection.Reversibility, doc collection.Doc) collection.Manifest {
 	return collection.Manifest{
-		// Empty rather than "ssh": which transport this reaches the
-		// device over is the concrete method's business, and an APT host
-		// and a DNF one do not have to agree on the answer, even though
-		// both happen to be SSH today.
-		SupportedTransports:  nil,
+		// Every transport a concrete method reaches its device over, SSH
+		// for both APT and DNF today; dispatch then holds the device to
+		// the concrete method's own. Declaring none would leave this
+		// method outside the transport check altogether.
+		// TestGenericTransportsAreTheConcreteUnion keeps it equal to the
+		// union of what managerNamespace dispatches to.
+		SupportedTransports:  []string{capability.TransportSSH},
 		RequiredCapabilities: []capability.Name{capability.NamePackageManager},
 		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 		PlatformTargets:      nil,

@@ -13,7 +13,7 @@ Makes sure a package is at its newest available version, without caring which pa
 |  |  |
 | --- | --- |
 | Capabilities | `PackageManagerCapable` |
-| Transports | - |
+| Transports | `ssh` |
 | Requires elevation | yes |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |

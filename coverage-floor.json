@@ -120,6 +120,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view": 87.1,
     "github.com/Subject-Void-LLC/the-pleiades/internal/ui/web": 84.5,
     "github.com/Subject-Void-LLC/the-pleiades/internal/validate": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/breaker": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/bsdinstall": 94.3,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/capability": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/catalystcenter": 85.4,

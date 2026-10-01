@@ -1,0 +1,1 @@
+A task canceled or timed out just after a device's circuit breaker cooldown ended could leave that device refused with "circuit open" for as long as the process ran, with no connection ever attempted again. The breaker now also hands its recovery probe out on a lease, so a probe lost any other way costs one cooldown instead.

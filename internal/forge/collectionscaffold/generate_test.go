@@ -73,6 +73,11 @@ func TestGenerate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "unknown transport rejected",
+			cfg:     collectionscaffold.Config{Name: "pkg.apt.install", Transports: []string{"shh"}},
+			wantErr: true,
+		},
+		{
 			name:    "unknown capability rejected",
 			cfg:     collectionscaffold.Config{Name: "pkg.apt.install", Capabilities: []capability.Name{"NotARealCapability"}},
 			wantErr: true,

@@ -105,6 +105,10 @@ exit 0
 	if len(caps) == 0 {
 		caps = []capability.Name{capability.NameSystemd}
 	}
+	// The harness device is an SSH server, so it declares what a real
+	// SSH-reached device type declares: the concrete svc.systemd.* methods
+	// reach their device over ssh, and dispatch holds it to that.
+	caps = append(caps, capability.NameSSHTransport)
 	return &harness{
 		rc:     &ctxStub{secrets: srv.Secrets(), stats: map[string]any{}},
 		dev:    &device{Stub: &inventorytest.Stub{StubName: "web1", Caps: caps}, host: srv.Host, port: srv.Port, manager: manager},
@@ -272,7 +276,7 @@ func TestUnknownServiceManagerIsRefused(t *testing.T) {
 func TestDispatchesToWindows(t *testing.T) {
 	rc := &ctxStub{secrets: map[string]string{"username": "administrator", "password": "secret"}, stats: map[string]any{}}
 	dev := &device{
-		Stub:    &inventorytest.Stub{StubName: "win1", Caps: []capability.Name{capability.NameWindowsService}},
+		Stub:    &inventorytest.Stub{StubName: "win1", Caps: []capability.Name{capability.NameWindowsService, capability.NameWinRM}},
 		host:    "127.0.0.1",
 		port:    1,
 		manager: "windows_scm",
@@ -285,8 +289,31 @@ func TestDispatchesToWindows(t *testing.T) {
 	if !strings.Contains(err.Error(), "svc.windows.start") {
 		t.Errorf("error = %v, want it to name the concrete FQCN dispatch resolved to", err)
 	}
-	if strings.Contains(err.Error(), "not registered") || strings.Contains(err.Error(), "declared but not implemented") {
+	if strings.Contains(err.Error(), "not registered") || strings.Contains(err.Error(), "declared but not implemented") ||
+		strings.Contains(err.Error(), "reaches its device over") {
 		t.Errorf("error = %v, want a real dispatch attempt, not an early refusal", err)
+	}
+}
+
+// TestDispatchHoldsTheDeviceToTheConcreteTransport proves dispatch
+// checks the concrete method's transports, not only the generic one's.
+// svc.start declares ssh and winrm, because its concrete methods speak
+// one each, so the engine admits a device reaching either; a device that
+// reports systemd while reachable only over WinRM must be refused before
+// anything is sent, naming the transport svc.systemd.start needs.
+func TestDispatchHoldsTheDeviceToTheConcreteTransport(t *testing.T) {
+	rc := &ctxStub{secrets: map[string]string{}, stats: map[string]any{}}
+	dev := &device{
+		Stub:    &inventorytest.Stub{StubName: "odd1", Caps: []capability.Name{capability.NameSystemd, capability.NameWinRM}},
+		host:    "127.0.0.1",
+		port:    1,
+		manager: "systemd",
+	}
+
+	_, err := svc.Start(context.Background(), rc, dev, params())
+	if err == nil || !strings.Contains(err.Error(), `"svc.systemd.start" reaches its device over ssh`) ||
+		!strings.Contains(err.Error(), "reaches only winrm") {
+		t.Fatalf("err = %v, want svc.systemd.start refused for a device reaching only winrm", err)
 	}
 }
 

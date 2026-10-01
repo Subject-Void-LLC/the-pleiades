@@ -73,7 +73,7 @@ func newAptHarness(t *testing.T) (*device, *ctxStub, string) {
 	dev := &device{
 		Stub: &inventorytest.Stub{
 			StubName: "web1",
-			Caps:     []capability.Name{capability.NameApt},
+			Caps:     []capability.Name{capability.NameApt, capability.NameSSHTransport},
 		},
 		host:    srv.Host,
 		port:    srv.Port,
@@ -244,6 +244,27 @@ func TestDispatch_RefusesWhenTheDeviceLacksTheConcreteCapability(t *testing.T) {
 	_, err = pkg.Install(context.Background(), rc, dev, map[string]any{"name": "curl", "insecure_skip_host_key_verify": true})
 	if err == nil || !strings.Contains(err.Error(), "does not have") {
 		t.Errorf("err = %v, want it to say the device lacks the capability pkg.apt.install requires", err)
+	}
+}
+
+// TestDispatch_HoldsTheDeviceToTheConcreteTransport proves dispatch
+// checks the concrete method's transports, not only the generic one's: a
+// device that reports apt and has AptCapable, but is reached only over
+// WinRM, is refused before anything is sent, naming the transport
+// pkg.apt.install needs.
+func TestDispatch_HoldsTheDeviceToTheConcreteTransport(t *testing.T) {
+	dev := &device{
+		Stub:    &inventorytest.Stub{StubName: "odd1", Caps: []capability.Name{capability.NameApt, capability.NameWinRM}},
+		host:    "127.0.0.1",
+		port:    1,
+		manager: "apt",
+	}
+	rc := &ctxStub{secrets: map[string]string{}, stats: map[string]any{}}
+
+	_, err := pkg.Install(context.Background(), rc, dev, map[string]any{"name": "curl"})
+	if err == nil || !strings.Contains(err.Error(), `"pkg.apt.install" reaches its device over ssh`) ||
+		!strings.Contains(err.Error(), "reaches only winrm") {
+		t.Fatalf("err = %v, want pkg.apt.install refused for a device reaching only winrm", err)
 	}
 }
 

@@ -139,6 +139,14 @@ func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 				fqcn, device.Name(), name, required, target)
 		}
 	}
+	// And its transports, for the same reason. This method declares every
+	// manager's transports at once (ssh or winrm), so the engine's check
+	// admitted a device reaching either; the concrete method speaks one,
+	// and a device reporting systemd while reachable only over WinRM is
+	// refused here rather than by a failed SSH dial.
+	if err := collection.CheckTransports(device, target, desc.Manifest); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	method, err := desc.MethodFor(mode)
 	if err != nil {
@@ -173,10 +181,14 @@ func genericDoc(summary, description string, examples []collection.Example, seeA
 // methods, which differ only in their documentation and reversibility.
 func genericManifest(reversibility collection.Reversibility, doc collection.Doc) collection.Manifest {
 	return collection.Manifest{
-		// Empty rather than "ssh": which transport this reaches the
-		// device over is the concrete method's business, and a systemd
-		// host and a Windows one do not agree on the answer.
-		SupportedTransports:  nil,
+		// Every transport a concrete method reaches its device over: the
+		// systemd methods speak SSH and the Windows ones WinRM, so a
+		// device reaching either may be dispatched to, and dispatch then
+		// holds it to the concrete method's own. Declaring none would
+		// leave this method outside the transport check altogether.
+		// TestGenericTransportsAreTheConcreteUnion keeps it equal to the
+		// union of what managerNamespace dispatches to.
+		SupportedTransports:  []string{capability.TransportSSH, capability.TransportWinRM},
 		RequiredCapabilities: []capability.Name{capability.NameServiceManager},
 		ExecutionContext:     collection.ExecutionContext{RequiresElevation: true, Site: collection.SiteTarget, Device: collection.DeviceRequired},
 		PlatformTargets:      nil,

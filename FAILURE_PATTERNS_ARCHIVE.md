@@ -10899,3 +10899,92 @@ encode. All four packages are back at 100%, and the native adapter is at 94.1%.
 **Lesson.** When a gate step fails, ask whether it failed before or after it measured anything. A coverage
 step that failed on a test has said nothing about coverage, so measure the touched packages
 (`go test -cover`) against their floors before paying for the next full gate.
+
+## 398. A canceled call took a recovering target's half-open probe and kept it, so the device was never dialed again
+
+**Symptom.** Found 2026-09-29 while moving the circuit breaker to `pkg/breaker`, by reading the retry loops
+rather than by an outage, then measured: on a Runner whose circuit for an address had opened and whose
+cooldown had just run out, one call arriving with an already-canceled context left every later call to that
+address refused with "circuit open, too many recent failures" and no dial, for the life of the process.
+`TestConnect_ACanceledCallDoesNotKeepTheProbe` and
+`TestDialFinalLegWithRetry_ACanceledCallDoesNotKeepTheProbe` (`pkg/remoteexec/probe_lost_test.go`) both
+failed on the unfixed tree with one dial where two were due.
+
+**Root cause.** `Allow` hands out the one half-open probe, and only a recorded outcome gives it back. Both
+retry loops (`dialWithRetry` in `dial.go`, `dialFinalLegWithRetry` in `tunnel.go`) called `Allow` first and
+checked `ctx.Err()` second, and `pkg/retry.Do` calls its attempt without looking at the context first. A done
+context therefore claimed the probe and returned with nothing recorded, and the half-open branch had no way
+out of its own: the same wedge as #146, reached through a second door. A canceled task, a timed-out one or an
+operator's interrupt landing just after a cooldown was enough.
+
+**Fix.** Both loops check the context before `Allow`, and the WinRM transport's new loop does the same. The
+breaker itself now leases the probe (`pkg/breaker`, `Allow` and `Permitted`): one nobody records an outcome
+for is reissued after one cooldown, so the next caller that loses a probe, by whatever route, costs one
+cooldown instead of the process. `TestBreaker_ALostProbeIsReissuedAfterItsLease` pins the lease, and
+`TestBreaker_ACanceledCallDoesNotTakeTheProbe` (`internal/transport/winrm`) the ordering for WinRM.
+
+**Lesson.** When a resource is handed out by one call and returned only by another, every early return
+between the two is a leak, and a leak of the only one there is is a lockout. Fix the path that leaked it,
+then make the resource expire, because the next early return will be written by someone who never saw this
+one. #146 fixed the first door and left the lock without a timeout.
+
+## 399. The SSH dial retry sent a refused password three times, and counted it against the circuit every other job shared
+
+**Symptom.** Found 2026-09-29 by reading `pkg/remoteexec`'s retry predicate while moving the circuit breaker,
+then measured. One task with a wrong password produced three "Failed password" lines in a real OpenSSH 10.3
+server's log (`TestSSHContainer_ARejectedPasswordIsPresentedOnce`, run with the fix reverted), and a real
+x/crypto SSH server was sent the wrong password three times by one `Connect`
+(`TestConnect_ARejectedPasswordIsPresentedOnce`). The second wrong-password call on the same Runner already
+met an open circuit (`TestConnect_ARejectedPasswordDoesNotOpenTheCircuit`), so a third call carrying the right
+password, from any job, would have been refused with "circuit open" and no dial.
+
+**Root cause.** `dialWithRetry`'s `retryable` refused only the open-circuit error, and every dial error was
+recorded as a breaker failure. A refused credential fails inside `ssh.NewClientConn` like a dropped
+connection does, and golang.org/x/crypto/ssh gives it no type or sentinel, only the text "ssh: unable to
+authenticate", so nothing told the two apart. The package's own `TestSSHContainer_WrongPasswordFails` had
+set `MaxRetries: 1` with the comment "an auth rejection is not a transient condition retrying would fix":
+the test knew and production did not.
+
+**Impact.** Three failed logins per task. On a host using `pam_faillock` at `deny=3` one task locks the
+account. On OpenSSH 9.8 or later, whose default `PerSourcePenalties` charges a source five seconds per
+failed login and refuses it outright at fifteen, one task gets the Runner's address refused by that host for
+every job; the container test run found this when a follow-up test was refused by sshd itself. And because a
+circuit is per address and shared by every task a Runner runs, anyone able to launch a job against a device
+with a wrong credential could make every other job to it fail fast for thirty seconds at a time.
+
+**Fix.** `authRejected` (`pkg/remoteexec/dial.go`) recognizes the library's refusal text, and a refused
+credential is neither retried nor counted: it proves the address is reachable, so it is recorded as the
+breaker's success. The text is pinned by tests that run the real client against a real server, so a library
+upgrade that rewords it fails a test rather than quietly bringing the retry back. WinRM got the same rule
+from the start (its breaker counts only a network failure before the shell opens), and a client certificate
+refused by a TLS alert is no longer retried there either.
+
+**Lesson.** A retry is a claim that the failure is transient. Before a failure class goes into a retry
+loop or a shared failure counter, ask who answered: a network that did not answer may answer next time, a
+server that said no will say no again, and every repeat is one more strike on somebody's lockout counter.
+When a test has to switch a retry off to make sense, the test is reporting a production defect.
+
+## 400. A WinRM host that never answered was reported as a command that "may still be running", which no retry or breaker could see
+
+**Symptom.** Found 2026-09-29 while checking the new WinRM circuit breaker's edge cases against the lab host,
+whose firewall drops packets to a closed port instead of refusing them. With an operation bound shorter than
+the operating system's connect timeout (thirty seconds), every call to such an address ended with "gave up
+waiting for <host> after <bound>. The command may still be running on the device", although no shell had
+opened and no command could have been sent. `TestExecute_ADeadlineBeforeAnyShellIsNotStarted` failed on the
+unfixed tree with exactly that message.
+
+**Root cause.** `Execute` enforces its bound itself (the library ignores contexts), and its timeout branch
+had one wording for every case. It already knew better: `x.started()` reports whether a shell was ever
+assigned, and `stopAbandoned` used that to decide there was nothing to stop, but the message and the error
+type ignored it. Because the error was not a `*NotStartedError`, the WinRM Adapter's retry did not retry it
+and its circuit breaker did not count it, so a silent host was retried by nobody and never failed fast.
+
+**Fix.** With no shell open, `Execute` returns a `*NotStartedError` wrapping the context's error and saying
+the command was never sent. The Adapter treats a deadline there as a network failure (retried, and counted
+by the breaker) and a caller's cancellation as neither. `TestSilentPort_OpensItsOwnCircuitOnly` proves it
+against the real host: two tasks to the dropped port open its circuit after five sends, the third is refused
+without sending, and the real listener on the same host is still reached.
+
+**Lesson.** An error's type is a claim about what happened, and a caller's policy (retry, count, report)
+is built on that claim. When one branch can reach the same error from two different states, it must ask
+which state it is in, especially when the code already knows, as `stopAbandoned` did here.

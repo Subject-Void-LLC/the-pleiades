@@ -325,16 +325,19 @@ which confines every program to its own directory and the system files it needs,
 it cannot read the credential store or your SSH keys. See
 [External Collections](11-extending-pleiades.md#external-collections).
 
-**Plan-time capability checking covers two legacy action names, not the catalog.**
-`pleiades validate` compares a task's required capability against its target device
-for exactly `ssh_exec` and `ios_backup`. Those are the only two entries in a
-hand-written table (`internal/engine/action_capability.go`), and every other FQCN is
-skipped. Registration checks that a method's declared capability names are real names
-in the vocabulary, but no validator compares them to a device. So a runbook calling
-`net.catalyst.device_facts` against a `linux_server` host prints
-`validate: no issues found` and exits 0, then fails partway into the run with
-`device "web1" does not have CatalystAPICapable`. The Controller's dispatcher builds
-its capability check from that same two-entry table, so it is blind the same way.
+**Plan-time checking covers transports, and capabilities only for two legacy action names.**
+`pleiades validate` refuses a task whose target device cannot be reached over any
+transport its method uses: `exec.command` speaks SSH, so it is refused against a
+`windows_server` reached only over WinRM, naming both sides. The table of which
+capability reaches which transport is in the
+[capability reference](reference/capabilities.md#transports). A method's required
+capabilities are a different matter: `validate` compares them to a device only for
+`ssh_exec` and `ios_backup`, the two entries in a hand-written table
+(`internal/engine/action_capability.go`). So a runbook calling `net.ios.facts` against
+a `linux_server` host passes `validate`, since both speak SSH, and is refused when the
+task runs, before anything reaches the device, with
+`collection method "net.ios.facts" requires capability CiscoIOSCapable, which device "web1" does not have`. The Controller's dispatcher builds its
+admission check from that same two-entry table and checks neither.
 Treat a capability mismatch as an error you find by running, not one `validate` finds
 for you.
 

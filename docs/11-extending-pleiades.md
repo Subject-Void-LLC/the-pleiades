@@ -943,11 +943,20 @@ confirms registration succeeded (a name without a namespace, or an unknown capab
 name, panics at process start instead) and that the method no longer refuses as
 declared but not implemented.
 
+`validate` does confirm your method's transports. Every name in
+`SupportedTransports` must be one the platform knows (`ssh`, `winrm`, `netconf`,
+`https`, `docker`; `collection.Register` refuses anything else at process start),
+and a task is refused when its device reaches none of them. A device reaches a
+transport through a capability, listed in the
+[capability reference](reference/capabilities.md#transports). List every transport
+your method can use, or none if it calls an API rather than its device, and write
+the test that targets a device reaching only some other transport.
+
 `validate` does not confirm capability matching. No validator reads a manifest's
 `RequiredCapabilities`: `internal/validate.CapabilityRule` keys off
 `engine.ActionCapability`, a two-entry table holding only the legacy `ssh_exec`
 and `ios_backup`, and skips every other FQCN. So `validate` will pass a runbook
-whose method cannot run on its target.
+whose method's device reaches the right transport but lacks the capability.
 
 The dispatcher does check, which is a different thing and worth being precise
 about. Before invoking a method, the engine compares every name in its

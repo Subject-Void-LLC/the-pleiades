@@ -4730,6 +4730,9 @@
     }
   },
   "pkg.install": {
+    "supportedTransports": [
+      "ssh"
+    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -4816,6 +4819,9 @@
     }
   },
   "pkg.remove": {
+    "supportedTransports": [
+      "ssh"
+    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -4904,6 +4910,9 @@
     }
   },
   "pkg.upgrade": {
+    "supportedTransports": [
+      "ssh"
+    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -5130,6 +5139,10 @@
     }
   },
   "svc.disable": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -5204,6 +5217,10 @@
     }
   },
   "svc.enable": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -5278,6 +5295,10 @@
     }
   },
   "svc.restart": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -5338,6 +5359,10 @@
     }
   },
   "svc.start": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -5413,6 +5438,10 @@
     }
   },
   "svc.stop": {
+    "supportedTransports": [
+      "ssh",
+      "winrm"
+    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],

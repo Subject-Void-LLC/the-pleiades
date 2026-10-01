@@ -27,7 +27,9 @@ type Config struct {
 	// MustRegister.
 	Capabilities []capability.Name
 
-	// Transports feeds Manifest.SupportedTransports.
+	// Transports feeds Manifest.SupportedTransports. Each must be a name
+	// capability.Transports knows; Validate checks it for the same reason
+	// it checks Capabilities.
 	Transports []string
 
 	// RequiresElevation feeds Manifest.ExecutionContext.RequiresElevation.
@@ -123,6 +125,13 @@ func (c Config) Validate() error {
 	for _, transport := range c.Transports {
 		if transport == "" {
 			return fmt.Errorf("collectionscaffold: empty transport in --transports")
+		}
+		// collection.Register refuses a transport outside the vocabulary
+		// at process start; refusing it here is the same rule, before a
+		// file is written.
+		if _, known := capability.ReachedBy(transport); !known {
+			return fmt.Errorf("collectionscaffold: unknown transport %q in --transports (known: %s)",
+				transport, strings.Join(capability.Transports(), ", "))
 		}
 	}
 	if err := c.validateExecutionContext(); err != nil {

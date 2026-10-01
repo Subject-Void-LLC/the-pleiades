@@ -11,6 +11,8 @@ import (
 
 	"go.uber.org/goleak"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 )
 
 // startEchoListener starts a real, plain TCP listener (no SSH involved
@@ -329,7 +331,7 @@ func TestDialFinalLegWithRetry_RetriesThenSucceeds(t *testing.T) {
 // TestDialFinalLegWithRetry_CircuitOpensAfterRepeatedFailures proves the
 // SAME circuit breaker every other leg uses also guards the final,
 // non-SSH leg: enough consecutive failures against one address opens
-// its circuit, and a subsequent call fails fast (errCircuitOpen) without
+// its circuit, and a subsequent call fails fast (breaker.ErrOpen) without
 // calling dial again.
 func TestDialFinalLegWithRetry_CircuitOpensAfterRepeatedFailures(t *testing.T) {
 	r := New(Options{MaxRetries: 1})
@@ -344,11 +346,11 @@ func TestDialFinalLegWithRetry_CircuitOpensAfterRepeatedFailures(t *testing.T) {
 	var lastErr error
 	for i := 0; i < 20; i++ {
 		_, lastErr = r.dialFinalLegWithRetry(context.Background(), dial, addr)
-		if lastErr != nil && errors.Is(lastErr, errCircuitOpen) {
+		if lastErr != nil && errors.Is(lastErr, breaker.ErrOpen) {
 			break
 		}
 	}
-	if !errors.Is(lastErr, errCircuitOpen) {
+	if !errors.Is(lastErr, breaker.ErrOpen) {
 		t.Fatalf("expected the circuit to open after repeated failures, last error: %v", lastErr)
 	}
 }

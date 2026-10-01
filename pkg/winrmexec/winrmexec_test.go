@@ -253,6 +253,35 @@ func TestResolvePort(t *testing.T) {
 	}
 }
 
+// TestAddr proves Addr names the address Execute dials, after every
+// rule that decides it, so a key built from it cannot drift from the
+// real dial.
+func TestAddr(t *testing.T) {
+	password := Auth{Username: "u", Password: "p"}
+	certificate := Auth{CertificatePEM: []byte("cert"), PrivateKeyPEM: []byte("key")}
+	tests := []struct {
+		name   string
+		target Target
+		auth   Auth
+		opts   Options
+		want   string
+	}{
+		{"password over the default http port", Target{Host: "192.0.2.10"}, password, Options{}, "192.0.2.10:5985"},
+		{"password over https asked for", Target{Host: "192.0.2.10"}, password, Options{HTTPS: true}, "192.0.2.10:5986"},
+		{"a certificate forces https", Target{Host: "192.0.2.10"}, certificate, Options{}, "192.0.2.10:5986"},
+		{"an explicit port wins", Target{Host: "192.0.2.10", Port: 15986}, certificate, Options{}, "192.0.2.10:15986"},
+		{"bare ipv6", Target{Host: "2001:db8::1"}, password, Options{}, "[2001:db8::1]:5985"},
+		{"bracketed ipv6 is the same host", Target{Host: "[2001:db8::1]"}, password, Options{}, "[2001:db8::1]:5985"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Addr(tt.target, tt.auth, tt.opts); got != tt.want {
+				t.Errorf("Addr = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestUnbracketedAndBracketedIPv6ReachTheSameEndpoint proves both
 // spellings of a literal IPv6 host build a usable client.
 //

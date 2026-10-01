@@ -52,7 +52,7 @@ func (d *dispatchTestDevice) ServiceManagerName() string { return "systemd" }
 
 func TestDispatch_DeclaredButNotImplementedTargetIsNamed(t *testing.T) {
 	dev := &dispatchTestDevice{Stub: &inventorytest.Stub{
-		StubName: "s1", Caps: []capability.Name{capability.NameSystemd},
+		StubName: "s1", Caps: []capability.Name{capability.NameSystemd, capability.NameSSHTransport},
 	}}
 	rc := &dispatchTestRC{stats: map[string]any{}}
 
@@ -116,7 +116,7 @@ func TestDispatch_ACheckReachesTheConcreteCheck(t *testing.T) {
 // resolve, rather than falling through to some other method.
 func TestDispatch_RefusesWhatItCannotResolve(t *testing.T) {
 	dev := &dispatchTestDevice{Stub: &inventorytest.Stub{
-		StubName: "s1", Caps: []capability.Name{capability.NameSystemd},
+		StubName: "s1", Caps: []capability.Name{capability.NameSystemd, capability.NameSSHTransport},
 	}}
 	rc := &dispatchTestRC{stats: map[string]any{}}
 
