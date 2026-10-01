@@ -1254,6 +1254,9 @@ func Register(d Descriptor) error {
 	if err := validateFields(d.Fields); err != nil {
 		return fmt.Errorf("view %q %s", d.Name, err)
 	}
+	if err := validatePrimaryLink(d); err != nil {
+		return err
+	}
 	if err := validateOps(d.Name, d.Ops, d.Actions, d.Sections); err != nil {
 		return err
 	}
@@ -1335,6 +1338,24 @@ func Register(d Descriptor) error {
 }
 
 // validateChart refuses a chart that could not be read by everyone.
+// validatePrimaryLink refuses a view whose records can be opened and whose
+// primary list field references another view. A referencing cell links to
+// what it names (TableModel.CellHref), so every row's primary cell would
+// link to the other record and no row to its own: the Access list shipped
+// that way, and a grant's page, which holds its Edit and Delete, could not
+// be reached from it.
+func validatePrimaryLink(d Descriptor) error {
+	if d.Ops.Get == nil {
+		return nil
+	}
+	for _, f := range d.Fields {
+		if f.MobilePrimary && f.InList && f.References != "" {
+			return fmt.Errorf("view %q's primary field %q references %q, so its cell links there and no row links to its own record; mark another field MobilePrimary", d.Name, f.Name, f.References)
+		}
+	}
+	return nil
+}
+
 func validateChart(name string, chart *ChartSpec) error {
 	if chart == nil {
 		return nil

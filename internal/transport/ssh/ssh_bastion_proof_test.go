@@ -109,7 +109,10 @@ func startBastionProofOuterJumpHost(t *testing.T, outerNet string) testcontainer
 			ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
 			FileMode:          0o644,
 		}},
-		WaitingFor:     wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
+		),
 		Networks:       []string{outerNet},
 		NetworkAliases: map[string][]string{outerNet: {"outerjump"}},
 	}
@@ -141,8 +144,11 @@ func startBastionProofInnerBastion(t *testing.T, outerNet, mgmtNet string) testc
 			ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
 			FileMode:          0o644,
 		}},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
-		Networks:   []string{outerNet, mgmtNet},
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			testsupport.SSHGreeting("2222/tcp"),
+		),
+		Networks: []string{outerNet, mgmtNet},
 		NetworkAliases: map[string][]string{
 			outerNet: {"innerbastion"},
 			mgmtNet:  {"innerbastion"},

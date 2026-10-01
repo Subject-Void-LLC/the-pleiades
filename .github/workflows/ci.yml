@@ -1,78 +1,67 @@
 name: CI
 
+# Phase 118: the tests run here again, split by what they need.
+#
+# Until Phase 118 this workflow ran no tests at all, because `make ci`
+# never once went green on a hosted runner: it ran the suite three and a
+# half times over in one job, pulled every image anonymously from Docker
+# Hub, and ran on two cores. Each of those is answered below. The suite
+# runs once (test-full's one tagged pass), divided across jobs by what a
+# package needs; images come from a cache, with an optional Docker Hub
+# login; and a public repository's runners have four cores. Every job
+# calls a make target, so a developer runs exactly what a job ran: there
+# is no CI-only step and no CI-only tool version.
+#
+#   ci          build, vet, format, scanners, generated trees, workflow lint
+#               (make ci-remote), on Linux, macOS and Windows
+#   fast        every package that starts no container, once through the
+#               full pass and three times over (make ci-fast), on Linux
+#   fast-macos  the same on macOS, advisory until it has passed once
+#   containers  the container packages, in four shards (make ci-containers)
+#   coverage    the floors, from the numbers those jobs recorded
+#               (make coverage-measured), not from a fourth run
+#   nightly     the whole suite with no tolerance at all (make test-full),
+#               so a flake rate is measured rather than forgiven
+#   winrm       the WinRM gates against the Windows runner's own WinRM
+#               service; experimental until it has passed here
+#
+# The fast and container jobs apply push-gate's rule: a failure that passes
+# when re-run alone is contention, reported in the job summary, and a
+# failure that fails alone fails. A real concurrency bug looks the same as
+# contention, which is why nightly exists and why every tolerated failure
+# is named on the summary page rather than hidden in a log.
+
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
-    # What this job runs, and deliberately does not.
-    #
-    # It runs the checks that are cheap, deterministic and need no
-    # infrastructure: compilation on three operating systems, vet under
-    # both tag sets, gofmt, module tidiness, the two pinned security
-    # scanners (gosec, govulncheck), the generated-tree checks (docs,
-    # templ), the Helm chart lint and the internal-docs citation lint.
-    # That set is exactly `make ci-remote`.
-    #
-    # It does NOT run the test suite. `make ci` still exists and is still
-    # the strict, whole gate, and it is now a LOCAL gate: a developer runs
-    # it directly, and `.githooks/pre-push` (installed once per clone with
-    # `make hooks`) runs the flake-tolerant `make push-gate` before every
-    # push. The heavy evidence -- test-race, test-repeat, test-integration
-    # and the coverage ratchet -- is produced on a machine with a real
-    # Docker daemon and never here.
-    #
-    # This is a retreat from what this workflow used to attempt, and the
-    # reason is that the attempt did not work. Around twenty packages in
-    # this module provision real ephemeral containers (NATS, sshd,
-    # Postgres, LocalStack, Toxiproxy) through testcontainers-go; `make
-    # ci` runs the suite three times over (test-race, then test-repeat at
-    # -count=3, then test-integration) plus a fourth full run inside
-    # tools/coverage-check; and several of those packages are
-    # timing-sensitive on purpose -- internal/event's Phase 96a release
-    # gate alone severs a real broker for 150 seconds, because the defect
-    # it guards cannot be reproduced by a shorter outage. Anonymous
-    # registry pulls, two-core runners and that workload have never
-    # produced a green result here. A permanently red gate gates nothing,
-    # and it teaches everyone to scroll past red, which costs more than it
-    # was ever buying.
-    #
-    # State the price plainly rather than leave it to be discovered:
-    # nothing in this workflow proves that a single test passes. A pull
-    # request from someone who never ran `make hooks`, or who pushed with
-    # --no-verify, has had its compilation and its static analysis checked
-    # and nothing else. Putting test coverage back here means a runner
-    # with Docker and a deliberately narrow package selection, not simply
-    # restoring `make ci` to the step below.
-    #
-    # The three-OS matrix stays, because build and vet are the whole of
-    # what it was ever proving. PLAN.md's platform requirement: Pleiades
-    # must run on Linux and SHOULD run on macOS; running the controller on
-    # Windows is a stretch goal this Part is allowed to miss. Linux is the
-    # only leg that runs the checks above, since it is the only one where
-    # `make`, gosec, govulncheck and helm are all available; macOS is
-    # BLOCKING and Windows is ADVISORY (continue-on-error), because a red
-    # required check for a stretch goal trains everyone to ignore red
-    # checks generally.
-    #
-    # That matrix is also the guard against the platform-suffix filename
-    # trap this project has already been bitten by once
-    # (FAILURE_PATTERNS.md #51): Go silently reads a `_windows`, `_linux`
-    # or `_darwin` filename suffix as an implicit GOOS build constraint,
-    # and pkg/capability/capabilities_windows.go had therefore never
-    # compiled on Linux since the phase that wrote it. A single-OS job
-    # cannot see that bug; this three-OS one can, and it can see it with
-    # compilation alone, which is why dropping the tests below costs
-    # nothing there. Watch for exactly this shape in any file Part XV's
-    # later phases add (serial_linux.go, socket_windows.go,
-    # transport_darwin.go are all names an author would reach for).
+    # The static checks: compilation on three operating systems, vet under
+    # both tag sets, gofmt, module tidiness, the pinned scanners, the
+    # generated trees, the Helm lint, the internal-docs citation lint and
+    # the workflow lint. That set is `make ci-remote`. The three-OS matrix
+    # is also the guard against a _windows/_linux/_darwin filename suffix
+    # silently constraining a file to one platform (FAILURE_PATTERNS 51):
+    # compilation alone sees it. macOS is blocking and Windows advisory,
+    # per PLAN.md's platform requirement.
+    if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             required: true
           - os: macos-latest
             required: true
@@ -80,52 +69,21 @@ jobs:
             required: false
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ !matrix.required }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
-      # gopls is part of AGENTS.md's own required tooling for anyone
-      # editing this repository, but is not something CI itself invokes;
-      # gosec and govulncheck are the two this job actually runs, so only
-      # those two are installed here, and only on the leg that runs them.
-      #
-      # The versions deliberately are not named here. `make tools`
-      # installs the ones pinned in the Makefile (GOSEC_VERSION,
-      # GOVULNCHECK_VERSION), which is also what a developer's own local
-      # gate installs, so this job and a local run cannot check with
-      # different scanners. These steps previously installed @latest,
-      # which meant a new scanner release could turn this job red on a
-      # commit that changed nothing, and that a local pass said nothing
-      # reliable about what would happen here. Bumping a version is a
-      # commit against the Makefile, reviewed like any other change.
-      #
-      # This step is redundant with `make ci-remote` (which depends on
-      # `tools`) and is kept only so that a tool installation failure
-      # shows up as its own red step rather than inside the checks step's
-      # output.
-      - name: Install pinned gosec and govulncheck
+      # `make tools` installs the scanner and linter versions the Makefile
+      # pins (GOSEC_VERSION, GOVULNCHECK_VERSION, ACTIONLINT_VERSION), the
+      # same ones a developer's gate installs. It is its own step so an
+      # installation failure shows as its own red step.
+      - name: Install pinned tools
         if: runner.os == 'Linux'
         run: make tools
 
-      # `make helm-lint` (tools/helm-lint) shells out to a real helm binary to
-      # render helm/the-pleiades and to prove the configurations that chart
-      # refuses really are refused. ubuntu-latest does not ship one, and the
-      # tool fails rather than skipping when helm is missing, so it has to be
-      # installed here. Only the Linux leg runs helm-lint, so only it needs
-      # this.
-      #
-      # Downloaded and checksummed rather than pulled in through a third-party
-      # action, and pinned to an exact version rather than a channel, for the
-      # same reason GOSEC_VERSION and GOVULNCHECK_VERSION are pinned in the
-      # Makefile: a renderer that changes underneath this job could turn CI red
-      # on a commit that changed nothing, and a local run would stop predicting
-      # what happens here. The checksum is the one published beside the archive
-      # at https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz.sha256sum, so a
-      # tampered or truncated download fails this step instead of quietly
-      # linting with something else.
       - name: Install pinned Helm
         if: runner.os == 'Linux'
         env:
@@ -140,31 +98,236 @@ jobs:
           rm -rf helm.tar.gz linux-amd64
           helm version --short
 
-      # The whole of this workflow's judgement, on the one leg that can
-      # make it. See the job comment above for what ci-remote covers and
-      # what it knowingly leaves to the local gate.
       - name: ci-remote
         if: runner.os == 'Linux'
         run: make ci-remote
 
-      # macOS and Windows: compilation only, and the same two commands on
-      # both, so there is nothing platform-specific to keep in step. GNU
-      # Make does not ship with GitHub's windows-latest image, which is
-      # why this is a bare `go build`/`go vet` pair rather than a make
-      # target.
-      #
-      # Deliberately NOT a second `go vet -tags integration ./...` pass,
-      # even though the Makefile's own vet target runs one and the
-      # integration-tagged files are the largest tests in this repository.
-      # Those files have never been compiled for darwin or windows by
-      # anything, so adding the pass here would be adding an unverified
-      # check to the one job this change exists to get green, and the
-      # thing it would guard -- the platform-suffix filename trap in the
-      # job comment above -- is already caught by the untagged build and
-      # vet. Worth doing later, on purpose, as its own change that starts
-      # by finding out whether it passes.
       - name: build + vet (macOS and Windows)
         if: runner.os != 'Linux'
         run: |
           go build ./...
           go vet ./...
+
+  fast:
+    # Every package that starts no container, on Linux. The coverage job
+    # needs this one, so it holds only required work: macOS is its own job
+    # below, which nothing needs.
+    if: github.event_name != 'schedule'
+    # 24.04 by name, not ubuntu-latest, which becomes Ubuntu 26 on
+    # 2026-10-19: the user namespace step below is 24.04's AppArmor
+    # setting, and the job requires those tests, so a new release is a
+    # change to make on purpose rather than one that turns this red.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      # Ubuntu 24.04 refuses unprivileged user namespaces through AppArmor,
+      # and three tests re-run themselves as root in one (a real mount, a
+      # real account database). They skip where the host refuses, so this
+      # job allows them and then requires them: a runner that loses the
+      # ability fails the job instead of quietly running three fewer tests.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      # The serial-over-PTY tests skip without socat, which the runner image
+      # does not ship; the clean room's skip ledger is what showed six of
+      # them never running.
+      - name: Install socat for the PTY-backed serial tests
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
+      - name: make ci-fast
+        env:
+          PLEIADES_TEST_REQUIRE: userns
+        run: make ci-fast
+      - name: Keep the coverage for the floor check
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-fast
+          path: .coverage/fast.json
+          if-no-files-found: error
+          # upload-artifact 4.4+ skips hidden paths by default, and a
+          # wildcard under .coverage/ is skipped whole: its search starts
+          # at the hidden directory.
+          include-hidden-files: true
+
+  fast-macos:
+    # The same tier on macOS. It last ran before the Linux-only tests
+    # (Landlock, memfd) existed, so it is allowed to fail until it has
+    # passed once, then made blocking. Its own job rather than a matrix leg
+    # of fast, so a failure here cannot decide whether coverage runs.
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: make ci-fast
+        run: make ci-fast
+
+  containers:
+    # The container packages, divided four ways. The shards partition the
+    # list (tools/testgate -shard), so the four jobs test every container
+    # package exactly once.
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SHARD: ${{ matrix.shard }}/4
+    steps:
+      # A standard runner is promised 14 GB of disk. A shard pulls up to
+      # 4.8 GB of images and then writes them again as its cache tar,
+      # beside Go's module and -race build caches, so the toolchains these
+      # jobs never use are removed first.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      # Full history: the upgrade gates build the previous release from where
+      # this branch left main, which a one-commit checkout does not hold.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      # A read-only Docker Hub token raises the pull limit. It is optional:
+      # a fork's pull request has no secrets, and the image cache below is
+      # what keeps pulls rare either way. The secret is only in this step's
+      # environment.
+      - name: Docker Hub token present?
+        id: hub
+        env:
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "present=$([ -n "$TOKEN" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.present == 'yes'
+        env:
+          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login --username "$USERNAME" --password-stdin
+
+      # The images this shard's packages start, from their source
+      # (tools/testimages), cached under a key made from that list, so a
+      # changed pin is a new cache entry and an unchanged one is not
+      # pulled at all.
+      - name: List this shard's images
+        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt
+      - name: Restore cached images
+        id: images
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/images.tar
+          key: test-images-${{ hashFiles('.ci/images.txt') }}
+      - name: Load cached images
+        if: steps.images.outputs.cache-hit == 'true'
+        run: docker load --input .ci/images.tar
+      - name: Pull and cache images
+        if: steps.images.outputs.cache-hit != 'true'
+        run: |
+          make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PULL=-pull
+          xargs docker save --output .ci/images.tar < .ci/images.txt
+      - name: Save the image cache
+        if: steps.images.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/images.tar
+          key: test-images-${{ hashFiles('.ci/images.txt') }}
+
+      # No LocalStack here: it needs an auth token, and the hosted jobs
+      # carry none, so the AWS packages' LocalStack tests skip as "needs
+      # localstack" and the coverage job names their floors as unchecked
+      # rather than failing them. A developer with a token runs them with
+      # make ci.
+      - name: make ci-containers
+        run: make ci-containers SHARD="$SHARD"
+      - name: Keep the coverage for the floor check
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-containers-${{ matrix.shard }}
+          path: .coverage/*.json
+          if-no-files-found: error
+          include-hidden-files: true
+
+  coverage:
+    # The ratchet, from the numbers the test jobs recorded. It runs only
+    # when every test job passed: a failed job's numbers are not a
+    # measurement, and a floored package with no number fails here.
+    if: github.event_name != 'schedule'
+    needs: [fast, containers]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: coverage-*
+          path: .coverage
+          merge-multiple: true
+      - name: make coverage-measured
+        run: make coverage-measured
+
+  nightly:
+    # The whole suite in one strict pass, with no tolerance, on the default
+    # branch. What the pull-request jobs forgive as contention, this counts.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      # Full history: the upgrade gates build the previous release from where
+      # this branch left main, which a one-commit checkout does not hold.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Pull every container package's images
+        run: make ci-images SHARD=1/1 IMAGES=.ci/images.txt PULL=-pull
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: make test-full
+        env:
+          PLEIADES_TEST_REQUIRE: userns
+        run: make test-full
+      - name: make coverage-measured
+        run: make coverage-measured
+
+  winrm:
+    # The WinRM gates against the Windows runner's own WinRM service, set up
+    # by the same script the lab uses (examples/windows_lab), connecting
+    # over loopback, which the listener's certificate covers. Experimental:
+    # it claims nothing until it has passed here, and its failure blocks
+    # nothing until then.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Set up the WinRM certificate listener
+        shell: powershell
+        run: ./examples/windows_lab/winrm-cert-setup.ps1 -AllowedSubnet 127.0.0.0/8 -OutputDirectory "$env:RUNNER_TEMP\pleiades-gate"
+      - name: WinRM gates
+        shell: bash
+        env:
+          PLEIADES_WINRM_HOST: 127.0.0.1
+          PLEIADES_WINRM_PORT: "5986"
+          PLEIADES_WINRM_PFX: ${{ runner.temp }}\pleiades-gate\client.pfx
+          PLEIADES_WINRM_PFX_PASSWORD_FILE: ${{ runner.temp }}\pleiades-gate\client.pfx.passphrase
+          PLEIADES_WINRM_CA: ${{ runner.temp }}\pleiades-gate\ca.pem
+        run: go test -count=1 -v -run 'ReleaseGate|Stress|Stranger|SilentPort' ./pkg/winrmexec/ ./internal/transport/winrm/

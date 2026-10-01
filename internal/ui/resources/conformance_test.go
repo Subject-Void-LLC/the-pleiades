@@ -31,10 +31,7 @@ import (
 func TestViewConformance_RegisteredAndReachable(t *testing.T) {
 	registerViews(t)
 
-	want := []string{
-		"credentials", "dashboard", "devices",
-		"governance", "inventories", "jobs", "runbooks", "templates",
-	}
+	want := viewPackageNames(t)
 	got := view.Names()
 
 	registered := make(map[string]bool, len(got))
@@ -130,6 +127,12 @@ func TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere(
 				t.Fatalf("List(limit 1): %v", err)
 			}
 			if one.NextCursor == "" {
+				// A reader that returns more rows than it was asked for
+				// does not page at all, which is a different fact from a
+				// fixture too small to need a second page.
+				if len(one.Rows) > 1 {
+					t.Skipf("this view's reader does not page: it returned %d rows for a limit of 1, so there is never a next page", len(one.Rows))
+				}
 				t.Skipf("fixture holds under two records, so this view has no second page to render")
 			}
 			if n := strings.Count(h.get(t, "/ui/"+name+"?limit=1").Body.String(), control); n != 1 {
@@ -804,6 +807,17 @@ func TestViewConformance_TheDrillDownChainWalks(t *testing.T) {
 			}
 			id := firstRecordID(t, h, d.Name)
 			if id == "" {
+				// No link is a skip only when there is nothing to link. A
+				// list with rows and no link into any of them is the dead
+				// end this test exists for: the Access list shipped that
+				// way, and this line used to skip it.
+				page, err := d.Handlers.List(t.Context(), view.Query{Limit: 1})
+				if err != nil {
+					t.Fatalf("List: %v", err)
+				}
+				if len(page.Rows) > 0 {
+					t.Fatalf("the collection lists records and links none of them to its own page")
+				}
 				t.Skip("no seeded record to walk into")
 			}
 			want := "/ui/" + d.Name + "/" + url.PathEscape(id)

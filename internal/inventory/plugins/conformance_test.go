@@ -414,10 +414,7 @@ func TestMain(m *testing.M) {
 
 func requireLocalStackForConformance(tb testing.TB) string {
 	tb.Helper()
-	token := os.Getenv("LOCALSTACK_AUTH_TOKEN")
-	if token == "" {
-		tb.Skip("set LOCALSTACK_AUTH_TOKEN to run the conformance suite's aws backend")
-	}
+	token := testsupport.LocalStackToken(tb)
 	awsConformanceContainerOnce.Do(func() {
 		ctx := context.Background()
 		ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,

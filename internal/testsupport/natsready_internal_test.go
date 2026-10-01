@@ -70,7 +70,7 @@ func TestWaitForNATSGreeting(t *testing.T) {
 	for name, tc := range map[string]struct{ addr, want string }{
 		"a silent server":        {greetingServer(t, 0, ""), "within 1s"},
 		"a refusing port":        {refused, "within 1s"},
-		"another protocol":       {greetingServer(t, 0, "SSH-2.0-OpenSSH_9.6\r\n"), "not a NATS greeting"},
+		"another protocol":       {greetingServer(t, 0, "SSH-2.0-OpenSSH_9.6\r\n"), "not the NATS greeting"},
 		"a port that only drops": {greetingServer(t, 1<<30, info), "within 1s"},
 	} {
 		t.Run(name, func(t *testing.T) {

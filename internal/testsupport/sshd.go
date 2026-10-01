@@ -93,8 +93,12 @@ func StartSSHD(ctx context.Context) (*SSHD, error) {
 				FileMode:          0o644,
 			}},
 			// The image's own final startup line, logged once sshd is
-			// listening.
-			WaitingFor: wait.ForLog("done.").WithStartupTimeout(SSHDStartupTimeout),
+			// listening inside the container, then its banner through the
+			// mapped port, which is the path every caller dials.
+			WaitingFor: wait.ForAll(
+				wait.ForLog("done.").WithStartupTimeout(SSHDStartupTimeout),
+				SSHGreeting(fmt.Sprintf("%d/tcp", SSHDInnerPort)),
+			),
 		},
 		Started: true,
 	})

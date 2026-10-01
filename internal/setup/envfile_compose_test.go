@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // TestParseEnvFile_AgreesWithDockerCompose is the RULE 0 half of the env file
@@ -32,9 +33,7 @@ import (
 // It runs no container and needs no daemon, only the docker CLI.
 func TestParseEnvFile_AgreesWithDockerCompose(t *testing.T) {
 	docker, err := exec.LookPath("docker")
-	if err != nil {
-		t.Skip("docker is not installed")
-	}
+	testsupport.Require(t, "docker", err == nil, "the docker CLI is not installed")
 
 	key := crypto.EncodeKey([]byte(strings.Repeat("c", 32)))
 	jwt := crypto.EncodeKey([]byte(strings.Repeat("w", 32)))

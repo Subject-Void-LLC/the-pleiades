@@ -83,3 +83,14 @@ obj/
 # tools/genrrulefixtures) leave one beside themselves when imported or
 # compiled, and one was committed that way on 2026-09-24.
 __pycache__/
+
+# Coverage and image lists the Phase 118 test tiers write (make test-full,
+# make ci-images); rebuilt every run, never committed.
+/.coverage/
+/.ci/
+
+# A test fixture that is a captured log, not a log this repository writes:
+# pkg/cloudinit's console capture was ignored by *.log above, so a fresh
+# clone lacked it and three tests failed everywhere but the machine that
+# captured it (found by Phase 118's clean room).
+!pkg/cloudinit/testdata/*.log

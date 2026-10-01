@@ -7,7 +7,8 @@
 //
 //   - PLEIADES_PREVIOUS_REF, when set, names it outright;
 //   - otherwise it is where this branch left main (git merge-base HEAD main),
-//     which is what a deployment built from main is running today;
+//     which is what a deployment built from main is running today; a
+//     checkout with no local main, as CI's is, uses origin/main;
 //   - and where that merge base is HEAD itself, it is HEAD when the working
 //     tree holds uncommitted changes (they are the build under test), and
 //     HEAD's first parent on a clean tree (main before the change HEAD made).
@@ -131,7 +132,11 @@ func previousRef(root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		base, err := gitOutput(root, "merge-base", "HEAD", "main")
+		mainRef, err := mainBranch(root)
+		if err != nil {
+			return "", err
+		}
+		base, err := gitOutput(root, "merge-base", "HEAD", mainRef)
 		if err != nil {
 			return "", fmt.Errorf("finding where this branch left main (set PLEIADES_PREVIOUS_REF to name the previous release): %w", err)
 		}
@@ -246,6 +251,21 @@ func crossedMigrations(root, previous string) ([]string, error) {
 }
 
 // gitOutput runs git in dir and returns its trimmed output.
+// mainBranch names main as this clone has it: the local branch, or, in a
+// checkout that made none (a pull request's CI run checks out one merge
+// commit, detached), the remote-tracking branch. A clone with neither, or
+// with too little history to hold the merge base, cannot build the previous
+// release, and the error says what fixes it.
+func mainBranch(root string) (string, error) {
+	for _, ref := range []string{"main", "origin/main"} {
+		if _, err := gitOutput(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
+			return ref, nil
+		}
+	}
+	return "", errors.New("this clone has neither main nor origin/main, so it cannot find the previous release: " +
+		"fetch main with its history (in CI, actions/checkout with fetch-depth: 0) or set PLEIADES_PREVIOUS_REF")
+}
+
 func gitOutput(dir string, args ...string) (string, error) {
 	// #nosec G204 -- git, with arguments this file chooses.
 	cmd := exec.Command("git", args...)

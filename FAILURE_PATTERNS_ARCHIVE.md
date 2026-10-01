@@ -10988,3 +10988,256 @@ without sending, and the real listener on the same host is still reached.
 **Lesson.** An error's type is a claim about what happened, and a caller's policy (retry, count, report)
 is built on that claim. When one branch can reach the same error from two different states, it must ask
 which state it is in, especially when the code already knows, as `stopAbandoned` did here.
+
+## 401. A test fixture matched *.log in .gitignore, so it was never committed and its tests failed in every clone but one
+
+**Symptom.** Found 2026-09-29 by Phase 118's clean room, the first run of this repository's tests in a fresh
+clone on a machine other than the one that wrote them: `pkg/cloudinit`'s `TestHostKeys` and
+`internal/catalog/virt/vbox/vm`'s `TestHostKeys` and `TestHostKeys_Refusals` failed with "open
+.../testdata/console-ubuntu-2404.log: no such file or directory". Every one of them had passed on every gate
+run here since 2026-09-27.
+
+**Root cause.** The fixture is a captured VM console log, and `.gitignore` ignores `*.log`, so `git add` of
+the package never picked it up and nothing warned. The file sat in this working tree, the only place any test
+ever ran, so every gate here passed and every clone anywhere else would have failed three tests.
+
+**Fix.** A `.gitignore` exception for `pkg/cloudinit/testdata/*.log`, and the fixture committed after reading
+it for anything secret (a boot log and the lab VM's public host keys). `make test-clean-room` now runs the
+container-free packages in a fresh clone inside a pinned Go container, which is the check that finds this.
+
+**Lesson.** A test suite that has only ever run in the tree that wrote it has not shown that it works for
+anyone else, and a broad ignore rule is the classic reason. Run it from a fresh clone somewhere without your
+home directory, tools or identity, and treat what fails there as defects, not as environment trouble.
+
+## 402. testgate named a failing test and never said why it failed
+
+**Symptom.** Found 2026-09-29 by the same clean-room run: `testgate -strict` printed six failing tests by
+name and no output at all, so learning why meant re-running each test by hand in the same container. In CI,
+where the gate is about to be the shared answer, that means a red job nobody can read.
+
+**Root cause.** `testgate` runs `go test -json` and echoes one line per package, which keeps a whole-suite log
+short (a full event stream once killed a push with SIGPIPE, as `RunGoTestJSON`'s doc records). A test's own
+output lives only in that stream, and nothing printed it back for the tests that failed.
+
+**Fix.** `flakegate.FailureOutput` returns the end of a failure's own output from the run's events, and
+`testgate` prints it for every failure it reports, strict or confirmed in isolation
+(`TestFailureOutput_ShowsWhyATestFailed`).
+
+**Lesson.** Cutting a log's volume is right; cutting the part that explains a failure is not. When a tool
+summarizes, it must keep the evidence for exactly the lines that make it exit non-zero.
+
+## 403. A coverage floor for a package deleted seven weeks earlier was never read, so the ratchet guarded nothing there
+
+**Symptom.** Found 2026-09-30 by `coverage-check -measured` on its first real run (Phase 118's gate):
+`internal/ansible: floor 87.2%, no coverage number in this run`. The package had been removed on 2026-08-10
+(commit 8483cca1, Phase 17, in favor of `internal/adapters/legacy`), and every gate since had reported its
+coverage check green.
+
+**Root cause.** The old check walked the packages a run measured and compared each against its floor. A floor
+with no measured package behind it was simply never visited, whether its package was deleted, renamed, failed
+before printing a number, or never ran; all four passed identically. That is FAILURE_PATTERNS 397's shape
+(a check that measured nothing reported nothing wrong) in the floor file itself.
+
+**Fix.** The stale floor is removed, with the reason in `coverage-floor.json`'s header. `coverage-check
+-measured` fails any floored package with no number, naming the three things that cause it.
+
+**Lesson.** A ratchet has two directions to check: every measured package against its floor, and every floor
+against a measurement. Walking only the first lets a floor outlive what it was protecting, and a list of floors
+nobody reads is a list of claims.
+
+## 404. A branch covered only when a timer lost a race dropped pkg/retry below its floor once coverage ran under -race
+
+**Symptom.** 2026-09-30, the second run of Phase 118's gate: `pkg/retry: 97.1% dropped below its floor of
+100.0%` on a run that changed nothing in `pkg/retry`; the first run of the same gate had passed it. Six
+race-enabled runs measured 100.0 five times and 97.1 once, the missing block always `do.go`'s return when the
+context ends during the sleep between attempts.
+
+**Root cause.** `TestDo_UnlimitedRetriesUntilContextDone` reaches that branch only when its 30 ms deadline
+lands inside a sleep rather than inside an attempt. Without the race detector it nearly always did; with it,
+attempts run slower and the deadline sometimes lands inside one. The old coverage pass ran without `-race`, so
+the dependence never showed. Phase 118's one pass measures coverage under `-race`, which the plan named as an
+edge case (a timing-only branch can move) and this is its first real instance.
+
+**Fix.** `TestDo_ContextEndingDuringTheSleepStopsAtOnce` cancels the context inside `delay`, which `Do` calls
+just before it sleeps, so the sleep always meets a done context: eight race-enabled runs, eight at 100.0%.
+
+**Lesson.** A coverage floor of 100% states that every branch runs every time, and a branch reached only by
+winning a timing race breaks that promise on a busier machine. When a floor drops with no code change, find
+the block that moved and write the test that reaches it on purpose, rather than lowering the floor.
+
+## 405. A package's coverage was read from the run where a contended test stopped partway, so contention looked like a coverage drop
+
+**Symptom.** 2026-09-30, the third run of Phase 118's gate: `internal/ent/migrate: 86.2% dropped below its
+floor of 86.5%`. The same run had tolerated `TestApply_APartitionedWinnerReleasesItsClaim` in that package,
+which failed under load and passed when re-run alone.
+
+**Root cause.** The one pass records each package's coverage from the run itself, and a test that fails
+partway runs fewer statements, so a package with a contention failure reports a partial number. The old
+tolerant coverage run avoided this by accident: it dropped a failed package's number, which left that
+package's floor unchecked (FAILURE_PATTERNS 403's shape). Reading the number instead of dropping it was right;
+trusting it was not.
+
+**Fix.** When a failure is judged contention, `testgate` re-runs that whole package alone with the same
+arguments and records its coverage from that run; a package that fails even alone becomes a confirmed
+failure (`remeasure`, proved by `TestRun_ContentionIsReMeasuredAlone`, whose test fails once and then
+passes, so the partial run measures 50% and the re-measure 100%).
+
+**Lesson.** A tolerated failure means the test is fine; it does not make the run's other numbers fine. Any
+measurement taken from a run you have decided to forgive has to be taken again from the run you trust.
+
+## 406. Coverage floors recorded where LocalStack ran would have failed every CI run, and every `make ci` without a token
+
+**Symptom.** Found 2026-09-30 by reading, before the first pull-request run of Phase 118's workflow, while
+recording floors for new packages. `internal/catalog/cloud/aws/ec2` has a floor of 96.7% and
+`internal/catalog/cloud/aws/s3` one of 98.0%. With `LOCALSTACK_AUTH_TOKEN` unset they measure 37.6% and 47.1%,
+and the workflow never sets it, so the `coverage` job would have failed on every pull request. So would `make
+ci` on any contributor's machine without a LocalStack account, for a reason unrelated to their change. Every
+local gate passed, because the developer's shell had the token.
+
+**Root cause.** A floor is a number measured on one machine, and a skipped test lowers a package's number
+without saying why. The floor check could not tell "this code lost its tests" from "this run could not run
+them", so it could only fail both or pass both. The LocalStack tests skipped with a bare `t.Skip`, which the
+skip ledger listed but nothing else read.
+
+**Fix.** Every LocalStack test stops through `testsupport.LocalStackToken`, which calls `Require("localstack")`,
+so its skip reads `needs localstack: ...`. `testgate` records each package's missing requirements beside its
+coverage (`flakegate.Missing`, `flakegate.Measurement`), and `coverage-check -measured` names a package below
+its floor that lacked something as unchecked, neither pass nor failure. `TestMissing_ReadsTheReasonRequireGives`
+holds the skip format and the parser to one another. Proved through the real tools: `testgate` over `ec2`
+and `s3` without the token, then `coverage-check` over the real `coverage-floor.json`, passes naming both,
+and the same numbers without the missing record fail as before. The workflow passes an optional
+`LOCALSTACK_AUTH_TOKEN` secret and, when it is set, requires LocalStack, so a dead token fails the job
+instead of skipping.
+
+**Lesson.** A measurement is only comparable to a threshold taken under the same conditions. When a check
+compares numbers from two machines, record the conditions with the number, or the check will be wrong on
+whichever machine the threshold was not set on, and it will be wrong silently on the one where it was.
+
+## 407. The view reachability check hand-listed 8 of 22 views, so dropping any of the other 14 passed
+
+**Symptom.** `TestViewConformance_RegisteredAndReachable`, the gate for FAILURE_PATTERNS 52 (a view package
+nothing imports), checked a literal list of eight view names. Fourteen views were added after it was written,
+none to the list. Replacing `labels.Register()` in `internal/ui/resources/registrars.go` with a no-op left the
+test green.
+
+**Root cause.** The check moved the gap it was written to close one step along: a view had to be added to
+`registrars.go` to be reachable, and then to a test's list to be checked, and nothing required the second.
+
+**Fix.** The list is read from source: `viewPackageNames` parses each package under `internal/ui/resources`
+for its `Name` constant, and a package without one fails. The same mutation now fails naming `labels`.
+
+**Lesson.** A completeness check that works from a hand-kept list is only as complete as the list. Derive the
+list from the thing being checked, so that adding the thing adds it to the check.
+
+## 408. A Vault container was "ready" on a log line before Docker forwarded its port, so the first write was refused
+
+**Symptom.** 2026-09-30, `make push-gate` on the Phase 118 tip: `TestReleaseGate_AnInputResolvesOutOfARealVault`
+failed with `writing the secret: Post "http://localhost:43674/...": dial tcp 127.0.0.1:43674: connect:
+connection refused`, 2.00s into the test, and passed when re-run alone. `flaky-packages.json` had carried the
+package since 2026-08-26 as contention. This was the first run that printed a tolerated failure's own output
+(FAILURE_PATTERNS 402's fix), and the output said it was not a lost race at all.
+
+**Root cause.** The container waited for `wait.ForLog("Vault server started!")`, which proves the server is
+listening inside the container. It does not prove Docker is forwarding the mapped host port, and under load
+the gap between the two is long enough for one request to land in it. The test's first request is a single
+`http.DefaultClient` POST with no retry, so it found the gap; the sshd containers that wait on a log line the
+same way reach their port through the SSH dial's retry, which hides the same gap.
+
+**Fix.** The wait is `wait.ForAll` of the log line and an HTTP 200 from `/v1/sys/health` through the mapped
+port, both under `testsupport.ContainerStartupTimeout`. Health answers 200 only once Vault is initialized,
+unsealed and active, and it goes through the same port the test then writes to. The same wait cannot finish
+before the mapped port exists, which also closes the 2026-08-26 symptom (`port "8200/tcp" not found`), so the
+package's `flaky-packages.json` entry, which called both a lost race rather than a defect, is removed.
+
+**Lesson.** A readiness check proves the path it checks. Wait on the path the test will use, through the host
+port it will use, rather than on something the server says about itself inside the container. About fifteen
+other containers here still wait on a log line alone; they are not failing because their callers retry, which
+is luck rather than design.
+
+**Follow-up, the same day.** The pattern is now shared: `testsupport.ForGreeting` (and `SSHGreeting`) reads a
+server's first line through the mapped port, generalizing the NATS greeting wait FAILURE_PATTERNS 353 added,
+and stops at once when the container exits. Every sshd and netopeer2 container that publishes a port waits for
+its log line and then its banner; the generic gRPC device waits for its listening port too, and the ServiceNow
+mock for an HTTPS answer. The Ansible gate's sshd publishes no port and is reached from another container, so
+it keeps its log wait.
+
+## 409. A roadmap item cited `TestCheckCmdEnvReads`, which was never written, and the refusal it named was tested only by a lab gate
+
+**Symptom.** 2026-09-30, the roadmap tracker's missing-test check flagged a finished Phase 75 item, "pass
+runbook data into a shell as data", for citing `TestCheckCmdEnvReads`. No commit ever defined it.
+`checkCmdEnvReads` is the refusal that keeps a cmd script from reading its own environment value as `%NAME%`,
+which cmd.exe expands before it parses the line: measured on Windows 11, a value `a & echo INJECTED` ran the
+echo. The only test that reached it was the WinRM modes Release Gate, which skips on every machine without the
+lab's Windows host.
+
+**Root cause.** The item's evidence was written from the plan when the item closed, not read from the tree,
+and a gate that needs a lab host is green everywhere else by skipping. Nothing compared the two until the
+tracker's check.
+
+**Fix.** `TestCheckCmdEnvReads` exists now: both expansion forms (`%NAME%`, `%NAME:...%`), any case, the
+`!NAME!` form that stays text, a variable the command does not set, and a longer name sharing the prefix.
+`TestRun_RejectsBeforeTouchingCredentials` gained the case through `Execute`, so the refusal is shown to come
+before any credential is read. Dropping the substring branch fails two cases. The tracker's other stale
+citations (a file moved to `pkg/breaker`, three renamed tests, a report built as two files) now name what
+exists, with the history in prose.
+
+**Lesson.** A security refusal proved only by a gate that needs a lab is unproved on every other machine. Give
+it a unit test that runs everywhere, and let the lab gate prove the part only the lab can: that the real shell
+agrees.
+
+## 410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
+
+**Symptom.** `tools/doctor` measured 71.1% here with no floor. Its tests ran the real checks, so a machine with
+Docker, every pinned scanner and pywinrm covered the "ok" branches and none of the "fix" ones, and a bare
+machine the reverse. A floor recorded on one would fail or pass on another for no change at all, and nothing
+proved the fix lines a new contributor most needs.
+
+**Root cause.** Code that asks the machine was only ever tested against the machine running the test.
+
+**Fix.** The checks ask through four replaceable seams (`run`, `lookPath`, `getenv`, `goVersion`), and
+`checks_test.go` describes a machine with everything and one with nothing, plus a scanner at the wrong or an
+unreadable version and a toolchain older than go.mod asks for. Coverage is 82.2% on any machine; the live test
+still asks the real one.
+
+**Lesson.** A test of code that reads its environment has to run against an environment it describes too, or
+its coverage, and any floor set from it, belongs to whoever ran it last.
+
+## 411. Schedule pages were ordered by name and resumed by id, so following Next skipped schedules
+
+**Symptom.** Found 2026-09-30 by a subagent seeding a second schedule for the view conformance suite, and
+confirmed with a test written before the fix: five schedules named `zulu` through `victor`, created in that
+order and paged one at a time, returned `victor` and then nothing. Four of the five could not be reached by
+paging, through the Schedules view or `GET /schedules`, which share `schedule.Store.List`.
+
+**Root cause.** `List` ordered by `(name, schedule_id)` and resumed with `schedule_id > after`. Schedule ids
+are time-ordered, so any schedule whose name sorted before a newer one's fell behind the cursor. The store's
+own paging test created `sched-0` to `sched-4` in name order, where the two orders agree, and checked only for
+a schedule on both pages, never for one on neither.
+
+**Fix.** The cursor stays a schedule id, which is what an API client passes back, and the page resumes after
+that schedule's place in the order: `name > n OR (name = n AND schedule_id > after)`. A cursor whose schedule
+was deleted is refused with `ErrNotFound`, since its place is unknown and resuming anywhere else would skip or
+repeat without saying so (`TestListFollowsTheCursorInNameOrder`, `TestListRefusesACursorThatNoLongerExists`);
+`GET /schedules` answers that with a 400 naming the cursor rather than a 404, which a client asking for a list
+would read as an empty collection.
+
+**Lesson.** A keyset cursor must compare the same columns the query orders by. A paging test has to create
+records whose orders disagree, and check that every record appears once, not only that none appears twice.
+
+## 412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
+
+**Symptom.** Found the same way. `/ui/access` rendered six grants, and every row's links went to `/ui/teams/<id>`;
+none reached `/ui/access/<id>`, the grant's own page, which holds its Edit and Delete. The conformance drill-down
+and edit-form tests reported "no seeded record to walk into" and skipped.
+
+**Root cause.** The grant's primary field was `team`, which references the Teams view, and a referencing cell
+links to what it names before a primary cell links to its row (`TableModel.CellHref`). The drill-down test
+treated "no record link on the page" as "no records", so the one outcome it exists to catch read as a skip.
+
+**Fix.** `granted_at`, the view's own id field, is the primary field; the team column still links to its team.
+`view.Register` refuses a view whose records open and whose primary list field references another view, and
+the drill-down test fails when the list returns rows and links none of them. The paging test now says when a
+reader does not page at all rather than blaming the fixture.
+
+**Lesson.** A test's skip has to distinguish "nothing to check" from "the check found nothing", or its most
+important failure reads as a missing fixture.

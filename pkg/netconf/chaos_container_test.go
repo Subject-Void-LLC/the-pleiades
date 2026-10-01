@@ -70,8 +70,11 @@ func TestChaos_SeveringTheConnectionMidSession(t *testing.T) {
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        notconfImage,
 			ExposedPorts: []string{"830/tcp"},
-			WaitingFor: wait.ForLog("Listening on :::830 for SSH connections").
-				WithStartupTimeout(2 * time.Minute),
+			WaitingFor: wait.ForAll(
+				wait.ForLog("Listening on :::830 for SSH connections").
+					WithStartupTimeout(2*time.Minute),
+				testsupport.SSHGreeting("830/tcp"),
+			),
 			Networks:       []string{nw.Name},
 			NetworkAliases: map[string][]string{nw.Name: {"netconfserver"}},
 		},

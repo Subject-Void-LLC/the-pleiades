@@ -80,10 +80,7 @@ func TestMain(m *testing.M) {
 
 func requireLocalStack(tb testing.TB) string {
 	tb.Helper()
-	token := os.Getenv("LOCALSTACK_AUTH_TOKEN")
-	if token == "" {
-		tb.Skip("set LOCALSTACK_AUTH_TOKEN to run cloud.aws.ec2's real-LocalStack-backed tests")
-	}
+	token := testsupport.LocalStackToken(tb)
 	sharedContainerOnce.Do(func() {
 		ctx := context.Background()
 		ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,

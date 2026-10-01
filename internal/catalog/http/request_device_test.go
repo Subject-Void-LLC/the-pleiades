@@ -1,9 +1,16 @@
 // This file tests http.request's device mode, a path on the target
 // device's own API, against real HTTPS servers whose certificate is
-// verified for real: TestMain makes a certificate authority of its own the
-// process's only trusted root, through SSL_CERT_FILE, which is how an
-// operator trusts a private CA too. httptest's built-in certificate stays
-// untrusted, so the certificate tests in request_test.go are unaffected.
+// verified for real: TestMain makes a certificate authority of its own,
+// and every HTTPS device here carries it as its pinned tls_ca_pem
+// (pkg/devicetls), which is how an operator trusts a device's private
+// authority on any platform. The authority used to be trusted through
+// SSL_CERT_FILE instead, which Go's verifier reads only where it reads
+// root files at all (Linux and the BSDs): on macOS and Windows the
+// platform's own store answers and the variable does nothing, so the five
+// tests here that need a verified handshake failed on macOS with an
+// unknown authority (FAILURE_PATTERNS 420). httptest's built-in
+// certificate stays untrusted, so the certificate tests in request_test.go
+// are unaffected.
 package http_test
 
 import (
@@ -20,7 +27,6 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -38,30 +44,20 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// requestDeviceCert is a certificate for 127.0.0.1 issued by the CA
-// TestMain trusts.
+// requestDeviceCert is a certificate for 127.0.0.1 issued by the CA every
+// HTTPS device in this file pins.
 var requestDeviceCert tls.Certificate
 
+// requestCAPEM is that CA, as the PEM text a device's tls_ca_pem holds.
+var requestCAPEM string
+
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "http-request-ca")
-	if err != nil {
-		panic(err)
-	}
 	caPEM, leaf, err := requestIssue()
 	if err != nil {
 		panic(err)
 	}
-	requestDeviceCert = leaf
-	if err := os.WriteFile(filepath.Join(dir, "ca.pem"), caPEM, 0o600); err != nil {
-		panic(err)
-	}
-	// Set before anything verifies a certificate: the system roots are
-	// read once per process.
-	_ = os.Setenv("SSL_CERT_FILE", filepath.Join(dir, "ca.pem"))
-	_ = os.Setenv("SSL_CERT_DIR", dir)
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
+	requestCAPEM, requestDeviceCert = string(caPEM), leaf
+	os.Exit(m.Run())
 }
 
 // requestIssue makes a CA and a leaf for 127.0.0.1 signed by it.
@@ -126,7 +122,7 @@ func newRequestDeviceServer(t *testing.T, h nethttp.HandlerFunc) *requestDeviceS
 // requestAPIDevice builds an onboarded generic_http device for base.
 func requestAPIDevice(t *testing.T, base, auth string, onboarded bool) inventory.InventoryItem {
 	t.Helper()
-	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base, generic.HTTPAuthProperty: auth}
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base, generic.HTTPAuthProperty: auth, devicetls.CAPEMProperty: requestCAPEM}
 	if onboarded {
 		// Bound to the properties it was made against, as onboarding binds it.
 		d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
@@ -145,7 +141,7 @@ func requestAPIDevice(t *testing.T, base, auth string, onboarded bool) inventory
 // needs no onboarding leaves it: its discovery grants nothing.
 func requestRepointedDevice(t *testing.T, base string) inventory.InventoryItem {
 	t.Helper()
-	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://onboarded.invalid", generic.HTTPAuthProperty: httpapi.AuthBasic}
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://onboarded.invalid", generic.HTTPAuthProperty: httpapi.AuthBasic, devicetls.CAPEMProperty: requestCAPEM}
 	d := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
 	d.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
 	props[inventory.DiscoveredProperty] = d.Property()
@@ -184,12 +180,16 @@ func TestRequestDevice_SendsTheDeviceCredential(t *testing.T) {
 }
 
 // TestRequestDevice_FullURLCarriesNoCredential: the same device targeted
-// with a full URL gets the old behavior, and no credential.
+// with a full URL gets the old behavior, and no credential. The old
+// behavior includes the old trust: the device's pinned authority does not
+// reach a full URL, only the system's roots do, so the request takes the
+// old path's own way past a private authority, validate_certs false, which
+// the device path refuses.
 func TestRequestDevice_FullURLCarriesNoCredential(t *testing.T) {
 	srv := newRequestDeviceServer(t, nil)
 	dev := requestAPIDevice(t, srv.URL, httpapi.AuthBearer, true)
 	rc := requestSecretsContext{newRequestContext(), map[string]string{"password": "tok"}}
-	if _, err := http.Request(context.Background(), rc, dev, map[string]any{"url": srv.URL + "/items"}); err != nil {
+	if _, err := http.Request(context.Background(), rc, dev, map[string]any{"url": srv.URL + "/items", "validate_certs": false}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := srv.auth.Load().(string); got != "" {
@@ -319,6 +319,12 @@ func tlsDeviceServer(t *testing.T, minV, maxV uint16) *requestDeviceServer {
 func requestDeviceWith(t *testing.T, base string, extra map[string]inventory.PropertyValue) (inventory.InventoryItem, error) {
 	t.Helper()
 	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: base}
+	if strings.HasPrefix(base, "https://") {
+		// A TLS setting on a plain-HTTP device is refused as describing
+		// protection it does not get, so the authority goes only where a
+		// handshake will check it.
+		props[devicetls.CAPEMProperty] = requestCAPEM
+	}
 	for k, v := range extra {
 		props[k] = v
 	}
