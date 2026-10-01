@@ -26,6 +26,7 @@ func answering(t *testing.T, fqcn, who string) string {
 // can load the same names more than once, returning the error rather
 // than failing.
 func tryLoad(t *testing.T, dir string, opts Options) error {
+	requireConfinement(t)
 	t.Helper()
 	restore := collection.SnapshotForTest()
 	defer restore()

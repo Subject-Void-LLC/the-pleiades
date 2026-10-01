@@ -4,9 +4,11 @@ package facts_test
 import (
 	"context"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -16,6 +18,11 @@ import (
 // command is one of the fixed reads (uname or cat), none writes, and the
 // check reports exactly the facts and the no-change a real run reports.
 func TestGatherCheck_OnlyReads(t *testing.T) {
+	// The harness runs the method's reads on this machine, and a real run
+	// answers only on one that has Linux's files; gather_test.go's own
+	// skips say the same per file.
+	testsupport.Require(t, "linux", runtime.GOOS == "linux",
+		"facts.gather reads Linux's files (/etc/os-release, /proc) from the machine the SSH harness runs on, and this one is "+runtime.GOOS)
 	d, ok := collection.Lookup("facts.gather")
 	if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
 		t.Fatalf("facts.gather does not declare a check: %+v", d.Manifest)

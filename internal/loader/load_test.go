@@ -23,6 +23,7 @@ import (
 // exactly where the manifest declares check support, and a Set that
 // knows what it loaded and pinned.
 func TestLoad_RegistersEveryMethod(t *testing.T) {
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	dir := programDir(t)
 	out := describeJSON(t, 0,
@@ -81,6 +82,7 @@ func TestLoad_RegistersEveryMethod(t *testing.T) {
 // that a hidden file, which is often an editor's swap file, is ignored
 // rather than refused as a non-program.
 func TestLoad_EmptyAndDotFiles(t *testing.T) {
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	dir := programDir(t)
 	if err := os.WriteFile(filepath.Join(dir, ".note.swp"), []byte("not a program"), 0o600); err != nil {
@@ -100,6 +102,7 @@ func TestLoad_EmptyAndDotFiles(t *testing.T) {
 // including the well-behaved program every case also puts beside the bad
 // one: a directory is loaded whole or not at all.
 func TestLoad_Refusals(t *testing.T) {
+	requireConfinement(t)
 	good := "loadertest.bystander.run"
 
 	cases := []struct {
@@ -337,6 +340,7 @@ func TestLoad_Refusals(t *testing.T) {
 // method loads, and the Set says the check did not run. A release build
 // that satisfies the constraint loads it with no warning.
 func TestLoad_UnreleasedBuildWarnsInsteadOfChecking(t *testing.T) {
+	requireConfinement(t)
 	for _, tc := range []struct {
 		engine   string
 		wantWarn bool
@@ -374,6 +378,7 @@ func TestLoad_UnreleasedBuildWarnsInsteadOfChecking(t *testing.T) {
 // TestLoad_SecondLoadIsRefused proves loading the same directory twice
 // never replaces what the first load registered.
 func TestLoad_SecondLoadIsRefused(t *testing.T) {
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	dir := programDir(t)
 	oneMethodProgram(t, dir, "loadertest.again.run", false, "exit 0")
@@ -387,6 +392,7 @@ func TestLoad_SecondLoadIsRefused(t *testing.T) {
 
 // TestLoad_CanceledContext proves Load stops when its caller does.
 func TestLoad_CanceledContext(t *testing.T) {
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	dir := programDir(t)
 	writeProgram(t, dir, "slow", "#!/bin/sh\nexec sleep 30\n")
@@ -400,6 +406,9 @@ func TestLoad_CanceledContext(t *testing.T) {
 // TestLoad_MissingDirectory proves a directory that is not there is an
 // error naming it, not an empty load.
 func TestLoad_MissingDirectory(t *testing.T) {
+	// Load refuses for want of Landlock before it looks at the directory,
+	// so where there is none the refusals below would be the wrong ones.
+	requireConfinement(t)
 	for _, dir := range []string{"", filepath.Join(t.TempDir(), "absent")} {
 		if _, err := Load(t.Context(), dir, testOptions()); err == nil {
 			t.Errorf("Load(%q) = nil error", dir)

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
@@ -112,6 +114,10 @@ func build(t *testing.T, deviceType string, props map[string]inventory.PropertyV
 // so the test asserts what every Linux machine proves (a POSIX shell and
 // the Linux kernel) and that nothing beyond generic_ssh's set is granted.
 func TestSSHProbe_RealShell(t *testing.T) {
+	// The harness runs the probe's script on this machine, so the Linux
+	// grants asserted below are this machine's kernel's answer.
+	testsupport.Require(t, "linux", runtime.GOOS == "linux",
+		"the probe's Linux grants are asserted against this machine's own kernel, and this one is "+runtime.GOOS)
 	srv := sshServer(t, remoteexectest.Options{})
 	dev := build(t, generic.TypeSSH, map[string]inventory.PropertyValue{"host": srv.Host, "port": srv.Port})
 	got, err := sshProber{}.Probe(context.Background(), dev, srv.Secrets())

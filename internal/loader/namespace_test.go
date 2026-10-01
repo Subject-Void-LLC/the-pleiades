@@ -41,6 +41,7 @@ func registerBuiltin(t *testing.T, name string) {
 // ansible always. A namespace of the program's own is accepted, and an
 // external method does not reserve its namespace for others.
 func TestLoad_ReservedNamespacesAreRefused(t *testing.T) {
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	registerBuiltin(t, "brandnew.builtin.method")
 

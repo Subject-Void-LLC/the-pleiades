@@ -18,6 +18,10 @@ type options struct {
 	// coverage's own run: -race, the integration tag, coverage, and a
 	// fresh run of every test.
 	full bool
+	// repeat runs every test that many times in one process, with no race
+	// detector, tag or coverage: test-repeat's pass, for state a test
+	// leaves behind it. Zero is off.
+	repeat int
 	// strict fails on any failure, with no re-run: what `make ci` and the
 	// nightly CI run judge by.
 	strict bool
@@ -42,6 +46,13 @@ type options struct {
 // see a change to either and would replay a stale pass, and a CI runner's
 // restored build cache holds test results too.
 func (o options) goTestArgs() []string {
+	if o.repeat > 0 {
+		args := []string{"-count=" + strconv.Itoa(o.repeat), "-timeout", goTestTimeout}
+		if o.parallel > 0 {
+			args = append(args, "-p", strconv.Itoa(o.parallel))
+		}
+		return args
+	}
 	args := []string{"-race", "-timeout", goTestTimeout}
 	switch {
 	case o.full:
@@ -59,6 +70,9 @@ func (o options) goTestArgs() []string {
 func (o options) validate() error {
 	if o.full && o.integration {
 		return fmt.Errorf("-full already runs the integration tag; pass one of -full and -integration")
+	}
+	if o.repeat < 0 || (o.repeat > 0 && (o.full || o.integration)) {
+		return fmt.Errorf("-repeat is its own pass, untagged and without -race; pass it alone, with a count of at least 1")
 	}
 	if o.coverageOut != "" && !o.full {
 		return fmt.Errorf("-coverage-out needs -full, the only mode that measures coverage")

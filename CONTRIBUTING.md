@@ -112,10 +112,10 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 
 The `containers` job restores its images from a cache and only pulls on a miss. A
 maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
-raise Docker Hub's pull limit; a pull request from a fork runs without it. A
-`LOCALSTACK_AUTH_TOKEN` secret is optional in the same way: without it the AWS tests that
-need LocalStack skip, and with it the run requires LocalStack, so a token that stops
-working fails the job rather than skipping.
+raise Docker Hub's pull limit; a pull request from a fork runs without it. No job runs
+LocalStack: it needs an auth token the hosted jobs do not carry, so the AWS tests that
+need it skip there as `needs localstack`, the `coverage` job names their floors as
+unchecked rather than failing them, and a developer with a token runs them with `make ci`.
 
 ### Coverage
 

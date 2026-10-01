@@ -32,7 +32,7 @@
 // not. What it prints and writes is masked through internal/redact first
 // (mask.go).
 //
-// Usage: go run ./tools/testgate [-integration | -full] [-strict] [-p n]
+// Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-p n]
 // [-shard k/n] [-coverage-out file] [-list] [package ...]
 package main
 
@@ -65,6 +65,7 @@ func main() {
 	flag.BoolVar(&o.integration, "integration", false, "run with -tags integration -count=1, matching the Makefile's test-integration target")
 	flag.BoolVar(&o.full, "full", false, "the one pass: -race, -tags integration, -cover and -count=1")
 	flag.BoolVar(&o.strict, "strict", false, "fail on any failure, with no re-run alone")
+	flag.IntVar(&o.repeat, "repeat", 0, "run every test this many times in one process, untagged and without -race (test-repeat)")
 	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
 	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")

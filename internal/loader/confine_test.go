@@ -250,6 +250,7 @@ func TestConfinement_TheControlReachesEverything(t *testing.T) {
 // cost of protectProcess (no core file, no debugger) is paid only by a
 // process that is about to start a program.
 func TestConfinement_ProcessIsProtectedOnlyWhenAProgramWillRun(t *testing.T) {
+	requireConfinement(t)
 	makeDumpable(t)
 	t.Cleanup(collection.SnapshotForTest())
 

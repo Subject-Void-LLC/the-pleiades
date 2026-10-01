@@ -16,6 +16,7 @@ import (
 // warning: a program whose two methods both state an engine version gets
 // one warning naming both, not two, and a program stating none gets none.
 func TestLoad_OneVersionWarningPerProgram(t *testing.T) {
+	requireConfinement(t)
 	dir := programDir(t)
 	constrained := implemented(false)
 	constrained.EngineVersion = ">=1.0.0"

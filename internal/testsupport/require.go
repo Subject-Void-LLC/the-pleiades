@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -73,9 +74,15 @@ var userNamespaces struct {
 // UserNamespaces reports whether an unprivileged process may create a user
 // namespace here, and if not, why and how to allow it. Ubuntu 24.04 refuses
 // by default through AppArmor, and Docker's default seccomp profile refuses
-// inside a container.
+// inside a container. Off Linux the answer is that the kernel has no such
+// thing, said as that: a macOS run used to be told to look for unshare and
+// then to change an Ubuntu sysctl.
 func UserNamespaces() (bool, string) {
 	userNamespaces.once.Do(func() {
+		if runtime.GOOS != "linux" {
+			userNamespaces.why = fmt.Sprintf("user namespaces are a Linux kernel feature, and this is %s", runtime.GOOS)
+			return
+		}
 		out, err := exec.Command("unshare", "--user", "--map-root-user", "true").CombinedOutput()
 		if err == nil {
 			userNamespaces.ok = true

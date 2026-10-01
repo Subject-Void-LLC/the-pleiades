@@ -88,6 +88,7 @@ func FuzzRegistrationParity(f *testing.F) {
 // program, the refused method, and every method registered before it,
 // since those stay registered and an operator has to know which.
 func TestRegister_ARuleOnlyRegisterHasNamesWhatStaysRegistered(t *testing.T) {
+	requireConfinement(t)
 	dir := programDir(t)
 	manifest := implemented(false)
 	out := describeJSON(t, 0,

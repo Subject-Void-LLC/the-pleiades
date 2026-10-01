@@ -21,11 +21,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
+
+// requireConfinement skips a test that loads or runs a program where Load
+// refuses every program before looking at one: a platform with no
+// Landlock (confine_other.go), or a Linux kernel without it
+// (confine_linux.go). A loaded program is the subject of nearly every
+// test in this package, so the ledger of a run on such a machine names
+// "landlock" once per test instead of the package failing three dozen
+// times for a feature the platform does not have, which is what a macOS
+// run of the fast tier did. The refusal itself is covered by
+// TestConfinement_RefusedWithoutLandlock.
+func requireConfinement(t testing.TB) {
+	t.Helper()
+	_, err := confinementAvailable()
+	why := ""
+	if err != nil {
+		why = err.Error()
+	}
+	testsupport.Require(t, "landlock", err == nil, why)
+}
 
 // testPassword is the credential every proxy test hands the program. It is
 // distinctive so an assertion that it never leaked cannot pass by
@@ -49,7 +69,9 @@ func testOptions() Options {
 }
 
 // programDir returns a fresh directory Load will accept: owned by this
-// user and writable by nobody else.
+// user and writable by nobody else. It does not require confinement,
+// since the approval list is written and read in such a directory on
+// platforms that load nothing; the helpers and tests that call Load do.
 func programDir(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -152,6 +174,7 @@ func oneMethodProgram(t testing.TB, dir, fqcn string, supportsCheck bool, invoke
 // ends.
 func loadOne(t testing.TB, dir, fqcn string, opts Options) collection.Descriptor {
 	t.Helper()
+	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	if _, err := Load(t.Context(), dir, opts); err != nil {
 		t.Fatalf("Load: %v", err)
