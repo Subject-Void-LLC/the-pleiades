@@ -449,13 +449,15 @@ test-no-docker:
 # evidence, and those are precisely the packages flaky-packages.json
 # already documents as timing-sensitive under load.
 #
-# That reuse is also what lets this be a bare `go test` in both gates,
-# where the one pass (test-full, or push-gate-full) goes through
-# tools/testgate instead. Every package flaky-packages.json names is
-# inside the filter above, so this target cannot reach one. That is a
+# It runs through tools/testgate -repeat 3 -strict: strict in every gate,
+# re-running nothing, because no package flaky-packages.json names is inside
+# the filter above, so nothing here is expected to lose a race. That is a
 # claim about two lists nothing else connects, so it is asserted by
 # tools/internal/flakegate's TestEveryFlakyPackageIsExcludedFromTestRepeat
-# rather than trusted to stay true.
+# rather than trusted to stay true. testgate rather than a bare `go test`
+# so a failure is written to a CI job's summary with its output, masked:
+# on GitHub the job's log needs admin rights to read, and a bare go test
+# failure appeared nowhere else.
 #
 # No -race, deliberately. The one pass already covers that axis at
 # -count=1 over the same code, and the defect class this target exists for
@@ -470,7 +472,7 @@ test-repeat:
 	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
 		packages="$$(echo "$$packages" | grep -v "^$$pkg$$")"; \
 	done; \
-	go test -count=3 -timeout $(GO_TEST_TIMEOUT) $$packages
+	go run ./tools/testgate -repeat 3 -strict $$packages
 
 # test-integration runs everything behind the `integration` build tag:
 # the Grand Integration Test (the real controller and runner binaries

@@ -19,6 +19,7 @@ func TestGoTestArgs(t *testing.T) {
 		{"integration", options{integration: true}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-count=1"}},
 		{"the one pass", options{full: true}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-cover", "-count=1"}},
 		{"with parallelism", options{full: true, parallel: 1}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-cover", "-count=1", "-p", "1"}},
+		{"test-repeat's pass", options{repeat: 3}, []string{"-count=3", "-timeout", goTestTimeout}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -35,6 +36,8 @@ func TestValidate(t *testing.T) {
 		"-full and -integration":        {full: true, integration: true},
 		"coverage without the one pass": {coverageOut: "c.json"},
 		"a shard of ./...":              {shard: "1/2"},
+		"-repeat with the one pass":     {repeat: 3, full: true},
+		"a negative repeat":             {repeat: -1},
 	} {
 		if err := o.validate(); err == nil {
 			t.Errorf("%s: accepted", name)
