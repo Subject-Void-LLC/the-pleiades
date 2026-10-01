@@ -4,14 +4,17 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branches `feature/Phase-118-Verification-For-Others` and `chore/dependency-updates`, 2026-10-01.** Phase 118
-is in pull request #48, which has had three GitHub runs. Every failure they showed is fixed on the Phase 118
-branch (`1a35d0a6` to `c8dfd3cd`) and merged into the dependency branch (`a482629d`), whose gate covers both
-tips; this handoff is committed on the dependency branch. `gh` is not authenticated here: the user reads the
-runs on a phone and pastes the logs, and the job summaries (`testgate` writes them on every outcome since
-`e260f040`, masked) are what make that enough. Rules unchanged (method-as-key runbooks, two agents at most,
-heavy commands under `~/.local/bin/capped`, the lab provisioned by The Pleiades only), plus one from this
-session: no LocalStack in the hosted jobs.
+**Branch `chore/dependency-updates`, 2026-10-01. Phase 118 is on `main`.** Pull request #48's fourth run
+passed every job, and #48 merged, but into the Phase 75 branch: #47 had merged that branch into `main` and
+left it in place, so #48 kept it as its base (the repository does not delete a merged branch, and GitHub moves
+a stacked PR to `main` only when its base branch is deleted). #49 then carried it from that branch to `main`
+(merge commit `59a8f58b`, every job green again). The dependency branch is the last of the stack; it carries
+Phase 118 by merge and shows only its own 14 files against `main`. `gh` is now logged in here as
+SubjectVoidLLC (version 2.4.0; pass `-R Subject-Void-LLC/the-pleiades`, since the remote's SSH alias is not
+recognized, and change a PR body with `gh api -X PATCH`, since `gh pr edit` fails on a retired Projects
+query). Rules unchanged (method-as-key runbooks, two agents at most, heavy commands under
+`~/.local/bin/capped`, the lab provisioned by The Pleiades only, no LocalStack in the hosted jobs), plus one
+made explicit today in `.AGENTS/AGENTS.md`: no AI credit anywhere, including a PR description.
 
 ### What the three runs found, and what fixed it
 
@@ -37,27 +40,32 @@ session: no LocalStack in the hosted jobs.
 
 ### Open
 
-1. **Push both branches** once `make push-gate` passes on the dependency tip (the receipt covers Phase 118's
-   tip as an ancestor), then read the fourth run of #48. Phase 118 is 14 of 15; its Release Gate closes when
-   that run passes, and so does Phase 106b's hosted-CI item.
-2. **After the PR, plan with the user** (their words: "we get the pr done then we plan for it"): separating a
-   push gate from a release gate, so the hour-long gate runs for a release tag and not for every push. Raise
-   with it: the coverage re-measure gives a stalled container no second chance where the test pass does; the
-   three non-paging views (`credential-types`, `credentials`, `projects`); a `govulncheck` guard that fails on
-   a vulnerable package this module imports (offered under Phase 106b, not built); the Node 20 deprecation on
-   the pinned actions; the setup-go cache tar warning.
-3. **Dependency branch:** grpc held at 1.83.2 (413); GO-2026-5932 (`x/crypto/openpgp`) is a module-level
-   notice with no fix and no importer. Its PR goes against the Phase 118 branch; the bodies for all three PRs
-   were sent to the user on 2026-10-01.
+1. **The dependency PR into `main`**, opened after this handoff's gate and push. grpc stays at 1.83.2 (413);
+   GO-2026-5932 (`x/crypto/openpgp`) is a module-level notice with no fix and no importer.
+2. **Plan the push-gate / release-gate split with the user**, now that the PR is done (their words: "we get
+   the pr done then we plan for it"). Proposed and not yet approved: a fast push gate without the container
+   packages and the ratchet, the PR jobs as they are, and a strict `make release-gate` (everything `make ci`
+   runs plus `image-scan`, a fuzz budget, the upgrade gates and a fresh `govulncheck`) whose receipt the
+   pre-push hook requires on the exact commit of any `v*` tag, run again by a release workflow on the tag.
+   Raise with it: the coverage re-measure gives a stalled container no second chance where the test pass
+   does; a `govulncheck` guard that fails on a vulnerable imported package (Phase 106b); the Node 20
+   deprecation on the pinned actions; the setup-go cache tar warning.
+3. **Branch cleanup**, planned and not run (the user asked for the plan only): four merged remote branches,
+   eleven merged local ones plus a fast-forward of local `main`, the Phase 75 branch now that #49 merged, and a
+   superseded worktree another session left in its scratch directory (`wt117a`, 36 uncommitted files from
+   2026-09-29, everything in it older than `main`).
 4. Carried: 117a's env-gated ServiceNow gate; Phase 110's strict `make ci`; Phase 113's Pattern Entry Gate;
    Phases 12 and 70 have no Implements line; `fakeRepository.GetGroup` in the UI harness ignores `After` and
-   `Limit`; the Ansible gate's sshd keeps its log wait by design.
+   `Limit`; the Ansible gate's sshd keeps its log wait by design; three views do not page
+   (`credential-types`, `credentials`, `projects`).
 
 ### Decisions for the user
 
-1. Open the dependency branch's PR against the Phase 118 branch once both are pushed.
-2. A read-only `DOCKERHUB_TOKEN`/`DOCKERHUB_USERNAME` stays optional. LocalStack is not run in CI.
-3. Once macOS `fast` and `winrm` pass on GitHub, make them required.
+1. Require the PR checks on `main`. Its rulesets block deletion and force-pushes and require a pull request,
+   but require no status check; `fast-macos` has now passed twice, which was the condition for it.
+2. Turn on "Automatically delete head branches", so a stacked PR follows its base to `main`.
+3. Two commits already on `main` carry a `Co-Authored-By: Claude` trailer, the newest `8e477beb`
+   (2026-09-23). Removing them means rewriting `main`, which its ruleset refuses; left as they are.
 4. Whether the three non-paging views should page.
 
 ### Files changed (since the second run)
