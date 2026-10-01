@@ -253,9 +253,14 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	}
 
 	// A bounded retry loop, not a fixed time.Sleep: see
-	// pollJobUntilTerminal's own doc comment. The timeout is generous for
-	// 10,000 sequential, individually recorded per-device outcomes.
-	job := pollJobUntilTerminal(t, ctx, jobStore, launch.JobID, 60*time.Second)
+	// pollJobUntilTerminal's own doc comment. The budget is a liveness
+	// bound for 10,000 sequential, individually recorded per-device
+	// outcomes, not a throughput claim: the fan-out takes about 3 seconds
+	// on four idle cores, and the 60 seconds that was "generous" on a
+	// developer machine ran out on a hosted runner sharing four slow
+	// cores with three other test binaries, so it is written for the
+	// slowest machine that judges it rather than the fastest.
+	job := pollJobUntilTerminal(t, ctx, jobStore, launch.JobID, 120*time.Second)
 
 	// "running", not "completed": this gate dispatches to ten thousand
 	// real devices, so the Controller finishing its fan-out is exactly

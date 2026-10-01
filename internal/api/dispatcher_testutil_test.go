@@ -290,6 +290,19 @@ func (b *capturingBus) lastContext() context.Context {
 // and fails a test despite correct production behavior. Polling
 // store.Get repeatedly, bounded by an overall deadline, avoids both
 // failure modes.
+//
+// The interval is a quarter second, not a few milliseconds, and that is
+// load bearing rather than tidiness. store.Get eager-loads every JobTask
+// row the fan-out has recorded so far, through the one connection
+// newSerializedSQLiteClient allows, so each poll holds the connection
+// the Worker needs for its next insert for as long as reading those rows
+// takes. At 5ms the gate's own watcher read a growing table thousands of
+// times during a 10,000-device fan-out and starved the work it was
+// waiting on: 7 seconds on an idle machine, and past a 60 second budget
+// on a hosted runner sharing four slow cores with three other test
+// binaries (FAILURE_PATTERNS 419). The failure message counts the rows
+// recorded so far, so a budget that is still too short says how far the
+// fan-out got rather than only that it was not done.
 func pollJobUntilTerminal(t testing.TB, ctx context.Context, store dispatch.JobStore, jobID string, timeout time.Duration) *dispatch.Job {
 	t.Helper()
 	// timeout is what the work should take on a normal machine; the race
@@ -300,9 +313,9 @@ func pollJobUntilTerminal(t testing.TB, ctx context.Context, store dispatch.JobS
 	// racebudget_race_test.go for the measurements behind the factor.
 	timeout *= raceTimeScale
 	deadline := time.Now().Add(timeout)
-	const pollInterval = 5 * time.Millisecond
+	const pollInterval = 250 * time.Millisecond
 	for {
-		job, _, err := store.Get(ctx, jobID)
+		job, tasks, err := store.Get(ctx, jobID)
 		if err != nil {
 			t.Fatalf("polling job %s: %v", jobID, err)
 		}
@@ -310,7 +323,7 @@ func pollJobUntilTerminal(t testing.TB, ctx context.Context, store dispatch.JobS
 			return job
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("job %s's fan-out did not finish within %s (last observed state %q)", jobID, timeout, job.State)
+			t.Fatalf("job %s's fan-out did not finish within %s (last observed state %q, %d task rows recorded)", jobID, timeout, job.State, len(tasks))
 		}
 		time.Sleep(pollInterval)
 	}
