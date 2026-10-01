@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,11 +98,22 @@ func TestRun_TheOnePassMeasuresAndReports(t *testing.T) {
 func TestRun_ABrokenTestFailsBothWays(t *testing.T) {
 	throwawayModule(t, true)
 	packages := []string{"gateproof/good", "gateproof/bad"}
-	if err := run(options{full: true, strict: true, packages: packages}); err == nil {
-		t.Error("strict: a broken test passed the gate")
-	}
-	if err := run(options{full: true, packages: packages}); err == nil || !strings.Contains(err.Error(), "confirmed in isolation") {
-		t.Errorf("tolerant: err = %v, want the failure confirmed when re-run alone", err)
+	for _, strict := range []bool{true, false} {
+		summary := filepath.Join(t.TempDir(), "summary.md")
+		t.Setenv("GITHUB_STEP_SUMMARY", summary)
+		err := run(options{full: true, strict: strict, packages: packages})
+		if err == nil || (!strict && !strings.Contains(err.Error(), "confirmed in isolation")) {
+			t.Errorf("strict %v: err = %v, want the broken test to fail the gate", strict, err)
+		}
+		// The failed run writes its summary too, naming the test and why:
+		// on GitHub a job's log needs admin rights to read, and its summary
+		// does not, so a failure summarized nowhere is a failure only a
+		// repository admin can diagnose.
+		page, err := os.ReadFile(summary)
+		if err != nil || !strings.Contains(string(page), "failed this run") ||
+			!strings.Contains(string(page), "TestBroken") || !strings.Contains(string(page), "deliberately broken") {
+			t.Errorf("strict %v: the job summary does not name the failure and its output: %v\n%s", strict, err, page)
+		}
 	}
 }
 
@@ -203,4 +215,61 @@ func TestFirstRunFails(t *testing.T) {
 	if measured.Coverage["gateproof/cov"] != 100 {
 		t.Fatalf("coverage = %v, want the re-measured 100, not the partial run's 50", measured.Coverage)
 	}
+}
+
+// TestRun_MasksASecretATestPrints proves a secret in the environment that
+// a failing test prints reaches neither the printed output nor the job
+// summary, which on GitHub anyone who can read the repository can read.
+// The summary still names the failure.
+func TestRun_MasksASecretATestPrints(t *testing.T) {
+	throwawayModule(t, false)
+	const token = "ls-not-a-real-token-0123456789"
+	t.Setenv("LOCALSTACK_AUTH_TOKEN", token)
+	if err := os.MkdirAll("leak", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	src := "package leak\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n" +
+		"func TestLeak(t *testing.T) {\n\tt.Log(\"the token is \" + os.Getenv(\"LOCALSTACK_AUTH_TOKEN\"))\n\tt.Fatal(\"deliberately broken\")\n}\n"
+	if err := os.WriteFile(filepath.Join("leak", "leak_test.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	summary := filepath.Join(t.TempDir(), "summary.md")
+	t.Setenv("GITHUB_STEP_SUMMARY", summary)
+
+	printed := captureOutput(t, func() {
+		if err := run(options{full: true, strict: true, packages: []string{"gateproof/leak"}}); err == nil {
+			t.Error("a failing test passed the gate")
+		}
+	})
+	page, err := os.ReadFile(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(printed, token) || strings.Contains(string(page), token) {
+		t.Errorf("the token reached the output or the summary:\n%s\n%s", printed, page)
+	}
+	if !strings.Contains(string(page), "TestLeak") || !strings.Contains(string(page), "deliberately broken") {
+		t.Errorf("masking hid the failure itself:\n%s", page)
+	}
+}
+
+// captureOutput returns what fn wrote to standard output and standard
+// error together.
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedOut, savedErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = w, w
+	done := make(chan string)
+	go func() {
+		data, _ := io.ReadAll(r)
+		done <- string(data)
+	}()
+	fn()
+	os.Stdout, os.Stderr = savedOut, savedErr
+	_ = w.Close()
+	return <-done
 }
