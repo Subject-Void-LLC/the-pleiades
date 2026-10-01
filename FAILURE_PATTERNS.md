@@ -425,6 +425,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 420. The fast tier assumed Linux, and the first macOS run failed 43 tests that had nothing wrong
 421. Docker's port map lists an exposed port with no binding, and the mesh gate read every key as "published"
 422. Two tests measured once and failed a pull request whose change was one handoff document
+423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

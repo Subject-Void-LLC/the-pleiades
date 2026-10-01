@@ -39,7 +39,10 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 	// inspected a live container and reported testcontainers' own reaper
 	// connection as a leak. The same shape is already written down in
 	// cmd/controller's own leader election gate.
-	t.Cleanup(func() { goleak.VerifyNone(t) })
+	// Against a snapshot taken now, so this test answers only for the
+	// goroutines it starts (FAILURE_PATTERNS 423).
+	baseline := goleak.IgnoreCurrent()
+	t.Cleanup(func() { goleak.VerifyNone(t, baseline) })
 
 	ctx := context.Background()
 

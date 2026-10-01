@@ -11459,3 +11459,40 @@ A sweep found no other test comparing two timings or asserting on a raw heap cou
 **Lesson.** On a shared machine, a single measurement is a sample of the machine. Take the minimum of interleaved
 rounds for time, and measure the quantity the claim is about (live data, not heap in use) rather than loosening a
 bound until the noise fits under it.
+
+## 423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
+
+**Symptom.** A `make push-gate` on the dependency branch (`02b4fff3`) tolerated thirteen `tests/e2e` failures between
+17:41 and 17:56, each passing when re-run alone. The mesh WSS gate failed first, after 122 seconds, and every
+`TestUI_*` harness test after it failed the same way: `harness_test.go:295: found unexpected goroutines`, naming one
+goroutine in `testcontainers-go.(*Reaper).connect.func1`, "2 minutes" old at the first failure and "15 minutes" at
+the last.
+
+**Root cause.** Ours, not the library's. When a container's start fails partway (a wait strategy gives up, or the
+context ends), testcontainers-go returns the container alongside the error, and the container keeps running, with
+its reaper connection's goroutine alive, until the caller terminates it; the library's documentation says to
+schedule the cleanup before checking the error. 47 of this repository's 49 container starts checked the error first
+and stopped, so a failed start leaked both. In the gate, a start in the mesh WSS gate timed out during a Docker port
+stall (the shared startup timeout is two minutes). The leak then failed twelve more tests because their leak check
+had no baseline: each answered for every goroutine in the process. The same omission was in production:
+`internal/adapters/legacy`'s orchestrator, through which the Runner runs `ansible-playbook`, returned the start error
+without terminating the container, so a run whose context ended (a launch's `timeout`) was reported failed while the
+playbook kept running against its devices. A first reading blamed the library (its reaper spawner discards a parked
+connection without releasing it); the library hands that connection to the new container on the next line, so that
+gap has no realistic path, and the user's rule to prove a fix before calling it out caught the claim before it went
+anywhere.
+
+**Fix.** Proved before changing: a start made to fail leaves 1 reaper goroutine, and 0 once terminated (a
+temporary test, not kept); `TestDockerOrchestrator_ACanceledRunLeavesNoContainerRunning` failed on
+the old orchestrator with the container still running after `Run` returned. Every failing-start branch now calls
+the nil-safe `testcontainers.TerminateContainer`, the orchestrator with a comment saying why, and
+`internal/testsupport`'s `TestEveryContainerIsTerminatedWhenItsStartFails` parses every Go file and fails on a start
+whose failure path does not terminate its container (47 reported on the old tree, 0 now; six-case positive control).
+At the mesh gate's own proxy, a start made to fail now fails on the start error alone, and with the fix removed it
+also reports the gate's exact goroutine. Every per-test leak check now verifies against a snapshot taken when its
+test starts, as `internal/backup` and `internal/transport/ssh` already did, so a leak is charged to the test that
+made it.
+
+**Lesson.** A start that fails is a container that exists. Read a library's error contract before blaming the
+library, and reproduce the symptom with and without the fix before naming a cause; and a leak check without a
+baseline turns one leak into a dozen failures.
