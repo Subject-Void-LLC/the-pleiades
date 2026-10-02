@@ -47,7 +47,9 @@ func buildDAG(t *testing.T, payload string) *engine.DAG {
 // tasks (no target device) runs every node in order, none skipped, none
 // failed.
 func TestExecutor_ControllerSideChain(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	// Against a snapshot taken now, so this test answers only for the
+	// goroutines it starts (FAILURE_PATTERNS 423).
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	dag := buildDAG(t, `{
 		"id": "chain",

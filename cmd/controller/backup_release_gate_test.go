@@ -58,6 +58,7 @@ func backedUpServer(t *testing.T, key []byte) (dsn, backups, file string) {
 		testpg.WithDatabase("pleiades"), testpg.WithUsername("pleiades"), testpg.WithPassword("password"),
 		testsupport.PostgresReady())
 	if err != nil {
+		_ = testcontainers.TerminateContainer(pg) // a failed start still returns its container
 		t.Fatalf("starting postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(pg) })

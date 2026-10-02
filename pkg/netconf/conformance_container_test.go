@@ -111,6 +111,7 @@ func startNotconf(t *testing.T) (host string, port int) {
 			Started: true,
 		})
 		if err != nil {
+			_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 			notconfErr = fmt.Errorf("starting the NETCONF conformance container: %w", err)
 			return
 		}

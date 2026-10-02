@@ -73,6 +73,7 @@ func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		t.Fatalf("starting the sshd container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })

@@ -359,7 +359,9 @@ func TestJWKSKeyProvider_Close_StopsBackgroundRefreshWithNoLeak(t *testing.T) {
 	// all its own defers return, i.e. after a deferred VerifyNone would
 	// already have checked, so this test closes its server with a plain
 	// defer instead, ordered (LIFO) to run before VerifyNone.
-	defer goleak.VerifyNone(t)
+	// Against a snapshot taken now, so this test answers only for the
+	// goroutines it starts (FAILURE_PATTERNS 423).
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

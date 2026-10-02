@@ -415,6 +415,17 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 410. `tools/doctor`'s coverage was a property of whichever machine ran its tests
 411. Schedule pages were ordered by name and resumed by id, so following Next skipped schedules
 412. The Access list linked every row to its team and none to its grant, and the drill-down test skipped it
+413. A dependency update moved grpc from a patched release to one that reintroduced a vulnerability, and the gate passed
+414. A tolerated failure's printed output was fifteen lines of teardown and not one word of why
+415. Phase 118's Documentation Gate was ticked while most of what it named still described the old gate
+416. The first pull-request run failed at steps no local gate runs, and reading them against the pinned actions found two more
+417. A failed run wrote no job summary, and the summary would have carried test output unmasked
+418. A pull request's checkout had no `main`, so the upgrade gates could not find the previous release, and test-repeat failed where nothing could read it
+419. The dispatcher gate's own watcher starved the fan-out it was waiting on
+420. The fast tier assumed Linux, and the first macOS run failed 43 tests that had nothing wrong
+421. Docker's port map lists an exposed port with no binding, and the mesh gate read every key as "published"
+422. Two tests measured once and failed a pull request whose change was one handoff document
+423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

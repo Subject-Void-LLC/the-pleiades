@@ -7,6 +7,7 @@ package flakegate
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -202,8 +203,29 @@ func FailureOutput(events []Event, f Failure, maxLines int) string {
 		}
 		lines = append(lines, strings.TrimRight(evt.Output, "\n"))
 	}
-	if len(lines) > maxLines {
-		lines = append([]string{fmt.Sprintf("... %d earlier line(s) left out", len(lines)-maxLines)}, lines[len(lines)-maxLines:]...)
+	if len(lines) <= maxLines {
+		return strings.Join(lines, "\n")
 	}
-	return strings.Join(lines, "\n")
+	cut := len(lines) - maxLines
+	tail := lines[cut:]
+	// The last lines are often what ran after the failure: cleanup,
+	// container teardown, a broker's log dumped by a helper. When none of
+	// them came from the test's own file, the last line that did is kept
+	// as well, since that is usually the failure itself; without it a
+	// tolerated failure in internal/topology printed fifteen lines of
+	// teardown and not one word of why.
+	if !slices.ContainsFunc(tail, testMessage.MatchString) {
+		for i := cut - 1; i >= 0; i-- {
+			if testMessage.MatchString(lines[i]) {
+				head := []string{fmt.Sprintf("... %d earlier line(s) left out; the last the test's own file printed:", cut-1), lines[i], "..."}
+				return strings.Join(append(head, tail...), "\n")
+			}
+		}
+	}
+	head := fmt.Sprintf("... %d earlier line(s) left out", cut)
+	return strings.Join(append([]string{head}, tail...), "\n")
 }
+
+// testMessage matches the first line of a message a test file printed
+// through t.Log, t.Error or t.Fatal: its file and line, then the text.
+var testMessage = regexp.MustCompile(`^\s*\S+_test\.go:\d+: `)

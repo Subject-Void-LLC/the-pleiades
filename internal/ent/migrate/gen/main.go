@@ -201,6 +201,7 @@ func newPostgresDatabase(ctx context.Context) (string, func(), error) {
 		testpg.BasicWaitStrategies(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		return "", nil, fmt.Errorf("starting an ephemeral postgres container (set %s to use your own disposable database instead): %w", postgresDSNEnv, err)
 	}
 	cleanup := func() { _ = testcontainers.TerminateContainer(container) }

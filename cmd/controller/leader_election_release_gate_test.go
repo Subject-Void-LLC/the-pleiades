@@ -225,7 +225,10 @@ func TestControllerLeaderElection_ReleaseGate(t *testing.T) {
 	// Registered first, so (per t.Cleanup's last-added-first-called
 	// order) it runs last, after every process below has been killed,
 	// reaped, and its own draining goroutine has fully returned.
-	t.Cleanup(func() { goleak.VerifyNone(t) })
+	// Against a snapshot taken now, so this gate answers only for the
+	// goroutines it starts (FAILURE_PATTERNS 423).
+	baseline := goleak.IgnoreCurrent()
+	t.Cleanup(func() { goleak.VerifyNone(t, baseline) })
 
 	natsURL := testsupport.StartNATS(t).URL()
 

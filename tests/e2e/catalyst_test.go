@@ -115,7 +115,7 @@ func newProjectRepo(t *testing.T) inv.Repository {
 // controller: authenticate, page the device inventory, classify each device
 // through the Section 6d rule tree, and reconcile into a real Repository.
 func TestCatalystCenter_LiveSync(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	cfg, store := requireDNAC(t)
 	ctx := context.Background()
@@ -229,7 +229,7 @@ func assertManagedSwitches(t *testing.T, ctx context.Context, repo inv.Repositor
 // and append a revision-free bump to every device's audit trail on every
 // tick.
 func TestCatalystCenter_LiveResyncIsIdempotent(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	cfg, store := requireDNAC(t)
 	ctx := context.Background()
@@ -268,7 +268,7 @@ func TestCatalystCenter_LiveResyncIsIdempotent(t *testing.T) {
 // inventory. A sync that silently discovered zero devices would be
 // indistinguishable from a controller that manages none.
 func TestCatalystCenter_LiveRejectsBadCredential(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
 	cfg, _ := requireDNAC(t)
 	bad := staticStore{credential.Credential{Username: "devnetuser", Password: "definitely-not-the-password"}}

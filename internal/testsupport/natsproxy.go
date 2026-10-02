@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
+	"github.com/testcontainers/testcontainers-go"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
 	"github.com/testcontainers/testcontainers-go/network"
 )
@@ -49,6 +50,7 @@ func NATSThroughToxiproxy(tb testing.TB) (*NATSBroker, string, *toxiproxyclient.
 		ToxiproxyReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(proxyContainer) // a failed start still returns its container
 		tb.Fatalf("failed to start toxiproxy container: %v", err)
 	}
 	tb.Cleanup(func() { _ = proxyContainer.Terminate(context.Background()) })

@@ -142,6 +142,7 @@ func requireSharedPostgres(t testing.TB) string {
 			testsupport.PostgresReady(),
 		)
 		if err != nil {
+			_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 			sharedPostgresErr = fmt.Errorf("starting the shared postgres container: %w", err)
 			return
 		}

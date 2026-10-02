@@ -52,6 +52,7 @@ func startTestdataDevice(t *testing.T, dir, rootPassword string, hostConfig func
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		t.Fatalf("starting the %s device: %v", dir, err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })

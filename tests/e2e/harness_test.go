@@ -291,8 +291,18 @@ func startHarness(tb testing.TB, opts ...harnessOption) *harness {
 	// drives, and the tests already make it against the identical code
 	// path, so asserting it a second time from a benchmark would only buy
 	// a false failure.
+	//
+	// The check is against a snapshot taken here, so a test answers for the
+	// goroutines it starts and not for one an earlier test left behind.
+	// Without the snapshot, one leak failed every test after it in the
+	// process: during one Docker port stall a container start in the mesh
+	// WSS gate timed out, the test stopped before terminating the container
+	// the start had returned, that container's reaper connection kept its
+	// goroutine alive, and the twelve harness tests that ran after it failed
+	// on that goroutine and passed alone (FAILURE_PATTERNS 423).
 	if t, ok := tb.(*testing.T); ok {
-		t.Cleanup(func() { goleak.VerifyNone(t) })
+		baseline := goleak.IgnoreCurrent()
+		t.Cleanup(func() { goleak.VerifyNone(t, baseline) })
 	}
 
 	ctx := context.Background()
@@ -388,6 +398,7 @@ func startPostgres(tb testing.TB, ctx context.Context) string {
 		testsupport.PostgresReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		tb.Fatalf("starting the postgres container: %v", err)
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })

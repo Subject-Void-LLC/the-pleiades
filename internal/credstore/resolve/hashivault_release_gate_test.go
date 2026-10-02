@@ -91,6 +91,7 @@ func startVault(t *testing.T) string {
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		// Skipped locally, failed in CI. A container gate that quietly
 		// skips everywhere is a gate that gates nothing, which is the
 		// failure this repository's own CI split already records.

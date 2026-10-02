@@ -64,6 +64,7 @@ func gatePostgres(t *testing.T) string {
 		testsupport.PostgresReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(container) // a failed start still returns its container
 		t.Fatalf("starting postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })

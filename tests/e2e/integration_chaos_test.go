@@ -90,6 +90,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		network.WithNetwork([]string{"postgres"}, nw),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(pgContainer) // a failed start still returns its container
 		tb.Fatalf("starting the postgres container: %v", err)
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(pgContainer) })
@@ -109,6 +110,7 @@ func startChaosHarness(tb testing.TB) *chaosHarness {
 		testsupport.ToxiproxyReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(toxi) // a failed start still returns its container
 		tb.Fatalf("starting the toxiproxy container: %v", err)
 	}
 	tb.Cleanup(func() { _ = testcontainers.TerminateContainer(toxi) })

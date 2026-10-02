@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	_ "github.com/lib/pq"
+	"github.com/testcontainers/testcontainers-go"
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -34,6 +35,7 @@ func BenchmarkPostgresAdvisoryLock(b *testing.B) {
 		testsupport.PostgresReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(pgContainer) // a failed start still returns its container
 		b.Fatalf("failed to start postgres container: %v", err)
 	}
 	b.Cleanup(func() { _ = pgContainer.Terminate(ctx) })

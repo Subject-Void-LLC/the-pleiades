@@ -93,6 +93,7 @@ func startGitea(t *testing.T) gitea {
 		Started: true,
 	})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(ctr) // a failed start still returns its container
 		t.Fatalf("starting Gitea: %v", err)
 	}
 	t.Cleanup(func() { _ = ctr.Terminate(context.Background()) })

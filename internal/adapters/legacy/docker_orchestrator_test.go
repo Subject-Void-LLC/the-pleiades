@@ -3,8 +3,10 @@ package legacy_test
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
@@ -126,5 +128,56 @@ func TestDockerOrchestrator_ReapsOrphans(t *testing.T) {
 	}
 	if zombies != 0 {
 		t.Errorf("%d zombies left in the container, want 0", zombies)
+	}
+}
+
+// TestDockerOrchestrator_ACanceledRunLeavesNoContainerRunning proves a run
+// whose context ends while its container is still working takes the
+// container down with it. A canceled or timed-out job reaches Run exactly
+// this way, and the container is an ansible-playbook changing devices: one
+// left running would keep changing them after the job had been reported
+// stopped. testcontainers-go returns the container alongside the start
+// error when the wait for its exit is cut short, so Run has to terminate
+// it on that path too (FAILURE_PATTERNS 423).
+func TestDockerOrchestrator_ACanceledRunLeavesNoContainerRunning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real-Docker container test in short mode")
+	}
+	_, lookErr := exec.LookPath("docker")
+	testsupport.Require(t, "docker", lookErr == nil, "the docker CLI is not installed")
+
+	// A marker in the command, so this test finds its own container and no
+	// other test's.
+	marker := fmt.Sprintf("pleiades-canceled-run-%d", time.Now().UnixNano())
+	running := func() []string {
+		out, err := exec.Command("docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Command}}").Output()
+		if err != nil {
+			t.Fatalf("docker ps: %v", err)
+		}
+		var ids []string
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.Contains(line, marker) {
+				ids = append(ids, strings.Fields(line)[0])
+			}
+		}
+		return ids
+	}
+	t.Cleanup(func() {
+		for _, id := range running() {
+			_ = exec.Command("docker", "rm", "-f", id).Run()
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := legacy.NewDockerOrchestrator().Run(ctx, legacy.ContainerSpec{
+		Image: "alpine:3.20",
+		Argv:  []string{"sh", "-c", "sleep 300 # " + marker},
+	})
+	if err == nil {
+		t.Fatal("Run returned no error for a run whose context ended while its container was still running")
+	}
+	if ids := running(); len(ids) != 0 {
+		t.Errorf("the container %v is still running after its run ended with %v", ids, err)
 	}
 }

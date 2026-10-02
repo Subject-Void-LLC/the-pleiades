@@ -44,6 +44,7 @@ func TestInventorySyncAWSThroughTheRealCLI(t *testing.T) {
 		testsupport.LocalStackReady(),
 	)
 	if err != nil {
+		_ = testcontainers.TerminateContainer(ctr) // a failed start still returns its container
 		t.Fatalf("starting localstack: %v", err)
 	}
 	t.Cleanup(func() { _ = ctr.Terminate(context.Background()) })

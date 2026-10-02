@@ -11241,3 +11241,258 @@ reader does not page at all rather than blaming the fixture.
 
 **Lesson.** A test's skip has to distinguish "nothing to check" from "the check found nothing", or its most
 important failure reads as a missing fixture.
+
+## 413. A dependency update moved grpc from a patched release to one that reintroduced a vulnerability, and the gate passed
+
+**Symptom.** 2026-09-30, `chore/dependency-updates` moved every direct module to its latest, grpc among them
+(1.83.2 to 1.84.0), and `make push-gate` passed. Its `govulncheck` summary had changed from 0 to 1
+"vulnerability in packages you import": GO-2026-6443, a server panic in grpc's HTTP/2 transport and xDS routing
+on a request with neither `:authority` nor `Host`. The advisory's ranges: fixed in 1.83.2, reintroduced in
+1.84.0, and since fixed only in an unreleased 1.85 build. Nothing here calls the vulnerable functions; the
+package came in through `internal/inventory/onboard`'s gRPC probe.
+
+**Root cause.** Latest is not the same as fixed: a newer release can lack a patch an older point release
+carries. And `make govulncheck` fails only when this module calls a vulnerable function, so a vulnerable
+package newly imported is a changed number in a summary no step compares with anything.
+
+**Fix.** grpc stays at 1.83.2, with the reason in the commit; the imported count is 0 again.
+
+**Lesson.** After a dependency update, compare `govulncheck`'s imported and required counts with the base
+branch's, not only its exit status. A count that rises is a regression even when nothing calls it yet.
+
+## 414. A tolerated failure's printed output was fifteen lines of teardown and not one word of why
+
+**Symptom.** 2026-09-30, the dependency branch's gate tolerated `internal/topology`'s
+`TestLockBucketReaderNeverReshapes` (121s under load, 1s alone) and printed "why it failed under load": a NATS
+broker's startup log and four lines of container teardown. The line saying what failed was among the "24 earlier
+line(s) left out".
+
+**Root cause.** FAILURE_PATTERNS 402's fix kept a failure's last lines, and the last lines of a container test
+are what ran after the failure: cleanup, teardown and a helper's log dump.
+
+**Fix.** When none of the kept lines came from the test's own `_test.go` file, `FailureOutput` also keeps the
+last line that did, marked as such (`TestFailureOutput_KeepsTheReasonBehindATailOfTeardown`); a tail that already
+has one is left alone.
+
+**Lesson.** A summary that trims output has to trim toward the evidence, not toward the end; for a test, the
+evidence is what the test's own file said.
+
+## 415. Phase 118's Documentation Gate was ticked while most of what it named still described the old gate
+
+**Symptom.** 2026-09-30, asked "are you updating IMPLEMENTATION.md accurately?", an audit of Phase 118's ticked
+items against the code found the Documentation Gate ticked since 2026-09-29 over documents that still described
+the gate Phase 118 replaced. The Makefile said the pre-push hook runs the gate, that the workflow runs no tests,
+and that `push-gate` swaps in three tolerant targets nothing called any more; `flaky-packages.json`'s header said
+a listed package's failure is a warning; `testgate`'s and `flakegate`'s package comments described the same rule;
+docs/11 listed part of `make ci` as all of it. Three pushes went out on that tick. The same audit found two
+items describing their plan rather than what was built (a `-tier` flag and a `ci-coverage` target, neither of
+which exists), a secrets claim made false by a later change, and a clean-room pass a day older than the code.
+
+**Root cause.** The item was ticked after editing some of the documents it names, not after reading each of
+them against what the code runs. The one phrase changed in the flaky list's header was the one being looked at.
+And nothing re-read a ticked item when later work changed what it claimed.
+
+**Fix.** Every named document was read against the targets and code it describes and corrected
+(`b755584f`, `15b1dba1`); the dead targets and `coverage-check -tolerant` were removed rather than re-described;
+the deviations were written into their items; the clean room was re-run on the committed tip; the Documentation
+Gate was unticked until then and re-ticked with that evidence.
+
+**Lesson.** Tick a documentation item after reading every document it names against the code, not after editing
+the ones in view. Before a push, re-read the ticked items later work touched: a tick records one moment, and a
+push asserts the present.
+
+## 416. The first pull-request run failed at steps no local gate runs, and reading them against the pinned actions found two more
+
+**Symptom.** 2026-10-01, Phase 118's pull request (#48): every `containers` shard and the Ubuntu `fast` job failed.
+Shard 2's pull step asked Docker Hub for a repository called `65532`. Shards 1, 3 and 4 failed at their upload
+with `No files were found with the provided path: .coverage/*.json`.
+
+**Root cause.** Three CI-only steps no local gate had run. `tools/testimages` keeps the value of any constant whose
+name contains `Image`, and `tests/e2e`'s `packagingImageUID = "65532:65532"` has the shape of `name:tag`.
+`upload-artifact` 4.6.2 skips hidden paths unless told otherwise, and its glob for `.coverage/*.json` starts its
+search at the hidden directory and skips it whole (read in its bundled code at the pinned commit); the single-file
+path in the `fast` job would have worked. And macOS ran as an advisory leg of the `fast` matrix that `coverage`
+needs, so its first failure could keep the ratchet from running. The workflow had been linted, and `actionlint`
+checks a workflow's shape, not what each pinned action does with its inputs.
+
+**Fix.** A reference whose repository has no letter is not an image; every shard's pull and cache save were run
+here as the job runs them. Both uploads set `include-hidden-files: true`. macOS is its own job, which nothing
+needs. The Linux jobs run on `ubuntu-24.04` by name, since `ubuntu-latest` becomes Ubuntu 26 on 2026-10-19 and the
+user-namespace step is 24.04's, and the container and nightly jobs free the disk a runner is promised only 14 GB
+of before pulling up to 4.8 GB of images and writing them again as a cache tar. `make ci-fast` and
+`make ci-containers SHARD=2/4` were run here with CI's environment and wrote the files the uploads expect.
+
+**Lesson.** A step that only CI runs is unverified until it has run somewhere. Run each one locally the way the
+job runs it, and read each pinned action's handling of the inputs the step relies on, before the first run is
+the one that finds out.
+
+## 417. A failed run wrote no job summary, and the summary would have carried test output unmasked
+
+**Symptom.** The same run's Ubuntu `fast` job failed in `make ci-fast` after 13 minutes, and nothing readable said
+why: the job's log needs admin rights on a public repository, and `testgate` returned before writing the summary
+on any failing path, so the summary page was empty exactly when it mattered. Asked whether the summary could leak
+secrets, the answer was that it could: it carries each failure's own output, and the container jobs hand their
+tests `LOCALSTACK_AUTH_TOKEN`.
+
+**Root cause.** The summary was written as the last step of a passing run, and its content was never considered
+as a place a secret could land, because GitHub masks the secrets it was given.
+
+**Fix.** Every outcome writes the summary, failures first with their output. Everything `testgate` prints or writes
+is masked through `internal/redact`, by the value of every secret-named environment variable and by shape;
+`TestRun_MasksASecretATestPrints` runs a failing test that prints the token, and the value reaches neither output
+while the failure is still named (with masking disabled the test fails, token visible).
+
+**Lesson.** A report is most needed by the run that failed, so write it on every path. And a new place that
+shows a test's output is a new place a secret can land: mask it there with this repository's own ruleset, not on
+the strength of someone else's.
+
+## 418. A pull request's checkout had no `main`, so the upgrade gates could not find the previous release, and test-repeat failed where nothing could read it
+
+**Symptom.** The second GitHub run of pull request #48: containers shard 2 failed both upgrade gates on
+`git merge-base HEAD main: fatal: Not a valid object name main`. In the same run Ubuntu `fast` passed every
+package through `testgate` and then failed, and nothing said where: `make ci-fast`'s last step, `test-repeat`,
+was a bare `go test -count=3` outside `testgate`, so its failure reached no job summary, and the log needs
+admin rights to read.
+
+**Root cause.** `actions/checkout` fetches one commit, detached, with no local `main`, and the gates asked for
+`main` by name; a developer's clone always has one. And `test-repeat` predated `testgate`, so it was the one
+test step whose output had no path to the summary.
+
+**Fix.** `tests/e2e`'s `mainBranch` uses `main` where it exists and `origin/main` otherwise, with a message
+naming `fetch-depth: 0` when neither exists, and the containers and nightly jobs fetch full history
+(`1a35d0a6`, proved in a clone shaped like CI's checkout). `testgate -repeat n` runs the repeats and `make
+test-repeat` is `go run ./tools/testgate -repeat 3 -strict` (`3070a8f1`), so the next run's summary named the
+failing test (419).
+
+**Lesson.** A CI checkout is not a clone: it has one commit and no branches, so anything that names a ref by
+its local name has to be proved in a checkout shaped like CI's. And every test step belongs behind the one
+reporter, because the step outside it is the one that fails unreadably.
+
+## 419. The dispatcher gate's own watcher starved the fan-out it was waiting on
+
+**Symptom.** Ubuntu `fast`'s `test-repeat` failed `TestDispatcher_ReleaseGate`: the job was still
+`fanning_out` after 60 seconds. The same test had passed in the same job's `-race` pass minutes earlier, and
+passes here in 7 seconds on four cores.
+
+**Root cause.** `pollJobUntilTerminal` called `store.Get` every 5 ms, and `Get` eager-loads every JobTask row
+recorded so far through the single SQLite connection `newSerializedSQLiteClient` allows. Each poll held the
+connection the Worker needed for its next insert for as long as reading thousands of rows took, so the
+watcher was most of the gate's cost, and on a hosted runner sharing four slow cores with three other test
+binaries it was more than the budget. The race pass passed only because `raceTimeScale` gave it ten times
+the budget.
+
+**Fix.** The poll is 250 ms apart (3.2 seconds for the fan-out on the same four cores, identical across
+three repeats), the failure message counts the rows recorded so far, and the budget is 120 seconds, written
+for the slowest machine that judges it (`1ec9bd39`).
+
+**Lesson.** A watcher that shares a resource with the work it watches is part of the work. Poll at the pace
+the answer matters, not the pace the loop can run, and when a liveness bound fails, print how far the work
+got.
+
+## 420. The fast tier assumed Linux, and the first macOS run failed 43 tests that had nothing wrong
+
+**Symptom.** `fast-macos` failed 43 tests across five packages: 35 in `internal/loader`, every one that loads
+a program; 5 of `internal/catalog/http`'s device tests, each failing a TLS handshake with an unknown
+authority; and one each in `internal/catalog/facts`, `internal/inventory/onboard` and `pkg/remotefile`. The
+skip ledger told the macOS run to install `unshare` and change an Ubuntu sysctl.
+
+**Root cause.** Each was a Linux fact assumed as a universal one. `Load` refuses every program where there is
+no Landlock, so a test that loads one can only run on Linux, and said nothing about it. The test authority
+was trusted through `SSL_CERT_FILE`, which Go's verifier reads only on Linux and the BSDs; macOS and Windows
+ask the platform's store, so the variable did nothing. The facts and onboard harnesses run the method
+against this machine and assert Linux's answers. Linux keeps a directory's setgid bit through a chgrp, which
+POSIX leaves to the implementation. And `UserNamespaces` diagnosed a missing Linux tool on a kernel that has
+no namespaces.
+
+**Fix.** `b947d97a`: the loader's tests require `landlock` through `testsupport.Require` wherever `Load` is
+called (`loadOne`, `tryLoad` and the tests calling it themselves, not `programDir`, which the approval tests
+use without loading); the http tests pin the authority as the device's own `tls_ca_pem`, the product's way to
+trust a private authority on any platform, and the full-URL test takes the old path's `validate_certs:
+false`; facts and onboard require `linux`; the remotefile case is marked `linuxOnly`; and off Linux
+`UserNamespaces` says the kernel has no such thing. Reasoned from the code and the pasted failures, since
+macOS cannot run here; the fourth run is the test.
+
+**Lesson.** "Works for others" includes the developer on a Mac. A test that needs the host to be Linux says
+so through `Require`, so the ledger shows the want, and a fixture's trust should go through the product's own
+mechanism, which is portable because it has to be.
+
+## 421. Docker's port map lists an exposed port with no binding, and the mesh gate read every key as "published"
+
+**Symptom.** Containers shard 2's mesh WSS gate failed, alone and again when re-run alone: "the broker
+container published 4222 (the plain NATS client port) on []". The same gate passed here on every run.
+
+**Root cause.** The gate asserts that this host has no route to the broker's plain client port by scanning
+`Container.Ports` for forbidden keys. The runner's Docker 28.0.4 lists every port the image EXPOSEs in
+`NetworkSettings.Ports`, bound to the host or not, so 4222 appeared with no bindings; Docker 29.8.0 here
+lists only bound ports (checked by inspecting a `nats:2.14.4` container started with one `-p`: four exposed,
+one listed). A key with an empty binding list is the image's EXPOSE, not a route.
+
+**Fix.** A port with no binding is skipped, and the positive control still demands the websocket port with
+a binding (`5e959438`; the gate passes here in 44 seconds).
+
+**Lesson.** The shape of a daemon's inspect output is a version-dependent fact, and "exposed" and
+"published" are different things. Assert the property (a binding exists), not the presence of a key.
+
+## 422. Two tests measured once and failed a pull request whose change was one handoff document
+
+**Symptom.** Pull request #50's second run, on a commit that changed only `HANDOFF_DOCUMENT.md`, failed both
+`fast` jobs in `test-repeat`, the strict three-times-over pass. Ubuntu: `TestSecureCompare_ConstantTime`, "early-diff
+took 2.617566ms, late-diff took 8.594473ms (ratio 3.28); want within 3x". macOS: `TestProcess_StreamsInBoundedMemory`,
+"heap in use grew by 34504704 bytes while streaming 67108864, want at most 33554432", on the third repeat after two
+passes. The previous run, on the same code and dependencies, passed both.
+
+**Root cause.** Each test took one measurement of a noisy quantity. The timing test compared one round of each
+side, and a shared runner that stops the process during one round adds milliseconds to that side alone. The memory
+test sampled `HeapInuse`, which counts garbage not yet collected and spans not yet swept alongside live data, so it
+measured the collector's pacing on a slow runner as much as the code; its bound had already been loosened once for
+the same reason (25.8 MB against 24 MiB).
+
+**Fix.** The timing test takes each side's fastest of 15 rounds, the two sides alternating: a stop only adds time,
+so the minimum is nearest the code's own cost, and alternating puts a slow stretch on both sides. The memory test
+samples runtime/metrics' `/gc/heap/live:bytes`, what the collector found reachable, which is what buffering would
+inflate and garbage does not, and logs the growth it saw. Each was held to its defect by planting it: a first-byte
+shortcut in `SecureCompare` fails the timing test at a ratio of 890, and reading the whole stream into memory fails
+the memory test at 102 MB against the 32 MB bound. The real code grows the live heap by about 6 MB (under 1 MB with
+`-race`), 15.5 MB at most with 24 busy loops on 20 CPUs, and both tests passed every run under that load (30 and 15).
+A sweep found no other test comparing two timings or asserting on a raw heap counter outside a forced collection.
+
+**Lesson.** On a shared machine, a single measurement is a sample of the machine. Take the minimum of interleaved
+rounds for time, and measure the quantity the claim is about (live data, not heap in use) rather than loosening a
+bound until the noise fits under it.
+
+## 423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
+
+**Symptom.** A `make push-gate` on the dependency branch (`02b4fff3`) tolerated thirteen `tests/e2e` failures between
+17:41 and 17:56, each passing when re-run alone. The mesh WSS gate failed first, after 122 seconds, and every
+`TestUI_*` harness test after it failed the same way: `harness_test.go:295: found unexpected goroutines`, naming one
+goroutine in `testcontainers-go.(*Reaper).connect.func1`, "2 minutes" old at the first failure and "15 minutes" at
+the last.
+
+**Root cause.** Ours, not the library's. When a container's start fails partway (a wait strategy gives up, or the
+context ends), testcontainers-go returns the container alongside the error, and the container keeps running, with
+its reaper connection's goroutine alive, until the caller terminates it; the library's documentation says to
+schedule the cleanup before checking the error. 47 of this repository's 49 container starts checked the error first
+and stopped, so a failed start leaked both. In the gate, a start in the mesh WSS gate timed out during a Docker port
+stall (the shared startup timeout is two minutes). The leak then failed twelve more tests because their leak check
+had no baseline: each answered for every goroutine in the process. The same omission was in production:
+`internal/adapters/legacy`'s orchestrator, through which the Runner runs `ansible-playbook`, returned the start error
+without terminating the container, so a run whose context ended (a launch's `timeout`) was reported failed while the
+playbook kept running against its devices. A first reading blamed the library (its reaper spawner discards a parked
+connection without releasing it); the library hands that connection to the new container on the next line, so that
+gap has no realistic path, and the user's rule to prove a fix before calling it out caught the claim before it went
+anywhere.
+
+**Fix.** Proved before changing: a start made to fail leaves 1 reaper goroutine, and 0 once terminated (a
+temporary test, not kept); `TestDockerOrchestrator_ACanceledRunLeavesNoContainerRunning` failed on
+the old orchestrator with the container still running after `Run` returned. Every failing-start branch now calls
+the nil-safe `testcontainers.TerminateContainer`, the orchestrator with a comment saying why, and
+`internal/testsupport`'s `TestEveryContainerIsTerminatedWhenItsStartFails` parses every Go file and fails on a start
+whose failure path does not terminate its container (47 reported on the old tree, 0 now; six-case positive control).
+At the mesh gate's own proxy, a start made to fail now fails on the start error alone, and with the fix removed it
+also reports the gate's exact goroutine. Every per-test leak check now verifies against a snapshot taken when its
+test starts, as `internal/backup` and `internal/transport/ssh` already did, so a leak is charged to the test that
+made it.
+
+**Lesson.** A start that fails is a container that exists. Read a library's error contract before blaming the
+library, and reproduce the symptom with and without the fix before naming a cause; and a leak check without a
+baseline turns one leak into a dozen failures.

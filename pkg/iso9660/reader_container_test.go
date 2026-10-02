@@ -69,6 +69,7 @@ func startReader(t *testing.T, img []byte, privileged bool, packages ...string) 
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
+		_ = testcontainers.TerminateContainer(c) // a failed start still returns its container
 		if os.Getenv("CI") == "" {
 			t.Skipf("could not start the %s container (is Docker running?): %v", readerImage, err)
 		}
