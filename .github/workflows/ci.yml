@@ -324,9 +324,13 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+      # The runner image ships its own HTTPS listener, and WinRM allows one,
+      # so the script must replace it. It refuses to by default because its
+      # teardown cannot put a foreign listener back; this runner is thrown
+      # away after the job, so there is nothing to put back.
       - name: Set up the WinRM certificate listener
         shell: powershell
-        run: ./examples/windows_lab/winrm-cert-setup.ps1 -AllowedSubnet 127.0.0.0/8 -OutputDirectory "$env:RUNNER_TEMP\pleiades-gate"
+        run: ./examples/windows_lab/winrm-cert-setup.ps1 -AllowedSubnet 127.0.0.0/8 -OutputDirectory "$env:RUNNER_TEMP\pleiades-gate" -ReplaceExistingListener
       - name: WinRM gates
         shell: bash
         env:
