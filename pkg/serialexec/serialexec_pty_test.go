@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
 	realserial "go.bug.st/serial"
@@ -29,17 +30,19 @@ import (
 
 // testPTYPair starts a real socat process linking two PTYs at fixed
 // paths under t.TempDir(), waits for both to exist, and registers
-// cleanup. It skips with a clear, actionable message if socat is not on
-// PATH, since a missing external binary is a different failure mode
-// from "no container daemon" and deserves to say so.
+// cleanup. Without socat on PATH it stops through testsupport.Require,
+// so the skip names the need ("needs socat"), a coverage floor this
+// package then misses is reported as unchecked rather than failed, and
+// a run that requires socat (PLEIADES_TEST_REQUIRE) fails instead of
+// quietly testing less.
 func testPTYPair(t *testing.T) (a, b string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping PTY-backed integration test in short mode")
 	}
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("skipping PTY-backed test: socat is not on PATH")
-	}
+	_, err := exec.LookPath("socat")
+	testsupport.Require(t, "socat", err == nil,
+		"socat links the two pseudo terminals these tests talk across; install it (apt-get install socat)")
 
 	dir := t.TempDir()
 	a = filepath.Join(dir, "a")
