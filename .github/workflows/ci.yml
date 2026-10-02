@@ -133,12 +133,12 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       # The serial-over-PTY tests skip without socat, which the runner image
       # does not ship; the clean room's skip ledger is what showed six of
-      # them never running.
+      # them never running. Required below, so losing it turns this red.
       - name: Install socat for the PTY-backed serial tests
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
       - name: make ci-fast
         env:
-          PLEIADES_TEST_REQUIRE: userns
+          PLEIADES_TEST_REQUIRE: userns,socat
         run: make ci-fast
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -297,9 +297,14 @@ jobs:
         run: make ci-images SHARD=1/1 IMAGES=.ci/images.txt PULL=-pull
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      # The same socat the fast job installs: without it the six PTY-backed
+      # serial tests skip, and their packages fall below floors the fast
+      # job's coverage set.
+      - name: Install socat for the PTY-backed serial tests
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
       - name: make test-full
         env:
-          PLEIADES_TEST_REQUIRE: userns
+          PLEIADES_TEST_REQUIRE: userns,socat
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured

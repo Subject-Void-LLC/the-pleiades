@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
@@ -31,15 +32,16 @@ import (
 // cleanup. Deliberately a local copy of pkg/serialexec's own test
 // helper of the same name rather than a shared export: it is small,
 // test-only, and a cross-package test-helper dependency is not worth
-// the coupling for twenty lines.
+// the coupling for twenty lines. Without socat it stops through
+// testsupport.Require, as that helper does, so the skip names the need.
 func testPTYPair(t *testing.T) (a, b string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping PTY-backed integration test in short mode")
 	}
-	if _, err := exec.LookPath("socat"); err != nil {
-		t.Skip("skipping PTY-backed test: socat is not on PATH")
-	}
+	_, err := exec.LookPath("socat")
+	testsupport.Require(t, "socat", err == nil,
+		"socat links the two pseudo terminals these tests talk across; install it (apt-get install socat)")
 
 	dir := t.TempDir()
 	a = filepath.Join(dir, "a")
