@@ -11496,3 +11496,46 @@ made it.
 **Lesson.** A start that fails is a container that exists. Read a library's error contract before blaming the
 library, and reproduce the symptom with and without the fix before naming a cause; and a leak check without a
 baseline turns one leak into a dozen failures.
+
+## 424. The nightly job never installed socat, and a bare `t.Skip` made six missing tests read as a coverage regression
+
+**Symptom.** The first scheduled `nightly` run (2026-10-02, run 37007388376, `main` at `6b5ff333`) passed the strict
+`make test-full` and then failed `make coverage-measured`: `internal/transport/serial` at 87.5% against a floor of
+100.0%, and `pkg/serialexec` at 70.4% against 95.5%. The same commit's pull-request `coverage` job and a local `make
+ci` measured both at or above their floors.
+
+**Root cause.** Two gaps, each harmless alone. The `nightly` job was written without the `fast` job's step that
+installs `socat`, so the six PTY-backed serial tests skipped there. And they skipped through a bare
+`t.Skip("skipping PTY-backed test: socat is not on PATH")` rather than `testsupport.Require`, which CONTRIBUTING.md
+asks for. A bare skip names no need, so the run recorded nothing missing, and `coverage-check` could not tell a run
+without `socat` from a package whose coverage fell. It also meant no job could require `socat`: the `fast` job losing
+its install step would have quietly tested six fewer tests.
+
+**Fix.** Both copies of `testPTYPair` (`pkg/serialexec`, `internal/transport/serial`) stop through
+`testsupport.Require(t, "socat", ...)`. The `nightly` job installs `socat`, and both `fast` and `nightly` set
+`PLEIADES_TEST_REQUIRE: userns,socat`. Proved with `socat` hidden from `PATH`: `tools/testgate` reproduces CI's 87.5%
+and 70.4% and records `missing: socat` for both packages; `coverage-check -measured` over those numbers names both
+floors unchecked and exits 0, while the same numbers without the missing record (what the old skip produced) fail
+exactly as the nightly did. With `socat` required and hidden, both tests fail naming it; with it present, every test
+runs and passes under `-race`.
+
+**Lesson.** A second job that runs the same tests needs the first job's setup, and a test that skips for a missing
+tool must say so in the form the gates read, or a gate cannot tell absence from regression.
+
+## 425. GitHub's Windows runner ships its own HTTPS WinRM listener, and the lab script refused to replace it
+
+**Symptom.** The experimental `winrm` job failed at its setup step on both of its first runs (2026-10-02, runs
+37007388376 and 37012407427): "This host already has an HTTPS WinRM listener that this script did not create, and
+WinRM allows only one." The WinRM gates never ran.
+
+**Root cause.** The `windows-latest` image comes with an HTTPS WinRM listener already configured (certificate
+`03330B472C89B63CBBEBE69B585EA1FA7D2989D3` in that run). `examples/windows_lab/winrm-cert-setup.ps1` refuses to
+replace a listener it did not create unless given `-ReplaceExistingListener`, because its teardown cannot put a
+foreign listener back. That is the right default on a real host. The job was written for a clean machine.
+
+**Fix.** The job passes `-ReplaceExistingListener`, with a comment saying why: the runner is discarded after the job,
+so there is nothing to put back. The script's default is unchanged. Whether the gates themselves pass on the runner
+is still unproven until the job's next run.
+
+**Lesson.** A hosted runner is not a clean machine. Before a setup script that refuses to overwrite runs there,
+check what the image already configures.
