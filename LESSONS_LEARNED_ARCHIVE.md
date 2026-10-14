@@ -5521,6 +5521,13 @@ container package in the fast tier (FAILURE_PATTERNS 427, 445, 446, 447). 270's 
 would have missed the last two; each of the four was catchable here in minutes by running CI's own targets on the
 branch's own packages. The owner's words after the fourth: "HARDEN IT so this stops happening EVERY SINGLE ... PR".
 
+**Enforced, 2026-10-14.** Written first as a rule to remember, which is how 110, 203 and 270 were written, and each
+of those was followed narrowly or not at all (FAILURE_PATTERNS 449 is 270 followed in the shape of the last
+failure). LESSONS 173 already said why: a rule stated in prose is not in force until something can fail when it is
+skipped. So a pass of `make pr-check` writes a receipt for the commit it checked (`.git/pleiades-pr-check.json`, a
+file of its own), and `.githooks/pre-push` refuses a branch whose tip no pr-check or whole-suite receipt covers,
+unless the tip is already on the remote's main. `git push --no-verify` still skips it, deliberately.
+
 ## 272. Wait for a container's own startup to finish before acting inside it
 
 **Rule.** A fixture's readiness check reads the container (its log, a port) until the program inside reports that
@@ -5539,3 +5546,20 @@ A known miss written beside the list as a hand-maintained exception is a guard t
 
 **Why.** FAILURE_PATTERNS 447: the guard read direct imports, the Makefile already listed two packages by hand
 because of it, and the third such package went to CI unlisted and failed there.
+
+**Repeat.** This restates 114, which this repository already had: a guard written after an incident is written against
+its literal and ends up narrower than its rule. Writing it again as new is the failure 274 names. What it adds to 114
+is the second half: a known miss written down beside a guard as a hand-kept exception is that guard's defect.
+
+## 274. Before writing a failure pattern or a lesson, search the archive for its class; a repeat names what it repeats
+
+**Rule.** Search both archives for the class of what happened, by symptom and by cause, before writing an entry.
+When it has happened before, the title says "(a repeat of N)", and the entry says why N's fix did not hold; a
+lesson that restates an older one says so instead of standing as new.
+
+**Why.** On 2026-10-14 six failure patterns were written in a day and two were repeats nobody named: 428 is 303 (whose
+lesson, vet for every operating system, was not followed) and 447 is 239 (whose guard read the literal, which 114 had
+warned about), and lesson 273 restated 114 almost word for word. An index read before debugging would have found
+each; recording them as new hid that the earlier fixes had not held, which is the one thing a repeat says. Asked "do
+we see a trend?", the answer was in the records and not in their titles.
+

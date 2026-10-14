@@ -11594,6 +11594,12 @@ server over SSH, but sat in `probe_linux.go`, so it compiled only into Linux bui
 
 **Lesson.** A file name can decide a build silently; a portable file never ends in an OS or architecture.
 
+**Repeat.** This is 303 again (2026-09-23): a file constrained to Linux left a symbol undefined on macOS and Windows.
+303's lesson was to vet for every operating system CI builds before calling a change verified, and on PR #54 that
+was not done, so the fix lived in a sentence and the failure came back. What holds it now is mechanical: the
+archtest against file-name constraints (this entry's fix), and `make pr-check-vet` inside `make pr-check`, whose
+receipt the pre-push hook requires for a branch (LESSONS 271).
+
 ## 429. A refused SSH host key was retried three times and opened the address's circuit
 
 **Symptom.** Onboarding a cluster through a bastion whose key `known_hosts` did not hold reported "retry:
@@ -11820,6 +11826,9 @@ floor and `make ci-remote` verified locally before the next push.
 
 **Lesson.** See LESSONS 270.
 
+**Repeat.** In kind, this is 427 eight hours earlier: a push whose checks had not been run here, each failure first
+seen in CI. LESSONS 270 answered it with a procedure, which 449 then shows being followed narrowly the same day.
+
 ## 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
 
 **Symptom.** PR #55's `fast` job failed three `pkg/kubeapi` tests with `starting the k3s fixture ...: container
@@ -11865,3 +11874,53 @@ two stay in the fast tier through `oneShotContainerPackages`, each with its reas
 testcontainers-go fixture.
 
 **Lesson.** See LESSONS 273.
+
+**Repeat.** This is 239 again. 239's guard was the fix for a container package missing from the list, and it read the
+import that had just failed, which is exactly what LESSONS 114 had warned about months before: a guard written after
+an incident is written against its literal. The Makefile's comment then recorded the miss as two hand-listed
+exceptions instead of a defect in the guard, so the third package of that shape went to CI unlisted.
+
+## 448. pkg/tftpxfer's Get timed out on macOS twice running, and the cause is still unknown
+
+**Symptom.** `fast-macos` failed on PR #55's runs 38636093862 and 38651908450, both times in
+`TestLongestAcceptedFilenamesCrossARealServerWhole` during the strict `test-repeat`, in different subtests
+(`largest_blocksize/a_space`, then `smallest_blocksize/exactly_the_limit,_nested`): the Put succeeded, then the Get
+failed after about 61 seconds with `read udp [::]:<port>: i/o timeout`. The first of three repeats failed and the
+other two passed in milliseconds. Every earlier `fast-macos` run passed, including #55's first.
+
+**Ruled out.** This branch changes nothing `pkg/tftpxfer` depends on (its dependency set intersected with
+`tools/prscope`'s list is empty, and no module it uses moved), and all three runs used runner image 20260828.587. One
+lost datagram is not enough: pin/tftp v3.2.0 retransmits at every step, so 61 seconds is six unanswered attempts.
+Not reproduced on Linux: 40 runs of all 18 subtests under `-race` passed.
+
+**Root cause.** Unknown. One hypothesis, unproven: pin/tftp's client listens on the dual-stack wildcard `[::]`, the
+server answers from a socket bound to `127.0.0.1`, and XNU's search for a free port for an IPv6 socket skips IPv4
+sockets (`in6_pcblookup_local` continues past any pcb without `INP_IPV6`), so the client could be handed a port an
+IPv4 socket on `127.0.0.1` holds, which then receives the replies. XNU's netns reservation may already prevent that,
+and the source does not settle it.
+
+**Fix.** None yet, deliberately. The test server now records every transfer it finished (client address and port,
+options, datagrams sent and acknowledged, duration, outcome) and prints them when a test fails, proven with a
+deliberate failure, so the next occurrence says whether the server answered the client's port or never saw the
+request. `fast-macos` is advisory, so this does not block a merge.
+
+**Lesson.** See LESSONS 269: when a failure happens only where nobody can log in, make the fixture say why.
+
+## 449. A touched package CI could not floor-check was left out of the pre-push measurement
+
+**Symptom.** `make pr-check`'s first full run found `pkg/awscloud` at 94.9% against its 95.8% floor. 119c had added
+`eks.go` with two untested error branches, and the measurement taken before pushing `0d2b11aa` had not included the
+package.
+
+**Root cause.** LESSONS 270 says to measure every touched package; the measurement covered the packages CI's
+coverage job had named. CI runs without LocalStack, so it reports `pkg/awscloud` as unchecked rather than failed,
+and a list copied from CI's failures can never contain it. The rule was followed narrowly, in the shape of the last
+failure, which is 445's pattern repeating within the day.
+
+**Fix.** A nil context is now tested (reachable) and the Windows platform branch of `instanceFrom` is covered as a
+pure unit test, since the signer's error cannot happen with this SDK; 131 of 136 statements, 96.3%. The procedure is
+now a target: `make pr-check` measures every package the branch changes itself (`tools/prscope`), and its receipt is
+required for a branch push.
+
+**Lesson.** See LESSONS 271.
+
