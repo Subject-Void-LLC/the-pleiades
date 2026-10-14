@@ -24,6 +24,8 @@ name: CI
 #               so a flake rate is measured rather than forgiven
 #   winrm       the WinRM gates against the Windows runner's own WinRM
 #               service; experimental until it has passed here
+#   vulns       govulncheck on the schedule, since a new advisory needs no
+#               code change to land (make govulncheck)
 #
 # The fast and container jobs apply push-gate's rule: a failure that passes
 # when re-run alone is contention, reported in the job summary, and a
@@ -308,6 +310,26 @@ jobs:
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured
+
+  vulns:
+    # An advisory is published against code that has not changed, and the
+    # scheduled run skips the ci job, so one published after the last push
+    # waited for the next pull request to be seen: twelve did in October
+    # 2026, and main's own checks failed for it. Its own job, so a new
+    # advisory fails within minutes and under its own name rather than at
+    # the end of nightly's hour.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Install pinned tools
+        run: make tools
+      - name: make govulncheck
+        run: make govulncheck
 
   winrm:
     # The WinRM gates against the Windows runner's own WinRM service, set up
