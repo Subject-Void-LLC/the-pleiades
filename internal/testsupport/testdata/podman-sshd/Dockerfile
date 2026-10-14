@@ -7,6 +7,11 @@
 # root runs Podman rootful; podman, the image's own rootless user, runs it
 # rootless. The passwords are throwaway values for a container started
 # fresh for each test, never a real device.
+#
+# UsePAM no: sshd checks the password against /etc/shadow itself. Through
+# Fedora's PAM stack, every password was refused on the CI runners (Docker
+# Engine on Ubuntu 24.04) and accepted under Docker Desktop, with the same
+# image; the fixture tests the platform's SSH path, not the host's PAM.
 ARG BASE
 FROM ${BASE}
 RUN dnf install -y --setopt=install_weak_deps=False openssh-server procps-ng \
@@ -15,5 +20,5 @@ RUN dnf install -y --setopt=install_weak_deps=False openssh-server procps-ng \
  && echo 'root:testpass123' | chpasswd \
  && echo 'podman:testpass123' | chpasswd \
  && mkdir -p /etc/ssh/sshd_config.d \
- && printf 'Port 2222\nPasswordAuthentication yes\nPermitRootLogin yes\n' > /etc/ssh/sshd_config.d/00-pleiades.conf
+ && printf 'Port 2222\nPasswordAuthentication yes\nPermitRootLogin yes\nUsePAM no\n' > /etc/ssh/sshd_config.d/00-pleiades.conf
 ENTRYPOINT ["/usr/sbin/sshd", "-D", "-e"]

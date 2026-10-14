@@ -194,7 +194,7 @@ func startEngineHost(tb testing.TB, f *engineFixture, opts EngineHostOptions) *E
 	// can log into, such as a CI runner, otherwise never shows.
 	tb.Cleanup(func() {
 		if tb.Failed() {
-			tb.Logf("the %s host fixture's log:\n%s", f.engine, containerLogTail(c, 40))
+			tb.Logf("the %s host fixture's log:\n%s\nits login settings:\n%s", f.engine, containerLogTail(c, 40), loginFacts(c))
 		}
 	})
 
@@ -331,4 +331,21 @@ func containerLogTail(c testcontainers.Container, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// loginFacts is what decides a password login inside a fixture, for a
+// refused login on a machine nobody can log into: sshd's effective
+// settings, each fixture account's password scheme (the hash's prefix
+// only), and the capabilities sshd runs with.
+func loginFacts(c testcontainers.Container) string {
+	const script = `/usr/sbin/sshd -T 2>&1 | grep -Ei '^(usepam|passwordauthentication|permitrootlogin|kbdinteractiveauthentication) '
+awk -F: '$1=="root"||$1=="podman"||$1=="testuser"{print $1, "scheme=" substr($2,1,3)}' /etc/shadow
+ls -l /etc/shadow
+grep -E '^Cap(Eff|Bnd)' /proc/1/status`
+	code, reader, err := c.Exec(context.Background(), []string{"/bin/sh", "-c", script}, tcexec.Multiplexed())
+	if err != nil {
+		return "(could not be read: " + err.Error() + ")"
+	}
+	out, _ := io.ReadAll(io.LimitReader(reader, 1<<16))
+	return fmt.Sprintf("%s(exit %d)", out, code)
 }
