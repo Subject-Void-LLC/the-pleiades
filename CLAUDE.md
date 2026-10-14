@@ -218,6 +218,20 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
   code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
   Controller's payload falls back to `pkg/external.Device`.
+- **Kubernetes clusters are devices; no Kubernetes method exists yet (Phase 119c).** `kubernetes_cluster`
+  (`internal/inventory/devices/kubernetes`) is reached through `pkg/kubeapi`, the one package allowed to import
+  client-go (`internal/archtest`), built from the record and its credential alone: no kubeconfig loading, no
+  in-cluster config, no `KUBECONFIG`. `pleiades import-kubeconfig` and `POST /inventory/kubeconfig-imports` refuse
+  exec, auth-provider, file references, skip-verify, proxies and impersonation by name. Onboarding records the
+  version, every kind at every served version, the credential's SelfSubjectRulesReview, nodes, and each node's
+  container (`node_engine_host`, proved by machine ID). A cluster takes only its own credential: a template's
+  machine credential never reaches one (`record.RegisterOwnCredentialType`), and a bound `kubernetes_bearer_token`
+  or `pleiades_kubernetes_client_certificate` (a code target in `internal/credtype`, injectors `{}` as AWX exports)
+  becomes the secrets of the cluster whose API server its host names on the native path and AWX's `K8S_AUTH_*`
+  environment on the Ansible path (`dispatch.ApplyInjection`). EKS tokens are minted in Go
+  (`awscloud.EKSToken`). A `route` reaches a cluster for onboarding and Crawl runs (`sdk.Router`), never from a
+  Runner. Clusters take a shared lease. `validate`'s `KubernetesKindRule` reads a parameter declaring
+  `collection.ParamFormatKubernetesManifest`, which no method does until 119g.
 - **Task params render, targets can come from data, and every method says where it runs (Phase
   117a).** A string in `params` holding `{{ }}` renders when its node dispatches
   (`internal/engine/render_params.go`, through the one `internal/render` engine each composition root
@@ -247,7 +261,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   and `internal/transport/winrm` share it; every platform instance is an unexported field, and
   `internal/archtest`'s `TestNoPlatformCircuitIsReachable` refuses one anywhere a Collection could
   reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
-  WinRM 401 or TLS alert) is neither retried nor counted. The half-open probe is leased, so a lost
+  WinRM 401 or TLS alert) and an SSH host key known_hosts refuses (unknown, changed or revoked) are
+  neither retried nor counted. The half-open probe is leased, so a lost
   one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). WinRM Collections that call
   `pkg/winrmexec` directly (`exec.winrm.shell`, `pkg/winrmsvc`, the waits) have no breaker yet.
 - **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the

@@ -77,7 +77,9 @@ func TestFlattenUnflattenRoundTrip(t *testing.T) {
 		Passphrase:     "keypass",
 		CertificatePEM: []byte("-----BEGIN CERTIFICATE-----"),
 		PFXBase64:      "MIIKzQIBAzCCCoc=",
+		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
 	}
+	everyFieldSet(t, original)
 
 	got := Unflatten(Flatten(original))
 	if !reflect.DeepEqual(got, original) {
@@ -178,7 +180,9 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		Passphrase:     "a-real-passphrase",
 		CertificatePEM: []byte("-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n"),
 		PFXBase64:      "MIIKzQIBAzCCCoc=",
+		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
 	}
+	everyFieldSet(t, want)
 	if err := SaveFileStore(dir, key, "win01", want); err != nil {
 		t.Fatalf("SaveFileStore() error = %v", err)
 	}
@@ -209,9 +213,24 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		{"passphrase", got.Passphrase, want.Passphrase},
 		{"certificate", string(got.CertificatePEM), string(want.CertificatePEM)},
 		{"bundle", got.PFXBase64, want.PFXBase64},
+		{"token", got.Token, want.Token},
 	} {
 		if f.got != f.want {
 			t.Errorf("the %s did not survive the store: got %d bytes, want %d", f.name, len(f.got), len(f.want))
+		}
+	}
+}
+
+// everyFieldSet fails t unless every field of c is set, so a round trip
+// over c covers every field a Credential can carry. A field added later
+// and left out of a fixture would otherwise pass every round trip without
+// ever being carried, which is how the bundle went missing once.
+func everyFieldSet(t *testing.T, c Credential) {
+	t.Helper()
+	v := reflect.ValueOf(c)
+	for i := range v.NumField() {
+		if v.Field(i).IsZero() {
+			t.Fatalf("the fixture leaves Credential.%s unset, so this round trip does not cover it", v.Type().Field(i).Name)
 		}
 	}
 }

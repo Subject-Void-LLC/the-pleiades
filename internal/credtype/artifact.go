@@ -282,6 +282,9 @@ type Artifact struct {
 	// registry is the one container registry credential, set only by
 	// registryTarget for the same reason.
 	registry *wire.RegistryCredential
+	// kubernetes is the one cluster credential, set only by
+	// kubernetesTarget for the same reason.
+	kubernetes *KubernetesCredential
 
 	// secrets are the values in this artifact that must be scrubbed from
 	// any captured output, filled in by the secret-tracking decorator as it
@@ -448,6 +451,15 @@ func Combine(arts ...Artifact) (Artifact, error) {
 			out.registry = reg
 		}
 
+		if k, ok := a.Kubernetes(); ok {
+			if out.kubernetes != nil {
+				return Artifact{}, fmt.Errorf(
+					"%w: %q is a second Kubernetes credential, and a run carries one until a task can name which credential it uses",
+					ErrInjectorConflict, a.CredentialName)
+			}
+			out.kubernetes = &k
+		}
+
 		for _, v := range a.vault {
 			if previous, clash := vaultOwner[v.Identifier]; clash {
 				return Artifact{}, fmt.Errorf(
@@ -459,6 +471,21 @@ func Combine(arts ...Artifact) (Artifact, error) {
 		}
 
 		out.trackSecret(a.secrets...)
+	}
+
+	// The Ansible path adds the cluster credential's environment to the
+	// rest at dispatch (KubernetesCredential.AnsibleInjection), so a name
+	// another credential already injects is refused here, where every
+	// other collision is.
+	if out.kubernetes != nil {
+		env, _ := out.kubernetes.AnsibleInjection()
+		for name := range env {
+			if previous, clash := envOwner[name]; clash {
+				return Artifact{}, fmt.Errorf(
+					"%w: %q and %q both inject the environment variable %s",
+					ErrInjectorConflict, previous, out.kubernetes.Name, name)
+			}
+		}
 	}
 
 	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })

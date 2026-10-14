@@ -36,6 +36,10 @@ const (
 	// TransportEngineTLS is a container engine's API over TCP with mutual
 	// TLS (EngineTLSCapable).
 	TransportEngineTLS = "engine_tls"
+
+	// TransportKubernetes is a Kubernetes cluster's API server
+	// (KubernetesCapable).
+	TransportKubernetes = "kubernetes"
 )
 
 // EngineTransports lists the container engine transports, in the order a
@@ -68,6 +72,7 @@ var reachedBy = map[string][]Name{
 	TransportEngineSocket: {NameEngineSocket},
 	TransportEngineStdio:  {NameEngineStdio},
 	TransportEngineTLS:    {NameEngineTLS},
+	TransportKubernetes:   {NameKubernetes},
 }
 
 // ReachedBy returns the capabilities that reach transport, any one of

@@ -5785,7 +5785,7 @@
     },
     "/inventory/devices/{name}/onboard": {
       "post": {
-        "description": "Probes a generic device (generic_ssh, generic_netconf, generic_http, generic_grpc) over its protocol from the Controller, authenticating with the device's stored credential, and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",
+        "description": "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored Kubernetes credential whose host names its API server), and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",
         "operationId": "onboard_device",
         "parameters": [
           {
@@ -5929,7 +5929,7 @@
                 }
               }
             },
-            "description": "The device's type is not a generic one, so its capabilities come from its Go type."
+            "description": "The device's type has no prober, so its capabilities come from its Go type; the message lists the types that have one."
           },
           "502": {
             "content": {
@@ -6007,8 +6007,340 @@
             ]
           }
         ],
-        "summary": "Onboard a generic device",
+        "summary": "Onboard a device",
         "x-link-relation": "onboard"
+      }
+    },
+    "/inventory/kubeconfig-imports": {
+      "post": {
+        "description": "Reads one context of a kubeconfig and makes it a kubernetes_cluster device (its API server, pinned authority, server name and namespace) and a Kubernetes credential in the organization, named \"<device> (kubeconfig)\": a kubernetes_bearer_token for a token, or a pleiades_kubernetes_client_certificate for a client certificate, encrypted at rest and ready to bind to a template. Nothing that would run a program (exec, auth-provider), read a file the kubeconfig names, skip certificate verification, go through a proxy, impersonate or send a password is taken; each is refused by name. Onboarding the cluster afterwards uses this credential, the one whose host names its API server. It needs credential:write and inventory:write. A name already in the inventory, or a credential of that name, is a conflict unless replace is set; a replacement keeps the device's identity and tags and clears what onboarding proved.",
+        "operationId": "import_kubeconfig",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "context": {
+                    "description": "The context to import; the kubeconfig's current context when empty.",
+                    "type": "string"
+                  },
+                  "kubeconfig": {
+                    "description": "The kubeconfig, YAML or JSON, at most one mebibyte.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The cluster device's name.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "The organization the credential belongs to.",
+                    "type": "integer"
+                  },
+                  "replace": {
+                    "description": "Replace a cluster and credential an earlier import made.",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kubeconfig",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "context": {
+                      "description": "The context imported.",
+                      "type": "string"
+                    },
+                    "credential": {
+                      "description": "The stored credential's id, to bind to a template.",
+                      "type": "integer"
+                    },
+                    "credential_name": {
+                      "description": "The stored credential's name.",
+                      "type": "string"
+                    },
+                    "credential_type_namespace": {
+                      "description": "kubernetes_bearer_token or pleiades_kubernetes_client_certificate.",
+                      "type": "string"
+                    },
+                    "device": {
+                      "properties": {
+                        "_links": {
+                          "description": "Hypermedia affordances available on this resource for the calling identity.",
+                          "items": {
+                            "properties": {
+                              "href": {
+                                "type": "string"
+                              },
+                              "method": {
+                                "type": "string"
+                              },
+                              "rel": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "capabilities": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "executable": {
+                          "type": "boolean"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                          "type": "string"
+                        },
+                        "tags": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "version": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "identity": {
+                      "description": "token or client certificate.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The namespace tasks use when they name none.",
+                      "type": "string"
+                    },
+                    "pinned_ca": {
+                      "description": "Whether the kubeconfig embedded the cluster's authority.",
+                      "type": "boolean"
+                    },
+                    "replaced": {
+                      "description": "Whether an earlier import was replaced.",
+                      "type": "boolean"
+                    },
+                    "server": {
+                      "description": "The API server.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The cluster and its credential, replaced."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "context": {
+                      "description": "The context imported.",
+                      "type": "string"
+                    },
+                    "credential": {
+                      "description": "The stored credential's id, to bind to a template.",
+                      "type": "integer"
+                    },
+                    "credential_name": {
+                      "description": "The stored credential's name.",
+                      "type": "string"
+                    },
+                    "credential_type_namespace": {
+                      "description": "kubernetes_bearer_token or pleiades_kubernetes_client_certificate.",
+                      "type": "string"
+                    },
+                    "device": {
+                      "properties": {
+                        "_links": {
+                          "description": "Hypermedia affordances available on this resource for the calling identity.",
+                          "items": {
+                            "properties": {
+                              "href": {
+                                "type": "string"
+                              },
+                              "method": {
+                                "type": "string"
+                              },
+                              "rel": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "capabilities": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "executable": {
+                          "type": "boolean"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                          "type": "string"
+                        },
+                        "tags": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "version": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "identity": {
+                      "description": "token or client certificate.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The namespace tasks use when they name none.",
+                      "type": "string"
+                    },
+                    "pinned_ca": {
+                      "description": "Whether the kubeconfig embedded the cluster's authority.",
+                      "type": "boolean"
+                    },
+                    "replaced": {
+                      "description": "Whether an earlier import was replaced.",
+                      "type": "boolean"
+                    },
+                    "server": {
+                      "description": "The API server.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The cluster and its credential."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or name or organization is missing or unusable."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The caller lacks inventory:write."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device or the credential already exists and replace is not set, the device is not a cluster, it was modified concurrently, or the inventory is read-only."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is too large."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The kubeconfig does not parse, names no usable context, or holds a setting an import refuses; the message names it."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Import a cluster from a kubeconfig",
+        "x-link-relation": "create"
       }
     },
     "/jobs": {

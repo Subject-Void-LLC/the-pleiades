@@ -155,9 +155,16 @@ type Lease interface {
 // once per device, as execution reaches it, which is already what
 // engine.Executor.runOne does.
 func AcquireAll(ctx context.Context, mgr Manager, itemIDs []string, ttl time.Duration, opts AcquireOptions) ([]Lease, error) {
+	return AcquireAllEach(ctx, mgr, itemIDs, ttl, func(int) AcquireOptions { return opts })
+}
+
+// AcquireAllEach is AcquireAll with each item's own options, optsFor(i) for
+// itemIDs[i]: a shared device's lease and an exclusive one in one
+// all-or-nothing acquisition.
+func AcquireAllEach(ctx context.Context, mgr Manager, itemIDs []string, ttl time.Duration, optsFor func(i int) AcquireOptions) ([]Lease, error) {
 	leases := make([]Lease, 0, len(itemIDs))
-	for _, id := range itemIDs {
-		lease, err := mgr.Acquire(ctx, id, ttl, opts)
+	for i, id := range itemIDs {
+		lease, err := mgr.Acquire(ctx, id, ttl, optsFor(i))
 		if err != nil {
 			for _, held := range leases {
 				_ = held.Release(context.Background())

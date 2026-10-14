@@ -5431,3 +5431,68 @@ without saying why (402). The same run's skip ledger then showed 67 tests that h
 anything in that environment, six of them only because a tool was missing. The old CI attempt had failed for
 reasons that were fixable one by one (three and a half passes in one job, anonymous pulls, two cores), and
 "CI cannot run our tests" had hardened into a design assumption instead.
+
+## 263. When code moves to another package, its tests move with it
+
+**Rule.** A coverage floor counts only a package's own tests, so code moved into a package brings its tests, and
+a new package gets its own from the start; a release gate elsewhere proves behavior, never a floor.
+
+**Why.** FAILURE_PATTERNS 427: 119a and 119b moved the discovery rules into `internal/inventory/record` and added
+code proven only by other packages' gates, and eight floors failed in one CI run, one package having no tests at
+all. Every behavior was tested; none of it where the floor looked.
+
+## 264. A portable Go file never ends in an OS or architecture
+
+**Rule.** Name a file for what it does, never `*_linux.go` or `*_amd64.go` unless the build constraint is the
+point, and then state it in a `//go:build` line too (`internal/archtest`'s
+`TestFileNamesConstrainBuildsOnlyOnPurpose` holds this).
+
+**Why.** FAILURE_PATTERNS 428: the Linux server's prober, which reaches a remote server over SSH, was named
+`probe_linux.go` and vanished from every macOS and Windows build, silently, while every Linux build and test passed.
+
+## 265. An answer is not an outage
+
+**Rule.** A refusal from the far side (a credential turned down, a 401 or 403) or this side's refusal of the far
+side (an unknown, changed or revoked host key) is neither retried nor counted against a circuit; only a failure to
+get an answer is.
+
+**Why.** FAILURE_PATTERNS 429: a refused host key was retried three times and counted three failures, so one stale
+`known_hosts` entry opened the circuit and refused every other task on the host. A refused password had been
+fixed the same way before; the host key was the same class, missed.
+
+## 266. Text a remote system wrote is bounded and escaped before it reaches an error, a log or a terminal
+
+**Rule.** Wrap every error that can quote a remote answer in a bound on its length and an escape for anything a
+terminal acts on, at the port the answer comes through, so no caller has to remember to.
+
+**Why.** FAILURE_PATTERNS 431: client-go quoted an API server's whole undecodable answer into its error, which
+onboarding prints and logs; a hostile server chose its size and its control characters.
+
+## 267. Change a stored device through its loaded record's change methods
+
+**Rule.** A repository saves the revisions a loaded record recorded; to change a stored device, load it, change it
+through `AddInfo`, `RemoveInfo` or the state and tag methods, check the result, then save. A record rebuilt from new
+properties saves nothing.
+
+**Why.** FAILURE_PATTERNS 432: a replacing kubeconfig import built a fresh record and saved it, answered 200, and
+wrote nothing.
+
+## 268. Work on another commit in a detached worktree, and push HEAD to the branch
+
+**Rule.** For a fix on a branch while uncommitted work sits in the main worktree, add a worktree detached at that
+commit, commit there, `git push origin HEAD:refs/heads/<branch>`, and fast-forward the main worktree; never switch
+branches in an auxiliary worktree.
+
+**Why.** FAILURE_PATTERNS 433: a branch switched in a second worktree moved the ref the main worktree had checked
+out, and its index showed every staged change reversed. The detached form fixed PR #54 twice this session with the
+119c work untouched.
+
+## 269. When a failure happens only where nobody can log in, make the fixture say why
+
+**Rule.** A fixture that fails on a CI runner logs its own decisive state when the test fails (its service's log,
+its effective configuration, what it holds), and until the cause is proven the variable component is taken out of
+its path rather than guessed at.
+
+**Why.** FAILURE_PATTERNS 426: the Podman fixture's passwords were refused only on the runners; its sshd log turned
+"unable to authenticate" into "Failed password", which placed the fault in the fixture's PAM path, and removing PAM
+from it fixed the runs without a theory that could not be checked.

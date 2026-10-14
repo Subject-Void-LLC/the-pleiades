@@ -11539,3 +11539,251 @@ is still unproven until the job's next run.
 
 **Lesson.** A hosted runner is not a clean machine. Before a setup script that refuses to overwrite runs there,
 check what the image already configures.
+
+## 426. The Podman fixture's passwords were refused on the CI runners and accepted under Docker Desktop
+
+**Symptom.** PR #54's `containers (1)` shard failed `TestEngineProbe_Podman` and
+`TestPodmanService_ADroppedSessionLeavesNothingRunning` with "ssh: unable to authenticate", and both failed again
+when re-run alone (2026-10-14, run 38587017209). The fixture's sshd log, printed on failure since bde456d0, said
+"Failed password for podman" and "Failed password for root". Both tests passed on the WSL machine against the same
+`quay.io/podman/stable:v5.8.7` digest, and the runners' image cache had been built from that digest the same day.
+
+**Root cause.** Somewhere in Fedora 44's PAM password path on the CI runners (Docker Engine on Ubuntu 24.04), and
+not under Docker Desktop. Which module refused is unproven: `pam_unix` logs to syslog, which the container has
+none of, so sshd's own line was all there was.
+
+**Fix.** 7a6599e7: the fixture's sshd checks the password against `/etc/shadow` itself (`UsePAM no`), and the
+next run passed both tests with no re-run. A failed test now also logs the fixture's effective login settings
+(`sshd -T`), each account's password scheme (the hash's prefix only) and sshd's capabilities, so a refusal on a
+machine nobody can log into names its reason.
+
+**Lesson.** A fixture's login stack is part of the environment it is tested in. When a CI-only refusal cannot be
+reproduced, take the variable component out of the fixture's path and make the fixture report its decisive state
+when it fails.
+
+## 427. Code moved between packages left its tests behind, and eight coverage floors failed at once
+
+**Symptom.** PR #54's coverage job (run 38590937755) reported eight packages below their floors:
+`internal/inventory/record` 78.5% (floor 100), `devices/container` 77.8% (91.5), `onboard` 84.6% (91.9),
+`credential` 91.5% (93.0), `validate` 95.4% (100), `pkg/capability` 97.6% (100), `devices/linux` 98.5% (100) and
+`pkg/remoteexec` 94.3% (94.5). `devices/engines` had no tests at all.
+
+**Root cause.** 119a and 119b moved the discovery rules from `devices/generic` into `record`, and added engine
+accessors, a route planner, a registry store and probers whose behavior was tested only from other packages
+(`cmd/pleiades`'s release gates, the generic types' tests). A floor counts the package's own tests. Nothing local
+measured it, since the gate now runs in Actions.
+
+**Fix.** 35a07941 tests each in its own package: records with recorded discoveries, fake engines on real Unix
+sockets and a real TLS server, a failure-injecting repository, a real loopback SSH server. Every package is at or
+above its floor (`onboard` 92.9%, `remoteexec` 95.3%, the rest 93.5% to 100%).
+
+**Lesson.** When code moves, its tests move with it; a release gate elsewhere proves behavior, never the floor.
+
+## 428. probe_linux.go's file name built the Linux server prober on Linux only
+
+**Symptom.** PR #54's `ci` jobs on macOS and Windows failed vet on a new test: "undefined: linuxProber"
+(run 38600372480). The Linux jobs and the WSL machine passed.
+
+**Root cause.** Go reads a `_linux.go` suffix as a build constraint. 119b's Linux server prober probes a remote
+server over SSH, but sat in `probe_linux.go`, so it compiled only into Linux builds, and on macOS or Windows
+`pleiades onboard <linux_server>` answered that the type has no prober. No Linux build could notice.
+
+**Fix.** 7016137a renames it `probe_linux_server.go`, and `internal/archtest`'s
+`TestFileNamesConstrainBuildsOnlyOnPurpose` refuses a Go file whose name implies an OS or architecture unless a
+`//go:build` line names it; it fails on the old name.
+
+**Lesson.** A file name can decide a build silently; a portable file never ends in an OS or architecture.
+
+## 429. A refused SSH host key was retried three times and opened the address's circuit
+
+**Symptom.** Onboarding a cluster through a bastion whose key `known_hosts` did not hold reported "retry:
+exhausted 3 attempt(s) ... knownhosts: key is unknown". A test against a real loopback SSH server showed three
+handshakes per call, and the second call refused with "circuit open" without dialing.
+
+**Root cause.** `pkg/remoteexec`'s `dialWithRetry` treated only "ssh: unable to authenticate" as the far side's
+answer. A `knownhosts.KeyError` or `RevokedError`, this side refusing the server, counted as a network failure:
+retried, and recorded against the address's breaker, so one stale `known_hosts` entry refused every other task
+on that host.
+
+**Fix.** `hostKeyRefused` (`errors.As` on both types) is neither retried nor counted, like a refused credential;
+`TestConnect_ARefusedHostKeyIsNotRetried` and `TestConnect_ARefusedHostKeyDoesNotOpenTheCircuit` fail without it.
+
+**Lesson.** An answer is not an outage, whichever side refused.
+
+## 430. Kubernetes discovery recorded only preferred versions, which would have refused valid manifests
+
+**Symptom.** Found while writing the manifest kind rule (Phase 119c): discovery recorded
+`autoscaling/v2 HorizontalPodAutoscaler` but not `autoscaling/v1`, so a manifest at `v1`, which the cluster
+serves, would have been refused as unserved.
+
+**Root cause.** `ServerPreferredResources` lists each kind at the version a client would pick, not every version
+the server serves.
+
+**Fix.** Discovery uses `ServerGroupsAndResourcesWithContext`, records `kinds_truncated` when it keeps fewer than
+the server named, and the live test asserts both HPA versions against k3s 1.35 and 1.37.
+
+**Lesson.** A record of what a server serves holds everything it serves, not what one client would choose.
+
+## 431. A hostile API server could make discovery unbounded, and its whole answer reached an error
+
+**Symptom.** `FuzzDiscover`'s first run: an undecodable rules review came back as an error quoting the entire
+body ("Object 'Kind' is missing in '...'"). Reading the code for the harness showed one rule's groups times its
+resources listed as their product, so 2,000 of each would be four million entries.
+
+**Root cause.** client-go quotes an undecodable body into its error, and nothing bounded the discovery's bytes,
+the entries per rule, or the error text.
+
+**Fix.** Discovery reads through one 128 MiB budget for all its answers, keeps 64 entries per rule and marks the
+rules incomplete when it cuts one, and `kubeapi.Explain` keeps 512 bytes of error text with every non-printable
+rune escaped.
+
+**Lesson.** Text a remote system wrote is bounded and escaped before it reaches an error.
+
+## 432. A replacing kubeconfig import over the API reported success and wrote nothing
+
+**Symptom.** `TestImportKubeconfig_Replace`: the replacement answered 200 and the stored record still had the old
+`api_server`.
+
+**Root cause.** `entRepository.Save` writes only the revisions an item recorded beyond its loaded version. A record
+rebuilt by the factory with new properties records none, so `Save` returned nil without writing.
+
+**Fix.** The replacement changes the loaded record through `AddInfo` and `RemoveInfo` for the four properties an
+import owns, checks the result through the factory, then saves; the test also proves a property the operator set
+survives.
+
+**Lesson.** Change a stored device through its loaded record's change methods; a rebuilt record saves nothing.
+
+## 433. A branch checkout in an auxiliary worktree moved the main worktree's branch
+
+**Symptom.** After work in a second worktree that switched branches, the main worktree's index showed every staged
+change reversed.
+
+**Root cause.** Worktrees share branch refs. Checking a branch out and committing in another worktree moved the ref
+the main worktree had checked out beneath it.
+
+**Fix.** `git reset --mixed HEAD` in the main worktree. Since then an auxiliary worktree is created detached at a
+commit (`git worktree add --detach`), and its work is pushed with `git push origin HEAD:refs/heads/<branch>`, then
+fast-forwarded into the main worktree.
+
+**Lesson.** Never switch branches in an auxiliary worktree.
+
+## 434. The moby client's hijacked connections bypassed the engine guard's dialer
+
+**Symptom.** Phase 119b: an exec through the engine port skipped the guard's operation table.
+
+**Root cause.** The moby client dials a hijacked request (exec, attach) itself whenever its transport has a TLS
+config, and cloning a default transport gives it one, so the hijack never went through the dialer the guard wraps.
+
+**Fix.** `newAPI` builds an HTTP/1-only transport; `TestSession_HijackedRequestsPassTheGuard` fails without it.
+
+**Lesson.** A guard on a dialer guards only the connections that dial through it; prove each path does.
+
+## 435. No stdio login was ever pooled
+
+**Symptom.** Phase 119b: every engine session over the stdio carrier logged in anew, though the pool was meant to
+lend the login to the next task.
+
+**Root cause.** Each enough alone: `Conn.Start` tainted the lease for the `dial-stdio` process; the dial's context
+ended the process when the dial returned; and the HTTP transport closes a finished request's connection on its own
+goroutine, after the session had released the login.
+
+**Fix.** A lease counts its streamed processes (`lease.running`) and a `Wait` that sees one exit counts it out;
+`dial-stdio`'s life is detached from the dial context; the carrier closes its processes before releasing the login.
+
+**Lesson.** A pool's reuse is a claim to measure, not to assume: count the reuses.
+
+## 436. Two checks passed vacuously against the Docker fixture
+
+**Symptom.** Phase 119b: a check over the dind fixture's files found nothing and passed.
+
+**Root cause.** busybox `find` refused the size `64M` and the error was swallowed, and `-xdev` skipped the volume
+the files were on.
+
+**Fix.** The command's error is checked, and a canary file the check must find proves it looked.
+
+**Lesson.** A check that can find nothing must prove, with a canary, that it looked.
+
+## 437. OpenSSH applies AllowTcpForwarding to Unix-socket channels and answers every refusal "connect failed"
+
+**Symptom.** Phase 119b: a channel to the engine's socket was refused on an sshd whose forwarding settings looked
+irrelevant to Unix sockets, with the same "connect failed" a missing socket gives.
+
+**Root cause.** OpenSSH applies `AllowTcpForwarding` to `direct-streamlocal` channels too (Alpine's default is
+`no`), and `DisableForwarding`, `AllowStreamLocalForwarding no`, a key restricted with `no-port-forwarding`, an
+absent socket and an unreadable one all come back as the one answer; only sshd's log says which.
+
+**Fix.** The refusal names every cause the answer allows rather than guessing one
+(`remoteexec.describeChannelRefusal`), and the fixtures set `AllowTcpForwarding local`.
+
+**Lesson.** When a server gives one answer for many causes, the message lists them all.
+
+## 438. The engine guard judged a decoded path when the target held an invalid character
+
+**Symptom.** Phase 119b, `FuzzGuard_RequestLine`: a request target holding a character not valid in a path was
+judged by the operation table as a path the engine never received.
+
+**Root cause.** The URL parser dropped such a target's raw form, so the guard decided on a decoded path while the
+engine would parse the string as sent.
+
+**Fix.** The guard decides on the target exactly as written and refuses one that is not its own canonical escaping
+(an encoded slash, a dot segment, an invalid character, a non-canonical escape); Docker's own client sends only
+canonical targets, so nothing it sends is refused.
+
+**Lesson.** A guard decides on exactly the bytes the far side will read.
+
+## 439. Closing an SSH exec channel did not stop the remote process
+
+**Symptom.** Phase 119b: the Podman API service a session started was still running after the session's `Close`.
+
+**Root cause.** Closing the channel ends the client's side; sshd does not signal the process on the far side.
+
+**Fix.** The service is started with an idle timeout and stopped explicitly on `Close`;
+`TestPodmanService_ADroppedSessionLeavesNothingRunning` proves a dropped login leaves nothing running within the
+idle time.
+
+**Lesson.** Over SSH, closing a channel is not stopping a process; stop it, and bound how long it can outlive you.
+
+## 440. A test asserted on `ps` in an image with no `ps` and passed vacuously
+
+**Symptom.** Phase 119b: a check that no process was left running passed, and kept passing when one was.
+
+**Root cause.** The image has no `ps`; the command failed, its output was empty, and "nothing matched" read as
+"nothing running".
+
+**Fix.** The fixture installs `procps-ng`, and the check fails when its command fails.
+
+**Lesson.** A check that looks for absence must fail when it cannot look.
+
+## 441. container_host parsed its TLS settings and never exposed them, so a pinned authority was ignored
+
+**Symptom.** Phase 119b: the TLS carrier verified an engine against the system's roots although the record pinned
+`tls_ca_pem`.
+
+**Root cause.** `NewHost` parsed the settings but the type did not implement `devicetls.Configured`, so
+`devicetls.For` returned the defaults.
+
+**Fix.** `Host.TLSSettings` implements it; a test reads the pinned authority back through it.
+
+**Lesson.** A parsed setting nothing exposes is a setting nothing uses; test it through the reader.
+
+## 442. trust-host --first-connect wrote a fixture's key into the real ~/.ssh/known_hosts
+
+**Symptom.** Phase 119b: a test run left an ephemeral fixture's host key in the developer's own `known_hosts`.
+
+**Root cause.** The test resolved `known_hosts` from the home directory, as production does.
+
+**Fix.** Tests point `PLEIADES_KNOWN_HOSTS` at a file of their own.
+
+**Lesson.** A test never writes to a file the developer owns.
+
+## 443. A fixture's SSHDConfig option replaced its default AllowTcpForwarding instead of adding to it
+
+**Symptom.** Phase 119b: a stress test meant only to raise `MaxStartups` lost every socket channel.
+
+**Root cause.** `testsupport.EngineHostOptions.SSHDConfig` replaces the default drop-in (`AllowTcpForwarding
+local`) rather than adding to it, so forwarding fell back to Alpine's `no`.
+
+**Fix.** The stress tests pass both settings, and the option's documentation says it replaces the default.
+
+**Lesson.** An option that replaces a default says so where it is set.
+

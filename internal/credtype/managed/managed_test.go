@@ -82,8 +82,11 @@ func TestTheCatalogCoversEveryAWXManagedType(t *testing.T) {
 		}
 	}
 	for ns := range ours {
-		if !awx[ns] {
-			t.Errorf("this catalog claims the namespace %q, which AWX does not manage", ns)
+		if !awx[ns] && !strings.HasPrefix(ns, managed.OwnNamespacePrefix) {
+			t.Errorf("this catalog claims the namespace %q, which AWX does not manage; a type of this platform's own is named %s<name>", ns, managed.OwnNamespacePrefix)
+		}
+		if awx[ns] && strings.HasPrefix(ns, managed.OwnNamespacePrefix) {
+			t.Errorf("AWX manages %q, which this catalog reserves for its own types", ns)
 		}
 	}
 }

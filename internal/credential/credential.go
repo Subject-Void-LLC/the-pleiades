@@ -66,6 +66,9 @@ type Credential struct {
 	// then the wire, then InjectSecrets), and choosing the encoding once
 	// here beats every reader choosing one.
 	PFXBase64 string
+	// Token is a bearer token, for a device whose API authenticates one
+	// (a Kubernetes cluster's ServiceAccount token), or empty. Phase 119c.
+	Token string
 }
 
 // redactedMarker replaces a secret field's real value in Credential's
@@ -101,13 +104,14 @@ const publicSetMarker = "<set, not secret>"
 func (c Credential) String() string {
 	return fmt.Sprintf(
 		"credential.Credential{Username:%q, Password:%s, PrivateKeyPEM:%s, Passphrase:%s, "+
-			"CertificatePEM:%s, PFXBase64:%s}",
+			"CertificatePEM:%s, PFXBase64:%s, Token:%s}",
 		c.Username,
 		setMarker(c.Password != ""),
 		setMarker(len(c.PrivateKeyPEM) != 0),
 		setMarker(c.Passphrase != ""),
 		publicMarker(len(c.CertificatePEM) != 0),
 		setMarker(c.PFXBase64 != ""),
+		setMarker(c.Token != ""),
 	)
 }
 
@@ -136,6 +140,7 @@ func (c Credential) MarshalJSON() ([]byte, error) {
 		Passphrase     string
 		CertificatePEM string
 		PFXBase64      string
+		Token          string
 	}{
 		Username:       c.Username,
 		Password:       setMarker(c.Password != ""),
@@ -143,6 +148,7 @@ func (c Credential) MarshalJSON() ([]byte, error) {
 		Passphrase:     setMarker(c.Passphrase != ""),
 		CertificatePEM: publicMarker(len(c.CertificatePEM) != 0),
 		PFXBase64:      setMarker(c.PFXBase64 != ""),
+		Token:          setMarker(c.Token != ""),
 	})
 }
 

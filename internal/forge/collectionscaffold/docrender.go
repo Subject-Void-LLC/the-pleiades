@@ -66,6 +66,8 @@ func renderDoc(doc collection.Doc) string {
 				fields = append(fields, "Format: collection.ParamFormatCommand")
 			case collection.ParamFormatURL:
 				fields = append(fields, "Format: collection.ParamFormatURL")
+			case collection.ParamFormatKubernetesManifest:
+				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
 			}
 			b.WriteString(strings.Join(fields, ", "))
 			b.WriteString("},\n")

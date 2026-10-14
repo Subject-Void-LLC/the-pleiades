@@ -473,21 +473,29 @@ Four outcomes, and each means something different for you:
 create your credentials against it. This is the common case for the types your own
 team wrote, which are also the ones your playbooks actually depend on.
 
-**Already shipped.** A namespace The Pleiades ships itself: `ssh`, `vault`, `net`, `aws`,
-`controller` or `hcp_terraform`. Reuse it. Do not recreate it as a custom type: it
-would work at first and then silently stop tracking the shipped one when a later
-release corrects it.
+**Already shipped.** A namespace The Pleiades ships itself: `ssh`, `net`, `vault`,
+`aws`, `controller`, `hcp_terraform`, `scm`, `registry`, `hashivault_kv` or
+`kubernetes_bearer_token`. Reuse it. Do not recreate it as a custom type: it would
+work at first and then silently stop tracking the shipped one when a later release
+corrects it. `kubernetes_bearer_token` is one AWX builds in Python; The Pleiades
+reproduces its behaviour in code, with one deliberate difference described under
+[Kubernetes clusters](10-running-in-production.md#kubernetes-clusters). The
+Pleiades also ships one type AWX has no counterpart for,
+`pleiades_kubernetes_client_certificate`; a namespace beginning `pleiades_` is
+always this platform's own.
 
 **Not implemented.** A type AWX manages and The Pleiades does not, reported with the
-reason. Most are one of three things: AWX builds the type's environment in Python
+reason. Each is one of four things: AWX builds the type's environment in Python
 rather than in an injector document, so there is no document to import (`gce`,
-`azure_rm`, `openstack`, `vmware`, `kubernetes_bearer_token`, `terraform`); the
-document uses Jinja control flow, which this platform's renderer refuses rather than
-passing through as text (`insights`, `rhv`); or the type feeds a subsystem that does
-not exist here, such as project source-control sync, webhooks, execution-environment
-pulls or content signing (`scm`, `github_token`, `gitlab_token`,
-`bitbucket_dc_token`, `registry`, `galaxy_api_token`, `gpg_public_key`,
-`satellite6`).
+`azure_rm`, `openstack`, `terraform`); the document uses Jinja control flow, which
+this platform's renderer refuses rather than passing through as text (`insights`,
+`rhv`); the type feeds a subsystem that does not exist here, such as webhooks,
+collection installation, content signing or an inventory plugin, or reads a
+deployment-wide setting this platform has no surface for (`github_token`,
+`gitlab_token`, `bitbucket_dc_token`, `galaxy_api_token`, `gpg_public_key`,
+`satellite6`, `vmware`); or it is an external secret source declared as a lookup
+instead (`aws_secretsmanager`, `azure_kv`, `centrify_vault`, `conjur`,
+`hashivault_ssh`, `thycotic_dsv`, `thycotic_tss`).
 
 **Refused.** The type is malformed against its own schema, most often an injector
 template naming an input the type does not declare. This is a problem in the export

@@ -67,6 +67,8 @@ type credentialEntry struct {
 	// carries a private key, sealed only by a passphrase that may be stored
 	// in this same file. Phase 78d.
 	PFXEncrypted string `yaml:"pfx_encrypted,omitempty"`
+	// TokenEncrypted holds a bearer token. Phase 119c.
+	TokenEncrypted string `yaml:"token_encrypted,omitempty"`
 }
 
 // fileStore is the Store implementation backed by credentialsFileName
@@ -167,6 +169,13 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 			return Credential{}, fmt.Errorf("failed to decrypt bundle for device %s: %w", deviceName, err)
 		}
 		cred.PFXBase64 = string(bundle)
+	}
+	if entry.TokenEncrypted != "" {
+		token, err := s.decryptField(entry.TokenEncrypted)
+		if err != nil {
+			return Credential{}, fmt.Errorf("failed to decrypt token for device %s: %w", deviceName, err)
+		}
+		cred.Token = string(token)
 	}
 
 	return cred, nil

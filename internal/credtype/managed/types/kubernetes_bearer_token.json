@@ -1,0 +1,27 @@
+{
+  "name": "OpenShift or Kubernetes API Bearer Token",
+  "namespace": "kubernetes_bearer_token",
+  "kind": "kubernetes",
+  "managed": true,
+  "description": "A bearer token for one Kubernetes or OpenShift API server. On the native path it is the credential of the cluster whose api_server its host names, and of no other device; on the Ansible path it sets AWX's K8S_AUTH_* environment for kubernetes.core.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "host",
+        "label": "OpenShift or Kubernetes API Endpoint",
+        "type": "string",
+        "help_text": "The OpenShift or Kubernetes API Endpoint to authenticate with."
+      },
+      {"id": "bearer_token", "label": "API authentication bearer token", "type": "string", "secret": true},
+      {
+        "id": "verify_ssl",
+        "label": "Verify SSL",
+        "type": "boolean",
+        "help_text": "On unless set to false. With no certificate authority below, the server is checked against the system's roots; false turns checking off on the Ansible path only, since the native path checks every cluster."
+      },
+      {"id": "ssl_ca_cert", "label": "Certificate Authority data", "type": "string", "secret": true, "multiline": true}
+    ],
+    "required": ["host", "bearer_token"]
+  },
+  "injectors": {}
+}

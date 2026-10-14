@@ -148,10 +148,12 @@ var Root = Command{
 				{Name: "passphrase-stdin", Type: "bool", Default: "false", Doc: "read the private key's or the bundle's passphrase as one line on standard input"},
 				{Name: "generate", Type: "bool", Default: "false", Doc: "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "with --generate, replace a credential already stored for the device"},
+				{Name: "token-stdin", Type: "bool", Default: "false", Doc: "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster)"},
 			},
 			Examples: []string{
 				"pleiades add-credential web01 --username admin",
 				"pleiades add-credential win01 --certificate client.pem --key client.key",
+				"pleiades add-credential cluster1 --token-stdin < token",
 				"pleiades add-credential ubuntu-lab --username root --generate",
 			},
 		},
@@ -170,9 +172,25 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "import-kubeconfig",
+			Positional: "<device>",
+			Synopsis:   "make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "kubeconfig", Type: "string", Default: "", Doc: "the kubeconfig to read, or - for standard input; never a default location"},
+				{Name: "context", Type: "string", Default: "", Doc: "the context to import; the kubeconfig's current context when empty"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the connection settings and credential of a cluster already in the inventory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document"},
+			},
+			Examples: []string{
+				"pleiades import-kubeconfig desktop --kubeconfig ~/.kube/config --context docker-desktop",
+				"pleiades import-kubeconfig prod --kubeconfig prod.yaml --replace --json",
+			},
+		},
+		{
 			Name:       "onboard",
 			Positional: "<device>",
-			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, or the container engines a host runs",
+			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},

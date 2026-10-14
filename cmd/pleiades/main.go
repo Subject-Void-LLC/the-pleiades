@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
 )
 
 // commandFunc is one subcommand's entry point. It receives the arguments
@@ -28,6 +30,7 @@ var commands = map[string]commandFunc{
 	"set-host":                runSetHost,
 	"add-credential":          runAddCredential,
 	"add-registry-credential": runAddRegistryCredential,
+	"import-kubeconfig":       runImportKubeconfig,
 	"onboard":                 runOnboard,
 	"trust-host":              runTrustHost,
 	"validate":                runValidate,
@@ -58,6 +61,9 @@ func main() {
 // run contains everything main would otherwise do inline, so tests can
 // drive it without calling os.Exit.
 func run(args []string) int {
+	// client-go's own log, from a Kubernetes task or onboarding a cluster,
+	// through the CLI's masking (pkg/kubeapi.LogTo).
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
 	if len(args) == 0 {
 		printUsage()
 		return 2

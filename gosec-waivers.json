@@ -150,6 +150,24 @@
       "line": "53",
       "rule_id": "G117",
       "reason": "Owned by Phase 119b (registry credentials). encodeAuth marshals registry.AuthConfig, whose Password field is the registry account's secret, because that JSON, base64url-encoded, IS the Engine API's X-Registry-Auth header: the engine accepts a registry account in no other form. The value is built for one pull or push request, only for the registry the image reference names (RegistryAuth matches the credential's host against the image's own registry, so a runbook cannot send one registry's password to another, held by FuzzRegistryAuth), sent in that request's header to the engine over the session's guarded carrier, and never logged, stored, written to the host, or placed in an error. G117 is a heuristic over field names; marshaling this field is the function's purpose, not an accident of a struct that happens to hold one."
+    },
+    {
+      "file": "pkg/wire/dispatch.go",
+      "line": "131",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is the SecretClusterCAPEM constant, the string \"cluster_ca_pem\", and it is the NAME of a key in wire.DispatchPayload.Secrets, where a template's Kubernetes credential puts the authority it carries for a cluster whose record pins none. It holds no credential: the identifier begins with Secret because every key of that map does, which is the pattern G101 matches, exactly as for SecretPFXBase64 above it. The value under it is a public CA certificate, never a key."
+    },
+    {
+      "file": "pkg/awscloud/eks.go",
+      "line": "24",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 119c (EKS token minting). This is eksTokenPrefix, the fixed public string \"k8s-aws-v1.\" that begins every EKS bearer token, as EKS's authenticator and aws-iam-authenticator define it. It is a format marker, not a credential: the token itself is minted per session from the cluster's stored AWS key (EKSToken) and is never a literal in source. G101 matches the identifier's \"Token\"."
+    },
+    {
+      "file": "internal/credtype/kubernetes.go",
+      "line": "32",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is K8sAuthAPIKey, the string \"K8S_AUTH_API_KEY\": the NAME of the environment variable AWX's kubernetes_bearer_token injector sets for kubernetes.core, which the Ansible path sets to the bound token at dispatch. It holds no credential; G101 matches the \"APIKey\" in the identifier and the literal."
     }
   ]
 }

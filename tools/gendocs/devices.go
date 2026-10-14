@@ -10,7 +10,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory" // registers every built-in device type
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -107,6 +109,9 @@ func generateDevices(outDir string) error {
 		}
 		caps, marked := markConditional(d.TypeKey, names)
 		conditional = conditional || marked
+		if discovered := record.Discoverable(d.TypeKey); len(discovered) > 0 {
+			caps += "; discovered: " + quoteList(capabilityNames(discovered))
+		}
 		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "generated"})
 	}
 
@@ -173,8 +178,34 @@ func markConditional(typeKey string, capabilities []string) (string, bool) {
 // needs to build: an address. TestGenericDeviceRows fails if one is
 // missing, since a row would then not render.
 var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
-	generic.TypeHTTP: {generic.BaseURLProperty: "https://api.example.com"},
-	generic.TypeGRPC: {generic.GRPCTargetProperty: "grpc.example.com:443"},
+	generic.TypeHTTP:       {generic.BaseURLProperty: "https://api.example.com"},
+	generic.TypeGRPC:       {generic.GRPCTargetProperty: "grpc.example.com:443"},
+	kubernetes.TypeCluster: {kubernetes.APIServerProperty: "https://k8s.example.com:6443"},
+}
+
+// onboardedType is a device type that starts discovered and gains its
+// capabilities only through onboarding, rendered with the generic rows.
+type onboardedType struct {
+	typeKey, vendor string
+}
+
+// onboardedTypes are the generic types and the other types built the same
+// way: everything beyond a baseline is what onboarding proves.
+func onboardedTypes() []onboardedType {
+	var out []onboardedType
+	for _, t := range generic.Types() {
+		out = append(out, onboardedType{typeKey: t, vendor: "generic"})
+	}
+	return append(out, onboardedType{typeKey: kubernetes.TypeCluster, vendor: "kubernetes"})
+}
+
+// capabilityNames renders capability names as strings.
+func capabilityNames(names []capability.Name) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = string(n)
+	}
+	return out
 }
 
 // genericDeviceRows renders the generic types from their code: the
@@ -182,14 +213,15 @@ var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
 // then what onboarding may add (generic.Discoverable).
 func genericDeviceRows() ([][]string, error) {
 	var rows [][]string
-	for _, t := range generic.Types() {
+	for _, o := range onboardedTypes() {
+		t := o.typeKey
 		constructor, ok := record.LookupType(t)
 		if !ok {
-			return nil, fmt.Errorf("generic device type %s is not registered", t)
+			return nil, fmt.Errorf("onboarded device type %s is not registered", t)
 		}
 		item, err := constructor(record.Record{Name: t, Type: t, Properties: genericExampleProperties[t]})
 		if err != nil {
-			return nil, fmt.Errorf("generic device type %s: %w", t, err)
+			return nil, fmt.Errorf("onboarded device type %s: %w", t, err)
 		}
 		baseline := make([]string, 0, len(item.Capabilities()))
 		for _, c := range item.Capabilities() {
@@ -197,18 +229,15 @@ func genericDeviceRows() ([][]string, error) {
 		}
 		// Capabilities comes from a set; sorted so the page is stable.
 		sort.Strings(baseline)
-		discovered := []string{}
-		for _, c := range generic.Discoverable(t) {
-			discovered = append(discovered, string(c))
-		}
+		discovered := capabilityNames(record.Discoverable(t))
 		caps := quoteList(baseline) + "; discovered: " + quoteList(discovered)
-		rows = append(rows, []string{code(t), code("generic"), caps, "generic, discovered at onboarding"})
+		rows = append(rows, []string{code(t), code(o.vendor), caps, "discovered at onboarding"})
 	}
 	return rows, nil
 }
 
 // genericNote explains the generic rows.
-const genericNote = "A `generic` type's capabilities after \"discovered:\" are granted only by `pleiades onboard`, " +
+const genericNote = "A type's capabilities after \"discovered:\" are granted only by `pleiades onboard`, " +
 	"which probes the device over its protocol and records what the device's own answers prove; no inventory " +
 	"value, classification or sync plugin can grant one. Such a device starts `discovered`, which runs nothing, " +
 	"and becomes `active` when onboarding succeeds."

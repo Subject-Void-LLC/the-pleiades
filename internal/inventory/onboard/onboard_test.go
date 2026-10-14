@@ -89,7 +89,7 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 		t.Fatalf("a new device is %s holding HTTPAPICapable=%v, want discovered without it", before.State(), before.HasCapability(capability.NameHTTPAPI))
 	}
 
-	res, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup)
+	res, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup, options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 		t.Errorf("the discovery was written to hosts.yaml:\n%s", hosts)
 	}
 
-	again, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup)
+	again, err := onboardWith(ctx, repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "api-secret"}), fixedNow, Lookup, options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestOnboard_FailedProbeLeavesOnboarding(t *testing.T) {
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
 		devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
 	})
-	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "wrong"}), fixedNow, Lookup)
+	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "wrong"}), fixedNow, Lookup, options{})
 	if err == nil || !strings.Contains(res.Error, "refused the credential") {
 		t.Fatalf("err %v, result %+v", err, res)
 	}
@@ -188,7 +188,7 @@ func TestOnboard_LeavesAdministratorStatesAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := 0
-	if _, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls})); err == nil || calls != 0 {
+	if _, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls}), options{}); err == nil || calls != 0 {
 		t.Fatalf("err %v after %d probes, want a refusal before any", err, calls)
 	}
 }
@@ -199,7 +199,7 @@ func TestOnboard_ProberCannotGrantAForeignCapability(t *testing.T) {
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://api.invalid"})
 	calls := 0
 	p := countingProber{calls: &calls, grants: []capability.Name{capability.NameHTTPAPI, capability.NameApt}}
-	if _, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(p)); err == nil || !strings.Contains(err.Error(), "AptCapable") {
+	if _, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(p), options{}); err == nil || !strings.Contains(err.Error(), "AptCapable") {
 		t.Fatalf("err %v, want a refusal naming AptCapable", err)
 	}
 	item, _ := repo.GetByName(context.Background(), "api1")
@@ -215,12 +215,12 @@ func TestOnboard_ReprobeRecordsWhatChanged(t *testing.T) {
 	ctx := context.Background()
 	calls := 0
 	first := countingProber{calls: &calls, grants: []capability.Name{capability.NameHTTPAPI}, facts: map[string]any{"server": "one"}}
-	if _, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(first)); err != nil {
+	if _, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(first), options{}); err != nil {
 		t.Fatal(err)
 	}
 	second := first
 	second.facts = map[string]any{"server": "two"}
-	res, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(second))
+	res, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(second), options{})
 	if err != nil || !res.Changed || res.State != "active" {
 		t.Fatalf("err %v, result %+v", err, res)
 	}
@@ -257,7 +257,7 @@ func TestOnboard_DatabaseInventory(t *testing.T) {
 	}
 	calls := 0
 	p := countingProber{calls: &calls, grants: []capability.Name{capability.NameGRPC}, facts: map[string]any{"services": []any{"a.B"}, "health": "SERVING"}}
-	if _, err := onboardWith(ctx, repo, "grpc1", staticSecrets(nil), fixedNow, only(p)); err != nil {
+	if _, err := onboardWith(ctx, repo, "grpc1", staticSecrets(nil), fixedNow, only(p), options{}); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := repo.GetByName(ctx, "grpc1")
@@ -267,7 +267,7 @@ func TestOnboard_DatabaseInventory(t *testing.T) {
 	if stored.State() != inventory.StateActive || !stored.HasCapability(capability.NameGRPC) {
 		t.Fatalf("stored: %s, GRPCCapable=%v", stored.State(), stored.HasCapability(capability.NameGRPC))
 	}
-	again, err := onboardWith(ctx, repo, "grpc1", staticSecrets(nil), fixedNow, only(p))
+	again, err := onboardWith(ctx, repo, "grpc1", staticSecrets(nil), fixedNow, only(p), options{})
 	if err != nil || again.Changed {
 		t.Fatalf("re-probe: err %v, changed %v", err, again.Changed)
 	}

@@ -30,6 +30,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
@@ -678,9 +679,10 @@ func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
 		return nil
 	}
 	props := map[string]inventory.PropertyValue{
-		"host":                     "archtest.invalid",
-		generic.BaseURLProperty:    "https://archtest.invalid",
-		generic.GRPCTargetProperty: "archtest.invalid:443",
+		"host":                       "archtest.invalid",
+		generic.BaseURLProperty:      "https://archtest.invalid",
+		generic.GRPCTargetProperty:   "archtest.invalid:443",
+		kubernetes.APIServerProperty: "https://archtest.invalid",
 	}
 	// Bound to these very properties, as onboarding binds a discovery, so
 	// a type that binds its discovery (generic_http, generic_grpc) holds

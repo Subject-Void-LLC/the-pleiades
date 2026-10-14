@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
@@ -148,7 +149,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 
 		client, err := dial(ctx, addr, config)
 		if err != nil {
-			if authRejected(err) {
+			if authRejected(err) || hostKeyRefused(err) {
 				r.breaker.RecordSuccess(addr)
 				return nil, err
 			}
@@ -161,7 +162,9 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 	delay := func(attempt int) time.Duration {
 		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
 	}
-	retryable := func(err error) bool { return !errors.Is(err, breaker.ErrOpen) && !authRejected(err) }
+	retryable := func(err error) bool {
+		return !errors.Is(err, breaker.ErrOpen) && !authRejected(err) && !hostKeyRefused(err)
+	}
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
 }
@@ -180,4 +183,16 @@ const authRejectedText = "ssh: unable to authenticate"
 // it answered the connection and turned down every method offered.
 func authRejected(err error) bool {
 	return strings.Contains(err.Error(), authRejectedText)
+}
+
+// hostKeyRefused reports whether err is this side refusing the server's
+// host key: unknown to known_hosts, different from the key it names, or
+// revoked there. Like a refused credential it is an answer, not a network
+// failure, so it is neither retried (the key will not change between
+// attempts) nor counted against the address's circuit, where a stale
+// known_hosts entry would otherwise refuse every other task on the host.
+func hostKeyRefused(err error) bool {
+	var keyErr *knownhosts.KeyError
+	var revoked *knownhosts.RevokedError
+	return errors.As(err, &keyErr) || errors.As(err, &revoked)
 }

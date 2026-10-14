@@ -88,10 +88,13 @@ store an encrypted credential for a device
 | --passphrase-stdin | `bool` | `false` | read the private key's or the bundle's passphrase as one line on standard input |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
+| --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster) |
 
 `pleiades add-credential web01 --username admin`
 
 `pleiades add-credential win01 --certificate client.pem --key client.key`
+
+`pleiades add-credential cluster1 --token-stdin < token`
 
 `pleiades add-credential ubuntu-lab --username root --generate`
 
@@ -111,9 +114,27 @@ store an encrypted account for one container registry, given only to pulls and p
 
 `pleiades add-registry-credential registry.example.com:5000 --username deploy`
 
+## pleiades import-kubeconfig
+
+make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file
+
+`pleiades import-kubeconfig <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --kubeconfig | `string` | - | the kubeconfig to read, or - for standard input; never a default location |
+| --context | `string` | - | the context to import; the kubeconfig's current context when empty |
+| --replace | `bool` | `false` | replace the connection settings and credential of a cluster already in the inventory |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-kubeconfig desktop --kubeconfig ~/.kube/config --context docker-desktop`
+
+`pleiades import-kubeconfig prod --kubeconfig prod.yaml --replace --json`
+
 ## pleiades onboard
 
-probe a device over its protocol and record what it proved: a generic device's capabilities, or the container engines a host runs
+probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves
 
 `pleiades onboard <device> [flags]`
 

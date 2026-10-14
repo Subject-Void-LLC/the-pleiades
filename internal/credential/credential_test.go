@@ -108,9 +108,13 @@ func TestCredential_StringMarksACertificateSetButNotSecret(t *testing.T) {
 		CertificatePEM: []byte(body),
 		PrivateKeyPEM:  []byte("-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n"),
 		PFXBase64:      "MIIKzQIBAzCCCoc=",
+		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
 	}
 
 	got := cred.String()
+	if strings.Contains(got, cred.Token) {
+		t.Errorf("String() = %s, want the token redacted", got)
+	}
 	if !strings.Contains(got, "<set, not secret>") {
 		t.Errorf("String() = %s, want the certificate marked as set but not secret", got)
 	}

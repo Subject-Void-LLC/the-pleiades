@@ -120,6 +120,16 @@ const (
 	// which is the whole point of shipping the sealed bundle.
 	SecretPFXBase64 = "pfx_base64"
 
+	// SecretBearerToken is a bearer token: what a Kubernetes cluster's
+	// credential presents (a ServiceAccount token, or one an import kept),
+	// sent as an Authorization header and nowhere else.
+	SecretBearerToken = "bearer_token"
+
+	// SecretClusterCAPEM is the authority a template's Kubernetes credential
+	// carries (its ssl_ca_cert), for a cluster whose own record pins none.
+	// A record's pinned authority always wins over it.
+	SecretClusterCAPEM = "cluster_ca_pem"
+
 	// SecretSeedUsername, SecretSeedAuthorizedKey and SecretSeedPasswordHash
 	// are what a method whose manifest sets SeedsLogin receives about the
 	// device whose login it seeds into a machine it creates: the account
@@ -185,6 +195,12 @@ type DispatchPayload struct {
 	// either wins. Absent or false, every task logs in afresh, which is
 	// what a Controller that predates this field gets.
 	PersistConnections bool `json:"persist_connections,omitempty"`
+
+	// SharedDevice is whether many runs may work on this device at once
+	// (pkg/inventory.Shared: a Kubernetes cluster), so the Runner takes a
+	// shared lease on it rather than an exclusive one. Absent or false is
+	// exclusive, what a Controller that predates this field gets.
+	SharedDevice bool `json:"shared_device,omitempty"`
 
 	// Kind is the launch kind this dispatch is, which is what the Runner
 	// routes on to choose an execution adapter.

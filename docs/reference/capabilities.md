@@ -29,6 +29,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `GRPCCapable` | - | - |
 | `HTTPAPICapable` | - | - |
 | `JunosCapable` | `NetworkCLICapable` | - |
+| `KubernetesCapable` | - | - |
 | `LinuxCapable` | - | - |
 | `NetconfCapable` | - | - |
 | `NetworkAddressableCapable` | - | - |
@@ -52,7 +53,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-41 capabilities registered.
+42 capabilities registered.
 
 ## Transports
 
@@ -65,6 +66,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `engine_stdio` | `EngineStdioCapable` |
 | `engine_tls` | `EngineTLSCapable` |
 | `https` | `HTTPAPICapable`, `CatalystAPICapable` |
+| `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |
 | `winrm` | `WinRMCapable` |

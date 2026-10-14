@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // The kinds of refusal Onboard reports, so a caller (the API) can answer
@@ -38,6 +39,29 @@ var (
 // SecretsFunc resolves a device's own credential, flattened under the
 // wire.Secret* keys, or nil when none is stored.
 type SecretsFunc func(ctx context.Context, device inventory.InventoryItem) (map[string]string, error)
+
+// KubernetesLookup finds the credential for a cluster's API server where
+// the per-device store holds none (the Controller's credential store,
+// resolve.KubernetesSecrets): nil when there is none.
+type KubernetesLookup func(ctx context.Context, apiServer string) (map[string]string, error)
+
+// WithKubernetesFallback is primary, except that a Kubernetes cluster for
+// which primary has no credential is given the one lookup finds for its
+// API server. Any other device, and a cluster primary has a credential for,
+// is answered by primary alone.
+func WithKubernetesFallback(primary SecretsFunc, lookup KubernetesLookup) SecretsFunc {
+	return func(ctx context.Context, device inventory.InventoryItem) (map[string]string, error) {
+		secrets, err := primary(ctx, device)
+		if err != nil || secrets != nil {
+			return secrets, err
+		}
+		cluster, ok := device.(capability.KubernetesCapable)
+		if !ok {
+			return nil, nil
+		}
+		return lookup(ctx, cluster.KubeAPIServer())
+	}
+}
 
 // SecretsFrom resolves a device's credential from store by the device's
 // name, the same lookup a run makes, flattened under the wire.Secret*
@@ -108,13 +132,17 @@ var onboardable = []inventory.LifecycleState{
 // onboarding and an onboarded one as it was, with the reason in the
 // Result and the error. Re-onboarding an active device re-probes it and
 // writes only when what it proved changed.
-func Onboard(ctx context.Context, repo inv.Repository, name string, secrets SecretsFunc, now func() time.Time) (Result, error) {
-	return onboardWith(ctx, repo, name, secrets, now, Lookup)
+func Onboard(ctx context.Context, repo inv.Repository, name string, secrets SecretsFunc, now func() time.Time, opts ...Option) (Result, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return onboardWith(ctx, repo, name, secrets, now, Lookup, o)
 }
 
 // onboardWith is Onboard with the prober lookup passed in, so a test can
 // hand a prober settings (a test CA) the registered one does not have.
-func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets SecretsFunc, now func() time.Time, lookup func(string) (Prober, bool)) (Result, error) {
+func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets SecretsFunc, now func() time.Time, lookup func(string) (Prober, bool), o options) (Result, error) {
 	item, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return Result{Device: name}, err
@@ -145,7 +173,12 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if err != nil {
 		return fail(res, fmt.Errorf("resolving the credential for %s: %w", name, err))
 	}
-	probed, err := prober.Probe(ctx, item, creds)
+	var probed Probed
+	if pp, ok := prober.(PeerProber); ok {
+		probed, err = pp.ProbeWithPeers(ctx, item, creds, repoPeers{repo: repo, secrets: secrets, route: o.route})
+	} else {
+		probed, err = prober.Probe(ctx, item, creds)
+	}
 	if err != nil {
 		return fail(res, fmt.Errorf("%w: probing %s over %s: %w", ErrProbe, name, res.Protocol, err))
 	}
@@ -263,4 +296,52 @@ func diff(prev, next []capability.Name) (added, removed []string) {
 		}
 	}
 	return added, removed
+}
+
+// repoPeers is Peers over the inventory being onboarded and its credential
+// lookup.
+type repoPeers struct {
+	repo    inv.Repository
+	secrets SecretsFunc
+	route   RouteFunc
+}
+
+// Route returns a dialer through device's route, through the RouteFunc
+// onboarding was given (WithRoutes), or nil.
+func (p repoPeers) Route(ctx context.Context, device inventory.InventoryItem) (sdk.RouteDial, error) {
+	if p.route == nil {
+		return nil, nil
+	}
+	return p.route(ctx, device)
+}
+
+// RouteFunc resolves a device's route of SSH hops into a dialer, nil when
+// it has none.
+type RouteFunc func(ctx context.Context, device inventory.InventoryItem) (sdk.RouteDial, error)
+
+// Option configures one onboarding.
+type Option func(*options)
+
+// options are an onboarding's settings.
+type options struct {
+	route RouteFunc
+}
+
+// WithRoutes lets a prober reach a device through its route of SSH hops
+// (a cluster behind a bastion), resolved by route.
+func WithRoutes(route RouteFunc) Option {
+	return func(o *options) { o.route = route }
+}
+
+// Device returns the device named name and its own credential.
+func (p repoPeers) Device(ctx context.Context, name string) (inventory.InventoryItem, map[string]string, error) {
+	item, err := p.repo.GetByName(ctx, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	creds, err := p.secrets(ctx, item)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolving the credential for %s: %w", name, err)
+	}
+	return item, creds, nil
 }

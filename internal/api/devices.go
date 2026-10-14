@@ -81,6 +81,9 @@ type DeviceHandler struct {
 	factory   DeviceFactory
 	logger    *slog.Logger
 	onboarder Onboarder
+	// kubeconfigCredentials keeps what ImportKubeconfig imports; nil
+	// leaves the route refusing (WithKubeconfigImport).
+	kubeconfigCredentials KubeconfigCredentials
 }
 
 // NewDeviceHandler builds the device resource's handlers over repo.
@@ -487,6 +490,12 @@ const maxRequestBodyBytes = 64 << 10
 // not. A single JSON value is required, so trailing garbage after a valid
 // object is an error rather than data nobody reads.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeJSONWithin(w, r, dst, maxRequestBodyBytes)
+}
+
+// decodeJSONWithin is decodeJSON with a bound of its own, for the one body
+// that carries a document (a kubeconfig import) rather than a few fields.
+func decodeJSONWithin(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		if mediaType, _, err := mime.ParseMediaType(ct); err != nil || mediaType != "application/json" {
 			RespondError(w, r, http.StatusUnsupportedMediaType, "expected application/json")
@@ -494,7 +503,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		}
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
