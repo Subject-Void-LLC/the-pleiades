@@ -92,17 +92,15 @@ var Devices = []devicescaffold.Config{
 		// defect (FAILURE_PATTERNS.md #170): container.docker.run/stop/
 		// remove declared RequiredCapabilities: []capability.Name{
 		// capability.NameDocker} with zero device types able to satisfy
-		// it. It carries SSHTransportCapable because those three methods
-		// reach the Docker daemon through sdk.Connect's plain SSH session
-		// (internal/catalog/container/docker's own package doc explains
-		// why), DockerCapable for the capability the catalog actually
-		// requires, and NetworkAddressableCapable for the same reason
-		// every other network-reachable device type here now does.
+		// it. Its baseline is the SSH login and its address, which the
+		// record states. DockerCapable and the engine reach capabilities
+		// are not baseline since Phase 119a: onboarding grants them under
+		// the type's record.DiscoveryRules, because a typed socket path let
+		// a record aim a task at any socket on the machine running it.
 		Vendor:  "container",
 		TypeKey: "container_host",
 		Capabilities: []capability.Name{
 			capability.NameSSHTransport,
-			capability.NameDocker,
 			capability.NameNetworkAddressable,
 		},
 	},

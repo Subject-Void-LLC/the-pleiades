@@ -124,14 +124,42 @@ func envParam(params map[string]any) (map[string]string, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s[%s] is %T, not a string: quote it in the runbook", paramEnv, k, v)
 		}
+		if err := checkEnvEntry(k, s); err != nil {
+			return nil, fmt.Errorf("%s: %w", paramEnv, err)
+		}
 		out[k] = s
 	}
 	return out, nil
 }
 
-// dockerRunArgs builds a fresh container's full docker run invocation.
-// -d always: this platform has no interactive session to attach one to.
-func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) []string {
+// checkEnvEntry refuses a name or value docker's env-file format cannot
+// carry exactly. The values travel as an env file on standard input (see
+// dockerRunArgs), one NAME=value per line, where docker skips a line
+// starting with "#" and refuses a name holding whitespace, so a name that
+// is empty, starts with "#", or holds whitespace, "=" or a NUL byte, and a
+// value holding a line break or a NUL byte, would arrive as something other
+// than what the runbook wrote.
+func checkEnvEntry(name, value string) error {
+	if name == "" || strings.HasPrefix(name, "#") || strings.ContainsAny(name, "= \t\r\n\v\f\x00") {
+		return fmt.Errorf("variable name %q is empty, starts with #, or holds whitespace, = or a NUL byte", name)
+	}
+	if strings.ContainsAny(value, "\r\n\x00") {
+		return fmt.Errorf("the value of %s holds a line break or a NUL byte, which an env file cannot carry", name)
+	}
+	return nil
+}
+
+// dockerRunArgs builds a fresh container's full docker run invocation and
+// the standard input it reads. -d always: this platform has no interactive
+// session to attach one to.
+//
+// Environment values never go on the command line. Until Phase 119a they
+// went as -e NAME=value, where any user on the host could read them with
+// ps while the command ran, and where a failed run quoted them back in its
+// error (finding S2). They go as an env file on standard input instead
+// (--env-file /dev/stdin), which the docker CLI reads before it creates the
+// container; entries checkEnvEntry refused never reach here.
+func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) (argv []string, stdin string) {
 	args := []string{"docker", "run", "-d", "--name", name}
 	for _, p := range ports {
 		args = append(args, "-p", p)
@@ -139,26 +167,40 @@ func dockerRunArgs(name, image string, command, ports, volumes []string, env map
 	for _, v := range volumes {
 		args = append(args, "-v", v)
 	}
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		args = append(args, "-e", k+"="+env[k])
+	if len(env) > 0 {
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var file strings.Builder
+		for _, k := range keys {
+			file.WriteString(k)
+			file.WriteByte('=')
+			file.WriteString(env[k])
+			file.WriteByte('\n')
+		}
+		args = append(args, "--env-file", "/dev/stdin")
+		stdin = file.String()
 	}
 	if restartPolicy != "" {
 		args = append(args, "--restart", restartPolicy)
 	}
 	args = append(args, image)
-	return append(args, command...)
+	return append(args, command...), stdin
 }
 
 // runDockerCmd runs one docker invocation and treats a non-zero exit as
 // a real error.
 func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) error {
+	return runDockerCmdWithStdin(ctx, conn, argv, "")
+}
+
+// runDockerCmdWithStdin is runDockerCmd with stdin piped to the command.
+// The error quotes argv, which is why nothing secret may be in it.
+func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) error {
 	command := remoteexec.QuoteCommand(argv)
-	result, err := conn.Run(ctx, command)
+	result, err := conn.RunWithStdin(ctx, command, strings.NewReader(stdin))
 	if err != nil {
 		return err
 	}

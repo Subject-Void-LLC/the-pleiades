@@ -4,9 +4,11 @@
 package generic_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -242,8 +244,14 @@ func TestAccessors(t *testing.T) {
 	if _, err := buildWith(t, generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: ":443"}, nil); err == nil {
 		t.Error("a target with no host was accepted")
 	}
-	if generic.Discoverable("linux_server") != nil {
-		t.Error("a vendor type has discoverable capabilities")
+	// A vendor type's capabilities come from its Go type, except the
+	// container engines a linux_server runs, which only onboarding proves
+	// (Phase 119b); a vendor type with no engines has nothing discoverable.
+	if got := generic.Discoverable("linux_server"); !slices.Equal(got, engines.SSHGrants) {
+		t.Errorf("linux_server's discoverable capabilities = %v, want its engines alone", got)
+	}
+	if generic.Discoverable("cisco_router") != nil {
+		t.Error("a vendor type with no engine has discoverable capabilities")
 	}
 }
 

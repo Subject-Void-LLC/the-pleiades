@@ -75,7 +75,7 @@ func TestCLI_OnboardGenericSSH(t *testing.T) {
 }
 
 // TestCLI_OnboardRefusals: add-host cannot write the discovery, and a
-// vendor type is not onboarded.
+// device type with no prober is not onboarded.
 func TestCLI_OnboardRefusals(t *testing.T) {
 	dir := t.TempDir()
 	if out, err := runPleiades(t, dir, "init"); err != nil {
@@ -85,10 +85,12 @@ func TestCLI_OnboardRefusals(t *testing.T) {
 	if err == nil || !strings.Contains(out, "discovered") {
 		t.Fatalf("add-host wrote the discovery: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "add-host", "web1", "--type", "linux_server", "--set", "host=10.0.0.2"); err != nil {
+	// A vendor type with no prober is refused, naming the types that have
+	// one. (linux_server gained a prober in Phase 119b, for its engines.)
+	if out, err := runPleiades(t, dir, "add-host", "rtr1", "--type", "cisco_router", "--set", "host=10.0.0.2"); err != nil {
 		t.Fatalf("add-host: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "onboard", "web1"); err == nil || !strings.Contains(out, "generic") {
-		t.Fatalf("a vendor type was onboarded: %v\n%s", err, out)
+	if out, err := runPleiades(t, dir, "onboard", "rtr1"); err == nil || !strings.Contains(out, "no prober") || !strings.Contains(out, "generic_ssh") {
+		t.Fatalf("a type with no prober was onboarded, or refused without naming the onboardable types: %v\n%s", err, out)
 	}
 }

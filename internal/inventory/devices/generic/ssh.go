@@ -27,7 +27,7 @@ type SSH struct {
 
 // NewSSH builds a generic_ssh device from rec.
 func NewSSH(rec record.Record) (inventory.InventoryItem, error) {
-	caps, _, err := declared(TypeSSH, rec, []capability.Name{
+	caps, _, err := record.Declared(TypeSSH, rec, []capability.Name{
 		capability.NameSSHTransport,
 		capability.NameCommandExec,
 		capability.NameNetworkAddressable,
@@ -35,7 +35,7 @@ func NewSSH(rec record.Record) (inventory.InventoryItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SSH{Server: &linux.Server{Base: record.NewBase(rec, caps)}}, nil
+	return &SSH{Server: linux.NewFromBase(record.NewBase(rec, caps))}, nil
 }
 
 // HasCapability checks the declared set AND the structural assertion
@@ -50,7 +50,7 @@ func (s *SSH) KernelVersion() string {
 	if v := s.Server.KernelVersion(); v != "" {
 		return v
 	}
-	return discoveredFact(s.Properties(), "kernel_release")
+	return record.DiscoveredFact(s.Properties(), "kernel_release")
 }
 
 // Distribution returns the distribution onboarding read from os-release,
@@ -59,5 +59,5 @@ func (s *SSH) Distribution() string {
 	if v := s.Server.Distribution(); v != "" {
 		return v
 	}
-	return discoveredFact(s.Properties(), "os_id")
+	return record.DiscoveredFact(s.Properties(), "os_id")
 }

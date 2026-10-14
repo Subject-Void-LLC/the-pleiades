@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // The injection strategies: one Target per thing a credential can produce.
@@ -89,6 +90,7 @@ func init() {
 	targets.MustRegister("env", envTarget{})
 	targets.MustRegister("extra_vars", extraVarsTarget{})
 	targets.MustRegister("machine", machineTarget{})
+	targets.MustRegister("registry", registryTarget{})
 }
 
 // orderedTargets returns every registered Target in a deterministic
@@ -566,4 +568,44 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// registryTarget turns a container registry credential into the value an
+// engine session presents for one registry (wire.RegistryCredential). Like
+// machineTarget it is code rather than data: its output is a Go value a
+// Collection method asks its run for (sdk.RegistryCredentials), never an
+// environment variable, so nothing but the method that pulls from that
+// registry ever holds it.
+type registryTarget struct{}
+
+func (registryTarget) Key() string  { return "registry" }
+func (registryTarget) Phase() Phase { return PhaseValues }
+
+// The input ids a registry credential type declares, AWX's own.
+const (
+	// RegistryInputHost names the registry.
+	RegistryInputHost = "host"
+	// RegistryInputUsername is the registry account.
+	RegistryInputUsername = "username"
+	// RegistryInputPassword is its password or token.
+	RegistryInputPassword = "password"
+)
+
+// Apply maps a registry kind's inputs onto the artifact's one registry
+// credential.
+func (registryTarget) Apply(req Request, art *Artifact) error {
+	cred := req.Credential
+	if cred.Type.Kind != KindRegistry {
+		return nil
+	}
+	host := strings.TrimSpace(cred.Inputs[RegistryInputHost])
+	if host == "" {
+		return fmt.Errorf("%w: credential %q: a registry credential needs its host", ErrInjection, cred.Name)
+	}
+	art.registry = &wire.RegistryCredential{
+		Host:     wire.RegistryHost(host),
+		Username: cred.Inputs[RegistryInputUsername],
+		Password: cred.Inputs[RegistryInputPassword],
+	}
+	return nil
 }

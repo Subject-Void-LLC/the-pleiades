@@ -38,6 +38,10 @@ const credentialsFileName = "credentials.yaml"
 //	    passphrase_encrypted: "base64ciphertext..."
 type credentialsDocument struct {
 	Devices map[string]credentialEntry `yaml:"devices"`
+	// Registries holds container registry accounts, keyed by registry host
+	// (wire.RegistryHost). It is a namespace of its own: no device name can
+	// reach an entry here, and no registry host can reach a device's.
+	Registries map[string]credentialEntry `yaml:"registries,omitempty"`
 }
 
 // credentialEntry is one device's stored credential. Username is stored

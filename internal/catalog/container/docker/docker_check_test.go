@@ -133,6 +133,7 @@ func TestChecks_AgainstRealDocker(t *testing.T) {
 		"name":                          name,
 		"image":                         testsupport.NATSImage,
 		"command":                       []any{"sleep", "300"},
+		"env":                           map[string]any{"PLEIADES_CHECK": "from stdin, with spaces"},
 	}
 
 	// step checks fqcn from the container's current state, runs it for
@@ -169,6 +170,16 @@ func TestChecks_AgainstRealDocker(t *testing.T) {
 	}
 
 	step("container.docker.run", true)
+	// The environment went to the real docker CLI as an env file on
+	// standard input, not on its command line (finding S2), and the
+	// container holds it exactly as the runbook wrote it.
+	out, err := exec.Command("docker", "inspect", "--format", "{{json .Config.Env}}", name).Output() // #nosec G204 -- a name this test made
+	if err != nil {
+		t.Fatalf("docker inspect: %v", err)
+	}
+	if !strings.Contains(string(out), `"PLEIADES_CHECK=from stdin, with spaces"`) {
+		t.Errorf("the container's environment is %s, want it to hold PLEIADES_CHECK as written", out)
+	}
 	step("container.docker.run", false)
 
 	// A running container without force: the check declines, and the real

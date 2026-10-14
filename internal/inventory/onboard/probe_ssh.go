@@ -61,11 +61,25 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 		return Probed{}, err
 	}
 	target := remoteexec.Target{Host: dev.SSHHost(), Port: dev.SSHPort()}
-	res, err := remoteexec.Shared(remoteexec.Options{}).Run(ctx, nil, target, auth, sshProbeScript)
+	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, target, auth)
 	if err != nil {
 		return Probed{}, err
 	}
-	return parseSSHProbe(res.Stdout), nil
+	defer func() { _ = conn.Close() }()
+	res, err := conn.Run(ctx, sshProbeScript)
+	if err != nil {
+		return Probed{}, err
+	}
+	probed := parseSSHProbe(res.Stdout)
+	if !strings.Contains(res.Stdout, "pleiades-probe=1") {
+		// Not a POSIX shell (a router's command line): no engine to look for.
+		return probed, nil
+	}
+	found, login, _, err := probeRemoteEngines(ctx, conn)
+	if err != nil {
+		return Probed{}, err
+	}
+	return merge(probed, engineProbed(found, login.user)), nil
 }
 
 // parseSSHProbe maps the probe script's output to capabilities. Only the

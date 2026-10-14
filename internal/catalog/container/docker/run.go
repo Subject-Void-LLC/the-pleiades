@@ -135,7 +135,8 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	changed := false
 	after := before
 	if !before.exists {
-		if err := runDockerCmd(ctx, conn, dockerRunArgs(name, image, command, ports, volumes, env, restartPolicy)); err != nil {
+		argv, stdin := dockerRunArgs(name, image, command, ports, volumes, env, restartPolicy)
+		if err := runDockerCmdWithStdin(ctx, conn, argv, stdin); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true

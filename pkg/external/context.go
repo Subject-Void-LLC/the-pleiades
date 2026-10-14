@@ -6,6 +6,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // RunbookContext is the sdk.RunbookContext a child process hands to the
@@ -35,11 +36,16 @@ type RunbookContext struct {
 	// InvokeRequestWithPool). It holds no secret: a pooled connection
 	// keeps only a keyed digest of the credential it logged in with.
 	pool *remoteexec.Pool
+	// registry is the dispatch's container registry credential, given to a
+	// method only for its own host (RegistryCredential). The Runner sets it
+	// for its own built-in methods; an external program never receives one.
+	registry *wire.RegistryCredential
 }
 
 var (
-	_ sdk.RunbookContext   = (*RunbookContext)(nil)
-	_ sdk.ConnectionPooler = (*RunbookContext)(nil)
+	_ sdk.RunbookContext      = (*RunbookContext)(nil)
+	_ sdk.ConnectionPooler    = (*RunbookContext)(nil)
+	_ sdk.RegistryCredentials = (*RunbookContext)(nil)
 )
 
 // ConnectionPool implements sdk.ConnectionPooler: the pool this call's
@@ -108,4 +114,11 @@ func (c *RunbookContext) Zero() {
 		}
 		delete(c.secrets, k)
 	}
+}
+
+// RegistryCredential implements sdk.RegistryCredentials.
+func (c *RunbookContext) RegistryCredential(host string) (string, string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.registry.For(host)
 }

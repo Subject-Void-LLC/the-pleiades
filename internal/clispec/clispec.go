@@ -156,9 +156,23 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "add-registry-credential",
+			Positional: "<registry host>",
+			Synopsis:   "store an encrypted account for one container registry, given only to pulls and pushes on that registry",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "username", Type: "string", Default: "", Doc: "the registry account"},
+				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password or token as one line on standard input"},
+			},
+			Examples: []string{
+				"pleiades add-registry-credential ghcr.io --username octocat --password-stdin",
+				"pleiades add-registry-credential registry.example.com:5000 --username deploy",
+			},
+		},
+		{
 			Name:       "onboard",
 			Positional: "<device>",
-			Synopsis:   "probe a generic device over its protocol and record what it proved",
+			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, or the container engines a host runs",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},

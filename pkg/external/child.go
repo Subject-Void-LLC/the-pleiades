@@ -133,6 +133,7 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 	}
 
 	rc := NewRunbookContext(req.Secrets)
+	rc.registry = req.Registry
 	rc.pool = pool
 	// PLAN.md Section 17.5: zero the secret memory this process holds the
 	// instant after use, success or failure. Best-effort against this

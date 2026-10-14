@@ -95,9 +95,25 @@ store an encrypted credential for a device
 
 `pleiades add-credential ubuntu-lab --username root --generate`
 
+## pleiades add-registry-credential
+
+store an encrypted account for one container registry, given only to pulls and pushes on that registry
+
+`pleiades add-registry-credential <registry host> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --username | `string` | - | the registry account |
+| --password-stdin | `bool` | `false` | read the password or token as one line on standard input |
+
+`pleiades add-registry-credential ghcr.io --username octocat --password-stdin`
+
+`pleiades add-registry-credential registry.example.com:5000 --username deploy`
+
 ## pleiades onboard
 
-probe a generic device over its protocol and record what it proved
+probe a device over its protocol and record what it proved: a generic device's capabilities, or the container engines a host runs
 
 `pleiades onboard <device> [flags]`
 

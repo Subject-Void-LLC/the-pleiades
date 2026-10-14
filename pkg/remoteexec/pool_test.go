@@ -156,12 +156,13 @@ func TestPool_TaintedConnectionIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proc, err := conn.Start(context.Background(), "true")
+	// A process closed without any Wait seeing it exit may still be
+	// running on the far side, so its connection is not lent again.
+	proc, err := conn.Start(context.Background(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = proc.CloseWrite()
-	_, _ = proc.Wait()
+	_ = proc.Close()
 	_ = conn.Close()
 	waitFor(t, "the process's connection to close", func() bool { return srv.Live() == 0 })
 
@@ -180,6 +181,46 @@ func TestPool_TaintedConnectionIsClosed(t *testing.T) {
 	task(t, p, r, "web1", srv)
 	if got := srv.Logins(); got != 3 {
 		t.Fatalf("%d logins, want 3: each tainted connection replaced", got)
+	}
+}
+
+// TestPool_AProcessSeenToExitKeepsTheLogin proves a connection whose every
+// streamed process a Wait saw exit goes back to the Pool: nothing of the
+// process is left on it, so the next task reuses the login. A container
+// engine's dial-stdio carrier starts one such process per request, and
+// would otherwise log in again for every task.
+func TestPool_AProcessSeenToExitKeepsTheLogin(t *testing.T) {
+	srv := startPoolServer(t)
+	r := New(Options{InsecureSkipHostKeyVerify: true})
+	p := NewPool(0)
+	t.Cleanup(func() { _ = p.Close() })
+	auth := PasswordAuth(srv.Username, srv.Password)
+
+	conn, err := p.Connect(context.Background(), r, "web1", target(srv), auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		proc, err := conn.Start(context.Background(), "cat")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := proc.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+		_ = proc.CloseWrite()
+		buf := make([]byte, 8)
+		_, _ = proc.Read(buf)
+		if code, err := proc.Wait(); err != nil || code != 0 {
+			t.Fatalf("Wait = %d, %v", code, err)
+		}
+		_ = proc.Close()
+	}
+	_ = conn.Close()
+
+	task(t, p, r, "web1", srv)
+	if got := srv.Logins(); got != 1 {
+		t.Fatalf("%d logins, want 1: a connection whose processes all exited is lent again", got)
 	}
 }
 

@@ -2,7 +2,8 @@
 // process, that hands every command it receives to a real POSIX shell on
 // the local machine, and also genuinely forwards a direct-tcpip channel
 // to whatever real destination the client asks for, so this same Server
-// doubles as a bastion.
+// doubles as a bastion, and a direct-streamlocal channel to a Unix socket
+// on this machine, as OpenSSH's sshd does.
 //
 // Neither half of that is a mock. The SSH side is
 // golang.org/x/crypto/ssh doing a genuine key exchange, a genuine
@@ -386,8 +387,15 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, 
 				serveDirectTCPIP(newChannel)
 			}()
 
+		case "direct-streamlocal@openssh.com":
+			sessions.Add(1)
+			go func() {
+				defer sessions.Done()
+				serveDirectStreamLocal(newChannel)
+			}()
+
 		default:
-			_ = newChannel.Reject(cryptossh.UnknownChannelType, "only session and direct-tcpip channels supported")
+			_ = newChannel.Reject(cryptossh.UnknownChannelType, "only session, direct-tcpip and direct-streamlocal channels supported")
 		}
 	}
 }
@@ -438,6 +446,39 @@ func serveDirectTCPIP(newChannel cryptossh.NewChannel) {
 	forwardDirectTCPIP(channel, conn)
 }
 
+// directStreamLocalPayload is OpenSSH's direct-streamlocal@openssh.com
+// channel open payload (its PROTOCOL file, section 2.4): the socket path,
+// then a reserved string and a reserved integer.
+type directStreamLocalPayload struct {
+	SocketPath string
+	Reserved0  string
+	Reserved1  uint32
+}
+
+// serveDirectStreamLocal forwards a channel to the Unix socket the client
+// names on this machine, dialing it before accepting and answering a
+// failure as OpenSSH does, "connect failed", so a client sees the same
+// refusal it would from a real sshd.
+func serveDirectStreamLocal(newChannel cryptossh.NewChannel) {
+	var payload directStreamLocalPayload
+	if err := cryptossh.Unmarshal(newChannel.ExtraData(), &payload); err != nil {
+		_ = newChannel.Reject(cryptossh.ConnectionFailed, "malformed direct-streamlocal payload")
+		return
+	}
+	conn, err := net.Dial("unix", payload.SocketPath)
+	if err != nil {
+		_ = newChannel.Reject(cryptossh.ConnectionFailed, "open failed")
+		return
+	}
+	channel, requests, err := newChannel.Accept()
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	go cryptossh.DiscardRequests(requests)
+	forwardDirectTCPIP(channel, conn)
+}
+
 // forwardDirectTCPIP genuinely forwards channel to conn, an
 // already-dialed real TCP connection to the requested destination: real
 // bytes cross a real SSH channel to a real second listener, not a mock
@@ -457,6 +498,11 @@ func forwardDirectTCPIP(channel cryptossh.Channel, conn net.Conn) {
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(channel, conn)
+		// The destination ended its side: tell the client, as OpenSSH's
+		// sshd does with a channel EOF, so a client reading to the end of
+		// the stream sees it end rather than waiting on a channel that is
+		// only half finished.
+		_ = channel.CloseWrite()
 	}()
 	wg.Wait()
 }

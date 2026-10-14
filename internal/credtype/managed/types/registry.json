@@ -1,0 +1,23 @@
+{
+  "name": "Container Registry",
+  "namespace": "registry",
+  "kind": "registry",
+  "managed": true,
+  "description": "An account on one container registry, for pulling and pushing images. It is sent only to the registry its host names.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "host",
+        "label": "Authentication URL",
+        "type": "string",
+        "default": "quay.io",
+        "help_text": "The registry this account belongs to, such as ghcr.io or registry.example.com:5000; docker.io for Docker Hub. A pull or push from any other registry does not receive it."
+      },
+      {"id": "username", "label": "Username", "type": "string"},
+      {"id": "password", "label": "Password or Token", "type": "string", "secret": true},
+      {"id": "verify_ssl", "label": "Verify SSL", "type": "boolean"}
+    ],
+    "required": ["host"]
+  },
+  "injectors": {}
+}

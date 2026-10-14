@@ -371,6 +371,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/runner \
 	github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy \
+	github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/internal/backup \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
@@ -383,6 +384,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
 	github.com/Subject-Void-LLC/the-pleiades/internal/event \
+	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \
 	github.com/Subject-Void-LLC/the-pleiades/internal/keyregistry \

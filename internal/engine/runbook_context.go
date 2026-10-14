@@ -36,14 +36,20 @@ type runbookContext struct {
 	// pool (sdk.ConnectionPooler). The Collection executor sets it only
 	// for a device whose connections persist; see WithConnectionPool.
 	pool *remoteexec.Pool
+
+	// registries, when set, answers a method's request for the account of
+	// one container registry (sdk.RegistryCredentials), from the project's
+	// credential store, for the host the method names and no other.
+	registries credential.RegistryStore
 }
 
 // compile-time proof this satisfies both the SDK contract and the engine's
 // own fact-collection interface.
 var (
-	_ sdk.RunbookContext   = (*runbookContext)(nil)
-	_ FactCollector        = (*runbookContext)(nil)
-	_ sdk.ConnectionPooler = (*runbookContext)(nil)
+	_ sdk.RunbookContext      = (*runbookContext)(nil)
+	_ FactCollector           = (*runbookContext)(nil)
+	_ sdk.ConnectionPooler    = (*runbookContext)(nil)
+	_ sdk.RegistryCredentials = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.
@@ -159,18 +165,48 @@ func NewDeviceRunbookContext(_ context.Context, _ inventory.InventoryItem) (sdk.
 // look alike.
 func NewCredentialRunbookContext(store credential.Store) RunbookContextFunc {
 	return func(ctx context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
-		if store == nil || device == nil {
+		if store == nil {
 			return NewRunbookContext(nil), nil
+		}
+		if device == nil {
+			return withRegistries(NewRunbookContext(nil), store), nil
 		}
 
 		cred, err := store.Lookup(ctx, device.Name())
 		switch {
 		case errors.Is(err, credential.ErrNotFound):
-			return NewRunbookContext(nil), nil
+			return withRegistries(NewRunbookContext(nil), store), nil
 		case err != nil:
 			return nil, fmt.Errorf("resolve credential for device %q: %w", device.Name(), err)
 		}
 
-		return NewRunbookContext(credential.Flatten(cred)), nil
+		return withRegistries(NewRunbookContext(credential.Flatten(cred)), store), nil
 	}
+}
+
+// withRegistries lets rc answer for container registries from store, when
+// the store keeps them.
+func withRegistries(rc sdk.RunbookContext, store credential.Store) sdk.RunbookContext {
+	c, ok := rc.(*runbookContext)
+	if !ok {
+		return rc
+	}
+	if rs, ok := store.(credential.RegistryStore); ok {
+		c.registries = rs
+	}
+	return c
+}
+
+// RegistryCredential implements sdk.RegistryCredentials. A store that
+// cannot be read answers false, and the registry's own refusal of an
+// anonymous pull then says what was missing.
+func (c *runbookContext) RegistryCredential(host string) (string, string, bool) {
+	if c.registries == nil {
+		return "", "", false
+	}
+	user, password, ok, err := c.registries.LookupRegistry(context.Background(), host)
+	if err != nil || !ok {
+		return "", "", false
+	}
+	return user, password, true
 }

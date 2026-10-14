@@ -57,7 +57,7 @@ func NewHTTP(rec record.Record) (inventory.InventoryItem, error) {
 	if err := validateOpenAPIPath(props); err != nil {
 		return nil, fmt.Errorf("%s %s: %w", TypeHTTP, rec.Name, err)
 	}
-	caps, stale, err := declared(TypeHTTP, rec, []capability.Name{capability.NameNetworkAddressable})
+	caps, stale, err := record.Declared(TypeHTTP, rec, []capability.Name{capability.NameNetworkAddressable})
 	if err != nil {
 		return nil, err
 	}

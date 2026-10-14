@@ -4,40 +4,65 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	dockermod "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
-// This file is the RULE 0 evidence for "container.docker.exec", against
-// a real, in-process fake Docker daemon speaking real HTTP over a real
-// Unix socket -- the same discipline pkg/dockerexec's own fake-daemon
-// suite already establishes one layer down. There is no safe way to run
-// a real Docker daemon in a test process (the same reason
-// docker_test.go's own harness fakes the docker CLI for run/stop/remove
-// via SSH instead), but the exec-attach wire protocol itself is real and
-// worth proving through this method's own Invoke, not just through
-// pkg/dockerexec.Exec directly, the same reasoning
+// This file proves "container.docker.exec"'s own branches against an
+// in-process fake engine speaking real HTTP over a real Unix socket, the
+// way a real engine answers (a ping, then 101 and a framed stream for the
+// exec start). The real engine is the release gates' job:
+// cmd/pleiades/container_release_gate_test.go and internal/adapters/native's
+// container exec test run this method against Docker behind a real sshd.
+// The method is still worth proving through its own Invoke, not only
+// through pkg/containerengine's Exec, the same reasoning
 // internal/transport/serial and internal/transport/serialtcp's own
 // backfilled adapter tests (FAILURE_PATTERNS.md #173) already apply: a
 // thin caller still has its own branches (the capability type assertion,
 // the stat recording, the non-zero-exit error path).
 
-// dockerDevice wraps inventorytest.Stub with the one accessor
-// capability.DockerCapable requires.
+// engineUnderTest is the identity the fake daemon reports and the test
+// device says onboarding pinned.
+const engineUnderTest = "engine-under-test"
+
+// dockerDevice wraps inventorytest.Stub with the accessors
+// capability.DockerCapable and capability.EngineLocalCapable require: a
+// device whose engine this machine reaches through its own socket, as
+// onboarding would have proved for a host-less container_host.
 type dockerDevice struct {
 	*inventorytest.Stub
 	socket capability.SocketAddress
+	id     capability.EngineID
+	user   string
 }
 
+func (d *dockerDevice) ContainerEngines() []capability.EngineKind {
+	return []capability.EngineKind{capability.EngineDocker}
+}
 func (d *dockerDevice) DockerEndpoint() capability.SocketAddress { return d.socket }
+func (d *dockerDevice) EngineSocket(capability.EngineKind) capability.SocketAddress {
+	return d.socket
+}
+func (d *dockerDevice) EngineID(capability.EngineKind) capability.EngineID { return d.id }
+func (d *dockerDevice) EngineCarriers(capability.EngineKind) []capability.Carrier {
+	return []capability.Carrier{capability.CarrierLocal}
+}
+
+// EngineLoginUser is the account this test runs as, which is who onboarding
+// on this machine would have recorded.
+func (d *dockerDevice) EngineLoginUser() string { return d.user }
 
 // shortTempDir returns a fresh temporary directory, removed when the test
 // ends, whose path is short enough to hold a Unix socket.
@@ -74,9 +99,15 @@ func newDockerDevice(t *testing.T, mux *http.ServeMux) inventory.InventoryItem {
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 
+	who, err := containerengine.LocalUser()
+	if err != nil {
+		t.Fatalf("LocalUser: %v", err)
+	}
 	return &dockerDevice{
-		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameDocker}},
+		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameContainerEngine, capability.NameDocker, capability.NameEngineLocal}},
 		socket: capability.SocketAddress(sockPath),
+		id:     engineUnderTest,
+		user:   who,
 	}
 }
 
@@ -90,38 +121,73 @@ func writeExecFrame(w *bufio.Writer, streamType byte, payload []byte) {
 	_, _ = w.Write(payload)
 }
 
-// execFakeDaemon builds the standard three-endpoint fake daemon mux for
-// a successful exec, reporting exitCode and echoing back stdout/stderr.
-func execFakeDaemon(t *testing.T, stdout, stderr string, exitCode int) *http.ServeMux {
-	t.Helper()
+// versionPrefix is the API version segment a client puts in front of every
+// path but the ping.
+var versionPrefix = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
+
+// fakeEngine serves what a real engine does before any operation: the ping
+// that fixes the API version, answered with apiVersion, and the identity
+// read, answered with engineUnderTest. Every other request goes to route
+// with its version prefix removed.
+func fakeEngine(apiVersion string, route func(w http.ResponseWriter, r *http.Request, path string)) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1.43/containers/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"Id": "execabc123"})
-	})
-	mux.HandleFunc("/v1.43/exec/execabc123/start", func(w http.ResponseWriter, r *http.Request) {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			t.Fatal("test server's ResponseWriter does not support Hijack")
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := versionPrefix.ReplaceAllString(r.URL.Path, "")
+		switch path {
+		case "/_ping":
+			w.Header().Set("API-Version", apiVersion)
+			_, _ = w.Write([]byte("OK"))
+		case "/info":
+			_ = json.NewEncoder(w).Encode(map[string]string{"ID": engineUnderTest, "ServerVersion": "29.9.0"})
+		default:
+			route(w, r, path)
 		}
-		conn, rw, err := hj.Hijack()
-		if err != nil {
-			t.Fatalf("Hijack: %v", err)
-		}
-		defer conn.Close()
-		rw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\n\r\n")
-		if stdout != "" {
-			writeExecFrame(rw.Writer, 1, []byte(stdout))
-		}
-		if stderr != "" {
-			writeExecFrame(rw.Writer, 2, []byte(stderr))
-		}
-		_ = rw.Flush()
-	})
-	mux.HandleFunc("/v1.43/exec/execabc123/json", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]int{"ExitCode": exitCode})
 	})
 	return mux
+}
+
+// execFakeDaemon builds the standard fake daemon mux for a successful
+// exec, reporting engineUnderTest as its identity, exitCode as the
+// command's status, and echoing back stdout/stderr. The exec start is
+// answered the way a real engine answers it: 101, then the framed stream.
+func execFakeDaemon(t *testing.T, stdout, stderr string, exitCode int) *http.ServeMux {
+	t.Helper()
+	return fakeEngine("1.44", func(w http.ResponseWriter, r *http.Request, path string) {
+		switch {
+		case strings.HasPrefix(path, "/containers/") && strings.HasSuffix(path, "/exec"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"Id": "execabc123"})
+		case path == "/exec/execabc123/start":
+			// The request's body first, as a real engine reads it: a socket
+			// closed with unread input sends a reset rather than an end of
+			// stream, and the client could lose the frames before it.
+			_, _ = io.Copy(io.Discard, r.Body)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("test server's ResponseWriter does not support Hijack")
+				return
+			}
+			conn, rw, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("Hijack: %v", err)
+				return
+			}
+			defer conn.Close()
+			_, _ = rw.WriteString("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+			if stdout != "" {
+				writeExecFrame(rw.Writer, 1, []byte(stdout))
+			}
+			if stderr != "" {
+				writeExecFrame(rw.Writer, 2, []byte(stderr))
+			}
+			_ = rw.Flush()
+		case path == "/exec/execabc123/json":
+			_ = json.NewEncoder(w).Encode(map[string]int{"ExitCode": exitCode})
+		default:
+			t.Errorf("the fake engine was sent %s %s, which an exec does not send", r.Method, path)
+			http.Error(w, "unexpected", http.StatusTeapot)
+		}
+	})
 }
 
 // TestExec_RoundTrips proves the happy path end to end: a real container
@@ -279,7 +345,7 @@ func TestExec_RecordStatFails(t *testing.T) {
 // socket nothing is listening on fails with a clear, wrapped error.
 func TestExec_DaemonUnreachableIsAClearError(t *testing.T) {
 	device := &dockerDevice{
-		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameDocker}},
+		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameContainerEngine, capability.NameDocker}},
 		socket: capability.SocketAddress(filepath.Join(t.TempDir(), "no-daemon.sock")),
 	}
 	rc := &ctxStub{stats: map[string]any{}}
@@ -290,5 +356,109 @@ func TestExec_DaemonUnreachableIsAClearError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected an error when the daemon socket is unreachable")
+	}
+}
+
+// TestExec_RefusesAnotherEngine proves an engine whose identity differs
+// from the one onboarding pinned is refused before any exec request
+// reaches it, the way a pinned host key refuses another machine.
+func TestExec_RefusesAnotherEngine(t *testing.T) {
+	execReached := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/info" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "some-other-engine"})
+			return
+		}
+		execReached = true
+		http.Error(w, "should not be reached", http.StatusTeapot)
+	})
+	device := newDockerDevice(t, mux)
+
+	_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": "web", "cmd": "id"})
+	if err == nil || !strings.Contains(err.Error(), "some-other-engine") {
+		t.Fatalf("err = %v, want a refusal naming the engine that answered", err)
+	}
+	if execReached {
+		t.Error("an exec request reached an engine onboarding never proved")
+	}
+}
+
+// TestExec_RefusesADeviceThatAdvertisesNoReach proves a device that says it
+// runs Docker but advertises no way to reach the engine is refused naming
+// onboarding, rather than any socket being dialed.
+func TestExec_RefusesADeviceThatAdvertisesNoReach(t *testing.T) {
+	device := &dockerDevice{
+		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameContainerEngine, capability.NameDocker}},
+		socket: "/var/run/docker.sock",
+		id:     engineUnderTest,
+	}
+	_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": "web", "cmd": "id"})
+	if err == nil || !strings.Contains(err.Error(), "pleiades onboard") {
+		t.Fatalf("err = %v, want a refusal naming onboarding", err)
+	}
+}
+
+// TestExec_RefusesAnEmptyPinnedIdentity proves a device whose discovery
+// holds no engine identity pins nothing, so it is refused rather than
+// matched against whatever answers.
+func TestExec_RefusesAnEmptyPinnedIdentity(t *testing.T) {
+	device := newDockerDevice(t, execFakeDaemon(t, "", "", 0)).(*dockerDevice)
+	device.id = ""
+	_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": "web", "cmd": "id"})
+	if err == nil || !strings.Contains(err.Error(), "identity on record") {
+		t.Fatalf("err = %v, want a refusal for a missing identity", err)
+	}
+}
+
+// TestExec_RefusesAnEngineBelowTheFloor proves an engine serving an API
+// older than the port's floor is refused, naming its version and the floor,
+// before any exec request is formed.
+func TestExec_RefusesAnEngineBelowTheFloor(t *testing.T) {
+	execReached := false
+	device := newDockerDevice(t, fakeEngine("1.40", func(w http.ResponseWriter, r *http.Request, path string) {
+		execReached = true
+		http.Error(w, "should not be reached", http.StatusTeapot)
+	}))
+	_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": "web", "cmd": "id"})
+	if err == nil || !strings.Contains(err.Error(), "1.40") || !strings.Contains(err.Error(), "1.41") {
+		t.Fatalf("err = %v, want a refusal naming the engine's API version and the floor", err)
+	}
+	if execReached {
+		t.Error("an exec request reached an engine below the floor")
+	}
+}
+
+// TestExec_RefusesAnotherAccount proves a run as a different account from
+// the one onboarding found the engine as is refused, naming both and
+// re-onboarding, before the engine is dialed at all.
+func TestExec_RefusesAnotherAccount(t *testing.T) {
+	reached := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { reached = true })
+	device := newDockerDevice(t, mux).(*dockerDevice)
+	device.user = "someone-else"
+
+	_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": "web", "cmd": "id"})
+	if err == nil || !strings.Contains(err.Error(), "someone-else") || !strings.Contains(err.Error(), "pleiades onboard") {
+		t.Fatalf("err = %v, want a refusal naming the account onboarding found and re-onboarding", err)
+	}
+	if reached {
+		t.Error("the engine was reached for a run as another account")
+	}
+}
+
+// TestExec_RefusesAHostileContainerName proves a container name that could
+// reshape a request path is refused naming it, before the engine is asked
+// anything beyond the session's own opening.
+func TestExec_RefusesAHostileContainerName(t *testing.T) {
+	for _, name := range []string{"web/../../images/create", "web?force=1", "web#x", "web%2Fx", "-web", "web x"} {
+		t.Run(name, func(t *testing.T) {
+			device := newDockerDevice(t, execFakeDaemon(t, "", "", 0))
+			_, err := dockermod.Exec(context.Background(), &ctxStub{stats: map[string]any{}}, device, map[string]any{"name": name, "cmd": "id"})
+			if err == nil || !strings.Contains(err.Error(), "no engine allows") {
+				t.Fatalf("err = %v, want the name refused", err)
+			}
+		})
 	}
 }

@@ -323,15 +323,23 @@ var extendedCollections = []collectionscaffold.Config{
 	{
 		Name:              "container.docker.exec",
 		Capabilities:      []capability.Name{capability.NameDocker},
-		Transports:        []string{"docker"},
+		Transports:        capability.EngineTransports(),
 		RequiresElevation: false,
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
-			Summary:     "Runs one command inside a running Docker container, reached directly through the daemon socket.",
-			Description: "Runs cmd inside the container named name, through /bin/sh -c on the daemon's own exec endpoints (pkg/dockerexec), never over SSH. The container must already be running; this method does not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
+			Summary: "Runs one command inside a running Docker container, through the engine's own exec endpoints.",
+			Description: "Runs cmd inside the container named name, through /bin/sh -c on the engine's own exec " +
+				"endpoints (pkg/containerengine), reached the first way onboarding proved for the device: this " +
+				"machine's own socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH " +
+				"(where sshd refuses forwarding), or mutual TLS. `pleiades onboard` finds each, and records the " +
+				"engine's identity and the account it was found as; a task refuses a different engine, a different " +
+				"account, or an engine API older than 1.41. The container must already be running; this method does " +
+				"not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. " +
+				"A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The running container to exec into."},
 				{Name: "cmd", Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them.", Format: collection.ParamFormatCommand},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The container this task acted on."},

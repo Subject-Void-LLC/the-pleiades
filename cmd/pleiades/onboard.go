@@ -45,6 +45,12 @@ func runOnboard(args []string) error {
 	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
 	secrets := onboard.SecretsFrom(credential.NewLazyFileStore(*dir))
 
+	// The process that onboards here is the process that runs this
+	// project's tasks, so a container host with no host (this machine) may
+	// be probed through this machine's own engine socket. The Controller
+	// never turns this on.
+	onboard.AllowLocalEngine()
+
 	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now)
 	if *asJSON {
 		if err := printOnboardJSON(os.Stdout, res); err != nil {

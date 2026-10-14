@@ -87,9 +87,8 @@
 // from this package's own test suite: it only fails on a malformed
 // address string, and newClient always builds one from a validated
 // host/port pair via net.JoinHostPort. The identical class of gap
-// pkg/serialexec, pkg/serialtcp, pkg/telnetexec, pkg/rfc2217, and
-// pkg/dockerexec each already document for their own always-valid
-// construction paths.
+// pkg/serialexec, pkg/serialtcp, pkg/telnetexec and pkg/rfc2217 each
+// already document for their own always-valid construction paths.
 package tftpxfer
 
 import (

@@ -146,10 +146,11 @@ func TestOnboard_FailedProbeLeavesOnboarding(t *testing.T) {
 	}
 }
 
-// TestOnboard_RefusesAVendorType: a linux_server's capabilities come from
-// its Go type, so there is nothing to onboard.
+// TestOnboard_RefusesAVendorType: a cisco_router's capabilities come from
+// its Go type, so there is nothing to onboard. (A linux_server has a prober
+// since Phase 119b, for the container engines it may run.)
 func TestOnboard_RefusesAVendorType(t *testing.T) {
-	repo, _ := newRepo(t, "web1", "linux_server", map[string]inventory.PropertyValue{"host": "127.0.0.1"})
+	repo, _ := newRepo(t, "web1", "cisco_router", map[string]inventory.PropertyValue{"host": "127.0.0.1"})
 	if _, err := Onboard(context.Background(), repo, "web1", staticSecrets(nil), fixedNow); !errors.Is(err, ErrNotOnboarded) {
 		t.Fatalf("err %v, want ErrNotOnboarded", err)
 	}

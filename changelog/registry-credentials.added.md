@@ -1,0 +1,1 @@
+Added `pleiades add-registry-credential` and the managed `registry` credential type: a pull or push from a private registry carries that registry's account for the one request, sent only to the registry the image names and never written to the host.

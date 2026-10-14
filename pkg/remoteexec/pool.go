@@ -43,8 +43,8 @@ var errReleased = errors.New("remoteexec: connection used after Close")
 //     any command is sent on it, and a device that never answers one is
 //     not pooled again in this run;
 //   - a connection that opened a terminal or a subsystem, started a
-//     streamed process, or had a command cut off, is closed rather than
-//     given back (see Conn.taint).
+//     streamed process no Wait saw exit, or had a command cut off, is
+//     closed rather than given back (see Conn.taint and Conn.Start).
 //
 // A Pool is safe for concurrent use. Two tasks against the same device
 // at once (which the engine's device lock normally prevents) do not
@@ -92,6 +92,10 @@ type lease struct {
 	mu       sync.Mutex
 	tainted  bool
 	released bool
+	// running counts the streamed processes started on this lease that no
+	// Wait has yet seen exit. The connection goes back to the Pool only at
+	// zero: a process still running there would outlive its task.
+	running int
 }
 
 // NewPool returns an empty Pool whose connections close after idle
@@ -303,6 +307,20 @@ func (l *lease) taint() {
 	l.tainted = true
 }
 
+// started counts one more streamed process on this lease (Conn.Start).
+func (l *lease) started() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.running++
+}
+
+// ended counts out one streamed process whose exit a Wait saw.
+func (l *lease) ended() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.running--
+}
+
 // isReleased reports whether the borrower has already called Close.
 func (l *lease) isReleased() bool {
 	l.mu.Lock()
@@ -320,7 +338,7 @@ func (l *lease) release() error {
 		return errReleased
 	}
 	l.released = true
-	tainted := l.tainted
+	tainted := l.tainted || l.running > 0
 	l.mu.Unlock()
 	return l.pool.giveBack(l.device, l.entry, tainted)
 }

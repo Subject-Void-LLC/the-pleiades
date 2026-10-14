@@ -318,11 +318,6 @@ var notImplemented = []NotImplemented{
 		Detail: "it builds a clouds.yaml document whose keys are present or absent depending on which optional inputs were filled in",
 	},
 	{
-		Namespace: "registry", Name: "Container Registry", Kind: credtype.KindRegistry,
-		Reason: ReasonNoSubsystem,
-		Detail: "it authenticates execution-environment image pulls, and this platform's legacy adapter runs one pinned image it does not pull per job",
-	},
-	{
 		Namespace: "rhv", Name: "Red Hat Virtualization", Kind: credtype.KindCloud,
 		Reason: ReasonControlFlow,
 		Detail: "its generated ini file ends with a {% if ca_file %} block, so the document cannot render without control flow even though its environment could",

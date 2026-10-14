@@ -20,9 +20,29 @@ const (
 	// TransportHTTPS is a device's own HTTP API.
 	TransportHTTPS = "https"
 
-	// TransportDocker is a Docker daemon's API.
-	TransportDocker = "docker"
+	// TransportEngineLocal is a container engine's API over the
+	// executor's own Unix socket (EngineLocalCapable).
+	TransportEngineLocal = "engine_local"
+
+	// TransportEngineSocket is a container engine's API over an SSH
+	// channel to the engine's socket on the device (EngineSocketCapable).
+	TransportEngineSocket = "engine_socket"
+
+	// TransportEngineStdio is a container engine's API over an SSH exec
+	// channel running the engine's `system dial-stdio`
+	// (EngineStdioCapable).
+	TransportEngineStdio = "engine_stdio"
+
+	// TransportEngineTLS is a container engine's API over TCP with mutual
+	// TLS (EngineTLSCapable).
+	TransportEngineTLS = "engine_tls"
 )
+
+// EngineTransports lists the container engine transports, in the order a
+// method prefers them; a method that reaches an engine declares all four.
+func EngineTransports() []string {
+	return []string{TransportEngineLocal, TransportEngineSocket, TransportEngineStdio, TransportEngineTLS}
+}
 
 // reachedBy maps each transport to the capabilities that reach it. A
 // device reaches a transport when it has any one of them.
@@ -40,11 +60,14 @@ const (
 // to. This row says only that both are HTTPS; each method's
 // RequiredCapabilities still says which API it speaks.
 var reachedBy = map[string][]Name{
-	TransportSSH:     {NameSSHTransport},
-	TransportWinRM:   {NameWinRM},
-	TransportNetconf: {NameNetconf},
-	TransportHTTPS:   {NameHTTPAPI, NameCatalystAPI},
-	TransportDocker:  {NameDocker},
+	TransportSSH:          {NameSSHTransport},
+	TransportWinRM:        {NameWinRM},
+	TransportNetconf:      {NameNetconf},
+	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI},
+	TransportEngineLocal:  {NameEngineLocal},
+	TransportEngineSocket: {NameEngineSocket},
+	TransportEngineStdio:  {NameEngineStdio},
+	TransportEngineTLS:    {NameEngineTLS},
 }
 
 // ReachedBy returns the capabilities that reach transport, any one of

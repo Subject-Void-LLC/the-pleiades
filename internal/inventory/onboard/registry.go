@@ -1,15 +1,18 @@
-// Package onboard runs onboarding: it probes a generic device over its
-// protocol, records what the device proved as a revision, and moves it
-// from discovered to active. It is the only writer of
-// inventory.DiscoveredProperty.
+// Package onboard runs onboarding: it probes a device over its protocol,
+// records what the device proved as a revision, and moves it from
+// discovered to active. It is the only writer of
+// inventory.DiscoveredProperty. The generic types learn every capability
+// beyond a small baseline this way; container_host learns its engine and
+// how a task reaches it.
 //
-// One Prober per generic device type, each registered from its own file,
+// One Prober per onboarded device type, each registered from its own file,
 // so a protocol added later (RESTCONF, gNMI, SNMP) adds a prober and a
 // type without touching the others.
 package onboard
 
 import (
 	"context"
+	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -54,6 +57,18 @@ func Register(deviceType string, p Prober) {
 // Lookup returns deviceType's prober.
 func Lookup(deviceType string) (Prober, bool) {
 	return probers.Get(deviceType)
+}
+
+// Types returns every device type with a prober, sorted: the types
+// onboarding can prove something about.
+func Types() []string {
+	all := probers.All()
+	types := make([]string, 0, len(all))
+	for t := range all {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // SnapshotForTest captures the prober registry and returns a function that
