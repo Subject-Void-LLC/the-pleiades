@@ -148,4 +148,10 @@ func TestEKSToken_Refusals(t *testing.T) {
 			t.Errorf("%s: a token was minted", name)
 		}
 	}
+	// A caller with no context gets an error naming the request it could
+	// not build, never a panic.
+	var none context.Context
+	if _, _, err := EKSToken(none, "us-east-1", "prod", "AKID", "secret", "", now); err == nil || !strings.Contains(err.Error(), "building the STS request") {
+		t.Errorf("no context: %v, want the request refused", err)
+	}
 }
