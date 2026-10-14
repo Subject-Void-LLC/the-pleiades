@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,49 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/tftpxfer"
 )
+
+// transferLog records each transfer a test server finished, as its hook,
+// for a failing test to print.
+type transferLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+// OnSuccess records a transfer that completed.
+func (l *transferLog) OnSuccess(stats tftp.TransferStats) { l.add(stats, nil) }
+
+// OnFailure records a transfer that failed, or a request the server could
+// not start one for.
+func (l *transferLog) OnFailure(stats tftp.TransferStats, err error) { l.add(stats, err) }
+
+// add records one transfer: the client's address and port, the file (cut
+// short), the options it negotiated, what the server sent and had
+// acknowledged, how long it took, and how it ended.
+func (l *transferLog) add(stats tftp.TransferStats, err error) {
+	name := stats.Filename
+	if len(name) > 24 {
+		name = name[:24] + "..."
+	}
+	end := "ok"
+	if err != nil {
+		end = "failed: " + err.Error()
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf("  %s %s:%d %q opts=%v sent=%d acked=%d in %s: %s",
+		time.Now().Format("15:04:05.000"), stats.RemoteAddr, stats.Tid, name, stats.Opts, stats.DatagramsSent, stats.DatagramsAcked, stats.Duration.Round(time.Millisecond), end))
+}
+
+// String is every transfer recorded, one per line, or a line saying there
+// were none, which is itself the answer to whether a request arrived.
+func (l *transferLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.lines) == 0 {
+		return "  no transfer finished: the server never answered a request"
+	}
+	return strings.Join(l.lines, "\n")
+}
 
 // This file is the RULE 0 evidence for pkg/tftpxfer, against a real TFTP
 // server (github.com/pin/tftp/v3's own Server, the same library this
@@ -48,6 +92,18 @@ func testServer(t *testing.T) (port int, files *sync.Map) {
 	}
 
 	srv := tftp.NewServer(readHandler, writeHandler)
+	// What the server did, printed only when the test fails: a transfer
+	// that timed out on the client says nothing about whether the server
+	// ever saw the request or which port it answered, and on macOS a Get
+	// has timed out that way without either being known. Registered
+	// before Shutdown so it runs after it, once every transfer has ended.
+	hook := &transferLog{}
+	srv.SetHook(hook)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("what the TFTP server saw:\n%s", hook.String())
+		}
+	})
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket: %v", err)
