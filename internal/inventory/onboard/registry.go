@@ -12,6 +12,7 @@ package onboard
 
 import (
 	"context"
+	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -56,6 +57,18 @@ func Register(deviceType string, p Prober) {
 // Lookup returns deviceType's prober.
 func Lookup(deviceType string) (Prober, bool) {
 	return probers.Get(deviceType)
+}
+
+// Types returns every device type with a prober, sorted: the types
+// onboarding can prove something about.
+func Types() []string {
+	all := probers.All()
+	types := make([]string, 0, len(all))
+	for t := range all {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // SnapshotForTest captures the prober registry and returns a function that

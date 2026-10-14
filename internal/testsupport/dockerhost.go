@@ -188,6 +188,15 @@ func startEngineHost(tb testing.TB, f *engineFixture, opts EngineHostOptions) *E
 		tb.Fatalf("starting the %s host fixture: %v", f.engine, err)
 	}
 	tb.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	// Registered after Terminate, so it runs first: a failed test gets the
+	// fixture's own log (sshd runs with -e, so its refusals are there, each
+	// naming its reason), which is what a refused login on a machine nobody
+	// can log into, such as a CI runner, otherwise never shows.
+	tb.Cleanup(func() {
+		if tb.Failed() {
+			tb.Logf("the %s host fixture's log:\n%s", f.engine, containerLogTail(c, 40))
+		}
+	})
 
 	host, err := c.Host(ctx)
 	if err != nil {
@@ -303,4 +312,23 @@ func (d *EngineHost) KnownHosts(ctx context.Context, dir string) (string, error)
 		return "", fmt.Errorf("writing known_hosts: %w", err)
 	}
 	return path, nil
+}
+
+// containerLogTail returns the last n lines of c's log, or why it could not
+// be read.
+func containerLogTail(c testcontainers.Container, n int) string {
+	logs, err := c.Logs(context.Background())
+	if err != nil {
+		return "(the log could not be read: " + err.Error() + ")"
+	}
+	defer logs.Close()
+	b, err := io.ReadAll(io.LimitReader(logs, 1<<20))
+	if err != nil {
+		return "(the log could not be read: " + err.Error() + ")"
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

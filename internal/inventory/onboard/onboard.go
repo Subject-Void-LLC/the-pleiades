@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -23,7 +24,7 @@ var (
 	// ErrNotOnboarded is returned for a device whose type has no prober:
 	// its capabilities come from its Go type, so there is nothing to
 	// discover.
-	ErrNotOnboarded = errors.New("only a device type with a prober (the generic types and container_host) is onboarded")
+	ErrNotOnboarded = errors.New("only a device type with a prober is onboarded")
 
 	// ErrAdministratorState is returned for a device in a state a person
 	// set, which onboarding does not overrule.
@@ -126,7 +127,7 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	res := Result{Device: name, Type: deviceType, PreviousState: item.State().String(), State: item.State().String()}
 	prober, ok := lookup(deviceType)
 	if !ok {
-		return res, fmt.Errorf("device %s is a %s: %w", name, deviceType, ErrNotOnboarded)
+		return res, fmt.Errorf("device %s is a %s, which has no prober: %w (%s)", name, deviceType, ErrNotOnboarded, strings.Join(Types(), ", "))
 	}
 	res.Protocol = prober.Protocol()
 	if !slices.Contains(onboardable, item.State()) {
