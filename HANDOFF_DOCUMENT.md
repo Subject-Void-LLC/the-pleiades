@@ -4,62 +4,47 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-14. Two branches.** `feature/Part-XVIII-Container-Platforms` is **pull request #54** (119a, 119b),
-pushed, its last commit `7016137a`. `feature/Part-XVIII-119c-Kubernetes` (off `7016137a`) holds **119c,
-committed (the branch's one commit on `7016137a`), not pushed**; the user chose "a separate PR after #54": once #54 merges, rebase it onto
-`main`, push, and open its PR. Rules unchanged: the gate is GitHub Actions (no local
-`make ci`/`push-gate` unless asked), method-as-key runbooks, two agents at most, heavy commands under
-`~/.local/bin/capped` with `GOMAXPROCS=4`, no AI credit anywhere, never touch `/mnt/c/Users/raymo/coupon_clipper`
-or the live `groceries` namespace (read-only checks of Docker Desktop's cluster only).
+**2026-10-14. Pull request #55** (`feature/Part-XVIII-119c-Kubernetes`, 119c) is open against `main`; #54 merged
+as `d3b43532`. Rules unchanged: the gate is GitHub Actions; before every push run `make pr-check` (LESSONS 271)
+under `~/.local/bin/capped` (3 GB or more, since `govulncheck` peaks at 2.73 GB) with `GOMAXPROCS=4 GOFLAGS=-p=1
+PR_CHECK_PARALLELISM=2`; one PR at a time; method-as-key runbooks; no AI credit anywhere; never touch
+`/mnt/c/Users/raymo/coupon_clipper` or the live `groceries` namespace.
 
-### PR #54
+### PR #55
 
-Three fixes this session, each pushed: the Podman fixture checks passwords without PAM (`7a6599e7`,
-FAILURE_PATTERNS 426); every floored package covered by its own tests (`35a07941`, 427); the Linux server prober
-built on every OS, with an archtest against file-name build constraints (`7016137a`, 428). Run 38604838943 on
-`7016137a`: all three `ci` jobs green (macOS and Windows included); the test shards were still running at the time
-of writing. The user merges when every check is green.
+Commits: `d5011ea7` (119c), `faadf816` (klog direct in `go.mod`), `0d2b11aa` (each package's floor covered),
+`2a18f24a` (the hardening below), `d0da3f84` (`pkg/awscloud` back over its floor). Run 38636093862 on `0d2b11aa`:
+`ci` on all three systems and `containers` (1) to (4) green; `fast` red (k3s, 446 and 447); `fast-macos` red
+(`pkg/tftpxfer`, below); `coverage` skipped behind `fast`.
 
-### 119c (16 of 18 ticked; open: Release Gate, commit message)
-
-- `pkg/kubeapi` (client-go v0.37.1): sessions from a record and a credential only; discovery of every served
-  version, bounded (128 MiB per discovery, 64 entries per rule), server error text bounded and escaped; EKS
-  identity minting through `pkg/awscloud.EKSToken` (SigV4 checked against an independent computation).
-- `kubernetes_cluster` (record, accessors, `ServedKinds`, `KubeEKS`, `ConnectionProperties`), onboarding with
-  bastion routes (`sdk.Router`, `engine.RouteDialerFor`, `onboard.WithRoutes`), `node_containers`.
-- Kubeconfig import: CLI `import-kubeconfig` and `POST /inventory/kubeconfig-imports` (both scopes; a replacement
-  changes only the four connection properties, through the loaded record).
-- Credentials: `kubernetes_bearer_token` (AWX's) and `pleiades_kubernetes_client_certificate` (ours, the catalog
-  now admits a `pleiades_` prefix), a code target in `internal/credtype`; native path delivers to the matching
-  cluster only, Ansible path gets AWX's `K8S_AUTH_*` (verification off only by `verify_ssl: false`, a stated
-  deviation from AWX); Controller onboarding falls back to the one host-matched stored credential
-  (`resolve.KubernetesSecrets`, its reason written in `resolve.go`).
-- `validate`'s `KubernetesKindRule` over `collection.ParamFormatKubernetesManifest`: proven on records; its proof
-  through the binary is 119g's, with the first apply method.
-- Also: a refused SSH host key is no longer retried or counted against the breaker (`pkg/remoteexec`, 429).
-- Tests: k3s at 1.35 and 1.37, token and certificate, through an sshd bastion (host key refused when unknown), an
-  `exec` kubeconfig refused, a static binary run where an in-cluster Runner runs (its admin ServiceAccount never
-  used), Docker Desktop opt-in (`PLEIADES_TEST_DOCKER_DESKTOP_KUBECONFIG`, passed read-only), fuzzing of import and
-  discovery. `gosec` clean (three G101 false positives waived by line); `govulncheck` affects nothing (GO-2026-5932,
-  x/crypto/openpgp, no fix, uncalled). Cross-OS vet clean. Docs: `docs/10` "Kubernetes clusters", `docs/03`'s
-  credential type lists corrected, generated reference, changelog fragments.
+- **k3s fixture** (`internal/testsupport/k3s.go`): its readiness exec raced k3s's cgroup v2 evacuation, so every
+  controller enable failed with EBUSY and kubelet died (FAILURE_PATTERNS 446, reproduced with `--cpus=0.05`). The
+  wait now reads "Starting k3s" first; a failed start leads with k3s's `failed to enable controller` lines.
+- **Container-list guard** (`tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`,
+  `containerscan_test.go`): follows each test's calls through the module instead of reading direct imports (447).
+  `pkg/kubeapi` is now in `DOCKER_DEPENDENT_PACKAGES`; `internal/engine` and `internal/forge/playbook` stay in the
+  fast tier through `oneShotContainerPackages` (one-shot `docker run`, kept on macOS).
+- **`make pr-check`** (Makefile, `tools/prscope`, `coverage-check -scoped`, `pr-check-vet`). Its first full run
+  found `pkg/awscloud` at 94.9% against 95.8% (the EKS code's untested branches), fixed in `d0da3f84`.
 
 ### Next
 
-1. Watch PR #54 to green; the user merges.
-2. Once #54 merges, rebase that commit onto `main`, push, and open 119c's PR (its local suites passed:
-   `cmd/pleiades` 399s, `cmd/controller` 147s, `cmd/runner` 300s, the container packages it touched, archtest).
-3. Then 119e, 119f, 119g (its apply method declares the manifest format and proves the kind rule end to end),
-   119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
-4. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (repository settings, the user's).
-5. `pkg/containerengine` measured 53.7% in CI with no floor recorded; raise it and record a floor.
+1. Push `2a18f24a` and `d0da3f84` to #55 once `make pr-check` passes on them, and watch the run to green; the user
+   merges. Then tick 119c's Release Gate in `.SPECIFICATION/IMPLEMENTATION.md`.
+2. `fast-macos` (advisory): `pkg/tftpxfer`'s `TestLongestAcceptedFilenamesCrossARealServerWhole/largest_blocksize/
+   a_space` failed once after 59.8 s (`read udp [::]:...: i/o timeout`) in the strict repeat. Not reproduced on
+   Linux (40 runs of all 18 subtests); one lost datagram is retried at every step in pin/tftp v3.2.0, so six
+   unanswered attempts points at a stalled server, cause unknown. The test's 5-second context bounds nothing
+   (tftpxfer checks it only before a transfer, as documented).
+3. Only when the user says: 119e, 119f, 119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+4. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (the user's settings);
+   `pkg/containerengine` has no floor (53.7% in CI); `internal/archtest` and `internal/ent/migrate/gen` are in
+   `DOCKER_DEPENDENT_PACKAGES` though neither starts a container.
+5. `pkg/kubeapi` (80.5%) and `internal/inventory/devices/kubernetes` (90.5%) have no floors yet; record them.
 
-### Files changed
+### Files changed this round
 
-PR #54 this session: `internal/testsupport/{dockerhost.go,testdata/podman-sshd/Dockerfile}`, eight packages' new
-tests, `internal/inventory/onboard/probe_linux_server.go` (renamed), `internal/archtest/filename_constraint_test.go`.
-119c: see `git status` on its branch (about 95 files): `pkg/{kubeapi,awscloud,capability,collection,sdk,wire,
-remoteexec,inventory}`, `internal/{inventory,credtype,credstore/resolve,dispatch,engine,api,apispec,validate,
-credential,lock,runner,testsupport,archtest,clispec,forge}`, `cmd/{pleiades,controller,runner}`, `docs/`,
-`changelog/`, `CLAUDE.md`, `gosec-waivers.json`, `go.mod`, and this session's FAILURE_PATTERNS 426 to 443 and
-LESSONS 263 to 269.
+`internal/testsupport/k3s{,_test}.go`, `tools/internal/flakegate/{repeatgate,containerscan}_test.go` and
+`testdata/containerscan/`, `tools/prscope/`, `tools/coverage-check/`, `Makefile`, `coverage-floor.json`,
+`pkg/awscloud/{eks,instance_internal}_test.go`, `CLAUDE.md`, `changelog/pr-check.added.md`, FAILURE_PATTERNS 446
+and 447, LESSONS 271 to 273.
