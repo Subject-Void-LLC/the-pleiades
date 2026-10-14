@@ -483,8 +483,12 @@ func serveDirectStreamLocal(newChannel cryptossh.NewChannel) {
 // already-dialed real TCP connection to the requested destination: real
 // bytes cross a real SSH channel to a real second listener, not a mock
 // that only asserts a function was called. Returns once both directions
-// have finished (either side closing ends both, since each io.Copy's own
-// Read then fails).
+// have finished. Each end is half-closed when the other's side ends, as
+// OpenSSH's sshd does: the client's end (a channel EOF, or the connection
+// closing under it) shuts down the destination socket's write side, so a
+// destination that keeps an idle connection open (an HTTP server) reads
+// the end of the stream and closes, rather than holding the forwarding,
+// and the Server's Close, open forever.
 func forwardDirectTCPIP(channel cryptossh.Channel, conn net.Conn) {
 	defer func() { _ = channel.Close() }()
 	defer func() { _ = conn.Close() }()
@@ -494,6 +498,13 @@ func forwardDirectTCPIP(channel cryptossh.Channel, conn net.Conn) {
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(conn, channel)
+		// The client ended its side: the destination reads the end of the
+		// stream, as it would through sshd.
+		if half, ok := conn.(interface{ CloseWrite() error }); ok {
+			_ = half.CloseWrite()
+		} else {
+			_ = conn.Close()
+		}
 	}()
 	go func() {
 		defer wg.Done()

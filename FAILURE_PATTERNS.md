@@ -446,6 +446,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 441. container_host parsed its TLS settings and never exposed them, so a pinned authority was ignored
 442. trust-host --first-connect wrote a fixture's key into the real ~/.ssh/known_hosts
 443. A fixture's SSHDConfig option replaced its default AllowTcpForwarding instead of adding to it
+444. The SSH test fixture's forwarder never ended a connection its destination kept open
+445. Pull request #55 failed CI twice on checks that run locally in minutes
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

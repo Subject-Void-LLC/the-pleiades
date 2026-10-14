@@ -5496,3 +5496,14 @@ its path rather than guessed at.
 **Why.** FAILURE_PATTERNS 426: the Podman fixture's passwords were refused only on the runners; its sshd log turned
 "unable to authenticate" into "Failed password", which placed the fault in the fixture's PAM path, and removing PAM
 from it fixed the runs without a theory that could not be checked.
+
+## 270. Before pushing, run make ci-remote and measure every touched package against its floor
+
+**Rule.** A push to a pull request is preceded by `make ci-remote` (the static checks, minutes, no tests) and by
+each touched package's coverage measured with `-tags integration -cover` and compared with
+`coverage-floor.json`, with a margin rather than a rounding; the pull request's CI then confirms rather than
+discovers.
+
+**Why.** FAILURE_PATTERNS 427 and 445: PRs #54 and #55 each failed CI on coverage, and #55 also on `tidy-check`,
+every time after tests had passed locally. The checks CI ran were all runnable here in minutes; the local numbers
+matched CI's exactly every time they were taken. The owner's words: "CI fails every time you touch it".

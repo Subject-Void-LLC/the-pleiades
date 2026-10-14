@@ -159,3 +159,39 @@ func TestKubernetesKindRule_WhatItCannotKnow(t *testing.T) {
 		t.Fatalf("refused against a discovery bound to another address: %v", f)
 	}
 }
+
+// TestKubernetesKindRule_EdgesOfWhatItReads: a manifest parameter the task
+// leaves out, a device that is not a cluster, an item that is not an
+// object, and a manifest past the bound on objects read.
+func TestKubernetesKindRule_EdgesOfWhatItReads(t *testing.T) {
+	registerManifestMethod(t)
+	onboarded := cluster(t, map[string]any{"kinds": servedKinds})
+	world := func(task string, items ...inventory.InventoryItem) validate.WorldView {
+		return validate.WorldView{Items: items, DAG: yamlDAG(t, "id: k\nhosts: prod\ntasks:\n  - name: apply\n    t119.apply:\n      "+task+"\n")}
+	}
+	if f := validate.KubernetesKindRule(world("{}", onboarded)); len(f) > 0 {
+		t.Errorf("a task without the manifest parameter: %v", f)
+	}
+	server, err := internalinventory.NewItemFactory().Build(record.Record{ID: "prod", Name: "prod", Type: "linux_server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := validate.KubernetesKindRule(world("definition: {apiVersion: example.com/v1, kind: Widget}", server)); len(f) > 0 {
+		t.Errorf("a manifest aimed at a server was checked as a cluster's: %v", f)
+	}
+	if f := validate.KubernetesKindRule(world("definition: [plain text, 7]", onboarded)); len(f) != 1 || !strings.Contains(f[0].Message, "2 object(s) name no apiVersion and kind") {
+		t.Errorf("items that are not objects: %v", f)
+	}
+
+	// Past the bound, the rest is left to the method: an unserved kind
+	// after 10,000 objects is not read.
+	var b strings.Builder
+	b.WriteString("definition:\n")
+	for range 10000 {
+		b.WriteString("        - {apiVersion: v1, kind: ConfigMap}\n")
+	}
+	b.WriteString("        - {apiVersion: example.com/v1, kind: Widget}")
+	if f := validate.KubernetesKindRule(world(b.String(), onboarded)); len(f) > 0 {
+		t.Errorf("an object past the bound was read: %v", f)
+	}
+}

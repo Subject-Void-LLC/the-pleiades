@@ -11652,6 +11652,8 @@ import owns, checks the result through the factory, then saves; the test also pr
 survives.
 
 **Lesson.** Change a stored device through its loaded record's change methods; a rebuilt record saves nothing.
+This is FAILURE_PATTERNS 261's defect again, in a new handler: `DeviceHandler.Update` had the same shape and the
+same fix.
 
 ## 433. A branch checkout in an auxiliary worktree moved the main worktree's branch
 
@@ -11787,3 +11789,33 @@ local`) rather than adding to it, so forwarding fell back to Alpine's `no`.
 
 **Lesson.** An option that replaces a default says so where it is set.
 
+
+## 444. The SSH test fixture's forwarder never ended a connection its destination kept open
+
+**Symptom.** Two new tests passed their bodies and then hung in cleanup until the test timeout (10 and 8 minutes):
+the bastion's `remoteexectest.Server.Close` waited forever on a forwarded connection.
+
+**Root cause.** `forwardDirectTCPIP` copied both directions and waited for both, and its comment said either side
+closing ended both. It did not: when the client's side ended, the copy back from the destination stayed blocked
+reading from a destination that keeps an idle connection open (an echo that waits for more, client-go's HTTP/2
+connection to an API server). OpenSSH's sshd half-closes the destination socket when the client's side ends.
+
+**Fix.** The forwarder half-closes the destination (`CloseWrite`) when the client's side ends, as sshd does, so an
+HTTP server reads the end of the stream and closes. Every package using the fixture passes with it.
+
+**Lesson.** A fixture standing in for a real server copies that server's connection lifecycle, not only its bytes.
+
+## 445. Pull request #55 failed CI twice on checks that run locally in minutes
+
+**Symptom.** PR #55's `ci (ubuntu-24.04, true)` failed `tidy-check` (`k8s.io/klog/v2` marked indirect though
+imported directly), and its `coverage` job failed eight floors and nearly a ninth, after a local run of every
+touched package's tests had passed.
+
+**Root cause.** Tests passing is not the gate. The PR was pushed without `make ci-remote` (about three minutes
+here) and without measuring each touched package's coverage against `coverage-floor.json`, so both failures were
+first seen in CI, the same way PR #54's coverage failure was (427).
+
+**Fix.** `go.mod` tidied; each package's gaps tested in its own package (99 to 100% where the floor is 100); every
+floor and `make ci-remote` verified locally before the next push.
+
+**Lesson.** See LESSONS 270.

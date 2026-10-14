@@ -190,17 +190,12 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 	Respond(w, r, status, &dto)
 }
 
-// propertyEditor is a record whose properties change as recorded
-// revisions (record.Base), which is what a repository's Save writes.
-type propertyEditor interface {
-	AddInfo(key string, value pkginventory.PropertyValue, overwrite bool) error
-	RemoveInfo(key string) error
-}
-
 // importedCluster is the device an import writes: a new kubernetes_cluster
 // with props, or existing with its connection properties
 // (kubernetes.ConnectionProperties) set to props' as recorded changes,
-// every other property, its identity, tags and history kept. Either is
+// every other property, its identity, tags and history kept, through the
+// item's own change methods, since a repository saves the revisions they
+// record and nothing else (FAILURE_PATTERNS 261 and 432). Either is
 // checked by the factory every store builds with before anything is
 // written. A changed API server or authority leaves what onboarding proved
 // stale, granting nothing until the cluster is onboarded again.
@@ -209,10 +204,6 @@ func (h *DeviceHandler) importedCluster(name string, existing pkginventory.Inven
 		return h.factory.Build(record.Record{ID: newDeviceID(), Name: name, Type: kubernetes.TypeCluster, Properties: props,
 			State: record.InitialState(kubernetes.TypeCluster), Source: pkginventory.SourceAuthority{Plugin: "api"}})
 	}
-	editor, ok := existing.(propertyEditor)
-	if !ok {
-		return nil, errors.New("the stored cluster cannot record a change")
-	}
 	before := existing.Properties().Raw()
 	for _, key := range kubernetes.ConnectionProperties {
 		value, set := props[key]
@@ -220,9 +211,9 @@ func (h *DeviceHandler) importedCluster(name string, existing pkginventory.Inven
 		var err error
 		switch {
 		case set:
-			err = editor.AddInfo(key, value, true)
+			err = existing.AddInfo(key, value, true)
 		case had:
-			err = editor.RemoveInfo(key)
+			err = existing.RemoveInfo(key)
 		}
 		if err != nil {
 			return nil, err
