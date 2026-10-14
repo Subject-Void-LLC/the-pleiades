@@ -137,7 +137,8 @@ lsp:
 #                second: no build, no tests, index only)
 #   commit-msg   tools/commitgate over the commit message
 #   pre-push     tools/gatereceipt verify, which reads back the receipt
-#                `make push-gate` or `make ci` left behind. It does NOT
+#                `make pr-check` (for a branch), `make push-gate` or
+#                `make ci` left behind. It does NOT
 #                run the gate: git opens its connection to the remote
 #                before calling the hook, so a twenty minute suite in here
 #                kills the push with SIGPIPE and no output at all (see
@@ -630,6 +631,13 @@ ci-containers:
 # should not. PR_BASE is what the branch merges into, and
 # PR_CHECK_PARALLELISM bounds how many container-free packages run at
 # once (0 keeps go test's default).
+#
+# A pass ends by writing a receipt (tools/gatereceipt, its own file under
+# .git), and .githooks/pre-push refuses a branch whose tip no receipt
+# covers: run it on a committed, clean tree, since a receipt names a
+# commit. A make flag that skips a prerequisite (-o ci-remote, -t) still
+# gets a receipt for what did run, the way `git push --no-verify` skips the
+# hook: both are deliberate, and both are the developer's to answer for.
 PR_BASE ?= origin/main
 PR_CHECK_PARALLELISM ?= 0
 PR_CHECK_ALWAYS := \
@@ -656,6 +664,7 @@ pr-check: ci-remote pr-check-vet
 	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
+	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # pr-check-vet vets every package, tests and the integration tag included,
 # as macOS and Windows build them: a file named for one operating system
@@ -826,7 +835,7 @@ helm-lint:
 # build` does not pay for two git calls; gatereceipt refuses an empty value
 # rather than assuming anything, so a gate reached some other way says so
 # instead of certifying a commit nobody looked at.
-ifneq ($(filter ci push-gate,$(MAKECMDGOALS)),)
+ifneq ($(filter ci push-gate pr-check,$(MAKECMDGOALS)),)
 GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
 endif

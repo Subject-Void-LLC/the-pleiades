@@ -358,7 +358,10 @@ through the same `testgate` passes, the container-free ones three times strictly
 `test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
 measured; the container-list guard and `internal/archtest` always run. It exists because
 pull requests #54 and #55 kept failing CI on checks a local run makes in minutes (LESSONS
-271). It is narrower than CI, which still tests every package. Which tier a package belongs
+271), and it is enforced rather than remembered: a pass writes a receipt for the commit it
+checked (`.git/pleiades-pr-check.json`, apart from the whole suite's), and `.githooks/pre-push`
+refuses a branch whose tip it does not cover. Run it on a committed, clean tree. It is narrower
+than CI, which still tests every package. Which tier a package belongs
 in is not judgement: `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`
 follows each test's calls through the module and fails when a package that starts a
 container is missing from `DOCKER_DEPENDENT_PACKAGES`.
@@ -386,7 +389,9 @@ still cannot predict is `govulncheck`'s live advisory database.
 (`tools/gatereceipt`'s `routeRef`), judged by where the ref *lands*, so `git push origin
 topic:main` is a push to `main`:
 
-- a branch passes with no receipt, because pushing it is how its pull request gets checked;
+- a branch needs a `make pr-check` receipt for its tip (or the whole suite's), unless its tip is
+  already on the remote's `main`; its pull request's checks still decide what merges (since
+  2026-10-14, after pull requests #54 and #55 kept failing CI on what pr-check finds locally);
 - `main` is refused, because it changes only through a pull request, and the ruleset refuses
   a direct push on the server anyway;
 - a tag passes when its commit is already on the remote's `main` as this clone last fetched

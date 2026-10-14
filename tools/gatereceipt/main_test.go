@@ -602,8 +602,8 @@ func TestReceiptRecordsWhichGateRan(t *testing.T) {
 // place that distinction is ever put in front of them.
 func TestCheckRefSaysWhetherThePassWasStrict(t *testing.T) {
 	commit := strings.Repeat("ab", 20)
-	for target, want := range map[string]string{"ci": "strict", "push-gate": "tolerant"} {
-		line, err := checkRef(Receipt{Commit: commit, Target: target, WrittenAt: time.Now()}, pushRef{local: commit})
+	for target, want := range map[string]string{"ci": "strict", "push-gate": "tolerant", "pr-check": "the branch's own packages"} {
+		line, err := checkRef(Receipt{Commit: commit, Target: target, WrittenAt: time.Now()}, pushRef{local: commit}, kindWritten(target))
 		if err != nil {
 			t.Fatalf("checkRef on the gated commit: %v", err)
 		}
@@ -662,20 +662,96 @@ func withRemoteMain(t *testing.T, dir string) string {
 	return bare
 }
 
-// TestVerifyPassesABranchWithNoReceipt is the change that made GitHub
-// Actions the gate: a branch is pushed so that its pull request can be
-// checked, so asking for a local gate's receipt first would put the hour
-// back in front of the very push that starts the real gate.
-func TestVerifyPassesABranchWithNoReceipt(t *testing.T) {
+// TestVerifyRefusesABranchWithNoPRCheck is the rule since 2026-10-14: a
+// branch whose tip nothing on this machine checked is refused, naming the
+// command that checks it, because its pull request's checks kept being the
+// first to find what pr-check finds in minutes.
+func TestVerifyRefusesABranchWithNoPRCheck(t *testing.T) {
 	dir := newRepo(t)
+	withRemoteMain(t, dir)
 	tip := addCommit(t, dir, "two")
-	if _, err := os.Stat(receiptPath(dir)); !os.IsNotExist(err) {
-		t.Fatal("the fixture has a receipt, so this would prove nothing")
-	}
 
 	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n")
+	err := runVerify([]string{"--push-stdin", "--remote", "origin"})
+	if err == nil || !strings.Contains(err.Error(), "no pr-check receipt") || !strings.Contains(err.Error(), "make pr-check") {
+		t.Errorf("a branch nothing checked: %v, want it refused naming make pr-check", err)
+	}
+}
+
+// TestVerifyPassesABranchPRCheckPassed: a pr-check receipt for the tip lets
+// the branch through, and so does one for a later commit whose history
+// holds it, when the branch only moves forwards.
+func TestVerifyPassesABranchPRCheckPassed(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	older := addCommit(t, dir, "two")
+	tip := addCommit(t, dir, "three")
+	if err := runWrite(gateRun(t, "pr-check")); err != nil {
+		t.Fatalf("runWrite: %v", err)
+	}
+	if _, err := os.Stat(receiptPath(dir)); !os.IsNotExist(err) {
+		t.Error("pr-check wrote the whole suite's receipt")
+	}
+
+	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n"+
+		"refs/heads/older "+older+" refs/heads/older "+zeros+"\n")
 	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err != nil {
-		t.Errorf("a branch was refused for want of a receipt: %v", err)
+		t.Errorf("branches pr-check covers were refused: %v", err)
+	}
+}
+
+// TestVerifyPassesABranchOnTheWholeSuitesReceipt: the whole suite checks
+// everything pr-check does and more, so its receipt covers a branch too.
+func TestVerifyPassesABranchOnTheWholeSuitesReceipt(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	tip := addCommit(t, dir, "two")
+	if err := runWrite(gateRun(t, "push-gate")); err != nil {
+		t.Fatalf("runWrite: %v", err)
+	}
+	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err != nil {
+		t.Errorf("a branch the whole suite passed was refused: %v", err)
+	}
+}
+
+// TestVerifyPassesABranchAlreadyOnTheRemotesMain: a branch made at a
+// commit main already holds sends nothing a pull request has not checked.
+func TestVerifyPassesABranchAlreadyOnTheRemotesMain(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	pushLines(t, "refs/heads/topic "+headOf(t)+" refs/heads/topic "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err != nil {
+		t.Errorf("a branch at the remote's main was refused: %v", err)
+	}
+}
+
+// TestVerifyNeverReadsOneReceiptAsTheOther: a pr-check pass does not let a
+// tag off main through, a pr-check receipt for another commit does not let
+// a branch through, and a receipt copied into the other kind's file is
+// refused for being there.
+func TestVerifyNeverReadsOneReceiptAsTheOther(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	checked := addCommit(t, dir, "two")
+	if err := runWrite(gateRun(t, "pr-check")); err != nil {
+		t.Fatalf("runWrite: %v", err)
+	}
+	pushLines(t, "refs/tags/v2 "+checked+" refs/tags/v2 "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err == nil || !strings.Contains(err.Error(), "no gate receipt") {
+		t.Errorf("a tag off main on a pr-check pass: %v, want the whole suite's receipt asked for", err)
+	}
+
+	unchecked := addCommit(t, dir, "three")
+	pushLines(t, "refs/heads/topic "+unchecked+" refs/heads/topic "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err == nil || !strings.Contains(err.Error(), "make pr-check") {
+		t.Errorf("a branch past its pr-check: %v, want it refused naming make pr-check", err)
+	}
+
+	writeRawReceipt(t, dir, Receipt{Commit: checked, Target: "pr-check", WrittenAt: time.Now()})
+	pushLines(t, "refs/tags/v2 "+checked+" refs/tags/v2 "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err == nil || !strings.Contains(err.Error(), "does not write that file") {
+		t.Errorf("a pr-check receipt in the whole suite's file: %v, want it refused for being there", err)
 	}
 }
 
@@ -772,6 +848,9 @@ func TestVerifyAnswersEveryKindOfRefTogether(t *testing.T) {
 	dir := newRepo(t)
 	withRemoteMain(t, dir)
 	tip := addCommit(t, dir, "two")
+	if err := runWrite(gateRun(t, "pr-check")); err != nil {
+		t.Fatalf("runWrite: %v", err)
+	}
 
 	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n"+
 		"refs/heads/main "+tip+" refs/heads/main "+zeros+"\n"+
@@ -784,7 +863,7 @@ func TestVerifyAnswersEveryKindOfRefTogether(t *testing.T) {
 		t.Errorf("the refusal does not cover both refused refs: %v", err)
 	}
 	if strings.Contains(err.Error(), "refs/heads/topic") {
-		t.Errorf("the branch, which needs nothing, appears among the refusals: %v", err)
+		t.Errorf("the branch, which pr-check passed, appears among the refusals: %v", err)
 	}
 }
 
