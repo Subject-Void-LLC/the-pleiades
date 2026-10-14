@@ -71,11 +71,26 @@ directory. It is opt-in per clone because Git will not run a hook that arrived w
 fetch until you ask it to, which also means a fresh clone pushes with nothing checking
 anything until you run it.
 
-The `pre-push` hook does **not** run the gate. Git opens its connection to the remote
-before calling the hook, so a suite that takes minutes in there kills the push with
-SIGPIPE and no output at all while printing "all checks passed". So the gate is a
-separate step you run on your own schedule, and it leaves a receipt naming the commit it
-verified:
+The gate is this repository's GitHub Actions checks. A change reaches `main` only by
+merging a pull request, and the repository's rules require that pull request's checks to
+pass first, so the usual flow is a branch, a push and a pull request, with no local gate
+run at all:
+
+```bash
+git push -u origin my-branch   # the hook passes a branch in about a second
+gh pr create                   # its checks are the gate; merge once they are green
+```
+
+The `pre-push` hook decides each ref by where it lands. A branch passes, since pushing it is
+how its pull request gets checked. `main` is refused, since it changes only through a pull
+request (and the server refuses a direct push anyway). A tag passes when its commit is
+already on the remote's `main`, as your clone last fetched it.
+
+Anything else, such as a tag on a commit `main` does not have, needs a local gate's receipt.
+The hook does **not** run the gate: Git opens its connection to the remote before calling
+the hook, so a suite that takes minutes in there kills the push with SIGPIPE and no output
+at all while printing "all checks passed". So that gate is a separate step you run on your
+own schedule, and it leaves a receipt naming the commit it verified:
 
 ```bash
 make push-gate     # or make ci, which is stricter; about an hour, and needs Docker up
@@ -84,7 +99,7 @@ git push           # the hook reads the receipt back, in about a second
 
 A receipt is only written from a clean tree, and only if HEAD did not move while the gate
 ran, so what was verified and what you are pushing are the same commit. The hook checks
-each ref's tip: the gated commit, an annotated tag pointing at it, a ref created or
+each such ref's tip: the gated commit, an annotated tag pointing at it, a ref created or
 fast-forwarded onto a commit already inside its history, or a push that only deletes refs.
 Anything else is refused, naming the reason and the command that fixes it, and a receipt
 expires after a day because `govulncheck` reads a live advisory database. Skip a single
@@ -109,6 +124,7 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 | `containers` | `make ci-containers SHARD=k/4` | the container packages, in four shards |
 | `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded |
 | `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |
+| `vulns` | `make govulncheck` | no known vulnerability is reachable, re-asked on the schedule because an advisory lands without any code changing |
 
 The `containers` job restores its images from a cache and only pulls on a miss. A
 maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
