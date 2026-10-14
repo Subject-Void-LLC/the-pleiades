@@ -1,5 +1,22 @@
-// Command gatereceipt records that a local gate passed at one commit, and
-// checks that record before a push.
+// Command gatereceipt decides, before a push, whether what it sends is
+// gated, and records that a local gate passed at one commit for the refs
+// that still need that.
+//
+// # The gate is the pull request's checks
+//
+// Since 2026-10-13 the gate for this repository is its GitHub Actions
+// checks, not a local run: the repository is public, so hosted runners cost
+// nothing, a pull request's checks finish in about half an hour against an
+// hour and a half locally, and the local gate repeatedly exhausted the
+// memory of the machine it ran on. So a branch is pushed with no receipt,
+// because pushing it is how its pull request gets checked, and main, which
+// those pull requests land on, is refused here and by the repository's
+// ruleset alike. A receipt is still what lets through a ref no pull request
+// gates: a tag outside the remote's main, or a ref nobody planned for.
+// routeRef holds that division; everything below is the receipt, which is
+// unchanged.
+//
+// # Why the receipt exists
 //
 // It exists because the gate and the push were one action and should not
 // have been. `.githooks/pre-push` used to run `make push-gate` inline, and
@@ -178,9 +195,12 @@ func usage() {
          receipt naming HEAD as it is when the gate FINISHES would cover a
          commit made while it ran.
 
-  verify --push-stdin
+  verify --push-stdin [--remote <name>]
          read git's pre-push lines from standard input and answer for every
-         ref being pushed. This is what .githooks/pre-push runs.
+         ref being pushed: a branch passes (its pull request's checks gate
+         it), main is refused (it changes only through a pull request), a tag
+         inside <name>'s main passes, and anything else needs a receipt.
+         This is what .githooks/pre-push runs.
 
   verify --commit <sha>
          ask about one commit by hand.
@@ -274,6 +294,14 @@ type pushRef struct {
 	// annotated tag it is the tag object, which is why checkRef peels it.
 	local string
 
+	// dest is the ref this push updates ON THE REMOTE, which is what decides
+	// which gate applies (see routeRef). It is not always name:
+	// `git push origin topic:main` sends refs/heads/topic to refs/heads/main,
+	// and judging that by its local name would wave a push to main through as
+	// a branch. Empty for `verify --commit`, which asks about a commit rather
+	// than a push.
+	dest string
+
 	// remote is what git advertised for this ref on the remote, all zeros
 	// when the ref does not exist there yet. It is what tells a ref being
 	// created or fast-forwarded apart from one being moved backwards.
@@ -285,6 +313,7 @@ func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	commit := fs.String("commit", "", "ask about one commit by hand")
 	pushStdin := fs.Bool("push-stdin", false, "read git's pre-push lines from standard input and answer for every ref being pushed")
+	remote := fs.String("remote", "", "the name of the remote being pushed to, which git passes a pre-push hook as its first argument; a tag already on that remote's main needs no receipt")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -297,8 +326,10 @@ func runVerify(args []string) error {
 		}
 		if len(refs) == 0 {
 			// A push that only deletes refs sends no code, so there is
-			// nothing for any gate to have examined.
-			fmt.Println("pre-push: this push only deletes refs, so it sends no code to check")
+			// nothing for any gate to have examined. Neither does one whose
+			// every ref is already up to date, which git also hands over as
+			// no lines at all.
+			fmt.Println("pre-push: this push sends no code (it only deletes refs, or every ref is already up to date), so there is nothing to check")
 			return nil
 		}
 	} else {
@@ -308,27 +339,159 @@ func runVerify(args []string) error {
 		refs = []pushRef{{local: *commit}}
 	}
 
-	receipt, err := loadReceipt(refs)
-	if err != nil {
-		return err
-	}
-
 	// Every ref is answered before anything is returned. A push of several
 	// refs that stopped at the first refusal would be fixed one twenty
 	// minute gate run at a time.
-	var refused []string
+	var needReceipt []pushRef
+	var reasons []string
 	for _, ref := range refs {
-		accepted, err := checkRef(receipt, ref)
-		if err != nil {
-			refused = append(refused, err.Error())
-			continue
+		line, needs, err := routeRef(ref, *remote)
+		switch {
+		case err != nil:
+			reasons = append(reasons, err.Error())
+		case needs:
+			needReceipt = append(needReceipt, ref)
+		default:
+			fmt.Println(line)
 		}
-		fmt.Println(accepted)
 	}
-	if len(refused) > 0 {
-		return errors.New(strings.Join(refused, "\n\n"))
+
+	// The receipt is read only when some ref still needs one, so a push of
+	// branches alone never asks for a gate that no longer guards it.
+	if len(needReceipt) > 0 {
+		receipt, err := loadReceipt(needReceipt)
+		if err != nil {
+			reasons = append(reasons, err.Error())
+		} else {
+			for _, ref := range needReceipt {
+				accepted, err := checkRef(receipt, ref)
+				if err != nil {
+					reasons = append(reasons, err.Error())
+					continue
+				}
+				fmt.Println(accepted)
+			}
+		}
+	}
+	if len(reasons) > 0 {
+		return errors.New(strings.Join(reasons, "\n\n"))
 	}
 	return nil
+}
+
+// defaultBranch is the one branch a pull request's checks do not gate on
+// the way in, because it is where those pull requests land.
+const defaultBranch = "refs/heads/main"
+
+// routeRef decides which gate applies to one ref, by where it lands on the
+// remote. It answers with the line to print when the ref needs nothing
+// more, with needsReceipt when only a local gate's receipt can let it
+// through, or with a refusal.
+//
+// Since 2026-10-13 the gate is the repository's GitHub Actions checks, not a
+// local run (see the package comment), which divides refs four ways:
+//
+//   - main is refused outright. It changes only by merging a pull request,
+//     whose checks are the gate, and the repository's ruleset refuses a
+//     direct push on the server as well, so asking for an hour-long local
+//     gate first would only spend the hour before the same refusal.
+//   - any other branch passes. Pushing it is how its pull request gets
+//     checked, and nothing reaches main without those checks passing.
+//   - a tag passes when it points into the remote's main, because every
+//     commit there arrived through a checked pull request, and main is never
+//     rewound (the ruleset refuses that too), so a commit once on it stays
+//     on it. A tag anywhere else is code no check has seen, and still needs
+//     a receipt.
+//   - anything else (notes, a hand-written refspec, `verify --commit`)
+//     still needs a receipt: a ref nobody planned for fails closed.
+func routeRef(ref pushRef, remote string) (line string, needsReceipt bool, err error) {
+	switch {
+	case ref.dest == defaultBranch:
+		return "", false, fmt.Errorf("%s would update main directly, at %s.\n"+
+			"main changes only through a pull request, whose checks are the gate, and the repository's ruleset refuses a direct push as well.\n"+
+			"Push a branch and open a pull request instead",
+			describeOne(ref), short(ref.local))
+	case strings.HasPrefix(ref.dest, "refs/heads/"):
+		return fmt.Sprintf("pre-push: %s is a branch, so the checks on its pull request are its gate", ref.dest), false, nil
+	case strings.HasPrefix(ref.dest, "refs/tags/"):
+		if tip, onMain := onRemoteMain(ref.local, remote); onMain {
+			return fmt.Sprintf("pre-push: %s points into %s's main (at %s), which changes only through checked pull requests",
+				ref.dest, remote, short(tip)), false, nil
+		}
+		return "", true, nil
+	default:
+		return "", true, nil
+	}
+}
+
+// onRemoteMain reports whether the commit object names is already part of
+// the remote's main, as this clone last fetched it, and that main's tip.
+//
+// The last fetch is enough, and the reason is the direction of staleness:
+// main only moves forwards, so an older view of it is a subset of the real
+// one, and a commit inside the older view is inside the real one too. A
+// stale view can only answer no where yes was true, which falls back to
+// asking for a receipt rather than letting anything through.
+//
+// Any answer this cannot get is no: a remote given as a URL rather than a
+// name (git passes the URL when a push names no remote), a name this
+// command will not build a ref from, a clone that never fetched it, or an
+// object that is not a commit.
+func onRemoteMain(object, remote string) (string, bool) {
+	if !isRemoteName(remote) {
+		return "", false
+	}
+	commit, err := peelToCommit(object)
+	if err != nil {
+		return "", false
+	}
+	cmd := exec.Command("git", "cat-file", "--batch-check=%(objectname)")
+	cmd.Stdin = strings.NewReader("refs/remotes/" + remote + "/main^{commit}\n")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	tip := strings.TrimSpace(string(out))
+	if !isObjectName(tip) {
+		return "", false
+	}
+	contained, err := containedInHistory(commit, tip)
+	if err != nil || !contained {
+		return "", false
+	}
+	return tip, true
+}
+
+// isRemoteName reports whether s can safely become part of a ref name this
+// command asks git about.
+//
+// Narrower than what git allows, deliberately: the name ends up on
+// cat-file's stdin, where a newline would start a second question and `^`
+// or `:` would turn a ref into an expression. A remote named in some other
+// way just loses the shortcut and needs a receipt.
+func isRemoteName(s string) bool {
+	if s == "" || s[0] == '-' || s[0] == '.' || strings.Contains(s, "..") {
+		return false
+	}
+	for _, c := range s {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+// describeOne names one ref being pushed, by where it comes from and, when
+// that differs, where it lands.
+func describeOne(ref pushRef) string {
+	switch {
+	case ref.name == "" && ref.dest == "":
+		return short(ref.local)
+	case ref.dest == "" || ref.dest == ref.name:
+		return ref.name
+	default:
+		return ref.name + " (pushed as " + ref.dest + ")"
+	}
 }
 
 // readPushRefs reads the lines git feeds a pre-push hook and returns the
@@ -360,7 +523,7 @@ func readPushRefs(r io.Reader) ([]pushRef, error) {
 		if isZeroObjectName(fields[1]) {
 			continue
 		}
-		refs = append(refs, pushRef{name: fields[0], local: fields[1], remote: fields[3]})
+		refs = append(refs, pushRef{name: fields[0], local: fields[1], dest: fields[2], remote: fields[3]})
 	}
 	return refs, nil
 }
@@ -382,7 +545,9 @@ func loadReceipt(refs []pushRef) (Receipt, error) {
 
 	body, err := os.ReadFile(path) // #nosec G304 -- path is .git/<constant>, derived from git itself
 	if errors.Is(err, os.ErrNotExist) {
-		return Receipt{}, fmt.Errorf("no gate receipt: nothing on this machine has verified %s.\nRun `make push-gate` (or `make ci`), then push again", sending)
+		return Receipt{}, fmt.Errorf("no gate receipt: nothing on this machine has verified %s, and no pull request's checks cover it.\n"+
+			"Run `make push-gate` (or `make ci`), then push again. A tag needs neither once its commit is on the remote's main: merge it through a pull request, fetch, then push the tag",
+			sending)
 	}
 	if err != nil {
 		return Receipt{}, fmt.Errorf("gatereceipt verify: reading %s: %w", path, err)
