@@ -40,6 +40,14 @@ func NewLazyFileStore(dir string) Store {
 // Lookup implements Store, resolving and caching the underlying store on
 // its first call.
 func (l *lazyFileStore) Lookup(ctx context.Context, deviceName string) (Credential, error) {
+	if err := l.open(); err != nil {
+		return Credential{}, err
+	}
+	return l.store.Lookup(ctx, deviceName)
+}
+
+// open resolves the master key and opens the store, once.
+func (l *lazyFileStore) open() error {
 	l.once.Do(func() {
 		key, keyErr := ResolveMasterKey(l.dir)
 		if keyErr != nil {
@@ -48,8 +56,5 @@ func (l *lazyFileStore) Lookup(ctx context.Context, deviceName string) (Credenti
 		}
 		l.store, l.err = NewFileStore(l.dir, key)
 	})
-	if l.err != nil {
-		return Credential{}, l.err
-	}
-	return l.store.Lookup(ctx, deviceName)
+	return l.err
 }

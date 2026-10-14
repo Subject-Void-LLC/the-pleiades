@@ -16,8 +16,13 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `CatalystAPICapable` | - | - |
 | `CiscoIOSCapable` | `NetworkCLICapable` | - |
 | `CommandExecCapable` | - | `ShellExecCapable`, `WindowsShellCapable` |
+| `ContainerEngineCapable` | - | `DockerCapable`, `PodmanCapable` |
 | `DnfCapable` | `PackageManagerCapable` | - |
-| `DockerCapable` | - | - |
+| `DockerCapable` | `ContainerEngineCapable` | - |
+| `EngineLocalCapable` | - | - |
+| `EngineSocketCapable` | - | - |
+| `EngineStdioCapable` | - | - |
+| `EngineTLSCapable` | - | - |
 | `FactGathererCapable` | - | - |
 | `FileTransferCapable` | - | - |
 | `FirewalldCapable` | `SystemdCapable` | - |
@@ -30,6 +35,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable` |
 | `POSIXFileSystemCapable` | - | - |
 | `PackageManagerCapable` | - | `AptCapable`, `DnfCapable` |
+| `PodmanCapable` | `ContainerEngineCapable` | - |
 | `PosixAccountCapable` | - | - |
 | `RFC2217Capable` | - | - |
 | `RawPassthroughCapable` | - | - |
@@ -46,7 +52,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-35 capabilities registered.
+41 capabilities registered.
 
 ## Transports
 
@@ -54,7 +60,10 @@ How a method's work reaches its device. A method lists the transports it uses; a
 
 | Transport | Reached by any of |
 | --- | --- |
-| `docker` | `DockerCapable` |
+| `engine_local` | `EngineLocalCapable` |
+| `engine_socket` | `EngineSocketCapable` |
+| `engine_stdio` | `EngineStdioCapable` |
+| `engine_tls` | `EngineTLSCapable` |
 | `https` | `HTTPAPICapable`, `CatalystAPICapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |

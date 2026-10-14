@@ -24,6 +24,19 @@ type Finding struct {
 // shared validation package.
 type Report struct {
 	Findings []Finding
+	// Routes say how each task that reaches its device more than one way
+	// will reach it, decided from the record the way the run decides it.
+	// They are the plan, not problems, and never fail validation.
+	Routes []Route
+}
+
+// Route is how one task will reach one device: the transport, and the
+// detail behind it in runbook terms (for a container method, which engine).
+type Route struct {
+	Node      string
+	Device    inventory.DeviceID
+	Transport string
+	Detail    string
 }
 
 // HasErrors reports whether any rule produced a Finding.
@@ -31,15 +44,18 @@ func (r Report) HasErrors() bool {
 	return len(r.Findings) > 0
 }
 
-// String renders the report for the CLI surface.
+// String renders the report for the CLI surface: the findings, or that
+// there are none, then the routes.
 func (r Report) String() string {
-	if len(r.Findings) == 0 {
-		return "validate: no issues found\n"
-	}
-
 	var b strings.Builder
+	if len(r.Findings) == 0 {
+		b.WriteString("validate: no issues found\n")
+	}
 	for _, f := range r.Findings {
 		fmt.Fprintf(&b, "[%s] node %q: %s\n", f.RuleName, f.Node, f.Message)
+	}
+	for _, rt := range r.Routes {
+		fmt.Fprintf(&b, "[route] node %q on %s: %s, %s\n", rt.Node, rt.Device, rt.Transport, rt.Detail)
 	}
 	return b.String()
 }

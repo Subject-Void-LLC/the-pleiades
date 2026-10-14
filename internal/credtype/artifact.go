@@ -279,6 +279,9 @@ type Artifact struct {
 	// identity a run authenticates as.
 	machine map[string]string
 	vault   []VaultPassword
+	// registry is the one container registry credential, set only by
+	// registryTarget for the same reason.
+	registry *wire.RegistryCredential
 
 	// secrets are the values in this artifact that must be scrubbed from
 	// any captured output, filled in by the secret-tracking decorator as it
@@ -306,6 +309,12 @@ type Artifact struct {
 // wire.DispatchPayload.Secrets carries, so a caller assigns it straight
 // across. See this file's own constants for why the keys are restated here
 // rather than imported.
+// Registry returns the container registry credential this artifact
+// carries, and false when it carries none.
+func (a Artifact) Registry() (*wire.RegistryCredential, bool) {
+	return a.registry, a.registry != nil
+}
+
 func (a Artifact) Machine() (map[string]string, bool) {
 	if len(a.machine) == 0 {
 		return nil, false
@@ -428,6 +437,15 @@ func Combine(arts ...Artifact) (Artifact, error) {
 			}
 			machineOwner = a.CredentialName
 			out.machine = machine
+		}
+
+		if reg, ok := a.Registry(); ok {
+			if out.registry != nil {
+				return Artifact{}, fmt.Errorf(
+					"%w: %q is a second container registry credential, and a run carries one until a task can name which credential it uses",
+					ErrInjectorConflict, a.CredentialName)
+			}
+			out.registry = reg
 		}
 
 		for _, v := range a.vault {

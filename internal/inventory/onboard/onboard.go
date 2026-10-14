@@ -23,7 +23,7 @@ var (
 	// ErrNotOnboarded is returned for a device whose type has no prober:
 	// its capabilities come from its Go type, so there is nothing to
 	// discover.
-	ErrNotOnboarded = errors.New("only a generic device type is onboarded")
+	ErrNotOnboarded = errors.New("only a device type with a prober (the generic types and container_host) is onboarded")
 
 	// ErrAdministratorState is returned for a device in a state a person
 	// set, which onboarding does not overrule.

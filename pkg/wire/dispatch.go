@@ -362,6 +362,12 @@ type DispatchPayload struct {
 	// deployment ordering requirement rather than a comment about one.
 	Injected *Injected `json:"injected,omitempty"`
 
+	// Registry is the template's one container registry credential, absent
+	// when none is bound. A method reaches it only through
+	// sdk.RegistryCredentials, for its own host, and it is masked from every
+	// output like Secrets.
+	Registry *RegistryCredential `json:"registry,omitempty"`
+
 	// Rollback, when set, makes this dispatch a rollback (Phase 40): the
 	// Runner runs these steps, which undo what job Rollback.Of did on this
 	// device, instead of RunbookID's tasks. RunbookID still names the

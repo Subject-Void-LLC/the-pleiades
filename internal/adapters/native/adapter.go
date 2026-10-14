@@ -336,6 +336,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		secrets = append(secrets, v)
 	}
 	secrets = append(secrets, injectedValues...)
+	secrets = append(secrets, registrySecretValues(payload.Registry)...)
 
 	// Each warning a task recorded (sdk.StatWarnings) reaches the job log
 	// once per dispatch, masked, before the completion that summarizes it.

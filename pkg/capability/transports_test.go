@@ -38,11 +38,14 @@ func TestReachedBy_EveryTransportNamesRegisteredCapabilities(t *testing.T) {
 // declared transports are checked against it.
 func TestReachedBy_TheRows(t *testing.T) {
 	want := map[string][]capability.Name{
-		capability.TransportSSH:     {capability.NameSSHTransport},
-		capability.TransportWinRM:   {capability.NameWinRM},
-		capability.TransportNetconf: {capability.NameNetconf},
-		capability.TransportHTTPS:   {capability.NameHTTPAPI, capability.NameCatalystAPI},
-		capability.TransportDocker:  {capability.NameDocker},
+		capability.TransportSSH:          {capability.NameSSHTransport},
+		capability.TransportWinRM:        {capability.NameWinRM},
+		capability.TransportNetconf:      {capability.NameNetconf},
+		capability.TransportHTTPS:        {capability.NameHTTPAPI, capability.NameCatalystAPI},
+		capability.TransportEngineLocal:  {capability.NameEngineLocal},
+		capability.TransportEngineSocket: {capability.NameEngineSocket},
+		capability.TransportEngineStdio:  {capability.NameEngineStdio},
+		capability.TransportEngineTLS:    {capability.NameEngineTLS},
 	}
 	if got := capability.Transports(); len(got) != len(want) {
 		t.Fatalf("Transports() = %v, want exactly %d", got, len(want))

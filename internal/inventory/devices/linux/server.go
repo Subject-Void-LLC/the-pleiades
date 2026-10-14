@@ -11,14 +11,19 @@
 package linux
 
 import (
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
+// TypeServer is the device type this package registers.
+const TypeServer = "linux_server"
+
 func init() {
-	record.RegisterType("linux_server", NewServer)
+	record.RegisterType(TypeServer, NewServer)
+	record.RegisterDiscoveryRules(TypeServer, record.DiscoveryRules{Grants: engines.SSHGrants})
 }
 
 // Server implements InventoryItem plus, structurally,
@@ -32,6 +37,9 @@ func init() {
 // manager, firewall and account capabilities (packages.go).
 type Server struct {
 	*record.Base
+	// Accessors reads the container engines onboarding found on the server
+	// (internal/inventory/devices/engines); only onboarding grants them.
+	engines.Accessors
 }
 
 // NewServer builds a Server from rec. It matches the
@@ -79,8 +87,20 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 	if baseline, err = firewalldBaseline(rec, baseline); err != nil {
 		return nil, err
 	}
-	base := record.NewBase(rec, policy.UnionSlices(baseline, rec.Capabilities))
-	return &Server{Base: base}, nil
+	// A classification rule may add to the baseline but never grant a
+	// container engine, which only onboarding proves.
+	caps, _, err := record.Declared(TypeServer, rec, policy.UnionSlices(baseline, engines.WithoutGrants(rec.Capabilities)))
+	if err != nil {
+		return nil, err
+	}
+	return NewFromBase(record.NewBase(rec, caps)), nil
+}
+
+// NewFromBase builds a Server on base, wiring its engine accessors to the
+// same record. A type that embeds Server (generic_ssh) builds it here, so the
+// two cannot wire it differently.
+func NewFromBase(base *record.Base) *Server {
+	return &Server{Base: base, Accessors: engines.Accessors{Of: base}}
 }
 
 // HasCapability checks the declared classification AND the structural

@@ -117,6 +117,11 @@ case "$1" in
     exit 1
     ;;
   run)
+    # Read an env file from standard input the way the real CLI does, so a
+    # test sees exactly what reached it there.
+    case " $* " in
+      *" --env-file /dev/stdin "*) cat > "$FAKE_RECORD.env" ;;
+    esac
     printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
     printf -- '---\n' >> "$FAKE_RECORD"
@@ -332,10 +337,22 @@ func TestRun_AbsentCreatesContainer(t *testing.T) {
 		t.Fatalf("invocations = %v", calls)
 	}
 	call := calls[0]
-	for _, want := range []string{"-d", "--name web", "-p 8080:80", "-v /data:/data", "-e FOO=bar", "--restart unless-stopped", "nginx:1.27", "daemon off;"} {
+	for _, want := range []string{"-d", "--name web", "-p 8080:80", "-v /data:/data", "--env-file /dev/stdin", "--restart unless-stopped", "nginx:1.27", "daemon off;"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("call = %q, want it to contain %q", call, want)
 		}
+	}
+	// Finding S2: a value on the command line is readable by anyone on the
+	// host with ps, and is quoted back in a failed run's error.
+	if strings.Contains(call, "bar") {
+		t.Errorf("call = %q, which carries an environment value on the command line", call)
+	}
+	envFile, err := os.ReadFile(h.record + ".env")
+	if err != nil {
+		t.Fatalf("reading the env file the fake docker received on stdin: %v", err)
+	}
+	if string(envFile) != "FOO=bar\n" {
+		t.Errorf("env file on stdin = %q, want %q", envFile, "FOO=bar\n")
 	}
 	fqcn, params, ok := inverseOf(h.rc)
 	if !ok || fqcn != "container.docker.remove" || params["name"] != "web" || params["force"] != true || params["id"] != fakeContainerID {
@@ -401,6 +418,32 @@ func TestRun_EnvValueNotAString(t *testing.T) {
 		"name": "web", "image": "nginx", "env": map[string]any{"FOO": 123},
 	})); err == nil {
 		t.Fatal("expected an error for a non-string env value")
+	}
+}
+
+// TestRun_EnvEntriesAnEnvFileCannotCarryAreRefused proves the names and
+// values docker's env-file format would change are refused before anything
+// connects, rather than arriving as something the runbook did not write.
+func TestRun_EnvEntriesAnEnvFileCannotCarryAreRefused(t *testing.T) {
+	for name, env := range map[string]map[string]any{
+		"a line break in a value": {"FOO": "bar\nBAZ=evil"},
+		"a carriage return":       {"FOO": "bar\r"},
+		"a NUL byte in a value":   {"FOO": "bar\x00"},
+		"a name starting with #":  {"#FOO": "bar"},
+		"a name with a space":     {"FOO BAR": "x"},
+		"a name with =":           {"FOO=BAR": "x"},
+		"an empty name":           {"": "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, absent)
+			_, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web", "image": "nginx", "env": env}))
+			if err == nil {
+				t.Fatal("expected a refusal")
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("invocations = %v, want none", calls)
+			}
+		})
 	}
 }
 

@@ -4,6 +4,7 @@ package remoteexec
 
 import (
 	"context"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -46,6 +47,12 @@ type Process struct {
 	// uses too, so the two cannot drift in how they bound standard error
 	// or honor a deadline.
 	s *stream
+
+	// lease is the borrowed connection's tie to its Pool, nil when the
+	// connection was not borrowed: a Wait that sees the command exit tells
+	// it so, once (ended).
+	lease *lease
+	ended sync.Once
 }
 
 // Start starts command on this connection and returns it as a live
@@ -65,17 +72,22 @@ type Process struct {
 // Starting a command is never retried: it may already have partially
 // run, and re-sending it could apply an unknown side effect twice.
 func (c *Conn) Start(ctx context.Context, command string) (*Process, error) {
-	// A streamed process is reused by nothing today, and one left running
-	// would outlive its task, so a borrowed connection that started one
-	// is closed rather than reused.
-	c.taint()
+	// A process left running would outlive its task, so a borrowed
+	// connection goes back to its Pool only once every process started on
+	// it has been seen to exit (Wait answered an exit status); a connection
+	// with one that was not is closed instead (lease.started, lease.ended).
+	if c.lease != nil {
+		c.lease.started()
+	}
 	s, err := c.openStream(ctx, "remote command", func(session *ssh.Session) error {
 		return session.Start(command)
 	})
 	if err != nil {
+		// Whether the command began on the far side is unknown.
+		c.taint()
 		return nil, err
 	}
-	return &Process{s: s}, nil
+	return &Process{s: s, lease: c.lease}, nil
 }
 
 // Read reads from the command's standard output. An error carries
@@ -100,7 +112,15 @@ func (p *Process) CloseWrite() error { return p.s.closeWrite() }
 // breakdown. A session that ended with no exit status, a dropped
 // connection, or ctx ending the session is a real error, and the status
 // alongside it is -1. Calling Wait again returns the same answer.
-func (p *Process) Wait() (int, error) { return p.s.wait() }
+func (p *Process) Wait() (int, error) {
+	code, err := p.s.wait()
+	if err == nil && p.lease != nil {
+		// The far side reported the command's exit, so nothing of it is
+		// left running on the connection.
+		p.ended.Do(p.lease.ended)
+	}
+	return code, err
+}
 
 // Stderr returns what the command has written to standard error,
 // truncated to the same 8 KiB bound Subsystem applies and marked as such

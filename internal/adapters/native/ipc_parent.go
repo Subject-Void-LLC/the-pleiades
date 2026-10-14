@@ -130,7 +130,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
 	}
 
-	secrets := redact.MapValues(payload.Secrets)
+	secrets := append(redact.MapValues(payload.Secrets), registrySecretValues(payload.Registry)...)
 
 	// A pipe, not a second exec.Cmd-managed stream: ExtraFiles hands the
 	// child a raw, unmanaged file descriptor (fd 3), so this package is
@@ -226,9 +226,21 @@ func childRequest(desc collection.Descriptor, mode collection.Mode, params map[s
 		SSHPort:          payload.SSHPort,
 		Capabilities:     payload.Capabilities,
 		Secrets:          payload.Secrets,
+		Registry:         payload.Registry,
 		DeviceType:       payload.DeviceType,
 		DeviceProperties: payload.DeviceProperties,
 	}
+}
+
+// registrySecretValues is the registry credential's password as a value to
+// mask, or nothing. It joins the machine credential's values wherever the
+// Runner masks a task's output, since a method's error can echo it as
+// readily.
+func registrySecretValues(reg *wire.RegistryCredential) []string {
+	if reg == nil || reg.Password == "" {
+		return nil
+	}
+	return []string{reg.Password}
 }
 
 // childAnswer is what a child's decoded response means for a call of the

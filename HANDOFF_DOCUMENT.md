@@ -4,81 +4,76 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `chore/dependency-updates`, 2026-10-01. Phase 118 is on `main`.** Pull request #48's fourth run
-passed every job, and #48 merged, but into the Phase 75 branch: #47 had merged that branch into `main` and
-left it in place, so #48 kept it as its base (the repository does not delete a merged branch, and GitHub moves
-a stacked PR to `main` only when its base branch is deleted). #49 then carried it from that branch to `main`
-(merge commit `59a8f58b`, every job green again). The dependency branch is the last of the stack; it carries
-Phase 118 by merge and shows only its own 14 files against `main`. `gh` is now logged in here as
-SubjectVoidLLC (version 2.4.0; pass `-R Subject-Void-LLC/the-pleiades`, since the remote's SSH alias is not
-recognized, and change a PR body with `gh api -X PATCH`, since `gh pr edit` fails on a retired Projects
-query). Rules unchanged (method-as-key runbooks, two agents at most, heavy commands under
-`~/.local/bin/capped`, the lab provisioned by The Pleiades only, no LocalStack in the hosted jobs), plus one
-made explicit today in `.AGENTS/AGENTS.md`: no AI credit anywhere, including a PR description.
+**Branch `feature/Part-XVIII-Container-Platforms` off `main` (`6b5ff333`), 2026-10-13. Nothing committed
+or pushed** (the user has not asked; offer per-phase commits, 119a first). Building Part XVIII (Docker,
+Podman, Kubernetes) in full, at the user's direction: "full plan docker/k8s/podman as planned", "full
+functions - do not half ass", Podman "adjacent to docker so dont skip it", and "make it work with how that
+project does things. do not actually build in that project". The acceptance target is the user's
+`/mnt/c/Users/raymo/coupon_clipper` (`k8s/deploy.sh`), **read only, never built, applied or changed**, and its
+live `groceries` namespace on Docker Desktop's Kubernetes is never touched: every test uses throwaway
+fixtures. Docker Desktop and its Kubernetes are integrated into WSL, so the local paths are first class
+(this machine's `/var/run/docker.sock`; the `docker-desktop` kube context, client certificate; node container
+`desktop-control-plane`, `kindest/node:v1.36.1`, hidden from `docker ps` but reachable by `docker inspect`, its
+machine ID equal to the node's `machineID`). Rules unchanged (method-as-key runbooks, two agents at most,
+heavy commands under `~/.local/bin/capped`, no AI credit). Memory is tight (about 2.5 to 3 GB free, other
+Claude sessions running): run live fixture tests one package at a time.
 
-### What the three runs found, and what fixed it
+### The roadmap (gitignored, local only)
 
-- **Run 1** (FAILURE_PATTERNS 416, 417): every containers shard pulled `65532:65532` as an image;
-  `upload-artifact` skips the hidden `.coverage/`; macOS was an advisory leg of the `fast` matrix that
-  `coverage` needed; `ubuntu-latest` becomes Ubuntu 26 on 2026-10-19; a failed `testgate` run wrote no
-  summary, and the summary carried test output unmasked.
-- **Run 2** (418): the upgrade gates asked for `main` by name in a checkout that has one commit and no
-  branches (`1a35d0a6`); `test-repeat` was a bare `go test` outside `testgate`, so its failure was unreadable
-  (`3070a8f1`, `testgate -repeat`).
-- **Run 3** (419, 420, 421): Ubuntu `fast` failed `TestDispatcher_ReleaseGate` in `test-repeat`, because the
-  gate's own 5 ms poll loaded every task row through the one SQLite connection the Worker needed (now 250 ms,
-  3.2 s on four cores, budget 120 s; `1ec9bd39`). Shard 2's mesh WSS gate read Docker 28's port map, which
-  lists the image's EXPOSEd 4222 with no bindings, as a published port (a port with no binding is skipped;
-  `5e959438`). macOS `fast` failed 43 tests that assumed Linux (`b947d97a`: the loader requires `landlock`
-  wherever `Load` is called, the http tests pin their authority as `tls_ca_pem` because macOS ignores
-  SSL_CERT_FILE, facts and onboard require `linux`, remotefile's directory setgid case is marked Linux's, and
-  the userns message off Linux says the kernel has none). LocalStack is out of the hosted jobs at the user's
-  direction (`c8dfd3cd`).
-- **Verified here:** the touched packages under `-race`, the dispatcher gate three times over on four cores,
-  the mesh gate against real containers (44 s), `GOOS=darwin go vet` of every touched package, actionlint.
-  **Not verifiable here:** the macOS fixes themselves; the fourth run is their test.
+Part XVIII at the end of `.SPECIFICATION/IMPLEMENTATION.md`: 119a to 119m. Fast track in **v0.3.0**: 119a,
+119b, 119c, 119e, 119f (Docker and Podman together), 119g, 119h, 119l (local device for the project's
+scripts), 119m (the coupon_clipper-shaped deploy, end to end); v0.5.0: 119d, Phase 26, 119k; v0.7.0: 119i,
+119j. The preamble maps every step of `deploy.sh` to a method and phase. Backups of each roadmap revision
+are in this session's scratchpad only. Read status with `python3 .SPECIFICATION/implementation.py --json
+--phase 119a` (and so on).
 
-### Open
+### Done and verified
 
-1. **The dependency PR, #50 into `main`.** Its first run passed every job. Its second, on a docs-only commit,
-   failed both `fast` jobs on two tests that measured once (FAILURE_PATTERNS 422, fixed). The gate after that
-   tolerated thirteen `tests/e2e` failures from one leaked goroutine, traced to container starts that were never
-   terminated when they failed: 47 sites, one of them the production Ansible orchestrator, which left
-   `ansible-playbook` running past its job's `timeout` (FAILURE_PATTERNS 423, fixed with a changelog fragment and a
-   guard test). A first reading blamed testcontainers; the user's rule to prove a fix before calling it out caught
-   it, and reproduction showed the library behaves as documented, so nothing was reported upstream. Merge #50 once
-   its run on these fixes is green. grpc stays at 1.83.2 (413); GO-2026-5932 is a notice with no importer.
-2. **Plan the push-gate / release-gate split with the user**, now that the PR is done (their words: "we get
-   the pr done then we plan for it"). Proposed and not yet approved: a fast push gate without the container
-   packages and the ratchet, the PR jobs as they are, and a strict `make release-gate` (everything `make ci`
-   runs plus `image-scan`, a fuzz budget, the upgrade gates and a fresh `govulncheck`) whose receipt the
-   pre-push hook requires on the exact commit of any `v*` tag, run again by a release workflow on the tag.
-   Raise with it: the coverage re-measure gives a stalled container no second chance where the test pass
-   does; a `govulncheck` guard that fails on a vulnerable imported package (Phase 106b); the Node 20
-   deprecation on the pinned actions; the setup-go cache tar warning.
-3. **Branch cleanup**, planned and not run (the user asked for the plan only): four merged remote branches,
-   eleven merged local ones plus a fast-forward of local `main`, the Phase 75 branch now that #49 merged, and a
-   superseded worktree another session left in its scratch directory (`wt117a`, 36 uncommitted files from
-   2026-09-29, everything in it older than `main`).
-4. Carried: 117a's env-gated ServiceNow gate; Phase 110's strict `make ci`; Phase 113's Pattern Entry Gate;
-   Phases 12 and 70 have no Implements line; `fakeRepository.GetGroup` in the UI harness ignores `After` and
-   `Limit`; the Ansible gate's sshd keeps its log wait by design; three views do not page
-   (`credential-types`, `credentials`, `projects`).
+- **119a (12 of 14; open: Release Gate, commit message).** `container.docker.exec` reaches the engine the
+  device advertises; `docker_endpoint` is refused (finding S1); `container.docker.run` sends env on stdin
+  (finding S2).
+- **119b (12 of 13; open: Release Gate, commit message).** Evidence on every item in the roadmap. The port
+  (`pkg/containerengine`): Docker's own Go client behind one guard, four carriers chosen by one function
+  that sessions and `pleiades validate` share (`usableCarriers`, `Route`), identity pinning, an account check
+  (`id -un` against the recorded `login_user`), an Engine API floor of 1.41 (measured: Docker 29.9.0 1.56,
+  Podman 5.8.7 1.44, Podman 4.9.4 1.41), bounded answers, `ValidName`. `pkg/dockerexec` folded in and deleted
+  (`Session.Exec`). Registry credentials end to end. `validate` prints `[route]` lines. Stress: 50 devices x
+  10 sessions at once, 0.6 s, 50 pooled logins. Docs: `docs/10`, "Container engines: Docker and Podman".
 
-### Decisions for the user
+### Findings this session (each fixed, each worth a FAILURE_PATTERNS or LESSONS entry at the doc ritual)
 
-1. Require the PR checks on `main`. Its rulesets block deletion and force-pushes and require a pull request,
-   but require no status check; `fast-macos` has now passed twice, which was the condition for it.
-2. Turn on "Automatically delete head branches", so a stacked PR follows its base to `main`.
-3. Two commits already on `main` carry a `Co-Authored-By: Claude` trailer, the newest `8e477beb`
-   (2026-09-23). Removing them means rewriting `main`, which its ruleset refuses; left as they are.
-4. Whether the three non-paging views should page.
+1. OpenSSH applies `AllowTcpForwarding` to Unix-socket channels and answers every refusal "connect failed".
+2. The guard judged a decoded path when a target held an invalid character (fuzz); now canonical only.
+3. Closing an SSH exec channel does not stop the remote process: the Podman service outlived `Close`.
+4. A test asserted on `ps` in an image with no `ps` and passed vacuously.
+5. `container_host` parsed its TLS settings but never exposed them, so a pinned CA was ignored.
+6. `trust-host --first-connect` wrote a fixture's key into the real `~/.ssh/known_hosts`; tests use
+   `PLEIADES_KNOWN_HOSTS`.
+7. **The moby client dials a hijacked request (exec, attach) itself whenever its transport has a TLS config,
+   which cloning a default transport gives it, so exec skipped the guard.** HTTP/1-only transport in
+   `newAPI`; `TestSession_HijackedRequestsPassTheGuard` fails without it.
+8. **Over `engine_stdio` no login was ever pooled:** `Conn.Start` tainted it, and the HTTP transport closes a
+   finished request's connection on its own goroutine, after the session released the login. Now a process
+   seen to exit (`Wait`) is counted out, and the carrier ends its open processes before release.
+9. `testsupport.EngineHostOptions.SSHDConfig` REPLACES the default `AllowTcpForwarding local`; a test that
+   only meant to add `MaxStartups` silently turned forwarding off.
+10. Two vacuous checks caught by controls: busybox `find` rejects `-size -64M` (the error was swallowed),
+    and `-xdev` skipped dind's `/var/lib/docker` volume. A planted canary now proves the disk search finds.
+11. The Walk child masks the credential's username like every credential value, so an account refusal
+    shows it as `********` (kept: never show secrets).
+12. Go 1.26.9 and x/net v0.60.0 (PR #52) and the gate moving to GitHub Actions (PR #53) both merged to
+    main; WSL crashed once from a 4G cap during a gopls reload (memory note updated).
 
-### Files changed (since the second run)
+### Next
 
-`internal/api/dispatcher_{testutil,release}_test.go`; `tests/e2e/{previous_build_test.go,
-previous_build_ref_test.go,mesh_wss_release_gate_test.go}`; `tools/testgate/{options,main,gate_live_test}.go`
-and the `Makefile` (`-repeat`); `internal/loader/*_test.go`; `internal/catalog/http/request_device_test.go`;
-`internal/catalog/facts/gather_check_test.go`; `internal/inventory/onboard/probe_ssh_test.go`;
-`pkg/remotefile/predict_test.go`; `internal/testsupport/require.go`; `.github/workflows/ci.yml`;
-CONTRIBUTING.md; CLAUDE.md; FAILURE_PATTERNS 418 to 421. Local only: the roadmap's Phase 118 Release Gate note.
+1. Commit 119a and 119b and open a PR to main: under the Actions policy its checks are the Release Gate.
+   main is 9 commits ahead (#52, #53); this branch holds the same Go bump uncommitted, identical lines.
+2. Then 119c (Kubernetes client, `kubernetes_cluster`, kubeconfig import of `docker-desktop`), 119e, 119f,
+   119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+3. The `winrm` CI job's 401 needs one diagnostic run (proposal in the session's notes); waiting on the user.
+
+### Files changed
+
+See `git status` on the branch (about 90 files): `pkg/{capability,containerengine,remoteexec,
+wire,sdk,external}`, `internal/{inventory,catalog/container,credential,credtype,dispatch,engine,adapters/native,
+testsupport,forge/catalogdata,clispec,api}`, `cmd/pleiades`, `docs/`, `changelog/`, `Makefile`, `go.mod`.

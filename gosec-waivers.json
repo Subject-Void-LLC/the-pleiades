@@ -144,6 +144,12 @@
       "line": "92",
       "rule_id": "G703",
       "reason": "Owned by Phase 118 (verification others can run), added 2026-09-30. tools/testgate is a developer and CI command under tools/: package main, never linked into any cmd/ composition root, never reachable from a network path, never packaged, the same boundary tools/sweep's G703 waivers rest on. This is summarize's os.OpenFile of the path in GITHUB_STEP_SUMMARY, which GitHub Actions sets for each step to the file that step's summary page is built from; gosec traces the environment variable into a filesystem path. The file is only ever opened for appending text this tool wrote, with O_APPEND|O_CREATE|O_WRONLY and mode 0o600, never read, executed or passed to a command. A process whose environment an attacker controls has already lost what this rule protects: the same environment decides PATH, HOME and every tool the job runs. When the variable is unset (every run off GitHub) nothing is opened. Re-review if this path ever comes from anything but GITHUB_STEP_SUMMARY."
+    },
+    {
+      "file": "pkg/containerengine/registry.go",
+      "line": "51",
+      "rule_id": "G117",
+      "reason": "Owned by Phase 119b (registry credentials). encodeAuth marshals registry.AuthConfig, whose Password field is the registry account's secret, because that JSON, base64url-encoded, IS the Engine API's X-Registry-Auth header: the engine accepts a registry account in no other form. The value is built for one pull or push request, only for the registry the image reference names (RegistryAuth matches the credential's host against the image's own registry, so a runbook cannot send one registry's password to another, held by FuzzRegistryAuth), sent in that request's header to the engine over the session's guarded carrier, and never logged, stored, written to the host, or placed in an error. G117 is a heuristic over field names; marshaling this field is the function's purpose, not an accident of a struct that happens to hold one."
     }
   ]
 }

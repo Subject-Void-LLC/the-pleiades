@@ -138,8 +138,18 @@ func TestSSHProbe_RealShell(t *testing.T) {
 	if got.Facts["kernel"] != "Linux" {
 		t.Errorf("facts %v", got.Facts)
 	}
-	if cmds := srv.Commands(); len(cmds) != 1 || cmds[0] != sshProbeScript {
-		t.Errorf("the device received %q, want the one constant script", cmds)
+	// The device receives the two constant scripts, then only dial-stdio
+	// commands for the engine probe's fixed socket paths: nothing an
+	// inventory value or the device's own answers could shape beyond its
+	// numeric uid.
+	cmds := srv.Commands()
+	if len(cmds) < 2 || cmds[0] != sshProbeScript || cmds[1] != engineLoginScript {
+		t.Fatalf("the device received %q, want the probe script then the engine script", cmds)
+	}
+	for _, c := range cmds[2:] {
+		if !strings.Contains(c, "'system' 'dial-stdio'") && !strings.Contains(c, "'system' 'service'") && !strings.HasPrefix(c, "umask 077") && !strings.HasPrefix(c, "'sh' '-c'") && !strings.HasPrefix(c, "'rm' '-rf'") {
+			t.Errorf("the device received %q, which is not one of the engine probe's fixed commands", c)
+		}
 	}
 }
 

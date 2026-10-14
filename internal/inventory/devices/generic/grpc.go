@@ -54,7 +54,7 @@ func NewGRPC(rec record.Record) (inventory.InventoryItem, error) {
 		return nil, fmt.Errorf("%s %s: gRPC runs over HTTP/2, which requires TLS 1.2 and forbids legacy cipher suites, so %s and %s cannot apply",
 			TypeGRPC, rec.Name, devicetls.AllowDeprecatedProperty, devicetls.AllowLegacyCiphersProperty)
 	}
-	caps, stale, err := declared(TypeGRPC, rec, []capability.Name{capability.NameNetworkAddressable})
+	caps, stale, err := record.Declared(TypeGRPC, rec, []capability.Name{capability.NameNetworkAddressable})
 	if err != nil {
 		return nil, err
 	}

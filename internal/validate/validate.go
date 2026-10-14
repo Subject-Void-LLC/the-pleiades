@@ -144,5 +144,26 @@ func Validate(world WorldView) Report {
 	slices.SortStableFunc(findings, func(a, b Finding) int {
 		return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.RuleName, b.RuleName), cmp.Compare(a.Message, b.Message))
 	})
-	return Report{Findings: findings}
+	var routes []Route
+	for _, p := range planners {
+		routes = append(routes, p(world)...)
+	}
+	slices.SortStableFunc(routes, func(a, b Route) int {
+		return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.Device, b.Device))
+	})
+	return Report{Findings: findings, Routes: routes}
+}
+
+// Planner reports how tasks will reach their devices, as Routes. Like a
+// Rule it is a pure function of the world; unlike one, what it reports is
+// the plan rather than a problem.
+type Planner func(world WorldView) []Route
+
+// planners holds every planner Validate runs, registered from init() as
+// rules are.
+var planners []Planner
+
+// RegisterPlanner adds a Planner to the set Validate runs.
+func RegisterPlanner(p Planner) {
+	planners = append(planners, p)
 }

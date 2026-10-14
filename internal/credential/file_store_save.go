@@ -37,20 +37,32 @@ func SaveFileStore(dir string, key []byte, deviceName string, cred Credential) e
 		return fmt.Errorf("failed to initialize credential encryption: %w", err)
 	}
 
+	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+		if doc.Devices == nil {
+			doc.Devices = make(map[string]credentialEntry)
+		}
+		entry, err := buildCredentialEntry(svc, cred)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt credential for device %s: %w", deviceName, err)
+		}
+		doc.Devices[deviceName] = entry
+		return nil
+	})
+}
+
+// updateCredentialsDocument reads the project's credential file, applies
+// change, and writes it back atomically into a directory only the owner may
+// open. Every writer goes through it, so device and registry credentials are
+// saved one way.
+func updateCredentialsDocument(dir string, change func(doc *credentialsDocument) error) error {
 	path := credentialsPath(dir)
 	doc, err := readCredentialsDocument(path)
 	if err != nil {
 		return err
 	}
-	if doc.Devices == nil {
-		doc.Devices = make(map[string]credentialEntry)
+	if err := change(&doc); err != nil {
+		return err
 	}
-
-	entry, err := buildCredentialEntry(svc, cred)
-	if err != nil {
-		return fmt.Errorf("failed to encrypt credential for device %s: %w", deviceName, err)
-	}
-	doc.Devices[deviceName] = entry
 
 	dirPath := filepath.Dir(path)
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {

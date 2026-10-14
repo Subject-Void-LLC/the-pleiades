@@ -63,6 +63,10 @@ type ChildRequest struct {
 	SSHPort      int               `json:"ssh_port"`
 	Capabilities []capability.Name `json:"capabilities"`
 	Secrets      map[string]string `json:"secrets,omitempty"`
+	// Registry is the dispatch's container registry credential, set only by
+	// the Runner for its own built-in methods, never for an external
+	// program.
+	Registry *RegistryCredential `json:"registry,omitempty"`
 
 	// DeviceType and DeviceProperties are DispatchPayload's, handed on so
 	// the child rebuilds the same device the Runner did.

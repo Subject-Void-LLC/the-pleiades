@@ -69,7 +69,7 @@ func (h *DeviceHandler) Onboard(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, onboard.ErrProbe):
 		Respond(w, r, http.StatusBadGateway, &onboardDTO{Result: res})
 	case errors.Is(err, onboard.ErrNotOnboarded):
-		RespondError(w, r, http.StatusUnprocessableEntity, "only a generic device type is onboarded")
+		RespondError(w, r, http.StatusUnprocessableEntity, "only a device type with a prober (the generic types and container_host) is onboarded")
 	case errors.Is(err, onboard.ErrAdministratorState):
 		RespondError(w, r, http.StatusConflict, "the device is in a state an administrator set")
 	default:

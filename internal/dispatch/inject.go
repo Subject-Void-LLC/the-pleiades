@@ -172,6 +172,12 @@ func applyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
 	if machine, ok := art.Machine(); ok {
 		payload.Secrets = machine
 	}
+	// The template's one container registry credential travels beside the
+	// machine credential, never inside it, so only a method pulling from its
+	// own host ever reads it (wire.RegistryCredential).
+	if reg, ok := art.Registry(); ok {
+		payload.Registry = reg
+	}
 }
 
 // promptedFor returns the prompted inputs carried for one job.

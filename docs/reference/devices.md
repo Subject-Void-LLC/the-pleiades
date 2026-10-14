@@ -13,12 +13,12 @@ Every registered inventory device type, its vendor package, and the capabilities
 | `generic_grpc` | `generic` | `NetworkAddressableCapable`; discovered: `GRPCCapable` | generic, discovered at onboarding |
 | `generic_http` | `generic` | `NetworkAddressableCapable`; discovered: `HTTPAPICapable` | generic, discovered at onboarding |
 | `generic_netconf` | `generic` | `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `NetconfCapable` | generic, discovered at onboarding |
-| `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable` | generic, discovered at onboarding |
+| `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineSocketCapable`, `EngineStdioCapable` | generic, discovered at onboarding |
 | `windows_server` | `windows` | `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, `WindowsFeatureCapable`, `WindowsShellCapable`, `NetworkAddressableCapable`, `VirtualBoxCapable` \* | generated |
 | `aws_account` | `aws` | `AWSAPICapable` | generated |
 | `catalyst_center` | `catalyst` | `CatalystAPICapable` | generated |
 | `cisco_switch` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkCLICapable`, `NetworkAddressableCapable` | generated |
-| `container_host` | `container` | `SSHTransportCapable`, `DockerCapable`, `NetworkAddressableCapable` | generated |
+| `container_host` | `container` | `SSHTransportCapable`, `NetworkAddressableCapable` | generated |
 | `console_device` | `console` | `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable`, `TelnetCapable` \* | generated |
 
 12 device types registered.

@@ -2026,21 +2026,11 @@ stops:
 
 **Docker exec is different from all of the above, deliberately.**
 `container.docker.exec` (see the [module reference](reference/modules/container/docker/exec.md))
-is a real fqcn with a real Manifest, reached over the Docker daemon's own
-control socket. Unlike the byte-stream transports above, it reports a
-genuine process exit code every time, because Docker's own exec-inspect
-endpoint provides one. It is also, by construction rather than convention,
-incapable of anything past running one command inside one already-running
-container: every request it can send is checked against a fixed, three-entry
-allowlist (create an exec instance, start it, inspect its result) before a
-byte reaches the socket, and there is no method anywhere in the package that
-could be widened into a general passthrough. This matters because the socket
-itself is root-equivalent - whoever can reach it can, in general, ask the
-daemon to create a privileged container with the host's root filesystem
-bind-mounted in - and neither a read-only socket mount nor running the
-calling process as non-root actually restricts that; the daemon's own
-privilege is what matters, not the caller's. The allowlist is the only real
-defense, and it is enforced in one function every request funnels through.
+is a real fqcn with a real Manifest, reached over the container engine's own
+API rather than a byte stream, so it reports a genuine exit code every time.
+How it, and every other container method, reaches an engine is described in
+[Container engines: Docker and Podman](#container-engines-docker-and-podman)
+below.
 
 **Digi RealPort is not, and will not be, a protocol The Pleiades speaks.**
 RealPort is not a wire protocol in the sense RFC 2217 is - it is an
@@ -2050,6 +2040,131 @@ reach it with `serial_exec` exactly as you would a directly attached
 USB-serial adapter. The Pleiades deliberately implements no RealPort client of
 its own; doing so would mean re-implementing, in Go, a job the vendor's
 driver already does correctly for the operating system.
+
+### Container engines: Docker and Podman
+
+A container method speaks the engine's own API (Docker's Engine API, or
+Podman's Docker-compatible one), never a CLI in a shell, and reaches it the
+way onboarding proved for the device. Nothing in the inventory names a
+socket: a record that sets `docker_endpoint` is refused, because that
+property once named a socket on whatever machine ran the task.
+
+**Which devices.** A `linux_server` or `generic_ssh` device is onboarded
+over its SSH login, and onboarding looks for Docker and Podman there as it
+looks for everything else. A `container_host` is for an engine with no
+login of its own to manage: one reached over TLS, or the machine running
+`pleiades` itself (a `container_host` with no `host`, on the Crawl tier
+only; the Controller refuses to probe its own machine for a Runner).
+
+**Onboarding finds each engine.** `pleiades onboard <device>` records, per
+engine, the socket, the engine's identity and release, whether it is
+rootless, the account it was found as, and every way of reaching it that
+worked for that account:
+
+```
+docker_socket: /var/run/docker.sock     podman_socket: /run/user/1000/podman/podman.sock
+docker_id: 332d693f-41d6-...            podman_id: <digest>
+docker_version: 29.9.0                  podman_version: 5.8.7
+docker_carriers: [socket, stdio]        podman_carriers: [stdio]
+login_user: deploy
+```
+
+A device that runs both engines needs `engine: docker` or `engine: podman`
+on each task that could reach either; nothing guesses.
+
+**Four ways in, taken in a fixed order.** A task takes the first of these
+that onboarding proved for the engine, with no property choosing and no
+fallback at run time:
+
+| Transport | How | What the host needs |
+| --- | --- | --- |
+| `engine_local` | this machine's own socket | the account running `pleiades` can open it |
+| `engine_socket` | an SSH channel to the engine's socket | sshd allows the channel, and the login can open the socket |
+| `engine_stdio` | the engine's own `docker system dial-stdio` or `podman system dial-stdio`, run over SSH | the engine's CLI on the host; no forwarding at all |
+| `engine_tls` | TCP with mutual TLS | a TLS listener, and the device's TLS settings (below) |
+
+Plain TCP is refused. `pleiades validate` prints the route each task will
+take, decided the way the run decides it:
+
+```
+[route] node "deploy" on box: engine_stdio, the docker engine
+```
+
+**The sshd settings the socket channel needs.** OpenSSH applies
+`AllowTcpForwarding` to Unix sockets too, so `AllowTcpForwarding no` (the
+default on Alpine, and a common hardening setting) refuses the channel even
+with `AllowStreamLocalForwarding yes`; `AllowTcpForwarding local` is enough.
+`DisableForwarding yes`, `AllowStreamLocalForwarding no` and a key marked
+`no-port-forwarding` refuse it too. OpenSSH gives one answer for every such
+refusal and for a socket that is absent or that the login may not open, so
+the error lists each cause and sshd's own log says which. Where forwarding
+is off by policy, nothing needs changing: onboarding proves `engine_stdio`
+instead, which needs only the ability to run a command.
+
+**Podman.** Rootful Podman is found as root, rootless Podman as its own
+user, each with its own containers and images. When Podman has no API
+socket listening, `engine_stdio` starts `podman system service` for the one
+task, on a socket in a directory only the login can open, and stops it when
+the task ends; if the task's login drops, the service exits by itself after
+60 seconds with no request. Podman reports no stable engine ID (its
+compatible `/info` answers a new one on every request), so its identity is
+a digest of the host name and the store's graph and run roots.
+
+**What every task checks before its first request.** That the engine
+answering is the one onboarding found (its identity, the way a pinned host
+key refuses another machine); that the task logs in as the account
+onboarding found it as, since a rootless engine is one user's and socket
+access depends on the account's groups (a run as another account is refused,
+naming `pleiades onboard`); and that the engine serves Engine API 1.41 or
+later, which is Docker 20.10 and Podman 4.0. Measured on 2026-10-14: Docker
+29.9.0 serves 1.56, Podman 5.8.7 serves 1.44, and Podman 4.9.4 (Ubuntu
+24.04's) serves 1.41. Docker releases before 29 are accepted from 1.41 up but
+not tested here.
+
+**TLS.** A `container_host` with `engine_tls` set to `host:port` is reached
+over mutual TLS, with the same settings any device's TLS takes:
+`tls_ca_pem` pins the engine's authority, and the client certificate comes
+from the device's stored credential. TLS 1.2 is the floor.
+
+**What a method may send, and why that matters.** Access to an engine's API
+is root on its host: whoever can reach it can ask for a privileged
+container with the host's root filesystem mounted. A read-only socket mount
+does not restrict that, because file permissions decide who opens the
+socket, not which requests an open connection sends, and neither does a
+non-root caller, because the engine's privilege is what acts. So every
+container method declares the operations it uses (`container.docker.exec`
+declares exec create, start and inspect), and one guard refuses any request
+outside them before a byte reaches the engine, including a name shaped to
+change the request's path. Answers are bounded too: a document at 64 MiB, a
+progress stream at 256 MiB, and output a method keeps (such as an exec's) at
+what the method allows, 1 MiB for exec.
+
+**Granting access is granting root.** Membership in the `docker` group, or
+a rootful Podman socket, is root on that host for that account, whatever
+The Pleiades itself is limited to sending: anyone else who can use the same
+credential is not limited by it. Prefer rootless Podman, or a dedicated
+account that does nothing else, and store its credential as you would
+root's.
+
+**Registry credentials.** A pull or push from a private registry carries
+the registry's account in the request's `X-Registry-Auth` header, sent only
+to the registry the image names, and never written to the host. On the
+Crawl tier, store one per registry:
+
+```bash
+pleiades add-registry-credential ghcr.io --username deployer --password-stdin < token
+```
+
+On the Walk tier, bind a credential of the managed `registry` type to the
+job template (one per template). It reaches the Runner on the dispatch, as
+the machine credential does, with the same JetStream retention caveat.
+
+**One login per device across its tasks.** Within a run, a device's tasks
+share one SSH login: each request opens its own channel (or its own
+`dial-stdio` process) on it, and a `dial-stdio` process is seen to exit
+before the login is lent to the next task. Measured against a real Docker
+engine behind a real sshd: 50 devices running 10 tasks each, all at once,
+took 0.6 seconds over socket channels.
 
 ### PKI and TLS
 
