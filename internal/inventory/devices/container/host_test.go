@@ -1,14 +1,23 @@
 package container_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -251,4 +260,61 @@ func TestNewHost_RefusesADiscoveryOutsideItsBound(t *testing.T) {
 	if _, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: "container_host", Properties: props}); err == nil {
 		t.Fatal("expected a refusal for a discovery granting AptCapable")
 	}
+}
+
+// TestHost_AddressAndTLSAccessors: the address a wait reaches, the engine's
+// TLS address and pinned authority, and the binding a discovery must carry,
+// read from the record as it is now.
+func TestHost_AddressAndTLSAccessors(t *testing.T) {
+	ca := selfSignedPEM(t)
+	props := map[string]inventory.PropertyValue{"host": "10.0.0.5", container.EngineTLSProperty: "10.0.0.5:2376", devicetls.CAPEMProperty: ca}
+	item, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: container.TypeHost, Properties: props})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	host := item.(*container.Host)
+	if host.IPAddress() != "10.0.0.5" || host.EngineTLSAddress() != "10.0.0.5:2376" {
+		t.Errorf("IPAddress, EngineTLSAddress = %q, %q", host.IPAddress(), host.EngineTLSAddress())
+	}
+	if string(host.TLSSettings().CAPEM()) != ca {
+		t.Errorf("the pinned authority did not reach TLSSettings")
+	}
+	binding := host.DiscoveryBinding()
+	if binding == "" || binding != record.DiscoveryBinding(container.TypeHost, inventory.NewProperties(props)) {
+		t.Errorf("DiscoveryBinding = %q", binding)
+	}
+	props["host"] = "10.0.0.6"
+	moved, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: container.TypeHost, Properties: props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.(*container.Host).DiscoveryBinding() == binding {
+		t.Error("moving the host did not change the binding")
+	}
+}
+
+// TestNewHost_RefusesWeakTLSSettings: a TLS setting devicetls refuses is
+// refused here too, naming the host.
+func TestNewHost_RefusesWeakTLSSettings(t *testing.T) {
+	_, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: container.TypeHost,
+		Properties: map[string]inventory.PropertyValue{devicetls.AllowDeprecatedProperty: true}})
+	if err == nil || !strings.Contains(err.Error(), "t1") {
+		t.Fatalf("NewHost = %v, want a refusal naming the host", err)
+	}
+}
+
+// selfSignedPEM is a throwaway certificate authority, as PEM.
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "engine ca"},
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

@@ -1,6 +1,7 @@
 package linux_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
@@ -306,5 +307,17 @@ func TestServer_ServiceManagerAccessors(t *testing.T) {
 				t.Errorf("FactSourceName() = %q, want %q", got, tt.wantFactSource)
 			}
 		})
+	}
+}
+
+// TestNewServer_RefusesADiscoveryItMayNotHold: a recorded discovery naming
+// a capability onboarding may not grant a Linux server is refused when the
+// record is built, rather than loaded with a claim nothing proved.
+func TestNewServer_RefusesADiscoveryItMayNotHold(t *testing.T) {
+	d := inventory.Discovery{Capabilities: []capability.Name{capability.NameWinRM}}
+	_, err := linux.NewServer(record.Record{ID: "s1", Name: "s1", Type: "linux_server",
+		Properties: map[string]inventory.PropertyValue{"host": "10.0.0.5", inventory.DiscoveredProperty: d.Property()}})
+	if err == nil || !strings.Contains(err.Error(), "may not grant") {
+		t.Fatalf("NewServer = %v, want the discovery refused", err)
 	}
 }
