@@ -281,6 +281,7 @@ make ci              # the whole strict gate: build vet fmt test-full test-repea
 make test-full       # the one test pass (Phase 118): -race, -tags integration, -cover, -count=1, strict; records coverage in .coverage/
 make ci-fast         # every container-free package, tolerant, then test-repeat: the fast loop, needs no Docker (a CI job)
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
+make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target
@@ -350,6 +351,17 @@ machine out of memory. `make push-gate` and `make ci` stay for a developer who w
 and for the refs below that still need a receipt. The schedule-only jobs (`nightly`, `vulns`,
 `winrm`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
+
+**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`, vet for
+macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
+through the same `testgate` passes, the container-free ones three times strictly as
+`test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
+measured; the container-list guard and `internal/archtest` always run. It exists because
+pull requests #54 and #55 kept failing CI on checks a local run makes in minutes (LESSONS
+271). It is narrower than CI, which still tests every package. Which tier a package belongs
+in is not judgement: `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`
+follows each test's calls through the module and fails when a package that starts a
+container is missing from `DOCKER_DEPENDENT_PACKAGES`.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,

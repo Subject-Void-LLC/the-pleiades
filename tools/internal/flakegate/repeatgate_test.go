@@ -2,13 +2,9 @@ package flakegate
 
 import (
 	"encoding/json"
-	"go/parser"
-	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -84,15 +80,31 @@ func TestEveryFlakyPackageIsExcludedFromTestRepeat(t *testing.T) {
 	}
 }
 
-// TestEveryContainerPackageIsListed fails when a package whose test files
-// import testcontainers-go is missing from the Makefile's
-// DOCKER_DEPENDENT_PACKAGES.
+// oneShotContainerPackages are the packages whose tests start a container
+// yet stay out of DOCKER_DEPENDENT_PACKAGES, each for the reason written
+// beside it. An entry may only name a package that starts nothing but
+// one-shot docker or podman commands: a testcontainers-go fixture, waited
+// on and kept running, is what fails under the fast tier's load, and no
+// reason excuses one.
+var oneShotContainerPackages = map[string]string{
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine": "one differential test builds the Ansible runner image and lists a playbook's tasks in one `docker run --rm`, with nothing to wait on; " +
+		"listing the package would drop every other engine test from the macOS job, which has no Docker",
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook": "two differential tests build the Ansible runner image and read ansible-core in one `docker run --rm` each, with nothing to wait on; " +
+		"listing the package would drop the converter's other tests from the macOS job, which has no Docker",
+}
+
+// TestEveryContainerPackageIsListed fails when a package whose tests start
+// a container is missing from the Makefile's DOCKER_DEPENDENT_PACKAGES,
+// unless oneShotContainerPackages names it and it starts no fixture.
 //
 // The list's own comment promises that a missing package fails loudly, and
-// it does, but only as a container that never becomes ready under
-// test-repeat's -count=3 load, twenty minutes into a gate. That is how
-// internal/keyregistry was found missing. This reads every _test.go file's
-// imports, in every build configuration, and says so in a second.
+// it does, but only as a container that never becomes ready under the fast
+// tier's load, twenty minutes into a CI job. That is how internal/keyregistry
+// was found missing, and how pkg/kubeapi was: it starts k3s through
+// testsupport.StartK3s and imports no testcontainers-go itself, which the
+// first version of this guard read for. This one follows each test file's
+// calls through every function in the module (scanForContainers), so a
+// helper's container counts, and says so in a second.
 func TestEveryContainerPackageIsListed(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	rawMakefile, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Makefile")))
@@ -108,46 +120,33 @@ func TestEveryContainerPackageIsListed(t *testing.T) {
 		listed[p] = true
 	}
 
-	found := 0
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if path != root && (strings.HasPrefix(name, ".") || name == "testdata" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
-		for _, imp := range file.Imports {
-			if !strings.HasPrefix(strings.Trim(imp.Path.Value, `"`), "github.com/testcontainers/testcontainers-go") {
-				continue
-			}
-			found++
-			rel, err := filepath.Rel(root, filepath.Dir(path))
-			if err != nil {
-				return err
-			}
-			pkg := "github.com/Subject-Void-LLC/the-pleiades/" + filepath.ToSlash(rel)
-			if !listed[pkg] {
-				t.Errorf("%s imports testcontainers-go, so %s provisions real containers and belongs in the Makefile's DOCKER_DEPENDENT_PACKAGES; without it `make test-repeat` runs it three times over under full load", path, pkg)
-			}
-			break
-		}
-		return nil
-	})
+	scan, err := scanForContainers(root, "github.com/Subject-Void-LLC/the-pleiades")
 	if err != nil {
-		t.Fatalf("walking the module: %v", err)
+		t.Fatalf("reading the module: %v", err)
 	}
-	if found == 0 {
-		t.Fatal("found no test file importing testcontainers-go, so this walk is misaimed")
+	starting, fixtures := scan.containerPackages(false), scan.containerPackages(true)
+	if len(fixtures) == 0 {
+		t.Fatal("found no package starting a testcontainers-go fixture, so this scan is misaimed")
+	}
+	for pkg, why := range starting {
+		if listed[pkg] {
+			continue
+		}
+		if _, oneShot := oneShotContainerPackages[pkg]; oneShot && fixtures[pkg] == "" {
+			continue
+		}
+		if fixture := fixtures[pkg]; fixture != "" {
+			why = fixture
+		}
+		t.Errorf("%s's tests start a container (%s), so it belongs in the Makefile's DOCKER_DEPENDENT_PACKAGES; "+
+			"without it the fast tier runs it beside every other package and `make test-repeat` three times over", pkg, why)
+	}
+	for pkg := range oneShotContainerPackages {
+		switch {
+		case listed[pkg]:
+			t.Errorf("%s is in DOCKER_DEPENDENT_PACKAGES and oneShotContainerPackages; drop it from one", pkg)
+		case starting[pkg] == "":
+			t.Errorf("%s starts no container any more; drop it from oneShotContainerPackages", pkg)
+		}
 	}
 }

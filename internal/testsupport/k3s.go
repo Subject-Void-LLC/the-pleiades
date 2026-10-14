@@ -110,7 +110,19 @@ func StartK3s(tb testing.TB, opts K3sOptions) *K3sCluster {
 			Networks:       opts.Networks,
 			NetworkAliases: aliases,
 			Files:          files,
+			// The first wait reads the log, never execs, on purpose. k3s
+			// starts as pid 1 by moving each process in its root cgroup
+			// into /init and then enabling every controller there, and a
+			// process entering the root cgroup between those steps makes
+			// each enable fail with EBUSY. k3s only warns, and kubelet
+			// then dies on the missing controllers. A docker exec lands in
+			// exactly that cgroup, so an exec probe sent the moment the
+			// container starts loses that race on a loaded machine (seen
+			// in CI, reproduced here with the container's CPU throttled).
+			// k3s logs "Starting k3s" only after the move, so no exec
+			// enters before it.
 			WaitingFor: wait.ForAll(
+				wait.ForLog("Starting k3s").WithStartupTimeout(ContainerStartupTimeout),
 				wait.ForExec([]string{"kubectl", "get", "--raw", "/readyz"}).WithStartupTimeout(ContainerStartupTimeout),
 				wait.ForExec([]string{"kubectl", "wait", "--for=condition=Ready", "node", "--all", "--timeout=5s"}).WithStartupTimeout(ContainerStartupTimeout),
 			),
@@ -125,11 +137,7 @@ func StartK3s(tb testing.TB, opts K3sOptions) *K3sCluster {
 			if logs, lerr := c.Logs(context.Background()); lerr == nil {
 				b, _ := io.ReadAll(logs)
 				_ = logs.Close()
-				if lines := strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) > 15 {
-					tail = strings.Join(lines[len(lines)-15:], "\n")
-				} else {
-					tail = string(b)
-				}
+				tail = k3sLastWords(string(b))
 			}
 			_ = c.Terminate(context.Background())
 		}
@@ -156,6 +164,23 @@ func StartK3s(tb testing.TB, opts K3sOptions) *K3sCluster {
 		tb.Fatalf("k3s's kubeconfig: %v", err)
 	}
 	return k
+}
+
+// k3sLastWords is what a k3s server that stopped said about why: its last
+// fifteen lines, after any earlier warning that it could not enable a
+// cgroup controller. k3s prints those at its very start and only warns,
+// and they are the cause when kubelet dies on missing controllers minutes
+// of log later.
+func k3sLastWords(logs string) string {
+	lines := strings.Split(strings.TrimSpace(logs), "\n")
+	start := max(len(lines)-15, 0)
+	var said []string
+	for _, l := range lines[:start] {
+		if strings.Contains(l, "failed to enable controller") {
+			said = append(said, l)
+		}
+	}
+	return strings.Join(append(said, lines[start:]...), "\n")
 }
 
 // readKubeconfig takes the authority and the administrator's identity from

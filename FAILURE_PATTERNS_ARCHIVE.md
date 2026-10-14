@@ -11819,3 +11819,49 @@ first seen in CI, the same way PR #54's coverage failure was (427).
 floor and `make ci-remote` verified locally before the next push.
 
 **Lesson.** See LESSONS 270.
+
+## 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
+
+**Symptom.** PR #55's `fast` job failed three `pkg/kubeapi` tests with `starting the k3s fixture ...: container
+exec create: ... is not running`, and the server's last lines were kubelet's `Failed to start ContainerManager ...
+cgroup ["kubepods"] has some missing controllers: cpu, cpuset, hugetlb, memory, pids`. The same tests had passed
+in the PR's previous run and pass alone.
+
+**Root cause.** k3s, as pid 1 on cgroup v2, starts by reading its root cgroup's process list once, moving those
+processes into `/init`, and then writing each controller into the root's `cgroup.subtree_control`
+(`rootlesskit/pkg/parent/cgrouputil.EvacuateCgroup2`, called from `pkg/cli/server/server.go` line 70, before logging
+starts). A process entering the root cgroup between the read and the writes makes every write fail with EBUSY, and
+k3s only logs `failed to enable controller` and carries on; kubelet then dies on the missing controllers. A `docker
+exec` enters exactly that cgroup, and `testsupport.StartK3s`'s readiness wait was two `wait.ForExec` probes sent the
+moment the container started. On an idle machine k3s finishes the move first; on a loaded runner it does not.
+Reproduced here: with the container's CPU at `--cpus=0.05` and execs from the start, 2 of 3 starts logged `failed to
+enable controller ... write /sys/fs/cgroup/cgroup.subtree_control: device or resource busy` for all seven
+controllers, against 0 of 2 with no execs and 0 of 3 unthrottled.
+
+**Fix.** The wait now begins with `wait.ForLog("Starting k3s")`, which k3s logs at `server.go` line 512, after the
+move, in both pinned images (`wait.ForAll` runs its strategies in order); under the same throttle and exec storm 0
+of 4 starts warned. A failed start's message leads with any `failed to enable controller` line (`k3sLastWords`),
+since kubelet's own last words never name it, and the fixture's test asserts no such line.
+
+**Lesson.** See LESSONS 272.
+
+## 447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted
+
+**Symptom.** `pkg/kubeapi` starts k3s in its tests but was missing from the Makefile's `DOCKER_DEPENDENT_PACKAGES`,
+so CI's fast tier ran it beside every other package and three times over in `test-repeat`, where 446 killed it.
+`TestEveryContainerPackageIsListed`, which exists to catch exactly this, passed.
+
+**Root cause.** The guard read whether a package's test files import testcontainers-go, a proxy for "starts a
+container". `pkg/kubeapi` starts k3s through `testsupport.StartK3s` and imports no testcontainers-go itself. The
+Makefile's own comment already named the hole (`pkg/sftpxfer` and `pkg/scpxfer` were listed by hand for the same
+reason), so the guard was known to miss this shape and nothing stopped the next package from having it.
+
+**Fix.** The guard now reads the property: `scanForContainers` parses every Go file in the module, records each
+function's calls, seeds the functions that create a container (testcontainers-go's `GenericContainer`, a module's
+`Run`, `network.New`, or `docker`/`podman` run, create, start, build or compose), and follows calls to a fixed
+point, so a test reaching a starter through any helper counts; it takes 1.5 seconds. It found `pkg/kubeapi`, and
+`internal/engine` and `internal/forge/playbook`, which run a one-shot `docker run --rm` of the Ansible image; those
+two stay in the fast tier through `oneShotContainerPackages`, each with its reason, and only while they start no
+testcontainers-go fixture.
+
+**Lesson.** See LESSONS 273.

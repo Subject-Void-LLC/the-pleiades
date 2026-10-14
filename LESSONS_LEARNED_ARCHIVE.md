@@ -5507,3 +5507,35 @@ discovers.
 **Why.** FAILURE_PATTERNS 427 and 445: PRs #54 and #55 each failed CI on coverage, and #55 also on `tidy-check`,
 every time after tests had passed locally. The checks CI ran were all runnable here in minutes; the local numbers
 matched CI's exactly every time they were taken. The owner's words: "CI fails every time you touch it".
+
+## 271. Before every push to a pull request, run make pr-check
+
+**Rule.** `make pr-check` runs what a pull request's required jobs run, for the packages the branch changes:
+`ci-remote`, vet for macOS and Windows, each changed package in the tier CI gives it through the same `testgate`
+passes (the container-free ones also three times strictly, as `test-repeat`), and the floors of the packages it
+measured. Run it under `capped` with `GOMAXPROCS=4` and `PR_CHECK_PARALLELISM` sized to the machine, and push only
+when it passes. It supersedes 270's hand-run procedure, which it automates and widens.
+
+**Why.** PRs #54 and #55 failed CI on coverage (twice), `tidy-check`, a file whose name constrained its build, and a
+container package in the fast tier (FAILURE_PATTERNS 427, 445, 446, 447). 270's procedure covered the first two and
+would have missed the last two; each of the four was catchable here in minutes by running CI's own targets on the
+branch's own packages. The owner's words after the fourth: "HARDEN IT so this stops happening EVERY SINGLE ... PR".
+
+## 272. Wait for a container's own startup to finish before acting inside it
+
+**Rule.** A fixture's readiness check reads the container (its log, a port) until the program inside reports that
+its own setup is done, and only then executes anything in it. An exec is a process in the container's cgroup and
+namespaces, and it can change what the program sees while it is still setting them up.
+
+**Why.** FAILURE_PATTERNS 446: k3s moves its root cgroup's processes and then enables controllers, and an exec in
+that window made every controller write fail; kubelet died minutes of log later. It passed every time locally and
+failed only on a loaded runner, and the proof needed the container's CPU throttled to recreate the load.
+
+## 273. A guard over a hand-kept list reads the property the list stands for, not a proxy for it
+
+**Rule.** When a test holds a hand-kept list to the code, it checks the property the list means ("starts a
+container"), following helpers and indirection, rather than a convenient sign of it ("imports testcontainers-go").
+A known miss written beside the list as a hand-maintained exception is a guard that needs fixing, not a note.
+
+**Why.** FAILURE_PATTERNS 447: the guard read direct imports, the Makefile already listed two packages by hand
+because of it, and the third such package went to CI unlisted and failed there.

@@ -303,6 +303,9 @@ story, per `.AGENTS/AGENTS.md`.
 268. **Work on another commit in a detached worktree and push HEAD to the branch; never switch branches in an auxiliary worktree (2026-10-14).**
 269. **When a failure happens only where nobody can log in, make the fixture say why, and take the variable out of its path (2026-10-14).**
 270. **Before pushing, run make ci-remote and measure every touched package against its floor, with a margin (2026-10-14).**
+271. **Before every push to a pull request, run make pr-check: CI's own tiers on the branch's own packages (2026-10-14).**
+272. **Wait for a container's own startup to finish before acting inside it (2026-10-14).**
+273. **A guard over a hand-kept list reads the property the list stands for, not a proxy for it (2026-10-14).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
