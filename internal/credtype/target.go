@@ -91,6 +91,7 @@ func init() {
 	targets.MustRegister("extra_vars", extraVarsTarget{})
 	targets.MustRegister("machine", machineTarget{})
 	targets.MustRegister("registry", registryTarget{})
+	targets.MustRegister("kubernetes", kubernetesTarget{})
 }
 
 // orderedTargets returns every registered Target in a deterministic

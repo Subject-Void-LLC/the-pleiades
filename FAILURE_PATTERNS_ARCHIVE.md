@@ -11539,3 +11539,329 @@ is still unproven until the job's next run.
 
 **Lesson.** A hosted runner is not a clean machine. Before a setup script that refuses to overwrite runs there,
 check what the image already configures.
+
+## 426. The Podman fixture's passwords were refused on the CI runners and accepted under Docker Desktop
+
+**Symptom.** PR #54's `containers (1)` shard failed `TestEngineProbe_Podman` and
+`TestPodmanService_ADroppedSessionLeavesNothingRunning` with "ssh: unable to authenticate", and both failed again
+when re-run alone (2026-10-14, run 38587017209). The fixture's sshd log, printed on failure since bde456d0, said
+"Failed password for podman" and "Failed password for root". Both tests passed on the WSL machine against the same
+`quay.io/podman/stable:v5.8.7` digest, and the runners' image cache had been built from that digest the same day.
+
+**Root cause.** Somewhere in Fedora 44's PAM password path on the CI runners (Docker Engine on Ubuntu 24.04), and
+not under Docker Desktop. Which module refused is unproven: `pam_unix` logs to syslog, which the container has
+none of, so sshd's own line was all there was.
+
+**Fix.** 7a6599e7: the fixture's sshd checks the password against `/etc/shadow` itself (`UsePAM no`), and the
+next run passed both tests with no re-run. A failed test now also logs the fixture's effective login settings
+(`sshd -T`), each account's password scheme (the hash's prefix only) and sshd's capabilities, so a refusal on a
+machine nobody can log into names its reason.
+
+**Lesson.** A fixture's login stack is part of the environment it is tested in. When a CI-only refusal cannot be
+reproduced, take the variable component out of the fixture's path and make the fixture report its decisive state
+when it fails.
+
+## 427. Code moved between packages left its tests behind, and eight coverage floors failed at once
+
+**Symptom.** PR #54's coverage job (run 38590937755) reported eight packages below their floors:
+`internal/inventory/record` 78.5% (floor 100), `devices/container` 77.8% (91.5), `onboard` 84.6% (91.9),
+`credential` 91.5% (93.0), `validate` 95.4% (100), `pkg/capability` 97.6% (100), `devices/linux` 98.5% (100) and
+`pkg/remoteexec` 94.3% (94.5). `devices/engines` had no tests at all.
+
+**Root cause.** 119a and 119b moved the discovery rules from `devices/generic` into `record`, and added engine
+accessors, a route planner, a registry store and probers whose behavior was tested only from other packages
+(`cmd/pleiades`'s release gates, the generic types' tests). A floor counts the package's own tests. Nothing local
+measured it, since the gate now runs in Actions.
+
+**Fix.** 35a07941 tests each in its own package: records with recorded discoveries, fake engines on real Unix
+sockets and a real TLS server, a failure-injecting repository, a real loopback SSH server. Every package is at or
+above its floor (`onboard` 92.9%, `remoteexec` 95.3%, the rest 93.5% to 100%).
+
+**Lesson.** When code moves, its tests move with it; a release gate elsewhere proves behavior, never the floor.
+
+## 428. probe_linux.go's file name built the Linux server prober on Linux only
+
+**Symptom.** PR #54's `ci` jobs on macOS and Windows failed vet on a new test: "undefined: linuxProber"
+(run 38600372480). The Linux jobs and the WSL machine passed.
+
+**Root cause.** Go reads a `_linux.go` suffix as a build constraint. 119b's Linux server prober probes a remote
+server over SSH, but sat in `probe_linux.go`, so it compiled only into Linux builds, and on macOS or Windows
+`pleiades onboard <linux_server>` answered that the type has no prober. No Linux build could notice.
+
+**Fix.** 7016137a renames it `probe_linux_server.go`, and `internal/archtest`'s
+`TestFileNamesConstrainBuildsOnlyOnPurpose` refuses a Go file whose name implies an OS or architecture unless a
+`//go:build` line names it; it fails on the old name.
+
+**Lesson.** A file name can decide a build silently; a portable file never ends in an OS or architecture.
+
+## 429. A refused SSH host key was retried three times and opened the address's circuit
+
+**Symptom.** Onboarding a cluster through a bastion whose key `known_hosts` did not hold reported "retry:
+exhausted 3 attempt(s) ... knownhosts: key is unknown". A test against a real loopback SSH server showed three
+handshakes per call, and the second call refused with "circuit open" without dialing.
+
+**Root cause.** `pkg/remoteexec`'s `dialWithRetry` treated only "ssh: unable to authenticate" as the far side's
+answer. A `knownhosts.KeyError` or `RevokedError`, this side refusing the server, counted as a network failure:
+retried, and recorded against the address's breaker, so one stale `known_hosts` entry refused every other task
+on that host.
+
+**Fix.** `hostKeyRefused` (`errors.As` on both types) is neither retried nor counted, like a refused credential;
+`TestConnect_ARefusedHostKeyIsNotRetried` and `TestConnect_ARefusedHostKeyDoesNotOpenTheCircuit` fail without it.
+
+**Lesson.** An answer is not an outage, whichever side refused.
+
+## 430. Kubernetes discovery recorded only preferred versions, which would have refused valid manifests
+
+**Symptom.** Found while writing the manifest kind rule (Phase 119c): discovery recorded
+`autoscaling/v2 HorizontalPodAutoscaler` but not `autoscaling/v1`, so a manifest at `v1`, which the cluster
+serves, would have been refused as unserved.
+
+**Root cause.** `ServerPreferredResources` lists each kind at the version a client would pick, not every version
+the server serves.
+
+**Fix.** Discovery uses `ServerGroupsAndResourcesWithContext`, records `kinds_truncated` when it keeps fewer than
+the server named, and the live test asserts both HPA versions against k3s 1.35 and 1.37.
+
+**Lesson.** A record of what a server serves holds everything it serves, not what one client would choose.
+
+## 431. A hostile API server could make discovery unbounded, and its whole answer reached an error
+
+**Symptom.** `FuzzDiscover`'s first run: an undecodable rules review came back as an error quoting the entire
+body ("Object 'Kind' is missing in '...'"). Reading the code for the harness showed one rule's groups times its
+resources listed as their product, so 2,000 of each would be four million entries.
+
+**Root cause.** client-go quotes an undecodable body into its error, and nothing bounded the discovery's bytes,
+the entries per rule, or the error text.
+
+**Fix.** Discovery reads through one 128 MiB budget for all its answers, keeps 64 entries per rule and marks the
+rules incomplete when it cuts one, and `kubeapi.Explain` keeps 512 bytes of error text with every non-printable
+rune escaped.
+
+**Lesson.** Text a remote system wrote is bounded and escaped before it reaches an error.
+
+## 432. A replacing kubeconfig import over the API reported success and wrote nothing
+
+**Symptom.** `TestImportKubeconfig_Replace`: the replacement answered 200 and the stored record still had the old
+`api_server`.
+
+**Root cause.** `entRepository.Save` writes only the revisions an item recorded beyond its loaded version. A record
+rebuilt by the factory with new properties records none, so `Save` returned nil without writing.
+
+**Fix.** The replacement changes the loaded record through `AddInfo` and `RemoveInfo` for the four properties an
+import owns, checks the result through the factory, then saves; the test also proves a property the operator set
+survives.
+
+**Lesson.** Change a stored device through its loaded record's change methods; a rebuilt record saves nothing.
+This is FAILURE_PATTERNS 261's defect again, in a new handler: `DeviceHandler.Update` had the same shape and the
+same fix.
+
+## 433. A branch checkout in an auxiliary worktree moved the main worktree's branch
+
+**Symptom.** After work in a second worktree that switched branches, the main worktree's index showed every staged
+change reversed.
+
+**Root cause.** Worktrees share branch refs. Checking a branch out and committing in another worktree moved the ref
+the main worktree had checked out beneath it.
+
+**Fix.** `git reset --mixed HEAD` in the main worktree. Since then an auxiliary worktree is created detached at a
+commit (`git worktree add --detach`), and its work is pushed with `git push origin HEAD:refs/heads/<branch>`, then
+fast-forwarded into the main worktree.
+
+**Lesson.** Never switch branches in an auxiliary worktree.
+
+## 434. The moby client's hijacked connections bypassed the engine guard's dialer
+
+**Symptom.** Phase 119b: an exec through the engine port skipped the guard's operation table.
+
+**Root cause.** The moby client dials a hijacked request (exec, attach) itself whenever its transport has a TLS
+config, and cloning a default transport gives it one, so the hijack never went through the dialer the guard wraps.
+
+**Fix.** `newAPI` builds an HTTP/1-only transport; `TestSession_HijackedRequestsPassTheGuard` fails without it.
+
+**Lesson.** A guard on a dialer guards only the connections that dial through it; prove each path does.
+
+## 435. No stdio login was ever pooled
+
+**Symptom.** Phase 119b: every engine session over the stdio carrier logged in anew, though the pool was meant to
+lend the login to the next task.
+
+**Root cause.** Each enough alone: `Conn.Start` tainted the lease for the `dial-stdio` process; the dial's context
+ended the process when the dial returned; and the HTTP transport closes a finished request's connection on its own
+goroutine, after the session had released the login.
+
+**Fix.** A lease counts its streamed processes (`lease.running`) and a `Wait` that sees one exit counts it out;
+`dial-stdio`'s life is detached from the dial context; the carrier closes its processes before releasing the login.
+
+**Lesson.** A pool's reuse is a claim to measure, not to assume: count the reuses.
+
+## 436. Two checks passed vacuously against the Docker fixture
+
+**Symptom.** Phase 119b: a check over the dind fixture's files found nothing and passed.
+
+**Root cause.** busybox `find` refused the size `64M` and the error was swallowed, and `-xdev` skipped the volume
+the files were on.
+
+**Fix.** The command's error is checked, and a canary file the check must find proves it looked.
+
+**Lesson.** A check that can find nothing must prove, with a canary, that it looked.
+
+## 437. OpenSSH applies AllowTcpForwarding to Unix-socket channels and answers every refusal "connect failed"
+
+**Symptom.** Phase 119b: a channel to the engine's socket was refused on an sshd whose forwarding settings looked
+irrelevant to Unix sockets, with the same "connect failed" a missing socket gives.
+
+**Root cause.** OpenSSH applies `AllowTcpForwarding` to `direct-streamlocal` channels too (Alpine's default is
+`no`), and `DisableForwarding`, `AllowStreamLocalForwarding no`, a key restricted with `no-port-forwarding`, an
+absent socket and an unreadable one all come back as the one answer; only sshd's log says which.
+
+**Fix.** The refusal names every cause the answer allows rather than guessing one
+(`remoteexec.describeChannelRefusal`), and the fixtures set `AllowTcpForwarding local`.
+
+**Lesson.** When a server gives one answer for many causes, the message lists them all.
+
+## 438. The engine guard judged a decoded path when the target held an invalid character
+
+**Symptom.** Phase 119b, `FuzzGuard_RequestLine`: a request target holding a character not valid in a path was
+judged by the operation table as a path the engine never received.
+
+**Root cause.** The URL parser dropped such a target's raw form, so the guard decided on a decoded path while the
+engine would parse the string as sent.
+
+**Fix.** The guard decides on the target exactly as written and refuses one that is not its own canonical escaping
+(an encoded slash, a dot segment, an invalid character, a non-canonical escape); Docker's own client sends only
+canonical targets, so nothing it sends is refused.
+
+**Lesson.** A guard decides on exactly the bytes the far side will read.
+
+## 439. Closing an SSH exec channel did not stop the remote process
+
+**Symptom.** Phase 119b: the Podman API service a session started was still running after the session's `Close`.
+
+**Root cause.** Closing the channel ends the client's side; sshd does not signal the process on the far side.
+
+**Fix.** The service is started with an idle timeout and stopped explicitly on `Close`;
+`TestPodmanService_ADroppedSessionLeavesNothingRunning` proves a dropped login leaves nothing running within the
+idle time.
+
+**Lesson.** Over SSH, closing a channel is not stopping a process; stop it, and bound how long it can outlive you.
+
+## 440. A test asserted on `ps` in an image with no `ps` and passed vacuously
+
+**Symptom.** Phase 119b: a check that no process was left running passed, and kept passing when one was.
+
+**Root cause.** The image has no `ps`; the command failed, its output was empty, and "nothing matched" read as
+"nothing running".
+
+**Fix.** The fixture installs `procps-ng`, and the check fails when its command fails.
+
+**Lesson.** A check that looks for absence must fail when it cannot look.
+
+## 441. container_host parsed its TLS settings and never exposed them, so a pinned authority was ignored
+
+**Symptom.** Phase 119b: the TLS carrier verified an engine against the system's roots although the record pinned
+`tls_ca_pem`.
+
+**Root cause.** `NewHost` parsed the settings but the type did not implement `devicetls.Configured`, so
+`devicetls.For` returned the defaults.
+
+**Fix.** `Host.TLSSettings` implements it; a test reads the pinned authority back through it.
+
+**Lesson.** A parsed setting nothing exposes is a setting nothing uses; test it through the reader.
+
+## 442. trust-host --first-connect wrote a fixture's key into the real ~/.ssh/known_hosts
+
+**Symptom.** Phase 119b: a test run left an ephemeral fixture's host key in the developer's own `known_hosts`.
+
+**Root cause.** The test resolved `known_hosts` from the home directory, as production does.
+
+**Fix.** Tests point `PLEIADES_KNOWN_HOSTS` at a file of their own.
+
+**Lesson.** A test never writes to a file the developer owns.
+
+## 443. A fixture's SSHDConfig option replaced its default AllowTcpForwarding instead of adding to it
+
+**Symptom.** Phase 119b: a stress test meant only to raise `MaxStartups` lost every socket channel.
+
+**Root cause.** `testsupport.EngineHostOptions.SSHDConfig` replaces the default drop-in (`AllowTcpForwarding
+local`) rather than adding to it, so forwarding fell back to Alpine's `no`.
+
+**Fix.** The stress tests pass both settings, and the option's documentation says it replaces the default.
+
+**Lesson.** An option that replaces a default says so where it is set.
+
+
+## 444. The SSH test fixture's forwarder never ended a connection its destination kept open
+
+**Symptom.** Two new tests passed their bodies and then hung in cleanup until the test timeout (10 and 8 minutes):
+the bastion's `remoteexectest.Server.Close` waited forever on a forwarded connection.
+
+**Root cause.** `forwardDirectTCPIP` copied both directions and waited for both, and its comment said either side
+closing ended both. It did not: when the client's side ended, the copy back from the destination stayed blocked
+reading from a destination that keeps an idle connection open (an echo that waits for more, client-go's HTTP/2
+connection to an API server). OpenSSH's sshd half-closes the destination socket when the client's side ends.
+
+**Fix.** The forwarder half-closes the destination (`CloseWrite`) when the client's side ends, as sshd does, so an
+HTTP server reads the end of the stream and closes. Every package using the fixture passes with it.
+
+**Lesson.** A fixture standing in for a real server copies that server's connection lifecycle, not only its bytes.
+
+## 445. Pull request #55 failed CI twice on checks that run locally in minutes
+
+**Symptom.** PR #55's `ci (ubuntu-24.04, true)` failed `tidy-check` (`k8s.io/klog/v2` marked indirect though
+imported directly), and its `coverage` job failed eight floors and nearly a ninth, after a local run of every
+touched package's tests had passed.
+
+**Root cause.** Tests passing is not the gate. The PR was pushed without `make ci-remote` (about three minutes
+here) and without measuring each touched package's coverage against `coverage-floor.json`, so both failures were
+first seen in CI, the same way PR #54's coverage failure was (427).
+
+**Fix.** `go.mod` tidied; each package's gaps tested in its own package (99 to 100% where the floor is 100); every
+floor and `make ci-remote` verified locally before the next push.
+
+**Lesson.** See LESSONS 270.
+
+## 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
+
+**Symptom.** PR #55's `fast` job failed three `pkg/kubeapi` tests with `starting the k3s fixture ...: container
+exec create: ... is not running`, and the server's last lines were kubelet's `Failed to start ContainerManager ...
+cgroup ["kubepods"] has some missing controllers: cpu, cpuset, hugetlb, memory, pids`. The same tests had passed
+in the PR's previous run and pass alone.
+
+**Root cause.** k3s, as pid 1 on cgroup v2, starts by reading its root cgroup's process list once, moving those
+processes into `/init`, and then writing each controller into the root's `cgroup.subtree_control`
+(`rootlesskit/pkg/parent/cgrouputil.EvacuateCgroup2`, called from `pkg/cli/server/server.go` line 70, before logging
+starts). A process entering the root cgroup between the read and the writes makes every write fail with EBUSY, and
+k3s only logs `failed to enable controller` and carries on; kubelet then dies on the missing controllers. A `docker
+exec` enters exactly that cgroup, and `testsupport.StartK3s`'s readiness wait was two `wait.ForExec` probes sent the
+moment the container started. On an idle machine k3s finishes the move first; on a loaded runner it does not.
+Reproduced here: with the container's CPU at `--cpus=0.05` and execs from the start, 2 of 3 starts logged `failed to
+enable controller ... write /sys/fs/cgroup/cgroup.subtree_control: device or resource busy` for all seven
+controllers, against 0 of 2 with no execs and 0 of 3 unthrottled.
+
+**Fix.** The wait now begins with `wait.ForLog("Starting k3s")`, which k3s logs at `server.go` line 512, after the
+move, in both pinned images (`wait.ForAll` runs its strategies in order); under the same throttle and exec storm 0
+of 4 starts warned. A failed start's message leads with any `failed to enable controller` line (`k3sLastWords`),
+since kubelet's own last words never name it, and the fixture's test asserts no such line.
+
+**Lesson.** See LESSONS 272.
+
+## 447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted
+
+**Symptom.** `pkg/kubeapi` starts k3s in its tests but was missing from the Makefile's `DOCKER_DEPENDENT_PACKAGES`,
+so CI's fast tier ran it beside every other package and three times over in `test-repeat`, where 446 killed it.
+`TestEveryContainerPackageIsListed`, which exists to catch exactly this, passed.
+
+**Root cause.** The guard read whether a package's test files import testcontainers-go, a proxy for "starts a
+container". `pkg/kubeapi` starts k3s through `testsupport.StartK3s` and imports no testcontainers-go itself. The
+Makefile's own comment already named the hole (`pkg/sftpxfer` and `pkg/scpxfer` were listed by hand for the same
+reason), so the guard was known to miss this shape and nothing stopped the next package from having it.
+
+**Fix.** The guard now reads the property: `scanForContainers` parses every Go file in the module, records each
+function's calls, seeds the functions that create a container (testcontainers-go's `GenericContainer`, a module's
+`Run`, `network.New`, or `docker`/`podman` run, create, start, build or compose), and follows calls to a fixed
+point, so a test reaching a starter through any helper counts; it takes 1.5 seconds. It found `pkg/kubeapi`, and
+`internal/engine` and `internal/forge/playbook`, which run a one-shot `docker run --rm` of the Ansible image; those
+two stay in the fast tier through `oneShotContainerPackages`, each with its reason, and only while they start no
+testcontainers-go fixture.
+
+**Lesson.** See LESSONS 273.

@@ -68,7 +68,12 @@ type floorFile struct {
 
 func main() {
 	measured := flag.Bool("measured", false, "check floors against the coverage files named as arguments (testgate -full -coverage-out) instead of running the suite")
+	scoped := flag.Bool("scoped", false, "with -measured, check only the packages the files measured, as `make pr-check` measures only what a branch changes; a floored package they did not measure is not reported")
 	flag.Parse()
+	if *scoped && !*measured {
+		fmt.Fprintln(os.Stderr, "coverage-check: -scoped needs -measured; a run that measures itself measures everything")
+		os.Exit(1)
+	}
 
 	var files []string
 	if *measured {
@@ -78,13 +83,16 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if err := run(files); err != nil {
+	if err := run(files, *scoped); err != nil {
 		fmt.Fprintln(os.Stderr, "coverage-check:", err)
 		os.Exit(1)
 	}
 }
 
-func run(measuredFiles []string) error {
+// run checks the floors against measuredFiles, or against a run of the
+// whole suite when it names none. With scoped set, a floored package the
+// files did not measure is not a failure.
+func run(measuredFiles []string, scoped bool) error {
 	floors, err := loadFloorFile("coverage-floor.json")
 	if err != nil {
 		return fmt.Errorf("loading coverage-floor.json: %w", err)
@@ -157,7 +165,7 @@ func run(measuredFiles []string) error {
 	// Only the -measured path can tell "not measured" from "has no
 	// floor": it is handed one whole gate's numbers. A run that measures
 	// itself stops at the first failing test instead.
-	if len(measuredFiles) > 0 {
+	if len(measuredFiles) > 0 && !scoped {
 		regressions = append(regressions, unmeasured(floors, measured)...)
 	}
 

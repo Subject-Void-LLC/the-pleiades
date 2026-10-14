@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/prompt"
@@ -52,10 +53,10 @@ import (
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true})
+	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --generate [--replace]]: %w", err)
+			"[--password <password> | --password-stdin | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
@@ -71,6 +72,7 @@ func runAddCredential(args []string) error {
 		"read the private key's or the bundle's passphrase as one line on standard input")
 	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
+	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster)")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -78,6 +80,23 @@ func runAddCredential(args []string) error {
 
 	if *replace && !*generate {
 		return fmt.Errorf("--replace only applies to --generate")
+	}
+	if *stdinToken {
+		// A token is the whole identity, so it combines with nothing: a
+		// cluster credential carries one way of authenticating, and an
+		// account name beside a token would be a second answer to who.
+		if *username != "" || *password != "" || *stdinPassword || *keyPath != "" || *certPath != "" || *pfxPath != "" ||
+			*promptPassphrase || *stdinPassphrase || *generate {
+			return fmt.Errorf("--token-stdin is the whole credential, so it cannot be combined with --username, a password, a key, a certificate, a bundle or --generate")
+		}
+		token, err := prompt.SecretFromStdin()
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(token) == "" {
+			return fmt.Errorf("--token-stdin read an empty token")
+		}
+		return saveCredential(*dir, name, credential.Credential{Token: strings.TrimSpace(token)})
 	}
 	if *generate {
 		if *password != "" || *stdinPassword || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
@@ -197,12 +216,17 @@ func runAddCredential(args []string) error {
 		cred.Password = prompted
 	}
 
-	key, err := credential.ResolveMasterKey(*dir)
+	return saveCredential(*dir, name, cred)
+}
+
+// saveCredential encrypts cred into dir's credential store for device name.
+func saveCredential(dir, name string, cred credential.Credential) error {
+	key, err := credential.ResolveMasterKey(dir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
 
-	if err := credential.SaveFileStore(*dir, key, name, cred); err != nil {
+	if err := credential.SaveFileStore(dir, key, name, cred); err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 

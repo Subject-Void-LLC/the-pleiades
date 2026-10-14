@@ -2166,6 +2166,129 @@ before the login is lent to the next task. Measured against a real Docker
 engine behind a real sshd: 50 devices running 10 tasks each, all at once,
 took 0.6 seconds over socket channels.
 
+### Kubernetes clusters
+
+A `kubernetes_cluster` device is one cluster, reached through its API server.
+Its record says where the server is and what vouches for it: `api_server` (an
+https URL), `tls_ca_pem` (the cluster's authority, pinned), `tls_server_name`
+when the certificate names something else, and `namespace`, the one a task
+uses when it names none (`default` otherwise). Nodes, namespaces and pods are
+resources on the cluster, not devices of their own. A cluster starts
+`discovered` and runs nothing until onboarding proves the server answers its
+credential. Weak-TLS settings are refused on a cluster record: an API server
+speaks TLS 1.2 or later.
+
+**Adding one from a kubeconfig.** `pleiades import-kubeconfig <name>
+--kubeconfig <path> [--context <name>]` reads one context from the file it is
+given (or standard input for `-`; never `KUBECONFIG` or `~/.kube/config`),
+writes the record, and stores the token or the client certificate and key as
+the cluster's credential, encrypted. Everything that would run a program or
+read a file is refused by name: an `exec` or `auth-provider` user, a token,
+certificate, key or authority given as a file path, `insecure-skip-tls-verify`,
+`proxy-url`, a username and password, and impersonation. Flatten a kubeconfig
+that refers to files with `kubectl config view --raw --flatten` first.
+`--replace` replaces what an earlier import wrote and only that: the
+connection settings, the credential, nothing else on the record (a `route` or
+`node_engine_host` you set stays). A token from elsewhere is stored with
+`pleiades add-credential <cluster> --token-stdin`.
+
+On the Controller, `POST /inventory/kubeconfig-imports` takes `name`,
+`kubeconfig`, `context`, `organization` and `replace`, and needs both
+`credential:write` and `inventory:write`. It writes the record and a
+credential in the organization named `<name> (kubeconfig)`: a
+`kubernetes_bearer_token` for a token, or a
+`pleiades_kubernetes_client_certificate` for a certificate. The response names
+the credential and never contains a secret.
+
+**Onboarding.** `pleiades onboard <cluster>` asks the server, with the
+cluster's credential, what it is and records it as facts:
+`kubernetes_version`; `kinds`, every kind it serves at every served version
+(`autoscaling/v1 HorizontalPodAutoscaler` beside `autoscaling/v2
+HorizontalPodAutoscaler`); `partial_groups` when some API group's discovery
+failed; `kinds_truncated` if the server named more than 5,000; `rules`, what
+the credential may do in the namespace (the server's own
+SelfSubjectRulesReview), with `rules_incomplete` when the server could not
+list them all; and `nodes` when the credential may list them. Changing
+`api_server`, the authority, `node_engine_host` or the EKS settings clears
+what onboarding proved until the cluster is onboarded again.
+
+When the nodes are containers on an engine, as with kind and Docker Desktop's
+cluster, set `node_engine_host` to the `container_host` (or server) running
+them. Onboarding then records which container each node is, in
+`node_containers`, proved by reading the node's machine ID from inside the
+container rather than matched by name. Docker Desktop's `docker-desktop`
+context imports and onboards this way with no edit: onboard a
+`container_host` with no `host` for the machine's own engine, import the
+context, set `node_engine_host` to it, and onboard the cluster.
+
+On the Controller, onboarding uses the cluster's per-device credential, and
+for a cluster with none (one imported over the API) the one stored Kubernetes
+credential whose host names its API server. Two such credentials are refused,
+naming both, rather than one picked.
+
+**Credentials.** A cluster authenticates with its own credential only. A
+template's machine credential, an SSH login, never reaches a cluster, even
+though it reaches every machine in the same run. The native path reads
+`kubernetes_bearer_token` directly: bound to a template, it becomes the
+credential of the cluster whose `api_server` it names (the same host and
+port; 443 when none is written), in place of that cluster's own, and no other
+device in the run receives it. Its `ssl_ca_cert` is used for a cluster whose
+record pins no authority; a pinned one always wins. The native path checks
+every cluster's certificate, so `verify_ssl: false` has no effect there.
+
+On the Ansible path the same credential sets AWX's own environment for
+`kubernetes.core`: `K8S_AUTH_HOST`, `K8S_AUTH_API_KEY`, `K8S_AUTH_VERIFY_SSL`
+and, with an authority, `K8S_AUTH_SSL_CA_CERT` naming a file holding it. One
+difference from AWX is deliberate. AWX sets `K8S_AUTH_VERIFY_SSL` to `False`
+whenever no authority is given, even with verification asked for, so the
+server's certificate goes unchecked without anyone choosing that. The Pleiades
+leaves it `True`, so the certificate is checked against the execution
+environment's own roots (which is right for a managed cluster with a public
+certificate), and turns it off only when the credential says `verify_ssl:
+false`. `pleiades_kubernetes_client_certificate` does the same for a cluster
+that authenticates x509, setting `K8S_AUTH_CERT_FILE` and `K8S_AUTH_KEY_FILE`
+on the Ansible path. A template carries one Kubernetes credential at a time
+for now; a second for the same cluster (another namespace's rights) needs the
+per-task credential slots a later release adds.
+
+**Amazon EKS.** Set `eks_cluster_name` and `aws_region` on the record, and
+store an AWS access key as the cluster's credential: `pleiades add-credential
+<cluster> --username <access key id> --password-stdin`, the way the
+`cloud.aws.*` methods read one. The Pleiades mints the EKS token itself, the
+presigned STS `GetCallerIdentity` request EKS documents and `aws eks
+get-token` produces, and mints a fresh one before each expires (EKS accepts
+one for fifteen minutes). No `aws` program runs. An STS session token cannot
+be stored for it yet, as for `cloud.aws.*`. A kubeconfig written by `aws eks
+update-kubeconfig` is refused on import, since its user runs that program; the
+refusal names the two properties to set instead.
+
+**Behind a bastion.** A cluster whose API server is reachable only through a
+jump host takes a `route`, exactly as an SSH device does (see
+[Bastions and hop chains](#bastions-and-hop-chains)): onboarding and every run
+on the Crawl tier reach the server through the hops, each hop's host key
+verified. On the Walk tier the Controller's onboarding follows the route too,
+but a Runner reaches a cluster directly: no tier yet carries a route to a
+Runner, for any transport.
+
+**What a run may ask.** A cluster is shared between runs: Kubernetes settles
+concurrent writers itself, so no Pleiades lease serializes them. Each session
+asks at most 20 requests a second (bursts of 40); a server's 429 is waited out
+for the time its `Retry-After` asks; a 401 or 403 is not retried. Validation
+refuses, before anything runs, a manifest object whose kind the cluster does
+not serve, naming the versions it does serve; it says nothing when it cannot
+know (a cluster never onboarded, a truncated or partly failed discovery, a
+value that only rendering decides), and it counts a kind a
+`CustomResourceDefinition` in the same runbook defines as served. The first
+method that applies manifests arrives in a later release.
+
+Nothing ambient reaches a cluster. A Runner inside a cluster never uses its
+own ServiceAccount, `KUBECONFIG` and `~/.kube/config` are never read, and a
+cluster with no stored credential is refused rather than reached as anything
+else. What client-go logs passes through the same redaction as everything
+else, and a server's answers are bounded: discovery reads at most 128 MiB in
+all, and an error quotes at most 512 bytes of the server's text, with
+anything a terminal would act on escaped.
+
 ### PKI and TLS
 
 Two different things, at different stages, and it is worth not confusing them.

@@ -1,5 +1,152 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-14: PR #54 under review, 119c committed locally
+
+*Superseded later on 2026-10-14: #54 merged (`d3b43532`); 119c was rebased onto `main` and opened as pull request
+#55, whose CI failures led to the k3s fixture fix, the transitive container-list guard and `make pr-check`.*
+
+### Status as it was
+
+**2026-10-14. Two branches.** `feature/Part-XVIII-Container-Platforms` is **pull request #54** (119a, 119b),
+pushed, its last commit `7016137a`. `feature/Part-XVIII-119c-Kubernetes` (off `7016137a`) holds **119c,
+committed (the branch's one commit on `7016137a`), not pushed**; the user chose "a separate PR after #54": once #54 merges, rebase it onto
+`main`, push, and open its PR. Rules unchanged: the gate is GitHub Actions (no local
+`make ci`/`push-gate` unless asked), method-as-key runbooks, two agents at most, heavy commands under
+`~/.local/bin/capped` with `GOMAXPROCS=4`, no AI credit anywhere, never touch `/mnt/c/Users/raymo/coupon_clipper`
+or the live `groceries` namespace (read-only checks of Docker Desktop's cluster only).
+
+#### PR #54
+
+Three fixes this session, each pushed: the Podman fixture checks passwords without PAM (`7a6599e7`,
+FAILURE_PATTERNS 426); every floored package covered by its own tests (`35a07941`, 427); the Linux server prober
+built on every OS, with an archtest against file-name build constraints (`7016137a`, 428). Run 38604838943 on
+`7016137a`: all three `ci` jobs green (macOS and Windows included); the test shards were still running at the time
+of writing. The user merges when every check is green.
+
+#### 119c (16 of 18 ticked; open: Release Gate, commit message)
+
+- `pkg/kubeapi` (client-go v0.37.1): sessions from a record and a credential only; discovery of every served
+  version, bounded (128 MiB per discovery, 64 entries per rule), server error text bounded and escaped; EKS
+  identity minting through `pkg/awscloud.EKSToken` (SigV4 checked against an independent computation).
+- `kubernetes_cluster` (record, accessors, `ServedKinds`, `KubeEKS`, `ConnectionProperties`), onboarding with
+  bastion routes (`sdk.Router`, `engine.RouteDialerFor`, `onboard.WithRoutes`), `node_containers`.
+- Kubeconfig import: CLI `import-kubeconfig` and `POST /inventory/kubeconfig-imports` (both scopes; a replacement
+  changes only the four connection properties, through the loaded record).
+- Credentials: `kubernetes_bearer_token` (AWX's) and `pleiades_kubernetes_client_certificate` (ours, the catalog
+  now admits a `pleiades_` prefix), a code target in `internal/credtype`; native path delivers to the matching
+  cluster only, Ansible path gets AWX's `K8S_AUTH_*` (verification off only by `verify_ssl: false`, a stated
+  deviation from AWX); Controller onboarding falls back to the one host-matched stored credential
+  (`resolve.KubernetesSecrets`, its reason written in `resolve.go`).
+- `validate`'s `KubernetesKindRule` over `collection.ParamFormatKubernetesManifest`: proven on records; its proof
+  through the binary is 119g's, with the first apply method.
+- Also: a refused SSH host key is no longer retried or counted against the breaker (`pkg/remoteexec`, 429).
+- Tests: k3s at 1.35 and 1.37, token and certificate, through an sshd bastion (host key refused when unknown), an
+  `exec` kubeconfig refused, a static binary run where an in-cluster Runner runs (its admin ServiceAccount never
+  used), Docker Desktop opt-in (`PLEIADES_TEST_DOCKER_DESKTOP_KUBECONFIG`, passed read-only), fuzzing of import and
+  discovery. `gosec` clean (three G101 false positives waived by line); `govulncheck` affects nothing (GO-2026-5932,
+  x/crypto/openpgp, no fix, uncalled). Cross-OS vet clean. Docs: `docs/10` "Kubernetes clusters", `docs/03`'s
+  credential type lists corrected, generated reference, changelog fragments.
+
+#### Next
+
+1. Watch PR #54 to green; the user merges.
+2. Once #54 merges, rebase that commit onto `main`, push, and open 119c's PR (its local suites passed:
+   `cmd/pleiades` 399s, `cmd/controller` 147s, `cmd/runner` 300s, the container packages it touched, archtest).
+3. Then 119e, 119f, 119g (its apply method declares the manifest format and proves the kind rule end to end),
+   119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+4. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (repository settings, the user's).
+5. `pkg/containerengine` measured 53.7% in CI with no floor recorded; raise it and record a floor.
+
+#### Files changed
+
+PR #54 this session: `internal/testsupport/{dockerhost.go,testdata/podman-sshd/Dockerfile}`, eight packages' new
+tests, `internal/inventory/onboard/probe_linux_server.go` (renamed), `internal/archtest/filename_constraint_test.go`.
+119c: see `git status` on its branch (about 95 files): `pkg/{kubeapi,awscloud,capability,collection,sdk,wire,
+remoteexec,inventory}`, `internal/{inventory,credtype,credstore/resolve,dispatch,engine,api,apispec,validate,
+credential,lock,runner,testsupport,archtest,clispec,forge}`, `cmd/{pleiades,controller,runner}`, `docs/`,
+`changelog/`, `CLAUDE.md`, `gosec-waivers.json`, `go.mod`, and this session's FAILURE_PATTERNS 426 to 443 and
+LESSONS 263 to 269.
+
+## Previous session, 2026-10-13: Part XVIII, 119a and 119b built, uncommitted
+
+*Superseded on 2026-10-14: 119a and 119b were committed as pull request #54 (`ad486f2d` onward), the gate moved to GitHub Actions (#53, merged) after the Go upgrade (#52, merged), and 119c was built. Its findings 7 to 10 are FAILURE_PATTERNS 434 to 436 and 443; 1 to 6 are 437 to 442.*
+
+### Status as it was
+
+**Branch `feature/Part-XVIII-Container-Platforms` off `main` (`6b5ff333`), 2026-10-13. Nothing committed
+or pushed** (the user has not asked; offer per-phase commits, 119a first). Building Part XVIII (Docker,
+Podman, Kubernetes) in full, at the user's direction: "full plan docker/k8s/podman as planned", "full
+functions - do not half ass", Podman "adjacent to docker so dont skip it", and "make it work with how that
+project does things. do not actually build in that project". The acceptance target is the user's
+`/mnt/c/Users/raymo/coupon_clipper` (`k8s/deploy.sh`), **read only, never built, applied or changed**, and its
+live `groceries` namespace on Docker Desktop's Kubernetes is never touched: every test uses throwaway
+fixtures. Docker Desktop and its Kubernetes are integrated into WSL, so the local paths are first class
+(this machine's `/var/run/docker.sock`; the `docker-desktop` kube context, client certificate; node container
+`desktop-control-plane`, `kindest/node:v1.36.1`, hidden from `docker ps` but reachable by `docker inspect`, its
+machine ID equal to the node's `machineID`). Rules unchanged (method-as-key runbooks, two agents at most,
+heavy commands under `~/.local/bin/capped`, no AI credit). Memory is tight (about 2.5 to 3 GB free, other
+Claude sessions running): run live fixture tests one package at a time.
+
+### The roadmap (gitignored, local only)
+
+Part XVIII at the end of `.SPECIFICATION/IMPLEMENTATION.md`: 119a to 119m. Fast track in **v0.3.0**: 119a,
+119b, 119c, 119e, 119f (Docker and Podman together), 119g, 119h, 119l (local device for the project's
+scripts), 119m (the coupon_clipper-shaped deploy, end to end); v0.5.0: 119d, Phase 26, 119k; v0.7.0: 119i,
+119j. The preamble maps every step of `deploy.sh` to a method and phase. Backups of each roadmap revision
+are in this session's scratchpad only. Read status with `python3 .SPECIFICATION/implementation.py --json
+--phase 119a` (and so on).
+
+### Done and verified
+
+- **119a (12 of 14; open: Release Gate, commit message).** `container.docker.exec` reaches the engine the
+  device advertises; `docker_endpoint` is refused (finding S1); `container.docker.run` sends env on stdin
+  (finding S2).
+- **119b (12 of 13; open: Release Gate, commit message).** Evidence on every item in the roadmap. The port
+  (`pkg/containerengine`): Docker's own Go client behind one guard, four carriers chosen by one function
+  that sessions and `pleiades validate` share (`usableCarriers`, `Route`), identity pinning, an account check
+  (`id -un` against the recorded `login_user`), an Engine API floor of 1.41 (measured: Docker 29.9.0 1.56,
+  Podman 5.8.7 1.44, Podman 4.9.4 1.41), bounded answers, `ValidName`. `pkg/dockerexec` folded in and deleted
+  (`Session.Exec`). Registry credentials end to end. `validate` prints `[route]` lines. Stress: 50 devices x
+  10 sessions at once, 0.6 s, 50 pooled logins. Docs: `docs/10`, "Container engines: Docker and Podman".
+
+### Findings this session (each fixed, each worth a FAILURE_PATTERNS or LESSONS entry at the doc ritual)
+
+1. OpenSSH applies `AllowTcpForwarding` to Unix-socket channels and answers every refusal "connect failed".
+2. The guard judged a decoded path when a target held an invalid character (fuzz); now canonical only.
+3. Closing an SSH exec channel does not stop the remote process: the Podman service outlived `Close`.
+4. A test asserted on `ps` in an image with no `ps` and passed vacuously.
+5. `container_host` parsed its TLS settings but never exposed them, so a pinned CA was ignored.
+6. `trust-host --first-connect` wrote a fixture's key into the real `~/.ssh/known_hosts`; tests use
+   `PLEIADES_KNOWN_HOSTS`.
+7. **The moby client dials a hijacked request (exec, attach) itself whenever its transport has a TLS config,
+   which cloning a default transport gives it, so exec skipped the guard.** HTTP/1-only transport in
+   `newAPI`; `TestSession_HijackedRequestsPassTheGuard` fails without it.
+8. **Over `engine_stdio` no login was ever pooled:** `Conn.Start` tainted it, and the HTTP transport closes a
+   finished request's connection on its own goroutine, after the session released the login. Now a process
+   seen to exit (`Wait`) is counted out, and the carrier ends its open processes before release.
+9. `testsupport.EngineHostOptions.SSHDConfig` REPLACES the default `AllowTcpForwarding local`; a test that
+   only meant to add `MaxStartups` silently turned forwarding off.
+10. Two vacuous checks caught by controls: busybox `find` rejects `-size -64M` (the error was swallowed),
+    and `-xdev` skipped dind's `/var/lib/docker` volume. A planted canary now proves the disk search finds.
+11. The Walk child masks the credential's username like every credential value, so an account refusal
+    shows it as `********` (kept: never show secrets).
+12. Go 1.26.9 and x/net v0.60.0 (PR #52) and the gate moving to GitHub Actions (PR #53) both merged to
+    main; WSL crashed once from a 4G cap during a gopls reload (memory note updated).
+
+### Next
+
+1. Commit 119a and 119b and open a PR to main: under the Actions policy its checks are the Release Gate.
+   main is 9 commits ahead (#52, #53); this branch holds the same Go bump uncommitted, identical lines.
+2. Then 119c (Kubernetes client, `kubernetes_cluster`, kubeconfig import of `docker-desktop`), 119e, 119f,
+   119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+3. The `winrm` CI job's 401 needs one diagnostic run (proposal in the session's notes); waiting on the user.
+
+### Files changed
+
+See `git status` on the branch (about 90 files): `pkg/{capability,containerengine,remoteexec,
+wire,sdk,external}`, `internal/{inventory,catalog/container,credential,credtype,dispatch,engine,adapters/native,
+testsupport,forge/catalogdata,clispec,api}`, `cmd/pleiades`, `docs/`, `changelog/`, `Makefile`, `go.mod`.
+
 ## Previous session, 2026-10-01: Phase 118 on `main`, and the dependency pull request #50 open
 
 *Superseded on 2026-10-13 by a planning session: pull request #50 merged on 2026-10-02 (`6b5ff333`), and Part XVIII (Docker, Podman and Kubernetes support) was added to the roadmap.*

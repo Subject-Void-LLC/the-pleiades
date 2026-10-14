@@ -398,6 +398,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// itself only for one reached over WinRM, whose answer file can
 		// hold nothing else.
 		engine.WithLoginSeeder(engine.NewCredentialLoginSeeder(credentials, inventoryRepo)),
+		// A method reaching an address of its own (a Kubernetes API server)
+		// goes through the device's route of SSH hops, as SSH tasks do.
+		engine.WithDeviceRoutes(inventoryRepo, credentials),
 	)
 
 	executor := engine.NewExecutor(

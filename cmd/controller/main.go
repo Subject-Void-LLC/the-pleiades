@@ -122,6 +122,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -134,6 +135,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	// The built-in launch kinds. A blank import because their init()
 	// functions are the only thing that populates internal/launch's
 	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
@@ -634,6 +638,9 @@ func main() {
 	// that covers the structured path and not the failure path emits
 	// unmasked exactly when things are going wrong.
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
+	// client-go's own log, from onboarding a cluster, through the same
+	// masking (pkg/kubeapi.LogTo).
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
 
 	// The mesh configuration, checked HERE: after the masking logger is
 	// installed, and before this process binds a port, provisions a
@@ -1404,9 +1411,22 @@ func main() {
 	// Onboarding runs here, in the Controller, as a sync plugin does: the
 	// probe connects from this process with the device's credential from
 	// the same store a dispatch reads, and no Runner is involved.
-	onboardSecrets := onboard.SecretsFrom(deviceCredentials)
+	// A cluster with no per-device credential (one imported over the API)
+	// onboards with the one stored Kubernetes credential whose host names
+	// its API server (resolve.KubernetesSecrets).
+	onboardSecrets := onboard.WithKubernetesFallback(onboard.SecretsFrom(deviceCredentials),
+		func(ctx context.Context, apiServer string) (map[string]string, error) {
+			return resolve.KubernetesSecrets(ctx, credentialStore, credentialResolver, apiServer)
+		})
+	devices.WithKubeconfigImport(credentialStore)
+	// A device behind a route of SSH hops (a cluster behind a bastion) is
+	// probed through it, resolved from the same records a dispatch reads.
+	onboardRoutes := onboard.WithRoutes(func(ctx context.Context, device pkginventory.InventoryItem) (sdk.RouteDial, error) {
+		dial, _, err := engine.RouteDialerFor(ctx, repo, deviceCredentials, device)
+		return dial, err
+	})
 	devices.WithOnboarder(func(ctx context.Context, name string) (onboard.Result, error) {
-		return onboard.Onboard(ctx, repo, name, onboardSecrets, time.Now)
+		return onboard.Onboard(ctx, repo, name, onboardSecrets, time.Now, onboardRoutes)
 	})
 	// One canceller, shared by the JSON API below and the browser's own
 	// Cancel button, so the two cannot mean different things by stopping a
@@ -1560,14 +1580,15 @@ func main() {
 		apispec.ListCredentialInputSources.Name: credentials.ListCredentialInputSources,
 		apispec.SetCredentialInputSources.Name:  credentials.SetCredentialInputSources,
 
-		apispec.ListDevices.Name:   devices.List,
-		apispec.CreateDevice.Name:  devices.Create,
-		apispec.GetDevice.Name:     devices.Get,
-		apispec.UpdateDevice.Name:  devices.Update,
-		apispec.DeleteDevice.Name:  devices.Delete,
-		apispec.OnboardDevice.Name: devices.Onboard,
-		apispec.ListRunbooks.Name:  catalog.List,
-		apispec.GetRunbook.Name:    catalog.Get,
+		apispec.ListDevices.Name:      devices.List,
+		apispec.CreateDevice.Name:     devices.Create,
+		apispec.GetDevice.Name:        devices.Get,
+		apispec.UpdateDevice.Name:     devices.Update,
+		apispec.DeleteDevice.Name:     devices.Delete,
+		apispec.OnboardDevice.Name:    devices.Onboard,
+		apispec.ImportKubeconfig.Name: devices.ImportKubeconfig,
+		apispec.ListRunbooks.Name:     catalog.List,
+		apispec.GetRunbook.Name:       catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,

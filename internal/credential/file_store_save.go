@@ -132,6 +132,13 @@ func buildCredentialEntry(svc crypto.Service, cred Credential) (credentialEntry,
 		}
 		entry.PFXEncrypted = encrypted
 	}
+	if cred.Token != "" {
+		encrypted, err := encryptField(svc, []byte(cred.Token))
+		if err != nil {
+			return credentialEntry{}, fmt.Errorf("token: %w", err)
+		}
+		entry.TokenEncrypted = encrypted
+	}
 
 	return entry, nil
 }

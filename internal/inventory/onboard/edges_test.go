@@ -61,7 +61,7 @@ func TestSecretsFrom(t *testing.T) {
 	}
 	repo, _ := newRepo(t, "grpc1", generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: "a.invalid:1"})
 	calls := 0
-	res, err := onboardWith(context.Background(), repo, "grpc1", SecretsFrom(failingStore{}), fixedNow, only(countingProber{calls: &calls}))
+	res, err := onboardWith(context.Background(), repo, "grpc1", SecretsFrom(failingStore{}), fixedNow, only(countingProber{calls: &calls}), options{})
 	if err == nil || calls != 0 || res.State != "onboarding" {
 		t.Errorf("a broken store: err %v after %d probes, state %s", err, calls, res.State)
 	}
@@ -72,7 +72,7 @@ func TestSecretsFrom(t *testing.T) {
 func TestOnboard_ReadOnlyInventory(t *testing.T) {
 	repo, _ := newRepo(t, "grpc1", generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: "a.invalid:1"})
 	calls := 0
-	_, err := onboardWith(context.Background(), inv.NewReadOnlyRepository(repo), "grpc1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls}))
+	_, err := onboardWith(context.Background(), inv.NewReadOnlyRepository(repo), "grpc1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls}), options{})
 	if !errors.Is(err, inv.ErrInventoryReadOnly) || calls != 0 {
 		t.Fatalf("err %v after %d probes", err, calls)
 	}
@@ -158,10 +158,10 @@ func TestOnboard_AReprobeCanTakeACapabilityAway(t *testing.T) {
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://api.invalid"})
 	calls := 0
 	granted := countingProber{calls: &calls, grants: []capability.Name{capability.NameHTTPAPI}}
-	if _, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(granted)); err != nil {
+	if _, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(granted), options{}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls}))
+	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(countingProber{calls: &calls}), options{})
 	if err != nil || !slices.Equal(res.Removed, []string{"HTTPAPICapable"}) {
 		t.Fatalf("err %v, removed %v", err, res.Removed)
 	}

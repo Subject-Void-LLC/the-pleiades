@@ -116,7 +116,14 @@ func WithCancelSignals(control event.CancelSubscriber) AgentOption {
 // along with it, mirroring internal/event/consumer.go's own handleDelivery
 // panic-recovery precedent for a handler this codebase does not control.
 func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPayload) (outcome wire.Outcome, execErr error) {
-	lease, err := a.locks.Acquire(ctx, payload.DeviceID, a.leaseTTL, lock.AcquireOptions{})
+	// A shared device (a Kubernetes cluster) takes a shared lease, so runs
+	// against it do not queue behind each other; every other device's is
+	// exclusive.
+	opts := lock.AcquireOptions{}
+	if payload.SharedDevice {
+		opts.Mode = lock.ModeShared
+	}
+	lease, err := a.locks.Acquire(ctx, payload.DeviceID, a.leaseTTL, opts)
 	if err != nil {
 		return wire.Outcome{}, fmt.Errorf("%w: %w", errLockContention, err)
 	}

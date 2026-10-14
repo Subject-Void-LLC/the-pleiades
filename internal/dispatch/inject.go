@@ -34,7 +34,11 @@ package dispatch
 import (
 	"context"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -146,8 +150,12 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 	return out
 }
 
-// applyInjection attaches an artifact to a payload, resolving the
+// ApplyInjection attaches an artifact to a payload, resolving the
 // credential precedence question in the one place it arises.
+//
+// Exported for the reason InjectedFrom is: cmd/runner's injection Release
+// Gate builds its payload through this, the conversion the fan-out uses,
+// rather than through one of its own.
 //
 // # The precedence rule
 //
@@ -167,9 +175,17 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 // winning over an explicit template binding would mean an operator binding
 // a credential, watching the run authenticate as something else, and having
 // nothing in the record to tell them why.
-func applyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
+//
+// One exception: a device type registered as using its own credential (a
+// Kubernetes cluster) is never given the machine credential, and falls
+// back to its own, since an SSH login is not a cluster's identity.
+func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
 	payload.Injected = InjectedFrom(art)
-	if machine, ok := art.Machine(); ok {
+	// A device whose type authenticates only with its own credential (a
+	// Kubernetes cluster) never takes the template's machine credential:
+	// that is a login for a machine, and here it would win over the
+	// cluster's own (record.RegisterOwnCredentialType).
+	if machine, ok := art.Machine(); ok && !record.UsesOwnCredential(payload.DeviceType) {
 		payload.Secrets = machine
 	}
 	// The template's one container registry credential travels beside the
@@ -177,6 +193,41 @@ func applyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
 	// own host ever reads it (wire.RegistryCredential).
 	if reg, ok := art.Registry(); ok {
 		payload.Registry = reg
+	}
+	if k, ok := art.Kubernetes(); ok {
+		applyKubernetes(payload, k, art.SecretValues())
+	}
+}
+
+// applyKubernetes delivers the template's Kubernetes credential the way
+// the job's execution path reads one. The Ansible path gets AWX's
+// environment and the files it names, for kubernetes.core. The native path
+// reads the credential directly: it becomes the secrets of a cluster whose
+// API server it names, in place of that cluster's own stored credential,
+// as a template's machine credential takes a machine's place; any other
+// device never receives it, as a registry credential reaches only its
+// registry.
+func applyKubernetes(payload *wire.DispatchPayload, k credtype.KubernetesCredential, mask []string) {
+	if descriptor, known := launch.Lookup(payload.Kind); known && descriptor.Adapter == routing.AdapterLegacy {
+		env, files := k.AnsibleInjection()
+		if payload.Injected == nil {
+			payload.Injected = &wire.Injected{}
+		}
+		if payload.Injected.Env == nil {
+			payload.Injected.Env = map[string]string{}
+		}
+		for name, value := range env {
+			payload.Injected.Env[name] = value
+		}
+		for _, f := range files {
+			payload.Injected.Files = append(payload.Injected.Files, wire.InjectedFile{Label: f.Label, Path: f.Path, Content: f.Content, Mode: f.Mode})
+		}
+		payload.Injected.Mask = mask
+		return
+	}
+	server, _ := payload.DeviceProperties[kubernetes.APIServerProperty].(string)
+	if payload.DeviceType == kubernetes.TypeCluster && k.ForServer(server) {
+		payload.Secrets = k.Secrets()
 	}
 }
 

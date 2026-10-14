@@ -218,6 +218,20 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
   code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
   Controller's payload falls back to `pkg/external.Device`.
+- **Kubernetes clusters are devices; no Kubernetes method exists yet (Phase 119c).** `kubernetes_cluster`
+  (`internal/inventory/devices/kubernetes`) is reached through `pkg/kubeapi`, the one package allowed to import
+  client-go (`internal/archtest`), built from the record and its credential alone: no kubeconfig loading, no
+  in-cluster config, no `KUBECONFIG`. `pleiades import-kubeconfig` and `POST /inventory/kubeconfig-imports` refuse
+  exec, auth-provider, file references, skip-verify, proxies and impersonation by name. Onboarding records the
+  version, every kind at every served version, the credential's SelfSubjectRulesReview, nodes, and each node's
+  container (`node_engine_host`, proved by machine ID). A cluster takes only its own credential: a template's
+  machine credential never reaches one (`record.RegisterOwnCredentialType`), and a bound `kubernetes_bearer_token`
+  or `pleiades_kubernetes_client_certificate` (a code target in `internal/credtype`, injectors `{}` as AWX exports)
+  becomes the secrets of the cluster whose API server its host names on the native path and AWX's `K8S_AUTH_*`
+  environment on the Ansible path (`dispatch.ApplyInjection`). EKS tokens are minted in Go
+  (`awscloud.EKSToken`). A `route` reaches a cluster for onboarding and Crawl runs (`sdk.Router`), never from a
+  Runner. Clusters take a shared lease. `validate`'s `KubernetesKindRule` reads a parameter declaring
+  `collection.ParamFormatKubernetesManifest`, which no method does until 119g.
 - **Task params render, targets can come from data, and every method says where it runs (Phase
   117a).** A string in `params` holding `{{ }}` renders when its node dispatches
   (`internal/engine/render_params.go`, through the one `internal/render` engine each composition root
@@ -247,7 +261,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   and `internal/transport/winrm` share it; every platform instance is an unexported field, and
   `internal/archtest`'s `TestNoPlatformCircuitIsReachable` refuses one anywhere a Collection could
   reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
-  WinRM 401 or TLS alert) is neither retried nor counted. The half-open probe is leased, so a lost
+  WinRM 401 or TLS alert) and an SSH host key known_hosts refuses (unknown, changed or revoked) are
+  neither retried nor counted. The half-open probe is leased, so a lost
   one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). WinRM Collections that call
   `pkg/winrmexec` directly (`exec.winrm.shell`, `pkg/winrmsvc`, the waits) have no breaker yet.
 - **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the
@@ -266,6 +281,7 @@ make ci              # the whole strict gate: build vet fmt test-full test-repea
 make test-full       # the one test pass (Phase 118): -race, -tags integration, -cover, -count=1, strict; records coverage in .coverage/
 make ci-fast         # every container-free package, tolerant, then test-repeat: the fast loop, needs no Docker (a CI job)
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
+make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target
@@ -335,6 +351,17 @@ machine out of memory. `make push-gate` and `make ci` stay for a developer who w
 and for the refs below that still need a receipt. The schedule-only jobs (`nightly`, `vulns`,
 `winrm`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
+
+**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`, vet for
+macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
+through the same `testgate` passes, the container-free ones three times strictly as
+`test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
+measured; the container-list guard and `internal/archtest` always run. It exists because
+pull requests #54 and #55 kept failing CI on checks a local run makes in minutes (LESSONS
+271). It is narrower than CI, which still tests every package. Which tier a package belongs
+in is not judgement: `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`
+follows each test's calls through the module and fails when a package that starts a
+container is missing from `DOCKER_DEPENDENT_PACKAGES`.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,

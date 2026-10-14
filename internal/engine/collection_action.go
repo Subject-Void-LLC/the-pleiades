@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -51,6 +52,11 @@ type collectionActionExecutor struct {
 	// seed, set by WithLoginSeeder, resolves the login a method whose
 	// manifest sets SeedsLogin gives to the machine it creates.
 	seed LoginSeeder
+
+	// routeRepo and routeCredentials resolve a device's route of SSH hops
+	// for a method (WithDeviceRoutes); nil leaves every device direct.
+	routeRepo        hopChainInventory
+	routeCredentials credential.Store
 }
 
 // CollectionInvoker replaces how a registered, StatusImplemented
@@ -249,6 +255,24 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	// output boundary like a register_mask'd value is.
 	secrets := credentialSecrets(rc.InjectSecrets())
 
+	// A device reached through a route of SSH hops hands the method a
+	// dialer through them (sdk.Router), and every hop's secrets join the
+	// masking set, as they do for an SSH task (action_ssh.go).
+	if e.routeRepo != nil && device != nil {
+		dial, hopSecrets, err := RouteDialerFor(ctx, e.routeRepo, e.routeCredentials, device)
+		if err != nil {
+			return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+		}
+		if dial != nil {
+			routed, ok := rc.(*runbookContext)
+			if !ok {
+				return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: device %q is reached through a route, which this run's context cannot carry", task.FQCN, device.Name())
+			}
+			routed.route = dial
+			secrets = append(secrets, hopSecrets...)
+		}
+	}
+
 	e.lendPool(ctx, rc, device)
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
@@ -337,4 +361,13 @@ func credentialSecrets(secrets map[string]string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// WithDeviceRoutes lets a Collection method reach a device through its
+// route of SSH hops (Phase 72's "route"), resolved from repo with each
+// hop's credential from credentials, by handing it a dialer (sdk.Router).
+func WithDeviceRoutes(repo hopChainInventory, credentials credential.Store) CollectionActionExecutorOption {
+	return func(e *collectionActionExecutor) {
+		e.routeRepo, e.routeCredentials = repo, credentials
+	}
 }

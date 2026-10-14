@@ -41,7 +41,7 @@ func TestMeasured_MergesShardsAndChecksFloors(t *testing.T) {
 		"fast.json":           `{"coverage": {"example/a": 91.0}}`,
 		"shard1.json":         `{"coverage": {"example/b": 80.0, "example/new": 12.0}}`,
 	})
-	if err := run([]string{"fast.json", "shard1.json"}); err != nil {
+	if err := run([]string{"fast.json", "shard1.json"}, false); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 }
@@ -70,7 +70,7 @@ func TestMeasured_Refusals(t *testing.T) {
 				files[k] = v
 			}
 			inDir(t, files)
-			err := run(tt.args)
+			err := run(tt.args, false)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("err = %v, want it to contain %q", err, tt.wantErr)
 			}
@@ -109,7 +109,7 @@ func TestMeasured_AFloorMeasuredWithoutItsRequirementIsNamedNotFailed(t *testing
 		"c.json":              `{"coverage": {"example/a": 37.6, "example/b": 80.0}, "missing": {"example/a": ["localstack"]}}`,
 	})
 	out := captureStdout(t, func() {
-		if err := run([]string{"c.json"}); err != nil {
+		if err := run([]string{"c.json"}, false); err != nil {
 			t.Fatalf("run: %v", err)
 		}
 	})
@@ -136,4 +136,24 @@ func captureStdout(t *testing.T, fn func()) string {
 	fn()
 	_ = w.Close()
 	return <-done
+}
+
+// TestMeasured_ScopedChecksOnlyWhatWasMeasured is make pr-check's run: a
+// floored package the files never measured is not a failure, and one they
+// measured below its floor still is.
+func TestMeasured_ScopedChecksOnlyWhatWasMeasured(t *testing.T) {
+	inDir(t, map[string]string{
+		"coverage-floor.json": floors,
+		"pr.json":             `{"coverage": {"example/a": 95.0}}`,
+		"low.json":            `{"coverage": {"example/a": 85.0}}`,
+	})
+	if err := run([]string{"pr.json"}, true); err != nil {
+		t.Errorf("a scoped run leaving example/b unmeasured: %v", err)
+	}
+	if err := run([]string{"pr.json"}, false); err == nil {
+		t.Error("an unscoped run passed with example/b unmeasured")
+	}
+	if err := run([]string{"low.json"}, true); err == nil || !strings.Contains(err.Error(), "regressed") {
+		t.Errorf("a scoped run below a floor: %v, want a regression", err)
+	}
 }

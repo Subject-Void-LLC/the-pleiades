@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers ci-images workflow-lint doctor test-clean-room
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet ci-images workflow-lint doctor test-clean-room
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -339,14 +339,16 @@ test-race:
 	fi; \
 	exit $$status
 
-# DOCKER_DEPENDENT_PACKAGES is every package whose test files import
-# testcontainers-go directly (a real, ephemeral Docker container: NATS,
-# sshd, LocalStack, Postgres), verified by grepping every .go file in the
-# module for that import rather than assumed or guessed from directory
-# names. It was written for Phase 72's CI matrix, whose macOS and Windows
-# legs run on GitHub runners that ship no Docker daemon; those legs now
-# build and vet only, so the two targets below (test-no-docker,
-# test-repeat) are the list's remaining readers, both of them local.
+# DOCKER_DEPENDENT_PACKAGES is every package whose tests start a real,
+# ephemeral Docker container (NATS, sshd, LocalStack, Postgres, k3s),
+# directly or through a helper, as tools/internal/flakegate's
+# TestEveryContainerPackageIsListed reads it from the source rather than
+# assumed or guessed from directory names. It was written for Phase 72's
+# CI matrix, whose macOS and Windows legs run on GitHub runners that ship
+# no Docker daemon. Its readers now are SPLIT_PACKAGES, which keeps these
+# packages out of the fast tier (`make ci-fast`, CI's fast and fast-macos
+# jobs) and gives them to `make ci-containers`, and the two targets below
+# (test-no-docker, test-repeat).
 #
 # This is a named list, not a glob or a directory-name pattern, on
 # purpose: a fragile pattern (skip anything under a path containing
@@ -362,10 +364,17 @@ test-race:
 # internal/keyregistry was found missing). tools/internal/flakegate's
 # TestEveryContainerPackageIsListed now fails at unit-test speed instead.
 #
-# That guard reads direct imports only, so a package that starts its
-# container through internal/testsupport is listed here by hand:
-# pkg/sftpxfer and pkg/scpxfer start sshd through testsupport.StartSSHD
-# and never import testcontainers-go themselves.
+# The guard follows each test file's calls through every function in the
+# module, so a package starting its container through a helper counts:
+# pkg/sftpxfer and pkg/scpxfer start sshd through testsupport.StartSSHD,
+# and pkg/kubeapi starts k3s through testsupport.StartK3s, without
+# importing testcontainers-go themselves. Its first version read direct
+# imports only, which is how pkg/kubeapi reached CI unlisted and lost a
+# k3s start to the fast tier's load. A package whose tests run only a
+# one-shot `docker run` or `docker build` may stay out of this list when
+# the guard's oneShotContainerPackages names it with a reason;
+# internal/engine and internal/forge/playbook do, so their other tests
+# keep running on the macOS job.
 DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/controller \
 	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades \
@@ -396,6 +405,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
@@ -600,6 +610,60 @@ ci-containers:
 	mkdir -p $(COVERAGE_DIR); \
 	go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -shard $(SHARD) \
 		-coverage-out $(COVERAGE_DIR)/containers-$(subst /,-of-,$(SHARD)).json $$docker
+
+# pr-check is what a pull request's required jobs run, run here before a
+# push, for the packages the branch changes: ci-remote's static checks; vet
+# for macOS and Windows, which the ci job builds on and this machine does
+# not; then each changed package (tools/prscope) in the tier CI gives it,
+# through the same testgate passes, with the container-free ones repeated
+# strictly three times as test-repeat does; and the floors of exactly the
+# packages it measured (coverage-check -scoped). The container-list guard
+# and the architecture rules always run, since they read the whole tree.
+#
+# It exists because pull requests #54 and #55 went red in CI again and
+# again on checks a local run could have made in minutes (coverage floors,
+# go.mod tidiness, a file whose name constrained its build, a package
+# missing from DOCKER_DEPENDENT_PACKAGES): the gate moved to Actions, and
+# what ran before a push stopped matching what Actions runs. It is narrower than CI,
+# which still tests every package, so a package the branch does not touch
+# can still fail there; it is broad enough that a branch's own change
+# should not. PR_BASE is what the branch merges into, and
+# PR_CHECK_PARALLELISM bounds how many container-free packages run at
+# once (0 keeps go test's default).
+PR_BASE ?= origin/main
+PR_CHECK_PARALLELISM ?= 0
+PR_CHECK_ALWAYS := \
+	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
+	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+pr-check: ci-remote pr-check-vet
+	@$(SPLIT_PACKAGES); \
+	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
+	mine_fast=""; mine_docker=""; \
+	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
+		if printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
+		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
+	done; \
+	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
+	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr; \
+	status=0; \
+	if [ -n "$$mine_fast" ]; then \
+		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json $$mine_fast || status=1; \
+		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+	fi; \
+	if [ -n "$$mine_docker" ]; then \
+		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
+	fi; \
+	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
+	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
+	exit $$status
+
+# pr-check-vet vets every package, tests and the integration tag included,
+# as macOS and Windows build them: a file named for one operating system
+# (_linux.go) builds nowhere else, and only a build for another one shows
+# what that leaves undefined.
+pr-check-vet:
+	GOOS=darwin go vet -tags integration ./...
+	GOOS=windows go vet -tags integration ./...
 
 # ci-images lists, and with PULL=-pull pulls, the images one shard's
 # packages start, so a CI job can restore them from its cache instead of

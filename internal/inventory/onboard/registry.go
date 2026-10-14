@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // Probed is what one probe proved: the capabilities the device's own
@@ -31,6 +32,25 @@ type Probed struct {
 	// (a deprecated TLS version, legacy ciphers, a credential over plain
 	// HTTP). They are reported with the result, never stored as facts.
 	Warnings []string
+}
+
+// Peers lets a prober reach one other device in the same inventory, with
+// that device's own credential, for a discovery that spans two devices: a
+// cluster whose nodes are containers on a container host's engine. It also
+// says how a device is reached when its record names a route of SSH hops.
+type Peers interface {
+	// Device returns the device named name and its credential.
+	Device(ctx context.Context, name string) (inventory.InventoryItem, map[string]string, error)
+	// Route returns a dialer through device's route, or nil when it has
+	// none or onboarding was given no way to resolve one.
+	Route(ctx context.Context, device inventory.InventoryItem) (sdk.RouteDial, error)
+}
+
+// PeerProber is a Prober whose discovery may consult a peer device.
+// Onboarding calls ProbeWithPeers instead of Probe for one.
+type PeerProber interface {
+	Prober
+	ProbeWithPeers(ctx context.Context, device inventory.InventoryItem, secrets map[string]string, peers Peers) (Probed, error)
 }
 
 // Prober proves what a device of one generic type can do.

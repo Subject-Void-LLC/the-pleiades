@@ -428,6 +428,28 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
 424. The nightly job never installed socat, and a bare `t.Skip` made six missing tests read as a coverage regression
 425. GitHub's Windows runner ships its own HTTPS WinRM listener, and the lab script refused to replace it
+426. The Podman fixture's passwords were refused on the CI runners and accepted under Docker Desktop
+427. Code moved between packages left its tests behind, and eight coverage floors failed at once
+428. probe_linux.go's file name built the Linux server prober on Linux only
+429. A refused SSH host key was retried three times and opened the address's circuit
+430. Kubernetes discovery recorded only preferred versions, which would have refused valid manifests
+431. A hostile API server could make discovery unbounded, and its whole answer reached an error
+432. A replacing kubeconfig import over the API reported success and wrote nothing
+433. A branch checkout in an auxiliary worktree moved the main worktree's branch
+434. The moby client's hijacked connections bypassed the engine guard's dialer
+435. No stdio login was ever pooled
+436. Two checks passed vacuously against the Docker fixture
+437. OpenSSH applies AllowTcpForwarding to Unix-socket channels and answers every refusal "connect failed"
+438. The engine guard judged a decoded path when the target held an invalid character
+439. Closing an SSH exec channel did not stop the remote process
+440. A test asserted on `ps` in an image with no `ps` and passed vacuously
+441. container_host parsed its TLS settings and never exposed them, so a pinned authority was ignored
+442. trust-host --first-connect wrote a fixture's key into the real ~/.ssh/known_hosts
+443. A fixture's SSHDConfig option replaced its default AllowTcpForwarding instead of adding to it
+444. The SSH test fixture's forwarder never ended a connection its destination kept open
+445. Pull request #55 failed CI twice on checks that run locally in minutes
+446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
+447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

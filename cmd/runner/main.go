@@ -51,6 +51,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
 	// Blank-imported so every generated Collection method registers itself
 	// into pkg/collection before native.Adapter's own
 	// engine.NewCollectionActionExecutor ever looks one up, mirroring
@@ -157,6 +158,10 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, redact.Shared().HandlerOptions(slog.LevelInfo)))
 	slog.SetDefault(logger)
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
+	// client-go's own log, which a Kubernetes task's client writes, through
+	// the same masking: it logs nothing at the verbosity it runs at, and
+	// whatever it ever logs is redacted (pkg/kubeapi.LogTo).
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
 	logger.Info("starting runner", "version", buildinfo.Version())
 
 	// The mesh URL, checked at startup: after the masking logger above and

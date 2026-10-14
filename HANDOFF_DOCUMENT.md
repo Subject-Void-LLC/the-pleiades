@@ -4,76 +4,47 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Part-XVIII-Container-Platforms` off `main` (`6b5ff333`), 2026-10-13. Nothing committed
-or pushed** (the user has not asked; offer per-phase commits, 119a first). Building Part XVIII (Docker,
-Podman, Kubernetes) in full, at the user's direction: "full plan docker/k8s/podman as planned", "full
-functions - do not half ass", Podman "adjacent to docker so dont skip it", and "make it work with how that
-project does things. do not actually build in that project". The acceptance target is the user's
-`/mnt/c/Users/raymo/coupon_clipper` (`k8s/deploy.sh`), **read only, never built, applied or changed**, and its
-live `groceries` namespace on Docker Desktop's Kubernetes is never touched: every test uses throwaway
-fixtures. Docker Desktop and its Kubernetes are integrated into WSL, so the local paths are first class
-(this machine's `/var/run/docker.sock`; the `docker-desktop` kube context, client certificate; node container
-`desktop-control-plane`, `kindest/node:v1.36.1`, hidden from `docker ps` but reachable by `docker inspect`, its
-machine ID equal to the node's `machineID`). Rules unchanged (method-as-key runbooks, two agents at most,
-heavy commands under `~/.local/bin/capped`, no AI credit). Memory is tight (about 2.5 to 3 GB free, other
-Claude sessions running): run live fixture tests one package at a time.
+**2026-10-14. Pull request #55** (`feature/Part-XVIII-119c-Kubernetes`, 119c) is open against `main`; #54 merged
+as `d3b43532`. Rules unchanged: the gate is GitHub Actions; before every push run `make pr-check` (LESSONS 271)
+under `~/.local/bin/capped` (3 GB or more, since `govulncheck` peaks at 2.73 GB) with `GOMAXPROCS=4 GOFLAGS=-p=1
+PR_CHECK_PARALLELISM=2`; one PR at a time; method-as-key runbooks; no AI credit anywhere; never touch
+`/mnt/c/Users/raymo/coupon_clipper` or the live `groceries` namespace.
 
-### The roadmap (gitignored, local only)
+### PR #55
 
-Part XVIII at the end of `.SPECIFICATION/IMPLEMENTATION.md`: 119a to 119m. Fast track in **v0.3.0**: 119a,
-119b, 119c, 119e, 119f (Docker and Podman together), 119g, 119h, 119l (local device for the project's
-scripts), 119m (the coupon_clipper-shaped deploy, end to end); v0.5.0: 119d, Phase 26, 119k; v0.7.0: 119i,
-119j. The preamble maps every step of `deploy.sh` to a method and phase. Backups of each roadmap revision
-are in this session's scratchpad only. Read status with `python3 .SPECIFICATION/implementation.py --json
---phase 119a` (and so on).
+Commits: `d5011ea7` (119c), `faadf816` (klog direct in `go.mod`), `0d2b11aa` (each package's floor covered),
+`2a18f24a` (the hardening below), `d0da3f84` (`pkg/awscloud` back over its floor). Run 38636093862 on `0d2b11aa`:
+`ci` on all three systems and `containers` (1) to (4) green; `fast` red (k3s, 446 and 447); `fast-macos` red
+(`pkg/tftpxfer`, below); `coverage` skipped behind `fast`.
 
-### Done and verified
-
-- **119a (12 of 14; open: Release Gate, commit message).** `container.docker.exec` reaches the engine the
-  device advertises; `docker_endpoint` is refused (finding S1); `container.docker.run` sends env on stdin
-  (finding S2).
-- **119b (12 of 13; open: Release Gate, commit message).** Evidence on every item in the roadmap. The port
-  (`pkg/containerengine`): Docker's own Go client behind one guard, four carriers chosen by one function
-  that sessions and `pleiades validate` share (`usableCarriers`, `Route`), identity pinning, an account check
-  (`id -un` against the recorded `login_user`), an Engine API floor of 1.41 (measured: Docker 29.9.0 1.56,
-  Podman 5.8.7 1.44, Podman 4.9.4 1.41), bounded answers, `ValidName`. `pkg/dockerexec` folded in and deleted
-  (`Session.Exec`). Registry credentials end to end. `validate` prints `[route]` lines. Stress: 50 devices x
-  10 sessions at once, 0.6 s, 50 pooled logins. Docs: `docs/10`, "Container engines: Docker and Podman".
-
-### Findings this session (each fixed, each worth a FAILURE_PATTERNS or LESSONS entry at the doc ritual)
-
-1. OpenSSH applies `AllowTcpForwarding` to Unix-socket channels and answers every refusal "connect failed".
-2. The guard judged a decoded path when a target held an invalid character (fuzz); now canonical only.
-3. Closing an SSH exec channel does not stop the remote process: the Podman service outlived `Close`.
-4. A test asserted on `ps` in an image with no `ps` and passed vacuously.
-5. `container_host` parsed its TLS settings but never exposed them, so a pinned CA was ignored.
-6. `trust-host --first-connect` wrote a fixture's key into the real `~/.ssh/known_hosts`; tests use
-   `PLEIADES_KNOWN_HOSTS`.
-7. **The moby client dials a hijacked request (exec, attach) itself whenever its transport has a TLS config,
-   which cloning a default transport gives it, so exec skipped the guard.** HTTP/1-only transport in
-   `newAPI`; `TestSession_HijackedRequestsPassTheGuard` fails without it.
-8. **Over `engine_stdio` no login was ever pooled:** `Conn.Start` tainted it, and the HTTP transport closes a
-   finished request's connection on its own goroutine, after the session released the login. Now a process
-   seen to exit (`Wait`) is counted out, and the carrier ends its open processes before release.
-9. `testsupport.EngineHostOptions.SSHDConfig` REPLACES the default `AllowTcpForwarding local`; a test that
-   only meant to add `MaxStartups` silently turned forwarding off.
-10. Two vacuous checks caught by controls: busybox `find` rejects `-size -64M` (the error was swallowed),
-    and `-xdev` skipped dind's `/var/lib/docker` volume. A planted canary now proves the disk search finds.
-11. The Walk child masks the credential's username like every credential value, so an account refusal
-    shows it as `********` (kept: never show secrets).
-12. Go 1.26.9 and x/net v0.60.0 (PR #52) and the gate moving to GitHub Actions (PR #53) both merged to
-    main; WSL crashed once from a 4G cap during a gopls reload (memory note updated).
+- **k3s fixture** (`internal/testsupport/k3s.go`): its readiness exec raced k3s's cgroup v2 evacuation, so every
+  controller enable failed with EBUSY and kubelet died (FAILURE_PATTERNS 446, reproduced with `--cpus=0.05`). The
+  wait now reads "Starting k3s" first; a failed start leads with k3s's `failed to enable controller` lines.
+- **Container-list guard** (`tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`,
+  `containerscan_test.go`): follows each test's calls through the module instead of reading direct imports (447).
+  `pkg/kubeapi` is now in `DOCKER_DEPENDENT_PACKAGES`; `internal/engine` and `internal/forge/playbook` stay in the
+  fast tier through `oneShotContainerPackages` (one-shot `docker run`, kept on macOS).
+- **`make pr-check`** (Makefile, `tools/prscope`, `coverage-check -scoped`, `pr-check-vet`). Its first full run
+  found `pkg/awscloud` at 94.9% against 95.8% (the EKS code's untested branches), fixed in `d0da3f84`.
 
 ### Next
 
-1. Commit 119a and 119b and open a PR to main: under the Actions policy its checks are the Release Gate.
-   main is 9 commits ahead (#52, #53); this branch holds the same Go bump uncommitted, identical lines.
-2. Then 119c (Kubernetes client, `kubernetes_cluster`, kubeconfig import of `docker-desktop`), 119e, 119f,
-   119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
-3. The `winrm` CI job's 401 needs one diagnostic run (proposal in the session's notes); waiting on the user.
+1. Push `2a18f24a` and `d0da3f84` to #55 once `make pr-check` passes on them, and watch the run to green; the user
+   merges. Then tick 119c's Release Gate in `.SPECIFICATION/IMPLEMENTATION.md`.
+2. `fast-macos` (advisory): `pkg/tftpxfer`'s `TestLongestAcceptedFilenamesCrossARealServerWhole/largest_blocksize/
+   a_space` failed once after 59.8 s (`read udp [::]:...: i/o timeout`) in the strict repeat. Not reproduced on
+   Linux (40 runs of all 18 subtests); one lost datagram is retried at every step in pin/tftp v3.2.0, so six
+   unanswered attempts points at a stalled server, cause unknown. The test's 5-second context bounds nothing
+   (tftpxfer checks it only before a transfer, as documented).
+3. Only when the user says: 119e, 119f, 119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+4. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (the user's settings);
+   `pkg/containerengine` has no floor (53.7% in CI); `internal/archtest` and `internal/ent/migrate/gen` are in
+   `DOCKER_DEPENDENT_PACKAGES` though neither starts a container.
+5. `pkg/kubeapi` (80.5%) and `internal/inventory/devices/kubernetes` (90.5%) have no floors yet; record them.
 
-### Files changed
+### Files changed this round
 
-See `git status` on the branch (about 90 files): `pkg/{capability,containerengine,remoteexec,
-wire,sdk,external}`, `internal/{inventory,catalog/container,credential,credtype,dispatch,engine,adapters/native,
-testsupport,forge/catalogdata,clispec,api}`, `cmd/pleiades`, `docs/`, `changelog/`, `Makefile`, `go.mod`.
+`internal/testsupport/k3s{,_test}.go`, `tools/internal/flakegate/{repeatgate,containerscan}_test.go` and
+`testdata/containerscan/`, `tools/prscope/`, `tools/coverage-check/`, `Makefile`, `coverage-floor.json`,
+`pkg/awscloud/{eks,instance_internal}_test.go`, `CLAUDE.md`, `changelog/pr-check.added.md`, FAILURE_PATTERNS 446
+and 447, LESSONS 271 to 273.

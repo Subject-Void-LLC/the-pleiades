@@ -195,6 +195,7 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// the real type rather than an address-only stand-in; nothing else of
 	// its record travels (record.Dispatched).
 	payload.DeviceType, payload.DeviceProperties = record.Dispatched(device)
+	payload.SharedDevice = pkginventory.IsShared(device)
 
 	// The job's step first, so a run that turned persistence off never
 	// reads the device's hierarchy for it; then the device's own ladder,
@@ -214,10 +215,10 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// AWX's semantics: an operator binds one machine credential to a job
 	// template and every host in the inventory is reached with it.
 	//
-	// applyInjection (inject.go) is where that precedence lives, and its
+	// ApplyInjection (inject.go) is where that precedence lives, and its
 	// doc comment carries the reasoning for the ordering, including why the
 	// inverse would be worse.
-	applyInjection(&payload, injected)
+	ApplyInjection(&payload, injected)
 
 	// The per-device store is the FALLBACK, consulted only when the
 	// template bound no machine credential. It is what keeps every dispatch

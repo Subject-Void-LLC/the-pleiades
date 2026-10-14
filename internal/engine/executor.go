@@ -854,7 +854,9 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		for i, cmd := range cmds {
 			itemIDs[i] = string(cmd.Device.ID())
 		}
-		leases, err := lock.AcquireAll(ctx, r.x.locks, itemIDs, defaultLockTTL, lock.AcquireOptions{})
+		leases, err := lock.AcquireAllEach(ctx, r.x.locks, itemIDs, defaultLockTTL, func(i int) lock.AcquireOptions {
+			return deviceLockOptions(cmds[i].Device)
+		})
 		if err != nil {
 			wrapped := fmt.Errorf("failed to acquire all locks up front for %s: %w", taskLabel(nodeID, task), err)
 			r.publish(nodeID, task, "", "failed", wrapped.Error())
@@ -945,7 +947,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		lease := cmd.Lease
 		if lease == nil {
 			var err error
-			lease, err = r.x.locks.Acquire(ctx, result.Device, defaultLockTTL, lock.AcquireOptions{})
+			lease, err = r.x.locks.Acquire(ctx, result.Device, defaultLockTTL, deviceLockOptions(cmd.Device))
 			if err != nil {
 				result.fail(FailureStageLockDevice, fmt.Errorf("failed to acquire lock on device %q: %w", host, err))
 				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
@@ -1116,4 +1118,14 @@ func (r *run) publish(nodeID string, task *Task, host, status, message string) {
 
 	topic := fmt.Sprintf("pleiades.events.workflow.%s.node.%s", r.dag.ID, nodeID)
 	_ = r.x.bus.Publish(context.Background(), topic, *ev)
+}
+
+// deviceLockOptions is the lock a task takes on device: shared for a device
+// many runs may work on at once (pkg/inventory.Shared), exclusive for every
+// other.
+func deviceLockOptions(device inventory.InventoryItem) lock.AcquireOptions {
+	if inventory.IsShared(device) {
+		return lock.AcquireOptions{Mode: lock.ModeShared}
+	}
+	return lock.AcquireOptions{}
 }

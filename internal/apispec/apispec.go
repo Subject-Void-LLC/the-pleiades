@@ -560,10 +560,12 @@ var OnboardDevice = Endpoint{
 	Pattern: "/inventory/devices/{name}/onboard",
 	Scope:   auth.ScopeInventoryOnboard,
 	Rel:     auth.RelOnboard,
-	Summary: "Onboard a generic device",
-	Description: "Probes a generic device (generic_ssh, generic_netconf, generic_http, generic_grpc) over its " +
-		"protocol from the Controller, authenticating with the device's stored credential, and records the " +
-		"capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, " +
+	Summary: "Onboard a device",
+	Description: "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, " +
+		"generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, " +
+		"authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored " +
+		"Kubernetes credential whose host names its API server), and records the capabilities the device's own " +
+		"answers prove as a revision. A discovered device moves to onboarding, " +
 		"then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an " +
 		"active device re-probes it and writes only what changed. It needs inventory:onboard, which " +
 		"inventory:write does not imply: this is the only way a device is granted a capability its Go type " +
@@ -576,8 +578,67 @@ var OnboardDevice = Endpoint{
 		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
-		{Status: http.StatusUnprocessableEntity, Description: "The device's type is not a generic one, so its capabilities come from its Go type.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The device's type has no prober, so its capabilities come from its Go type; the message lists the types that have one.", Schema: errorSchema("")},
 		{Status: http.StatusBadGateway, Description: "The probe proved nothing: the device could not be reached, refused the credential, or did not speak its protocol. The result carries the reason.", Schema: onboardResultSchema},
+	},
+}
+
+// ImportKubeconfig is POST /inventory/kubeconfig-imports: one kubeconfig
+// context made a kubernetes_cluster device and its stored credential.
+var ImportKubeconfig = Endpoint{
+	Name:    "import_kubeconfig",
+	Method:  http.MethodPost,
+	Pattern: "/inventory/kubeconfig-imports",
+	Scope:   auth.ScopeCredentialWrite,
+	Rel:     auth.RelCreate,
+	Summary: "Import a cluster from a kubeconfig",
+	Description: "Reads one context of a kubeconfig and makes it a kubernetes_cluster device (its API server, " +
+		"pinned authority, server name and namespace) and a Kubernetes credential in the organization, named " +
+		"\"<device> (kubeconfig)\": a kubernetes_bearer_token for a token, or a " +
+		"pleiades_kubernetes_client_certificate for a client certificate, encrypted at rest and ready to bind to " +
+		"a template. Nothing that would run a program (exec, auth-provider), read a file the kubeconfig names, skip " +
+		"certificate verification, go through a proxy, impersonate or send a password is taken; each is refused " +
+		"by name. Onboarding the cluster afterwards uses this credential, the one whose host names its API " +
+		"server. It needs credential:write and inventory:write. A name already in the inventory, or a " +
+		"credential of that name, is a conflict unless replace is set; a replacement keeps the device's " +
+		"identity and tags and clears what onboarding proved.",
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":     "object",
+		"required": []string{"name", "kubeconfig", "organization"},
+		"properties": map[string]any{
+			"name":         stringSchema("The cluster device's name."),
+			"kubeconfig":   stringSchema("The kubeconfig, YAML or JSON, at most one mebibyte."),
+			"context":      stringSchema("The context to import; the kubeconfig's current context when empty."),
+			"organization": map[string]any{"type": "integer", "description": "The organization the credential belongs to."},
+			"replace":      map[string]any{"type": "boolean", "description": "Replace a cluster and credential an earlier import made."},
+		},
+	},
+	Responses: []Response{
+		{Status: http.StatusCreated, Description: "The cluster and its credential.", Schema: kubeconfigImportSchema},
+		{Status: http.StatusOK, Description: "The cluster and its credential, replaced.", Schema: kubeconfigImportSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The caller lacks inventory:write.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device or the credential already exists and replace is not set, the device is not a cluster, it was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusRequestEntityTooLarge, Description: "The body is too large.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The kubeconfig does not parse, names no usable context, or holds a setting an import refuses; the message names it.", Schema: errorSchema("")},
+	},
+}
+
+// kubeconfigImportSchema is what an import reports, with no secret in it.
+var kubeconfigImportSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device":                    deviceResponseSchema,
+		"credential":                map[string]any{"type": "integer", "description": "The stored credential's id, to bind to a template."},
+		"credential_name":           stringSchema("The stored credential's name."),
+		"credential_type_namespace": stringSchema("kubernetes_bearer_token or pleiades_kubernetes_client_certificate."),
+		"context":                   stringSchema("The context imported."),
+		"server":                    stringSchema("The API server."),
+		"namespace":                 stringSchema("The namespace tasks use when they name none."),
+		"identity":                  stringSchema("token or client certificate."),
+		"pinned_ca":                 map[string]any{"type": "boolean", "description": "Whether the kubeconfig embedded the cluster's authority."},
+		"replaced":                  map[string]any{"type": "boolean", "description": "Whether an earlier import was replaced."},
 	},
 }
 
@@ -890,6 +951,7 @@ var Endpoints = []Endpoint{
 	UpdateDevice,
 	DeleteDevice,
 	OnboardDevice,
+	ImportKubeconfig,
 	ListRunbooks,
 	GetRunbook,
 	ListInventories,

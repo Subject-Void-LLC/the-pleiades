@@ -1,0 +1,28 @@
+{
+  "name": "Kubernetes API Client Certificate",
+  "namespace": "pleiades_kubernetes_client_certificate",
+  "kind": "kubernetes",
+  "managed": true,
+  "description": "An x509 client certificate and its key for one Kubernetes API server, for a cluster that authenticates certificates rather than tokens. AWX has no such type, so its namespace is this platform's own. On the native path it is the credential of the cluster whose api_server its host names; on the Ansible path it sets K8S_AUTH_CERT_FILE and K8S_AUTH_KEY_FILE for kubernetes.core.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "host",
+        "label": "Kubernetes API Endpoint",
+        "type": "string",
+        "help_text": "The Kubernetes API Endpoint to authenticate with."
+      },
+      {"id": "client_certificate", "label": "Client certificate (PEM)", "type": "string", "multiline": true},
+      {"id": "client_key", "label": "Client key (PEM)", "type": "string", "secret": true, "multiline": true},
+      {
+        "id": "verify_ssl",
+        "label": "Verify SSL",
+        "type": "boolean",
+        "help_text": "On unless set to false. With no certificate authority below, the server is checked against the system's roots; false turns checking off on the Ansible path only, since the native path checks every cluster."
+      },
+      {"id": "ssl_ca_cert", "label": "Certificate Authority data", "type": "string", "secret": true, "multiline": true}
+    ],
+    "required": ["host", "client_certificate", "client_key"]
+  },
+  "injectors": {}
+}

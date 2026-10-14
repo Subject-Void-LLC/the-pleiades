@@ -41,6 +41,9 @@ type runbookContext struct {
 	// one container registry (sdk.RegistryCredentials), from the project's
 	// credential store, for the host the method names and no other.
 	registries credential.RegistryStore
+	// route dials through the device's hops, nil when it has none
+	// (sdk.Router); the Collection executor sets it per task.
+	route sdk.RouteDial
 }
 
 // compile-time proof this satisfies both the SDK contract and the engine's
@@ -210,3 +213,6 @@ func (c *runbookContext) RegistryCredential(host string) (string, string, bool) 
 	}
 	return user, password, true
 }
+
+// DeviceRoute implements sdk.Router.
+func (rc *runbookContext) DeviceRoute() sdk.RouteDial { return rc.route }

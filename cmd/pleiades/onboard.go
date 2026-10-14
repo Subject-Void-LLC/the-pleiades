@@ -16,9 +16,12 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // runOnboard probes one device and prints what onboarding did. It ends
@@ -43,7 +46,14 @@ func runOnboard(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
-	secrets := onboard.SecretsFrom(credential.NewLazyFileStore(*dir))
+	store := credential.NewLazyFileStore(*dir)
+	secrets := onboard.SecretsFrom(store)
+	// A device reached through a route of SSH hops (a cluster behind a
+	// bastion) is probed through it, resolved as a run resolves it.
+	routes := onboard.WithRoutes(func(ctx context.Context, device inventory.InventoryItem) (sdk.RouteDial, error) {
+		dial, _, err := engine.RouteDialerFor(ctx, repo, store, device)
+		return dial, err
+	})
 
 	// The process that onboards here is the process that runs this
 	// project's tasks, so a container host with no host (this machine) may
@@ -51,7 +61,7 @@ func runOnboard(args []string) error {
 	// never turns this on.
 	onboard.AllowLocalEngine()
 
-	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now)
+	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now, routes)
 	if *asJSON {
 		if err := printOnboardJSON(os.Stdout, res); err != nil {
 			return err

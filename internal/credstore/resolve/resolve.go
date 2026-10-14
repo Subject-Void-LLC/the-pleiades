@@ -32,6 +32,15 @@
 // Nothing else. If a second consumer appears, it needs a reason written
 // down here beside this paragraph, not just an import line.
 //
+// The second, through KubernetesSecrets (Phase 119c): onboarding a
+// Kubernetes cluster through the Controller, which has no template to name
+// a credential, resolves the one Kubernetes credential whose host names
+// that cluster, immediately before the probe connects from the Controller
+// itself. Only that match is decrypted (the search reads the host input,
+// which is not secret), the values never leave the Controller's process,
+// and the onboarding result carries facts, never a secret. It is wired in
+// cmd/controller, so internal/api still never reaches this package.
+//
 // # The consumer this port is shaped for and does not have yet
 //
 // The Runner is the intended second consumer, and the reason it is not one

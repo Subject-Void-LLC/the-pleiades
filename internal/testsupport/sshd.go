@@ -71,9 +71,17 @@ type SSHD struct {
 // per LESSONS_LEARNED #171: a fixture missing the subsystem under test
 // proves nothing about it.
 func StartSSHD(ctx context.Context) (*SSHD, error) {
+	return StartSSHDOn(ctx)
+}
+
+// StartSSHDOn is StartSSHD with the container also joined to networks, so
+// it can serve as a bastion to a test container reachable only there (a
+// Kubernetes API server known by its alias on that network).
+func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        SSHDImage,
+			Networks:     networks,
 			ExposedPorts: []string{fmt.Sprintf("%d/tcp", SSHDInnerPort)},
 			Env: map[string]string{
 				"PUID":            "1000",

@@ -108,6 +108,11 @@ type listedPackage struct {
 	Imports    []string
 	Deps       []string
 
+	// Dir and GoFiles locate the package's non-test sources, for rules
+	// that read what the code calls rather than what it imports.
+	Dir     string
+	GoFiles []string
+
 	// TestImports and XTestImports are what the package's own tests
 	// import, in package and as package_test. Only rules that cover test
 	// code read them.

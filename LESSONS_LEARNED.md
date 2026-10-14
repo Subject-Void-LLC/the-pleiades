@@ -295,6 +295,17 @@ story, per `.AGENTS/AGENTS.md`.
 260. **Give a data-chosen value a literal bound its author wrote, and let the data name only members (2026-09-29).**
 261. **When a new check starts refusing, look for the tests it made pass for the wrong reason (2026-09-29).**
 262. **A gate only one machine can pass is evidence for that machine; make it reproducible elsewhere before relying on it (2026-09-29).**
+263. **When code moves to another package, its tests move with it: a floor counts only the package's own tests (2026-10-14).**
+264. **A portable Go file never ends in an OS or architecture; a file name can decide a build silently (2026-10-14).**
+265. **An answer is not an outage: a refused credential or a refused host key is neither retried nor counted against a circuit (2026-10-14).**
+266. **Text a remote system wrote is bounded and escaped before it reaches an error, a log or a terminal (2026-10-14).**
+267. **Change a stored device through its loaded record's change methods; a rebuilt record saves nothing (2026-10-14).**
+268. **Work on another commit in a detached worktree and push HEAD to the branch; never switch branches in an auxiliary worktree (2026-10-14).**
+269. **When a failure happens only where nobody can log in, make the fixture say why, and take the variable out of its path (2026-10-14).**
+270. **Before pushing, run make ci-remote and measure every touched package against its floor, with a margin (2026-10-14).**
+271. **Before every push to a pull request, run make pr-check: CI's own tiers on the branch's own packages (2026-10-14).**
+272. **Wait for a container's own startup to finish before acting inside it (2026-10-14).**
+273. **A guard over a hand-kept list reads the property the list stands for, not a proxy for it (2026-10-14).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

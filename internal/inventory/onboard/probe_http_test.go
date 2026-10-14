@@ -156,3 +156,39 @@ func FuzzFactText(f *testing.F) {
 		}
 	})
 }
+
+// TestHTTPProbe_AnOpenAPIDocumentItCannotReadProvesNothing: a document the
+// server will not serve, and one naming no OpenAPI or Swagger version, each
+// fail the probe naming the document; a Swagger 2.0 document is read.
+func TestHTTPProbe_AnOpenAPIDocumentItCannotReadProvesNothing(t *testing.T) {
+	documents := map[string]string{
+		"/api/versionless.json": `{"info":{"title":"No version"},"paths":{"/a":{}}}`,
+		"/api/swagger.json":     `{"swagger":"2.0","info":{"title":"Old","version":"1"},"paths":{"/a":{}}}`,
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if body, ok := documents[r.URL.Path]; ok {
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		if r.URL.Path != "/api" && r.URL.Path != "/api/" {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	probe := func(path string) (Probed, error) {
+		dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{
+			devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + "/api", generic.HTTPAuthProperty: httpapi.AuthNone, generic.OpenAPIPathProperty: path,
+		})
+		return httpProber{}.Probe(context.Background(), dev, nil)
+	}
+	if _, err := probe("/absent.json"); err == nil || !strings.Contains(err.Error(), "the OpenAPI document") {
+		t.Errorf("a document the server does not serve: %v", err)
+	}
+	if _, err := probe("/versionless.json"); err == nil || !strings.Contains(err.Error(), "names no openapi or swagger version") {
+		t.Errorf("a document naming no version: %v", err)
+	}
+	got, err := probe("/swagger.json")
+	if err != nil || got.Facts["openapi"] != "2.0" {
+		t.Errorf("a Swagger 2.0 document: %v, %v", got.Facts, err)
+	}
+}

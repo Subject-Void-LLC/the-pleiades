@@ -32,6 +32,12 @@ const (
 	// already name the scheme and host, or begin with "/" for a path on a
 	// device's API, so data cannot choose where a request goes.
 	ParamFormatURL ParamFormat = "url"
+	// ParamFormatKubernetesManifest is one or more Kubernetes objects: a
+	// YAML or JSON document stream, one object, or a list of objects.
+	// Validation refuses an object whose kind the task's cluster does not
+	// serve, by the kinds onboarding discovered there (internal/validate's
+	// Kubernetes kind rule).
+	ParamFormatKubernetesManifest ParamFormat = "kubernetes_manifest"
 )
 
 // ReturnField documents one key a Collection method emits, either as a

@@ -74,6 +74,13 @@ import (
 //go:embed types/*.json
 var typeData embed.FS
 
+// OwnNamespacePrefix begins the namespace of a type this platform ships
+// that AWX has no counterpart for (pleiades_kubernetes_client_certificate).
+// AWX never exports a namespace beginning with it (its custom types carry
+// none), so such a type cannot be mistaken for, or collide with, one an
+// AWX import brings.
+const OwnNamespacePrefix = "pleiades_"
+
 // shipped is the parsed catalog, keyed by namespace.
 var shipped = mustParse()
 
@@ -306,11 +313,6 @@ var notImplemented = []NotImplemented{
 		Namespace: "insights", Name: "Insights", Kind: credtype.KindInsights,
 		Reason: ReasonControlFlow,
 		Detail: "its authentication extra variable is a {% if client_id %} block choosing between service-account and basic authentication",
-	},
-	{
-		Namespace: "kubernetes_bearer_token", Name: "OpenShift or Kubernetes API Bearer Token", Kind: credtype.KindKubernetes,
-		Reason: ReasonPythonInjectors,
-		Detail: "it writes a certificate authority file and sets the verify flag only when both a CA and verification are configured, and it needs the file injector the native path refuses",
 	},
 	{
 		Namespace: "openstack", Name: "OpenStack", Kind: credtype.KindCloud,
