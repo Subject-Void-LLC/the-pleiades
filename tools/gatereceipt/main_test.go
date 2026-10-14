@@ -366,7 +366,7 @@ func TestVerifyRefusesARefMovedBackwards(t *testing.T) {
 		t.Fatalf("runWrite: %v", err)
 	}
 
-	pushLines(t, "refs/heads/main "+older+" refs/heads/main "+newer+"\n")
+	pushLines(t, "refs/tags/rel "+older+" refs/tags/rel "+newer+"\n")
 	err := runVerify([]string{"--push-stdin"})
 	if err == nil {
 		t.Fatal("a ref was allowed to move back onto a commit no gate examined")
@@ -389,7 +389,7 @@ func TestVerifyRefusesWhenTheRemoteCommitIsUnknownHere(t *testing.T) {
 	}
 
 	unfetched := strings.Repeat("d", 40)
-	pushLines(t, "refs/heads/main "+older+" refs/heads/main "+unfetched+"\n")
+	pushLines(t, "refs/tags/rel "+older+" refs/tags/rel "+unfetched+"\n")
 	err := runVerify([]string{"--push-stdin"})
 	if err == nil {
 		t.Fatal("a ref was allowed on an ancestry question this clone cannot answer")
@@ -424,13 +424,13 @@ func TestVerifyAnswersEveryRefBeforeRefusing(t *testing.T) {
 	first := addCommit(t, dir, "two")
 	second := addCommit(t, dir, "three")
 
-	pushLines(t, "refs/heads/one "+first+" refs/heads/one "+zeros+"\n"+
-		"refs/heads/two "+second+" refs/heads/two "+zeros+"\n")
+	pushLines(t, "refs/tags/one "+first+" refs/tags/one "+zeros+"\n"+
+		"refs/tags/two "+second+" refs/tags/two "+zeros+"\n")
 	err := runVerify([]string{"--push-stdin"})
 	if err == nil {
 		t.Fatal("two ungated refs were accepted")
 	}
-	if !strings.Contains(err.Error(), "refs/heads/one") || !strings.Contains(err.Error(), "refs/heads/two") {
+	if !strings.Contains(err.Error(), "refs/tags/one") || !strings.Contains(err.Error(), "refs/tags/two") {
 		t.Errorf("the refusal covers only some of the refs being pushed: %v", err)
 	}
 }
@@ -624,7 +624,7 @@ func TestReadPushRefsKeepsWhatGitSends(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readPushRefs: %v", err)
 	}
-	if len(refs) != 1 || refs[0].name != "refs/heads/main" || refs[0].local != sha || refs[0].remote != zeros {
+	if len(refs) != 1 || refs[0].name != "refs/heads/main" || refs[0].local != sha || refs[0].dest != "refs/heads/main" || refs[0].remote != zeros {
 		t.Fatalf("refs = %+v, want the one ref that sends something", refs)
 	}
 
@@ -644,5 +644,179 @@ func writeRawReceipt(t *testing.T, dir string, r Receipt) {
 	}
 	if err := os.WriteFile(receiptPath(dir), body, 0o600); err != nil {
 		t.Fatalf("writing a fixture receipt: %v", err)
+	}
+}
+
+// withRemoteMain gives a fixture a real remote, a bare repository, whose
+// main is the fixture's HEAD, and fetches it, so refs/remotes/origin/main
+// is written by git itself rather than by the test. It returns the bare
+// repository's path, which is also what git passes a hook as the remote
+// when a push names a URL rather than a remote.
+func withRemoteMain(t *testing.T, dir string) string {
+	t.Helper()
+	bare := t.TempDir()
+	gitIn(t, bare, "init", "--bare", "--quiet")
+	gitIn(t, dir, "remote", "add", "origin", bare)
+	gitIn(t, dir, "push", "--quiet", "origin", "HEAD:refs/heads/main")
+	gitIn(t, dir, "fetch", "--quiet", "origin")
+	return bare
+}
+
+// TestVerifyPassesABranchWithNoReceipt is the change that made GitHub
+// Actions the gate: a branch is pushed so that its pull request can be
+// checked, so asking for a local gate's receipt first would put the hour
+// back in front of the very push that starts the real gate.
+func TestVerifyPassesABranchWithNoReceipt(t *testing.T) {
+	dir := newRepo(t)
+	tip := addCommit(t, dir, "two")
+	if _, err := os.Stat(receiptPath(dir)); !os.IsNotExist(err) {
+		t.Fatal("the fixture has a receipt, so this would prove nothing")
+	}
+
+	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err != nil {
+		t.Errorf("a branch was refused for want of a receipt: %v", err)
+	}
+}
+
+// TestVerifyRefusesAPushToMain holds main to its pull requests, even for a
+// commit a strict local gate passed: the repository's ruleset refuses the
+// push on the server regardless, so letting it through here would only
+// move the refusal. It is judged by where the ref LANDS, so a refspec that
+// sends a topic branch onto main is refused too and says so.
+func TestVerifyRefusesAPushToMain(t *testing.T) {
+	newRepo(t)
+	if err := runWrite(gateRun(t, "ci")); err != nil {
+		t.Fatalf("runWrite: %v", err)
+	}
+	head := headOf(t)
+
+	for _, tc := range []struct{ line, names string }{
+		{"refs/heads/main " + head + " refs/heads/main " + zeros + "\n", "refs/heads/main"},
+		{"refs/heads/topic " + head + " refs/heads/main " + zeros + "\n", "refs/heads/topic (pushed as refs/heads/main)"},
+	} {
+		pushLines(t, tc.line)
+		err := runVerify([]string{"--push-stdin", "--remote", "origin"})
+		if err == nil {
+			t.Errorf("a push onto main was accepted: %q", tc.line)
+			continue
+		}
+		if !strings.Contains(err.Error(), "pull request") || !strings.Contains(err.Error(), tc.names) {
+			t.Errorf("the refusal does not name the ref and the way main changes: %v", err)
+		}
+	}
+}
+
+// TestVerifyPassesATagAlreadyOnTheRemotesMain covers a release. An
+// annotated tag cut at an older commit of main needs no receipt: every
+// commit on main arrived through a checked pull request.
+func TestVerifyPassesATagAlreadyOnTheRemotesMain(t *testing.T) {
+	dir := newRepo(t)
+	released := headOf(t)
+	addCommit(t, dir, "two")
+	withRemoteMain(t, dir)
+	gitIn(t, dir, "tag", "-a", "v1", "-m", "release one", released)
+	tagObject := gitIn(t, dir, "rev-parse", "v1")
+	if tagObject == released {
+		t.Fatal("the fixture did not produce an annotated tag, so the peeling is untested")
+	}
+
+	pushLines(t, "refs/tags/v1 "+tagObject+" refs/tags/v1 "+zeros+"\n")
+	if err := runVerify([]string{"--push-stdin", "--remote", "origin"}); err != nil {
+		t.Errorf("a tag inside the remote's main was refused: %v", err)
+	}
+}
+
+// TestVerifyRefusesATagOffTheRemotesMain is what keeps that allowance
+// honest: a tag on a commit main does not contain is code no check has
+// seen, and still needs a receipt.
+func TestVerifyRefusesATagOffTheRemotesMain(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	unmerged := addCommit(t, dir, "two")
+	gitIn(t, dir, "tag", "v2", unmerged)
+
+	pushLines(t, "refs/tags/v2 "+unmerged+" refs/tags/v2 "+zeros+"\n")
+	err := runVerify([]string{"--push-stdin", "--remote", "origin"})
+	if err == nil {
+		t.Fatal("a tag on a commit outside main was accepted with no receipt")
+	}
+	if !strings.Contains(err.Error(), "no gate receipt") {
+		t.Errorf("the refusal does not say what would let it through: %v", err)
+	}
+}
+
+// TestVerifyTakesNoShortcutFromARemoteItCannotName fails closed on the
+// remote argument. git passes a URL there when a push names no remote, and
+// anything that is not a plain name could change the ref being asked
+// about: a newline starts a second question on cat-file's stdin, and a
+// leading dash or a path could reach a different ref. Each falls back to
+// the receipt, which the fixture does not have.
+func TestVerifyTakesNoShortcutFromARemoteItCannotName(t *testing.T) {
+	dir := newRepo(t)
+	url := withRemoteMain(t, dir)
+	head := headOf(t)
+
+	for _, remote := range []string{"", url, "origin\nrefs/heads/x", "-origin", "../origin", "origin/../x", "never-fetched"} {
+		pushLines(t, "refs/tags/v1 "+head+" refs/tags/v1 "+zeros+"\n")
+		if err := runVerify([]string{"--push-stdin", "--remote", remote}); err == nil {
+			t.Errorf("a tag was let through by way of remote %q", remote)
+		}
+	}
+}
+
+// TestVerifyAnswersEveryKindOfRefTogether is a push of a branch, main and
+// an unmerged tag at once: the branch passes and both refusals are reported
+// in one answer, so fixing them does not take one push attempt apiece.
+func TestVerifyAnswersEveryKindOfRefTogether(t *testing.T) {
+	dir := newRepo(t)
+	withRemoteMain(t, dir)
+	tip := addCommit(t, dir, "two")
+
+	pushLines(t, "refs/heads/topic "+tip+" refs/heads/topic "+zeros+"\n"+
+		"refs/heads/main "+tip+" refs/heads/main "+zeros+"\n"+
+		"refs/tags/v2 "+tip+" refs/tags/v2 "+zeros+"\n")
+	err := runVerify([]string{"--push-stdin", "--remote", "origin"})
+	if err == nil {
+		t.Fatal("a push onto main and an ungated tag was accepted")
+	}
+	if !strings.Contains(err.Error(), "would update main") || !strings.Contains(err.Error(), "no gate receipt") {
+		t.Errorf("the refusal does not cover both refused refs: %v", err)
+	}
+	if strings.Contains(err.Error(), "refs/heads/topic") {
+		t.Errorf("the branch, which needs nothing, appears among the refusals: %v", err)
+	}
+}
+
+// TestReadPushRefsKeepsWhereARefLands pins the third field, which decides
+// the gate: a topic branch pushed onto main is a push to main.
+func TestReadPushRefsKeepsWhereARefLands(t *testing.T) {
+	sha := strings.Repeat("e", 40)
+	refs, err := readPushRefs(strings.NewReader("refs/heads/topic " + sha + " refs/heads/main " + zeros + "\n"))
+	if err != nil {
+		t.Fatalf("readPushRefs: %v", err)
+	}
+	if len(refs) != 1 || refs[0].name != "refs/heads/topic" || refs[0].dest != "refs/heads/main" {
+		t.Fatalf("refs = %+v, want the local name and the remote destination kept apart", refs)
+	}
+}
+
+// TestIsRemoteNameAcceptsOnlyPlainNames pins the second line of defence
+// behind onRemoteMain. The first is git itself: an injected newline makes
+// cat-file answer twice, which is no object name, and the "/main^{commit}"
+// appended to the name breaks any expression written into it. This keeps
+// that from being the only thing standing between a remote argument and
+// the ref being asked about.
+func TestIsRemoteNameAcceptsOnlyPlainNames(t *testing.T) {
+	for _, name := range []string{"origin", "upstream", "my-fork", "fork_2", "a.b"} {
+		if !isRemoteName(name) {
+			t.Errorf("isRemoteName(%q) = false, want a plain remote name accepted", name)
+		}
+	}
+	for _, name := range []string{"", "-origin", ".origin", "a..b", "origin/x", "origin\nx", "a^{commit}",
+		"a:b", "a@{1}", "a b", "/tmp/repo.git", "git@github.com:o/r.git", "https://example.test/r"} {
+		if isRemoteName(name) {
+			t.Errorf("isRemoteName(%q) = true, want it refused", name)
+		}
 	}
 }

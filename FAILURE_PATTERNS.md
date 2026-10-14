@@ -426,6 +426,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 421. Docker's port map lists an exposed port with no binding, and the mesh gate read every key as "published"
 422. Two tests measured once and failed a pull request whose change was one handoff document
 423. A failed container start was never terminated, in 47 places, and in production it left Ansible running past its job's timeout
+424. The nightly job never installed socat, and a bare `t.Skip` made six missing tests read as a coverage regression
+425. GitHub's Windows runner ships its own HTTPS WinRM listener, and the lab script refused to replace it
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

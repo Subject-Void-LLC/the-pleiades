@@ -300,7 +300,8 @@ cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
 four shards, images restored from a cache keyed on `tools/testimages`' list, with an
 optional read-only `DOCKERHUB_TOKEN` and no LocalStack, whose tests skip there as
 `needs localstack`), `coverage` (`make coverage-measured` over the
-numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance) and an
+numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance), `vulns`
+(`make govulncheck` on the schedule, since an advisory lands without any code changing) and an
 experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
 make target, so there is still no CI-only step. The pull-request jobs use push-gate's
 rule (a failure that passes re-run alone is contention, named in the job summary); the
@@ -323,10 +324,17 @@ file is tagged `!integration`, which `tools/internal/flakegate`'s
 `TestNothingIsExcludedByTheIntegrationTag` holds true. The old `test-race`,
 `test-integration` and `coverage` targets stay for a developer who wants one alone.
 
-The local receipt still exists: `.githooks/pre-push` (`make hooks`, once per clone)
-verifies the receipt `make push-gate` or `make ci` left behind rather than running the
-gate itself. See below for why that distinction is load bearing. What CI proves and the
-receipt proves now overlap; the receipt is the personal safety net, CI is what others see.
+**The gate is GitHub Actions (since 2026-10-13), not a local run.** A change reaches `main`
+only by merging a pull request, and that pull request's checks are the gate: the repository's
+ruleset ("Main Branch Guardrails") requires a pull request and requires `ci (ubuntu-24.04,
+true)`, `ci (macos-latest, true)`, `fast`, `containers (1)` to `(4)` and `coverage` to pass,
+reported by GitHub Actions itself, and it refuses deleting or force-pushing `main`. The
+repository is public, so hosted runners cost nothing, and a pull request's checks finish in
+about half an hour where `make push-gate` takes about an hour and a half here and has run this
+machine out of memory. `make push-gate` and `make ci` stay for a developer who wants them
+and for the refs below that still need a receipt. The schedule-only jobs (`nightly`, `vulns`,
+`winrm`) never run on a pull request; dispatch the workflow on its branch when a change
+touches them.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
@@ -347,8 +355,21 @@ Never `go install` either tool by hand at `@latest`: a newer scanner than the pi
 findings CI will not, and an older one misses findings CI will. The one thing a local run
 still cannot predict is `govulncheck`'s live advisory database.
 
-**`.githooks/pre-push` does not run the gate. It checks a receipt.** The gate is a
-process you run on its own schedule, and the push is a separate action:
+**`.githooks/pre-push` does not run the gate. It sends each ref to its gate**
+(`tools/gatereceipt`'s `routeRef`), judged by where the ref *lands*, so `git push origin
+topic:main` is a push to `main`:
+
+- a branch passes with no receipt, because pushing it is how its pull request gets checked;
+- `main` is refused, because it changes only through a pull request, and the ruleset refuses
+  a direct push on the server anyway;
+- a tag passes when its commit is already on the remote's `main` as this clone last fetched
+  it (git passes the hook the remote's name). `main` never rewinds, so an old view of it is a
+  subset of the real one, and a stale fetch can only send a tag to the receipt, never let one
+  through;
+- anything else, a tag off `main` or a ref nobody planned for, needs the local receipt.
+
+For those, the gate is a process you run on its own schedule, and the push is a separate
+action:
 
 ```bash
 make push-gate     # or make ci, which is stricter; about an hour on a 20-core machine
