@@ -300,7 +300,8 @@ cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
 four shards, images restored from a cache keyed on `tools/testimages`' list, with an
 optional read-only `DOCKERHUB_TOKEN` and no LocalStack, whose tests skip there as
 `needs localstack`), `coverage` (`make coverage-measured` over the
-numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance) and an
+numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance), `vulns`
+(`make govulncheck` on the schedule, since an advisory lands without any code changing) and an
 experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
 make target, so there is still no CI-only step. The pull-request jobs use push-gate's
 rule (a failure that passes re-run alone is contention, named in the job summary); the
