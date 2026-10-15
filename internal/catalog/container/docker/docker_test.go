@@ -65,6 +65,9 @@ func (d *target) EngineSocket(capability.EngineKind) capability.SocketAddress { 
 func (d *target) EngineCarriers(capability.EngineKind) []capability.Carrier   { return nil }
 func (d *target) EngineLoginUser() string                                     { return "" }
 
+// fakeImageID is the image ID the fake docker image inspect reports.
+const fakeImageID = "sha256:9f2c0e6a9b2d3c5e7f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e"
+
 // fakeEngineID is the Docker engine identity the fake docker info reports
 // and the harness's device pins.
 const fakeEngineID = "e62e8e92-0000-4d53-bc4d-f629ea371cdb"
@@ -107,6 +110,17 @@ type containerFixture struct {
 	otherEngine bool
 	// infoFails makes docker info itself fail.
 	infoFails bool
+	// imageAbsent makes docker image inspect find no image until a pull.
+	imageAbsent bool
+	// pullExit is the exit status a docker pull ends with.
+	pullExit int
+	// imageFails makes docker image inspect fail the way an unreachable
+	// daemon does.
+	imageFails bool
+	// imageID, when set, replaces the image ID docker image inspect reports.
+	imageID string
+	// pullNoop makes a docker pull succeed without the image arriving.
+	pullNoop bool
 	// containerID, when set, replaces the id docker inspect reports.
 	containerID string
 }
@@ -140,6 +154,33 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 
 	script := `#!/bin/sh
 case "$1" in
+  image)
+    # docker image inspect --format={{.Id}} -- REF: the image is present
+    # unless the test says otherwise, or after a pull brought it.
+    if [ "$FAKE_IMAGE_FAILS" = "1" ]; then
+      printf 'failed to connect to the docker API at unix:///var/run/docker.sock\n' >&2
+      exit 1
+    fi
+    if [ "$FAKE_IMAGE_ABSENT" = "1" ] && [ ! -f "$FAKE_RECORD.pulled" ]; then
+      printf 'Error response from daemon: No such image: x\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$FAKE_IMAGE_ID"
+    exit 0
+    ;;
+  pull)
+    printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
+    for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
+    printf -- '---\n' >> "$FAKE_RECORD"
+    if [ "$FAKE_PULL_EXIT" != "" ] && [ "$FAKE_PULL_EXIT" != "0" ]; then
+      printf 'pull access denied\n' >&2
+      exit "$FAKE_PULL_EXIT"
+    fi
+    if [ "$FAKE_PULL_NOOP" != "1" ]; then
+      : > "$FAKE_RECORD.pulled"
+    fi
+    exit 0
+    ;;
   info)
     if [ "$FAKE_INFO_FAILS" = "1" ]; then
       printf 'permission denied while trying to connect to the docker API\n' >&2
@@ -258,6 +299,14 @@ esac
 	t.Setenv("FAKE_ID", fakeContainerID)
 	t.Setenv("FAKE_ENGINE_ID", fakeEngineID)
 	t.Setenv("FAKE_INFO_FAILS", boolEnv(fixture.infoFails))
+	t.Setenv("FAKE_IMAGE_ABSENT", boolEnv(fixture.imageAbsent))
+	t.Setenv("FAKE_IMAGE_ID", fakeImageID)
+	if fixture.imageID != "" {
+		t.Setenv("FAKE_IMAGE_ID", fixture.imageID)
+	}
+	t.Setenv("FAKE_IMAGE_FAILS", boolEnv(fixture.imageFails))
+	t.Setenv("FAKE_PULL_NOOP", boolEnv(fixture.pullNoop))
+	t.Setenv("FAKE_PULL_EXIT", strconv.Itoa(fixture.pullExit))
 	if fixture.containerID != "" {
 		t.Setenv("FAKE_ID", fixture.containerID)
 	}
@@ -415,7 +464,7 @@ func TestRun_MissingRequiredParams(t *testing.T) {
 func TestRun_AbsentCreatesContainer(t *testing.T) {
 	h := newHarness(t, absent)
 	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
-		"name": "web", "image": "nginx:1.27", "ports": []any{"8080:80"}, "volumes": []any{"/data:/data"},
+		"name": "web", "image": "nginx:1.27", "network": "bridge", "ports": []any{"8080:80"}, "volumes": []any{"/data:/data"},
 		"env": map[string]any{"FOO": "bar"}, "restart_policy": "unless-stopped",
 		"command": []any{"nginx", "-g", "daemon off;"},
 	}))
@@ -430,7 +479,7 @@ func TestRun_AbsentCreatesContainer(t *testing.T) {
 		t.Fatalf("invocations = %v", calls)
 	}
 	call := calls[0]
-	for _, want := range []string{"-d", "--name=web", "--publish=8080:80", "--volume=/data:/data", "--env-file=/dev/stdin", "--restart=unless-stopped", " -- nginx:1.27 nginx -g daemon off;"} {
+	for _, want := range []string{"-d", "--name=web", "--network=bridge", "--label=org.pleiades.image=nginx:1.27", "--publish=8080:80", "--volume=/data:/data:ro", "--env-file=/dev/stdin", "--restart=unless-stopped", " -- " + fakeImageID + " nginx -g daemon off;"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("call = %q, want it to contain %q", call, want)
 		}
@@ -612,8 +661,22 @@ func TestRun_ConnectionDiesQuerying(t *testing.T) {
 	}
 }
 
-func TestRun_ConnectionDiesRunning(t *testing.T) {
+// TestRun_ConnectionDiesResolvingTheImage: a connection lost while asking the
+// engine for the image's ID fails the task before anything is created.
+func TestRun_ConnectionDiesResolvingTheImage(t *testing.T) {
 	h := newHarnessBudgeted(t, absent, 2)
+	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
+		"name": "web", "image": "nginx",
+	})); err == nil {
+		t.Fatal("expected a connection failure resolving the image")
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Fatalf("a run created a container without its image's ID: %v", calls)
+	}
+}
+
+func TestRun_ConnectionDiesRunning(t *testing.T) {
+	h := newHarnessBudgeted(t, absent, 3)
 	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	})); err == nil {
@@ -627,7 +690,7 @@ func TestRun_ConnectionDiesRunning(t *testing.T) {
 // that exists. It succeeds, says what it could not read, and keeps the undo
 // pinned to the id docker printed.
 func TestRun_ConnectionDiesQueryingAfter(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 3)
+	h := newHarnessBudgeted(t, absent, 4)
 	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	}))

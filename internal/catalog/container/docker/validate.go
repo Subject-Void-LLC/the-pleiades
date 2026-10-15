@@ -14,6 +14,65 @@ import (
 // always, unless-stopped, and on-failure with an optional retry count.
 var restartPolicyPattern = regexp.MustCompile(`^(no|always|unless-stopped|on-failure(:[0-9]{1,9})?)$`)
 
+// networkDefault is the network a container joins when the task names none:
+// none at all. A container reaches the network only when its task says so.
+const networkDefault = "none"
+
+// volumeOptions is every option docker run's --volume accepts after the
+// second colon.
+var volumeOptions = map[string]bool{
+	"ro": true, "rw": true, "z": true, "Z": true, "nocopy": true,
+	"shared": true, "slave": true, "private": true, "rshared": true, "rslave": true, "rprivate": true,
+	"consistent": true, "cached": true, "delegated": true,
+}
+
+// checkNetwork refuses a network docker run would not read as one, and
+// ports with no network to publish them on. none, bridge, host, or the name
+// of a network on the host; "container:NAME", which joins another
+// container's network namespace, is refused.
+func checkNetwork(network string, ports []string) error {
+	switch network {
+	case networkDefault:
+		if len(ports) > 0 {
+			return fmt.Errorf("%s need a network to publish on, and a container joins none unless its task says so: set %s (bridge, or a network on the host)", paramPorts, paramNetwork)
+		}
+		return nil
+	case "bridge", "host":
+		return nil
+	}
+	if err := containerengine.ValidName("network", network); err != nil {
+		return fmt.Errorf("%s: %w", paramNetwork, err)
+	}
+	return nil
+}
+
+// readOnlyVolume returns a volume entry, HOST:CONTAINER[:OPTIONS], mounted
+// read-only unless its options say rw: a container writes to a host path
+// only when its task says so. Options are checked against docker's own set,
+// so nothing but a mount option rides in after the second colon.
+func readOnlyVolume(v string) (string, error) {
+	parts := strings.Split(v, ":")
+	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("%s entry %q is not HOST:CONTAINER or HOST:CONTAINER:OPTIONS", paramVolumes, v)
+	}
+	if len(parts) == 2 {
+		return v + ":ro", nil
+	}
+	mode := ""
+	for _, opt := range strings.Split(parts[2], ",") {
+		if !volumeOptions[opt] {
+			return "", fmt.Errorf("%s entry %q has the option %q, which docker does not accept", paramVolumes, v, opt)
+		}
+		if opt == "ro" || opt == "rw" {
+			mode = opt
+		}
+	}
+	if mode == "" {
+		return v + ",ro", nil
+	}
+	return v, nil
+}
+
 // checkName refuses a container name no engine would give a container
 // (containerengine.ValidName's grammar), before anything reaches the device.
 // The grammar starts with a letter or digit, so no name can be read as an

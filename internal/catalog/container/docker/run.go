@@ -50,13 +50,15 @@ func runDoc() collection.Doc {
 			"is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method " +
 			"never recreates. Always runs detached (-d), since this platform has no interactive session to " +
 			"attach one to." +
-			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
+			" Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container name to create or leave alone."},
-			{Name: paramImage, Type: "string", Required: true, Description: "The image to run. Ignored when a container already exists under name."},
+			{Name: paramImage, Type: "string", Required: true, Description: "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."},
 			{Name: paramCommand, Type: "list", Description: "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."},
-			{Name: paramPorts, Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax)."},
-			{Name: paramVolumes, Type: "list", Description: "Volume mappings, each \"host:container\" (docker run's own -v syntax)."},
+			{Name: paramPorts, Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."},
+			{Name: paramVolumes, Type: "list", Description: "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."},
+			{Name: paramNetwork, Type: "string", Default: networkDefault, Description: "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."},
 			{Name: paramEnv, Type: "dict", Description: "Environment variables to set in the container, as a map of name to value."},
 			{Name: paramRestartPolicy, Type: "string", Description: "The restart policy (docker run's own --restart value, e.g. unless-stopped)."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -64,11 +66,12 @@ func runDoc() collection.Doc {
 		Returns: []collection.ReturnField{
 			{Name: statName, Type: "string", Returned: "always", Description: "The container this task acted on."},
 			{Name: sdk.StatDiff, Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."},
+			{Name: statImageID, Type: "string", Returned: "changed", Description: "The image ID the container was started from, when this task created it."},
 		},
 		Examples: []collection.Example{
 			{
 				Name:        "Run a container",
-				RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n",
+				RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n",
 			},
 		},
 		SeeAlso: []string{"container.docker.stop", "container.docker.remove"},
@@ -115,11 +118,26 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	restartPolicy := sdk.StringParam(params, paramRestartPolicy)
+	network := sdk.StringParam(params, paramNetwork)
+	if network == "" {
+		network = networkDefault
+	}
 	if err := checkName(name); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if err := checkRunParams(image, ports, volumes, restartPolicy); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := checkNetwork(network, ports); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	mounts := make([]string, 0, len(volumes))
+	for _, v := range volumes {
+		m, err := readOnlyVolume(v)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		mounts = append(mounts, m)
 	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
@@ -146,7 +164,15 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	after := before
 	var createdID string
 	if !before.exists {
-		argv, stdin := dockerRunArgs(name, image, command, ports, volumes, env, restartPolicy)
+		imageID, _, err := resolveImage(ctx, conn, image)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := rc.SetStat(statImageID, imageID); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		argv, stdin := dockerRunArgs(runSpec{name: name, imageRef: image, imageID: imageID, network: network,
+			restartPolicy: restartPolicy, command: command, ports: ports, volumes: mounts, env: env})
 		out, err := runDockerCmdWithStdin(ctx, conn, argv, stdin)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, cleanupFailedRun(ctx, conn, name, err))

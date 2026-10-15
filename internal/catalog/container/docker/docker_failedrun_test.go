@@ -132,7 +132,7 @@ func TestRun_ALeftoverWithNoUsableIDIsNamedAndLeft(t *testing.T) {
 // create fails, the warning saying so is the only record of it, so failing to
 // record it fails the task rather than reporting a clean run.
 func TestRun_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 3)
+	h := newHarnessBudgeted(t, absent, 4)
 	h.rc.failOnKey = sdk.StatWarnings
 	if err := runWeb(t, h); err == nil || !strings.Contains(err.Error(), "warnings") {
 		t.Fatalf("err = %v, want the failed warning surfaced", err)

@@ -62,12 +62,24 @@ const (
 	paramEnv           = "env"
 	paramRestartPolicy = "restart_policy"
 	paramForce         = "force"
+	// paramNetwork is community.docker.docker_container's network_mode,
+	// named for what it is; none when absent (networkDefault).
+	paramNetwork = "network"
 	// paramID is container.docker.remove's identity guard, which the undo
 	// of container.docker.run sets.
 	paramID = "id"
 )
 
-const statName = "name"
+const (
+	statName = "name"
+	// statImageID is the image ID a run started its container from.
+	statImageID = "image_id"
+)
+
+// imageLabel is the label a run puts on its container naming the image
+// reference it was asked for, since the container itself names the ID it
+// was run by.
+const imageLabel = "org.pleiades.image"
 
 // containerState is what docker inspect reports about one container
 // name.

@@ -24,6 +24,12 @@ import (
 // with one environment value, and returns its path.
 func dockerRunRunbook(t *testing.T, dir, host, name, image, secret string) string {
 	t.Helper()
+	return dockerRunRunbookCmd(t, dir, host, name, image, secret, "sleep")
+}
+
+// dockerRunRunbookCmd is dockerRunRunbook with the container's program named.
+func dockerRunRunbookCmd(t *testing.T, dir, host, name, image, secret, program string) string {
+	t.Helper()
 	path := filepath.Join(dir, "runbooks", "run-"+name+".yaml")
 	body := "id: run-" + name + "\n" +
 		"hosts: " + host + "\n" +
@@ -33,7 +39,7 @@ func dockerRunRunbook(t *testing.T, dir, host, name, image, secret string) strin
 		"      name: " + name + "\n" +
 		"      image: " + image + "\n" +
 		"      command:\n" +
-		"        - sleep\n" +
+		"        - " + program + "\n" +
 		"        - \"300\"\n" +
 		"      env:\n" +
 		"        GATE_SECRET: " + secret + "\n"
@@ -98,9 +104,11 @@ func TestCLI_DockerRunKeepsItsSecretOffEveryOutput(t *testing.T) {
 		t.Fatalf("the container's environment = %q, %v; want the value delivered", inside, err)
 	}
 
-	// A run that fails (an image the engine does not have and cannot find)
-	// with the same value in its environment.
-	failed, err := runPleiadesWithEnv(t, dir, env, "run", dockerRunRunbook(t, dir, "box", gateContainerName(t), "pleiades-gate-absent:"+hex.EncodeToString(raw[:4]), secret), "--json")
+	// A run that fails in docker run itself, with the same value in its
+	// environment: the image is present, so nothing is pulled, and the
+	// container's program does not exist, so docker creates the container,
+	// fails to start it, and quotes its own command line in the error.
+	failed, err := runPleiadesWithEnv(t, dir, env, "run", dockerRunRunbookCmd(t, dir, "box", gateContainerName(t), containerGateImage, secret, "/pleiades-no-such-program"), "--json")
 	if err == nil {
 		t.Fatalf("a run of an absent image succeeded:\n%s", failed)
 	}

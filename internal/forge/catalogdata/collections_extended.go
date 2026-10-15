@@ -250,13 +250,14 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Runs a Docker container on the target.",
-			Description: "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+			Description: "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The container name to create or leave alone."},
-				{Name: "image", Type: "string", Required: true, Description: "The image to run. Ignored when a container already exists under name."},
+				{Name: "image", Type: "string", Required: true, Description: "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."},
 				{Name: "command", Type: "list", Description: "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."},
-				{Name: "ports", Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax)."},
-				{Name: "volumes", Type: "list", Description: "Volume mappings, each \"host:container\" (docker run's own -v syntax)."},
+				{Name: "ports", Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."},
+				{Name: "volumes", Type: "list", Description: "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."},
+				{Name: "network", Type: "string", Default: "none", Description: "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."},
 				{Name: "env", Type: "dict", Description: "Environment variables to set in the container, as a map of name to value."},
 				{Name: "restart_policy", Type: "string", Description: "The restart policy (docker run's own --restart value, e.g. unless-stopped)."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -264,9 +265,10 @@ var extendedCollections = []collectionscaffold.Config{
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The container this task acted on."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."},
+				{Name: "image_id", Type: "string", Returned: "changed", Description: "The image ID the container was started from, when this task created it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"},
+				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n"},
 			},
 			SeeAlso: []string{"container.docker.stop", "container.docker.remove"},
 		},

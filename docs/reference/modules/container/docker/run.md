@@ -6,7 +6,7 @@ status: beta
 
 Runs a Docker container on the target.
 
-Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.
+Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.
 
 ## Attributes
 
@@ -24,10 +24,11 @@ Makes sure a container named name exists, creating and starting one from image i
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The container name to create or leave alone. |
-| `image` | `string` | yes | - | The image to run. Ignored when a container already exists under name. |
+| `image` | `string` | yes | - | The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name. |
 | `command` | `list` | no | - | The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command. |
-| `ports` | `list` | no | - | Port mappings, each "host:container" (docker run's own -p syntax). |
-| `volumes` | `list` | no | - | Volume mappings, each "host:container" (docker run's own -v syntax). |
+| `ports` | `list` | no | - | Port mappings, each "host:container" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one. |
+| `volumes` | `list` | no | - | Volume mappings, each "host:container" or "host:container:options" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in "/srv/data:/data:rw". |
+| `network` | `string` | no | `none` | The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports. |
 | `env` | `dict` | no | - | Environment variables to set in the container, as a map of name to value. |
 | `restart_policy` | `string` | no | - | The restart policy (docker run's own --restart value, e.g. unless-stopped). |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
@@ -38,6 +39,7 @@ Makes sure a container named name exists, creating and starting one from image i
 | --- | --- | --- | --- |
 | `name` | `string` | always | The container this task acted on. |
 | `diff` | `dict` | always | What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing. |
+| `image_id` | `string` | changed | The image ID the container was started from, when this task created it. |
 
 ## Undoing this
 
@@ -61,6 +63,7 @@ Run a container:
   container.docker.run:
     name: web
     image: nginx:1.27
+    network: bridge
     ports:
       - "8080:80"
 ```

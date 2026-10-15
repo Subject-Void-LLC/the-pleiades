@@ -12,6 +12,13 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
+// runSpec is the one container a docker run creates.
+type runSpec struct {
+	name, imageRef, imageID, network, restartPolicy string
+	command, ports, volumes                         []string
+	env                                             map[string]string
+}
+
 // dockerRunArgs builds a fresh container's full docker run invocation and
 // the standard input it reads. -d always: this platform has no interactive
 // session to attach one to.
@@ -29,17 +36,21 @@ import (
 // (LESSONS_LEARNED 137: quoting stops a shell, not option parsing). The
 // command after the image is the container's own, where a leading "-" is
 // ordinary ("nginx -g ...").
-func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) (argv []string, stdin string) {
-	args := []string{"docker", "run", "-d", "--name=" + name}
-	for _, p := range ports {
+//
+// The container joins the network its task names (none by default), mounts
+// each volume read-only unless the entry says rw (readOnlyVolume), and starts
+// from the image ID resolveImage found, labeled with the reference asked for.
+func dockerRunArgs(s runSpec) (argv []string, stdin string) {
+	args := []string{"docker", "run", "-d", "--name=" + s.name, "--network=" + s.network, "--label=" + imageLabel + "=" + s.imageRef}
+	for _, p := range s.ports {
 		args = append(args, "--publish="+p)
 	}
-	for _, v := range volumes {
+	for _, v := range s.volumes {
 		args = append(args, "--volume="+v)
 	}
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
+	if len(s.env) > 0 {
+		keys := make([]string, 0, len(s.env))
+		for k := range s.env {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
@@ -47,17 +58,17 @@ func dockerRunArgs(name, image string, command, ports, volumes []string, env map
 		for _, k := range keys {
 			file.WriteString(k)
 			file.WriteByte('=')
-			file.WriteString(env[k])
+			file.WriteString(s.env[k])
 			file.WriteByte('\n')
 		}
 		args = append(args, "--env-file=/dev/stdin")
 		stdin = file.String()
 	}
-	if restartPolicy != "" {
-		args = append(args, "--restart="+restartPolicy)
+	if s.restartPolicy != "" {
+		args = append(args, "--restart="+s.restartPolicy)
 	}
-	args = append(args, "--", image)
-	return append(args, command...), stdin
+	args = append(args, "--", s.imageID)
+	return append(args, s.command...), stdin
 }
 
 // containerIDPattern is a full container id as docker prints and inspects

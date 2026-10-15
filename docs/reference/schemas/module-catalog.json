@@ -614,7 +614,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Runs a Docker container on the target.",
-      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
       "params": [
         {
           "name": "name",
@@ -626,7 +626,7 @@
           "name": "image",
           "type": "string",
           "required": true,
-          "description": "The image to run. Ignored when a container already exists under name."
+          "description": "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."
         },
         {
           "name": "command",
@@ -636,12 +636,18 @@
         {
           "name": "ports",
           "type": "list",
-          "description": "Port mappings, each \"host:container\" (docker run's own -p syntax)."
+          "description": "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."
         },
         {
           "name": "volumes",
           "type": "list",
-          "description": "Volume mappings, each \"host:container\" (docker run's own -v syntax)."
+          "description": "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "default": "none",
+          "description": "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."
         },
         {
           "name": "env",
@@ -672,12 +678,18 @@
           "type": "dict",
           "returned": "always",
           "description": "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "changed",
+          "description": "The image ID the container was started from, when this task created it."
         }
       ],
       "examples": [
         {
           "name": "Run a container",
-          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"
+          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n"
         }
       ],
       "seeAlso": [
