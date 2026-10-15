@@ -260,3 +260,38 @@ func Commit(rc sdk.RunbookContext, p Prompt) error {
 	}
 	return versions.Use(p.Bundle.Kind, p.Bundle.Name, p.Bundle.Version)
 }
+
+// LoadBundle reads a signed document of any kind (a prompt, a parameter
+// set or a routing table) and its signature, inline (prompt, with
+// signature) or from the project (prompt_file, with its .sig file).
+func LoadBundle(rc sdk.RunbookContext, params map[string]any) (*promptsign.Parsed, *promptsign.Signature, error) {
+	given := 0
+	for _, k := range []string{ParamPrompt, ParamPromptFile} {
+		if v, ok := params[k]; ok && v != nil {
+			given++
+		}
+	}
+	if given != 1 {
+		return nil, nil, fmt.Errorf("give exactly one of %s and %s", ParamPrompt, ParamPromptFile)
+	}
+	doc, sig, err := bundleBytes(rc, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsed, err := promptsign.Parse(doc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the document: %w", err)
+	}
+	return parsed, sig, nil
+}
+
+// HasProject reports, as an error, whether rc carries a project to read
+// and write through (sdk.AIProject), without touching it.
+func HasProject(rc sdk.RunbookContext) error {
+	proj, ok := rc.(sdk.AIProject)
+	if !ok {
+		return sdk.ErrNoAIProject
+	}
+	_, err := proj.AIPromptVersions()
+	return err
+}

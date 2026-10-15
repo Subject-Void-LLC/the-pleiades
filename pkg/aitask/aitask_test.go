@@ -422,3 +422,33 @@ func TestEstimate(t *testing.T) {
 		t.Errorf("no max_tokens: %v", est)
 	}
 }
+
+// TestParseRoutes: a table reads back; every malformed use is refused.
+func TestParseRoutes(t *testing.T) {
+	step := func(p, m string) map[string]any { return map[string]any{"provider": p, "model": m} }
+	got, err := ParseRoutes(map[string]any{"triage": map[string]any{"residency": "local", "signing": "required", "providers": []any{step("a", "m1"), step("b", "m2")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := got["triage"]
+	if u.Residency != "local" || u.Signing != promptsign.Required || len(u.Steps) != 2 || u.Steps[1] != (Step{"b", "m2"}) {
+		t.Errorf("use %+v", u)
+	}
+	if u, _ := ParseRoutes(map[string]any{"x": map[string]any{"residency": "hosted", "providers": []any{step("a", "m")}}}); u["x"].Signing != promptsign.Optional {
+		t.Errorf("default policy %q", u["x"].Signing)
+	}
+	for _, bad := range []any{
+		nil, map[string]any{},
+		map[string]any{"Bad": map[string]any{"residency": "local", "providers": []any{step("a", "m")}}},
+		map[string]any{"x": map[string]any{"providers": []any{step("a", "m")}}},
+		map[string]any{"x": map[string]any{"residency": "local", "providers": []any{}}},
+		map[string]any{"x": map[string]any{"residency": "local", "providers": []any{step("a", "m"), step("a", "m")}}},
+		map[string]any{"x": map[string]any{"residency": "local", "providers": []any{step("a", "")}}},
+		map[string]any{"x": map[string]any{"residency": "local", "signing": "", "providers": []any{step("a", "m")}}},
+		map[string]any{"x": map[string]any{"residency": "local", "fallback": true, "providers": []any{step("a", "m")}}},
+	} {
+		if _, err := ParseRoutes(bad); err == nil {
+			t.Errorf("%v was accepted", bad)
+		}
+	}
+}

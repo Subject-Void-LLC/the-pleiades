@@ -35,12 +35,13 @@ tested today; nothing here is aspirational. Read this section before the rest.
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only three are
   in that state: `file.template`, `net.junos.config` and `net.eos.config`. Everything
-  else is real today, across 21 namespaces, including
+  else is real today, across 22 namespaces, including
   `exec.command` and `exec.shell` on any SSH-reachable device, `net.cli.command` and
   `net.ios.config` on a real network CLI, `net.netconf.config` over RFC 6241 NETCONF,
   the four `net.catalyst.*` methods against
   Cisco Catalyst Center, the `svc.*` service managers, and the `pkg.*`, `file.*`,
-  `identity.*`, `container.*` and `cloud.aws.*` families. Every
+  `identity.*`, `container.*` and `cloud.aws.*` families, and the `ai.*` methods that call
+  a language model as a step of a run. Every
   implemented method also answers whether it can be undone, and a run that changes
   something records the instruction that would reverse it.
 - **Scheduling is real.** An RFC 5545 recurrence attached to a job template or a

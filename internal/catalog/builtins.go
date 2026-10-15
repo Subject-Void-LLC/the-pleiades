@@ -8,6 +8,11 @@
 package catalog
 
 import (
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/ai"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/ai/bench"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/ai/model"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/ai/prompt"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/ai/provider"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/archive"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/build/digests"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/build/lock"

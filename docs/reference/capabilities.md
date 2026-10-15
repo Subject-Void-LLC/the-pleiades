@@ -10,6 +10,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 
 | Capability | Parent | Children |
 | --- | --- | --- |
+| `AIProviderCapable` | - | - |
 | `AWSAPICapable` | - | - |
 | `AptCapable` | `PackageManagerCapable` | - |
 | `AristaEOSCapable` | `NetworkCLICapable` | - |
@@ -53,7 +54,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-42 capabilities registered.
+43 capabilities registered.
 
 ## Transports
 
@@ -65,7 +66,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `engine_socket` | `EngineSocketCapable` |
 | `engine_stdio` | `EngineStdioCapable` |
 | `engine_tls` | `EngineTLSCapable` |
-| `https` | `HTTPAPICapable`, `CatalystAPICapable` |
+| `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable` |
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |
