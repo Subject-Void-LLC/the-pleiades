@@ -1,4 +1,4 @@
-// In-package tests of KubernetesSecrets' failures, through fakes of the
+// In-package tests of BorrowedKubernetesSecrets' failures, through fakes of the
 // two ports it takes.
 package resolve
 
@@ -36,7 +36,7 @@ func (f fakeResolver) Resolve(context.Context, []int) ([]credtype.Credential, er
 // never an absent credential.
 func TestKubernetesSecrets_Failures(t *testing.T) {
 	const server = "https://k.example:6443"
-	match := fakeLister{creds: []credstore.Credential{{ID: 1, Name: "prod", Kind: credtype.KindKubernetes, Inputs: map[string]string{"host": "k.example:6443"}}}}
+	match := fakeLister{creds: []credstore.Credential{{ID: 1, Name: "prod", OrganizationID: 7, Kind: credtype.KindKubernetes, Inputs: map[string]string{"host": "k.example:6443"}}}}
 	broken := errors.New("store down")
 	for _, tc := range []struct {
 		name     string
@@ -51,9 +51,9 @@ func TestKubernetesSecrets_Failures(t *testing.T) {
 			Inputs: map[string]string{"host": "k.example:6443"}}}}, "needs a bearer token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := KubernetesSecrets(context.Background(), tc.lister, tc.resolver, server)
+			got, err := BorrowedKubernetesSecrets(context.Background(), tc.lister, tc.resolver, BorrowingCluster{Name: "c", APIServer: server, OrganizationID: 7})
 			if err == nil || got != nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("KubernetesSecrets = %v, %v; want an error saying %q", got, err, tc.want)
+				t.Fatalf("BorrowedKubernetesSecrets = %v, %v; want an error saying %q", got, err, tc.want)
 			}
 		})
 	}

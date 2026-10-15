@@ -39,6 +39,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -228,7 +229,31 @@ func applyKubernetes(payload *wire.DispatchPayload, k credtype.KubernetesCredent
 	server, _ := payload.DeviceProperties[kubernetes.APIServerProperty].(string)
 	if payload.DeviceType == kubernetes.TypeCluster && k.ForServer(server) {
 		payload.Secrets = k.Secrets()
+		payload.DeviceProperties = withoutRecordTrust(payload.DeviceProperties)
 	}
+}
+
+// withoutRecordTrust returns props without the authority and server name a
+// cluster's record pins (devicetls.CAPEMProperty, ServerNameProperty), as a
+// copy.
+//
+// A template's credential is not the cluster's own, and the record is
+// written by whoever can write inventory, so nothing in it may decide what
+// the credential is checked against: a record pinning its writer's own
+// authority, or naming a server its writer holds a certificate for, beside a
+// route through a hop its writer controls, would receive the template's
+// token. Without them the session trusts the credential's own authority, or
+// the system's, for the API server's own name
+// (resolve.BorrowedKubernetesSecrets holds onboarding to the same rule).
+func withoutRecordTrust(props map[string]any) map[string]any {
+	out := make(map[string]any, len(props))
+	for k, v := range props {
+		if k == devicetls.CAPEMProperty || k == devicetls.ServerNameProperty {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // promptedFor returns the prompted inputs carried for one job.

@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -98,5 +99,46 @@ func TestApplyInjection_TheAnsiblePathGetsAWXsEnvironment(t *testing.T) {
 	}
 	if !masked {
 		t.Error("the token is not in the injection's mask")
+	}
+}
+
+// TestApplyInjection_ARecordDoesNotChooseWhatATemplateTokenTrusts: the
+// cluster's record is written by whoever can write inventory, so when a
+// template's token replaces the cluster's own credential, the authority and
+// server name the record pins are dropped from that dispatch and only the
+// credential's own authority is trusted. Before 2026-10-14 the record's
+// authority won, so a record pinning its writer's authority beside a route
+// through its writer's hop would receive the template's token. A cluster the
+// token does not name keeps its record whole, and the caller's map is never
+// changed.
+func TestApplyInjection_ARecordDoesNotChooseWhatATemplateTokenTrusts(t *testing.T) {
+	art := kubernetesArtifact(t)
+	props := map[string]any{
+		kubernetes.APIServerProperty: "https://k8s.example.com:6443",
+		devicetls.CAPEMProperty:      "ATTACKER-CA-PEM",
+		devicetls.ServerNameProperty: "attacker.example.net",
+		kubernetes.NamespaceProperty: "apps",
+	}
+	named := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: kubernetes.TypeCluster, DeviceProperties: props}
+	ApplyInjection(&named, art)
+	if _, kept := named.DeviceProperties[devicetls.CAPEMProperty]; kept {
+		t.Error("the record's authority survived beside the template's token")
+	}
+	if _, kept := named.DeviceProperties[devicetls.ServerNameProperty]; kept {
+		t.Error("the record's server name survived beside the template's token")
+	}
+	if named.DeviceProperties[kubernetes.NamespaceProperty] != "apps" || named.Secrets[wire.SecretClusterCAPEM] != "CA-PEM" {
+		t.Errorf("properties = %v, secrets = %v; want the rest of the record and the credential's own authority", named.DeviceProperties, named.Secrets)
+	}
+	if props[devicetls.CAPEMProperty] != "ATTACKER-CA-PEM" {
+		t.Error("the caller's property map was changed")
+	}
+
+	other := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: kubernetes.TypeCluster, DeviceProperties: map[string]any{
+		kubernetes.APIServerProperty: "https://other.example.com:6443", devicetls.CAPEMProperty: "OWN-CA-PEM",
+	}}
+	ApplyInjection(&other, art)
+	if other.DeviceProperties[devicetls.CAPEMProperty] != "OWN-CA-PEM" {
+		t.Error("a cluster the token does not name lost its own pinned authority")
 	}
 }

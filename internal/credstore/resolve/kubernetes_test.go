@@ -13,10 +13,15 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// TestKubernetesSecrets: the one credential whose host names the API
-// server is decrypted and returned as the cluster's secrets; none is nil;
-// two are refused, naming both; another kind with a host input never
-// matches.
+// cluster is a borrowing cluster of organization orgID at apiServer.
+func cluster(apiServer string, orgID int) resolve.BorrowingCluster {
+	return resolve.BorrowingCluster{Name: "c", APIServer: apiServer, OrganizationID: orgID}
+}
+
+// TestKubernetesSecrets: the one credential of the cluster's organization
+// whose host names the API server is decrypted and returned as the cluster's
+// secrets; none is nil; two are refused, naming both; another kind with a
+// host input never matches.
 func TestKubernetesSecrets(t *testing.T) {
 	resolver, store, _, orgID, _ := fixture(t)
 	ctx := context.Background()
@@ -37,14 +42,14 @@ func TestKubernetesSecrets(t *testing.T) {
 	add("prod", "https://prod.example.com:6443", "prod-token-1234")
 	add("staging", "staging.example.com", "staging-token-1234")
 
-	got, err := resolve.KubernetesSecrets(ctx, store, resolver, "https://prod.example.com:6443")
+	got, err := resolve.BorrowedKubernetesSecrets(ctx, store, resolver, cluster("https://prod.example.com:6443", orgID))
 	if err != nil || got[wire.SecretBearerToken] != "prod-token-1234" {
 		t.Fatalf("prod = %v, %v", got, err)
 	}
-	if got, err := resolve.KubernetesSecrets(ctx, store, resolver, "https://staging.example.com"); err != nil || got[wire.SecretBearerToken] != "staging-token-1234" {
+	if got, err := resolve.BorrowedKubernetesSecrets(ctx, store, resolver, cluster("https://staging.example.com", orgID)); err != nil || got[wire.SecretBearerToken] != "staging-token-1234" {
 		t.Errorf("staging, its host written without a scheme = %v, %v", got, err)
 	}
-	if got, err := resolve.KubernetesSecrets(ctx, store, resolver, "https://other.example.com"); got != nil || err != nil {
+	if got, err := resolve.BorrowedKubernetesSecrets(ctx, store, resolver, cluster("https://other.example.com", orgID)); got != nil || err != nil {
 		t.Errorf("a cluster no credential names = %v, %v", got, err)
 	}
 
@@ -56,12 +61,12 @@ func TestKubernetesSecrets(t *testing.T) {
 	if _, err := store.CreateCredential(ctx, orgID, regType.ID, "registry at prod", "", map[string]string{"host": "prod.example.com:6443", "username": "u", "password": "registry-pass"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := resolve.KubernetesSecrets(ctx, store, resolver, "https://prod.example.com:6443"); err != nil || got[wire.SecretBearerToken] != "prod-token-1234" {
+	if got, err := resolve.BorrowedKubernetesSecrets(ctx, store, resolver, cluster("https://prod.example.com:6443", orgID)); err != nil || got[wire.SecretBearerToken] != "prod-token-1234" {
 		t.Errorf("prod beside a registry credential for the same host = %v, %v", got, err)
 	}
 
 	add("prod again", "prod.example.com:6443", "second-token-1234")
-	_, err = resolve.KubernetesSecrets(ctx, store, resolver, "https://prod.example.com:6443")
+	_, err = resolve.BorrowedKubernetesSecrets(ctx, store, resolver, cluster("https://prod.example.com:6443", orgID))
 	if err == nil || !strings.Contains(err.Error(), `"prod"`) || !strings.Contains(err.Error(), `"prod again"`) {
 		t.Errorf("two credentials naming prod: %v, want both named", err)
 	}

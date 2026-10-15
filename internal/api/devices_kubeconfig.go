@@ -129,6 +129,20 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 			RespondError(w, r, http.StatusConflict, "the device is not a kubernetes_cluster, so an import cannot replace it")
 			return
 		}
+		// The import puts the cluster in the request's organization (see
+		// assignImportedOrganization), and never moves one out of another:
+		// refused before anything is written.
+		if reader, ok := h.repo.(inventory.OrganizationReader); ok {
+			org, err := reader.DeviceOrganization(ctx, req.Name)
+			if err != nil {
+				h.writeRepositoryError(w, r, "read", req.Name, err)
+				return
+			}
+			if org != 0 && org != req.Organization {
+				RespondError(w, r, http.StatusConflict, "the cluster belongs to another organization, so an import into this one cannot replace it")
+				return
+			}
+		}
 	}
 
 	item, err := h.importedCluster(req.Name, existing, clusterProperties(imported))
@@ -166,6 +180,11 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	if err := h.assignImportedOrganization(ctx, req); err != nil {
+		h.logger.ErrorContext(ctx, "putting an imported cluster in its organization failed", "device", req.Name, "error", err.Error())
+		RespondError(w, r, http.StatusConflict, fmt.Sprintf("cluster %q and its credential were stored, but the cluster was not put in organization %d: %v; import it again with replace", req.Name, req.Organization, err))
+		return
+	}
 	saved, err := h.repo.GetByName(ctx, req.Name)
 	if err != nil {
 		h.writeRepositoryError(w, r, "read", req.Name, err)
@@ -188,6 +207,21 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 		status = http.StatusOK
 	}
 	Respond(w, r, status, &dto)
+}
+
+// assignImportedOrganization puts the imported cluster in the organization
+// its credential was stored in. Onboarding lends a stored credential only to
+// a cluster of the credential's own organization
+// (resolve.BorrowedKubernetesSecrets), so without this an imported cluster,
+// which has no credential of its own, could not onboard with the credential
+// imported beside it. A repository with no organizations (a file
+// inventory) is left as it is.
+func (h *DeviceHandler) assignImportedOrganization(ctx context.Context, req kubeconfigImportRequest) error {
+	assigner, ok := h.repo.(inventory.OrganizationAssigner)
+	if !ok {
+		return nil
+	}
+	return assigner.AssignDeviceOrganization(ctx, req.Name, req.Organization)
 }
 
 // importedCluster is the device an import writes: a new kubernetes_cluster

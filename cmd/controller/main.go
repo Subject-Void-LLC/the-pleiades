@@ -1412,11 +1412,17 @@ func main() {
 	// probe connects from this process with the device's credential from
 	// the same store a dispatch reads, and no Runner is involved.
 	// A cluster with no per-device credential (one imported over the API)
-	// onboards with the one stored Kubernetes credential whose host names
-	// its API server (resolve.KubernetesSecrets).
+	// onboards with the one stored Kubernetes credential of its own
+	// organization whose host names its API server, and only when nothing
+	// its record says would send that credential elsewhere
+	// (resolve.BorrowedKubernetesSecrets).
 	onboardSecrets := onboard.WithKubernetesFallback(onboard.SecretsFrom(deviceCredentials),
-		func(ctx context.Context, apiServer string) (map[string]string, error) {
-			return resolve.KubernetesSecrets(ctx, credentialStore, credentialResolver, apiServer)
+		func(ctx context.Context, cluster pkginventory.InventoryItem) (map[string]string, error) {
+			b, err := borrowingCluster(ctx, repo, deviceCredentials, cluster)
+			if err != nil {
+				return nil, err
+			}
+			return resolve.BorrowedKubernetesSecrets(ctx, credentialStore, credentialResolver, b)
 		})
 	devices.WithKubeconfigImport(credentialStore)
 	// A device behind a route of SSH hops (a cluster behind a bastion) is

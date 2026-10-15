@@ -564,7 +564,9 @@ var OnboardDevice = Endpoint{
 	Description: "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, " +
 		"generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, " +
 		"authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored " +
-		"Kubernetes credential whose host names its API server), and records the capabilities the device's own " +
+		"Kubernetes credential of the cluster's own organization whose host names its API server, refused for a " +
+		"cluster in no organization, one reached through a route, or one pinning an authority the credential does " +
+		"not carry), and records the capabilities the device's own " +
 		"answers prove as a revision. A discovered device moves to onboarding, " +
 		"then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an " +
 		"active device re-probes it and writes only what changed. It needs inventory:onboard, which " +
@@ -598,10 +600,11 @@ var ImportKubeconfig = Endpoint{
 		"pleiades_kubernetes_client_certificate for a client certificate, encrypted at rest and ready to bind to " +
 		"a template. Nothing that would run a program (exec, auth-provider), read a file the kubeconfig names, skip " +
 		"certificate verification, go through a proxy, impersonate or send a password is taken; each is refused " +
-		"by name. Onboarding the cluster afterwards uses this credential, the one whose host names its API " +
-		"server. It needs credential:write and inventory:write. A name already in the inventory, or a " +
-		"credential of that name, is a conflict unless replace is set; a replacement keeps the device's " +
-		"identity and tags and clears what onboarding proved.",
+		"by name. The cluster is put in the same organization, so onboarding it afterwards uses this credential, " +
+		"the one of its organization whose host names its API server. It needs credential:write and " +
+		"inventory:write. A name already in the inventory, or a credential of that name, is a conflict unless " +
+		"replace is set; a replacement keeps the device's identity and tags and clears what onboarding proved, " +
+		"and a cluster already in another organization is not replaced.",
 	RequestContentType: "application/json",
 	RequestSchema: map[string]any{
 		"type":     "object",

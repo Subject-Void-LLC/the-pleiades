@@ -2223,8 +2223,14 @@ context, set `node_engine_host` to it, and onboard the cluster.
 
 On the Controller, onboarding uses the cluster's per-device credential, and
 for a cluster with none (one imported over the API) the one stored Kubernetes
-credential whose host names its API server. Two such credentials are refused,
-naming both, rather than one picked.
+credential of the cluster's own organization whose host names its API server.
+An import puts the cluster in the organization its credential is stored in, and
+never moves a cluster out of another organization. Nothing the cluster's record
+says may decide where a lent credential goes, since the record is written by
+whoever can write inventory: a cluster in no organization, one reached through
+a route, and one whose pinned authority is not the credential's own
+`ssl_ca_cert` are each refused by name, and store their own credential instead.
+Two matching credentials are refused, naming both, rather than one picked.
 
 **Credentials.** A cluster authenticates with its own credential only. A
 template's machine credential, an SSH login, never reaches a cluster, even
@@ -2232,9 +2238,11 @@ though it reaches every machine in the same run. The native path reads
 `kubernetes_bearer_token` directly: bound to a template, it becomes the
 credential of the cluster whose `api_server` it names (the same host and
 port; 443 when none is written), in place of that cluster's own, and no other
-device in the run receives it. Its `ssl_ca_cert` is used for a cluster whose
-record pins no authority; a pinned one always wins. The native path checks
-every cluster's certificate, so `verify_ssl: false` has no effect there.
+device in the run receives it. Because it is not the cluster's own, the
+authority and server name the cluster's record pins are not used beside it:
+the session trusts the credential's `ssl_ca_cert`, or the system's authorities
+when it has none, for the API server's own name. The native path checks every
+cluster's certificate, so `verify_ssl: false` has no effect there.
 
 On the Ansible path the same credential sets AWX's own environment for
 `kubernetes.core`: `K8S_AUTH_HOST`, `K8S_AUTH_API_KEY`, `K8S_AUTH_VERIFY_SSL`
