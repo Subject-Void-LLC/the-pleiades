@@ -640,7 +640,7 @@ func main() {
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
 	// client-go's own log, from onboarding a cluster, through the same
 	// masking (pkg/kubeapi.LogTo).
-	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr), redact.Shared().Literals())
 
 	// The mesh configuration, checked HERE: after the masking logger is
 	// installed, and before this process binds a port, provisions a

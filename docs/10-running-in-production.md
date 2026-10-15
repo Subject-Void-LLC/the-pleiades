@@ -2302,9 +2302,13 @@ Nothing ambient reaches a cluster. A Runner inside a cluster never uses its
 own ServiceAccount, `KUBECONFIG` and `~/.kube/config` are never read, and a
 cluster with no stored credential is refused rather than reached as anything
 else. What client-go logs passes through the same redaction as everything
-else, and a server's answers are bounded: discovery reads at most 128 MiB in
-all, and an error quotes at most 512 bytes of the server's text, with
-anything a terminal would act on escaped.
+else, and a cluster's token, client key, and the AWS key an EKS token is
+minted from are masked there by value as soon as a session holds them, as is
+each minted token, whatever their shape. A server's answers are bounded:
+discovery reads at most 128 MiB in all, any other answer at most 64 MiB (a
+watch, a followed log and an exec or port-forward connection are streams, and
+are not cut off), and an error quotes at most 512 bytes of the server's text,
+with anything a terminal would act on escaped.
 
 ### PKI and TLS
 

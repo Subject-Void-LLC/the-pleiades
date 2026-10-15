@@ -80,6 +80,7 @@ func identityFor(device inventory.InventoryItem, secrets map[string]string) (Ide
 		return Identity{}, fmt.Errorf("no AWS key for EKS cluster %q: store its access key ID and secret access key with `pleiades add-credential %s --username <access key id> --password-stdin`", device.Name(), device.Name())
 	}
 	session := secrets[awscloud.SecretSessionToken]
+	maskSecrets(secret, session)
 	return Identity{Mint: func(ctx context.Context) (string, time.Time, error) {
 		return awscloud.EKSToken(ctx, region, cluster, keyID, secret, session, time.Now())
 	}}, nil

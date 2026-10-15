@@ -87,6 +87,7 @@ func Config(ep Endpoint, id Identity, limits Limits) (*rest.Config, error) {
 	if limits.QPS <= 0 || limits.Burst <= 0 {
 		limits = DefaultLimits
 	}
+	maskSecrets(id.Token, string(id.ClientKeyPEM))
 	cfg := &rest.Config{
 		Host: ep.Server,
 		TLSClientConfig: rest.TLSClientConfig{
@@ -216,6 +217,7 @@ func (m *tokenCache) current(ctx context.Context) (string, error) {
 	if token == "" {
 		return "", errors.New("kubeapi: minting a token returned none")
 	}
+	replaceMasked(m.token, token)
 	m.token, m.expires = token, expires
 	return token, nil
 }

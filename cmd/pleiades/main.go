@@ -64,7 +64,7 @@ func main() {
 func run(args []string) int {
 	// client-go's own log, from a Kubernetes task or onboarding a cluster,
 	// through the CLI's masking (pkg/kubeapi.LogTo).
-	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr), redact.Shared().Literals())
 	// The command line runs every task in its own process, on the machine
 	// whose engine onboarding found, so it alone may reach an engine
 	// through this machine's own socket (containerengine.AllowLocalCarrier).
