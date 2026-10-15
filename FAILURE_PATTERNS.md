@@ -471,6 +471,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 466. A result that beat its dispatch's row was acknowledged as a message about nothing, and the job never finished
 467. The rollback gate's check step asserted what the check left alone, never what it reported (the class of 54)
 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
+469. The reaper test read the job's state on the first delivery to return, which was the one that did nothing
+470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

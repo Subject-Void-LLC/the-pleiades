@@ -12228,3 +12228,36 @@ is still in the drain at `Close`. Removing the wait now fails 19 runs in 100; wi
 
 **Lesson.** A fix for a test's race is a fix for every test in the file built the same way, and a test named for a
 mechanism must fail when the mechanism is removed.
+
+## 469. The reaper test read the job's state on the first delivery to return, which was the one that did nothing
+
+**Symptom.** Pull request #57's `fast-macos` job tolerated `TestReaper_EndToEnd_ReclaimsAndCompletesStaleJob`:
+"job State after reaper-triggered reclaim = fanning_out", with the reaper's republish logged twice, then a pass
+alone.
+
+**Root cause.** The reaper sweeps every 10 ms in the test and republishes a job for as long as it stays stale, so on a
+loaded runner a second delivery arrived before the first had claimed the job. Whichever lost the claim returned at
+once, and the test read the state on the first return it saw. The product is right: one fan-out owns a job and the
+other returns. The test assumed one delivery.
+
+**Fix.** `64a87491` waits for the job to leave `fanning_out`, then for a delivery that returned nil, and keeps the
+one-dispatch, one-task assertions. With the claim and row writes slowed by a store wrapper, the old test failed every
+run; the new one passes 300 runs under `-race` with every core busy. Forcing the overlap also showed that a losing
+claim can fail on the test store's shared-cache SQLite ("table is locked"), which the Controller's WAL database waits
+through; the test allows it, since a failed delivery is only redelivered.
+
+**Lesson.** A test that waits on "a handler returned" must ask which handler, whenever the code under test may
+deliver more than once.
+
+## 470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (open)
+
+**Symptom.** Twice on 2026-10-15 under `make pr-check` (the onboard stress test, then cmd/runner's validate-dispatch
+gate): "port 2222/tcp sent no SSH greeting within 2m0s: ... connection refused", after the container's log said
+"sshd is listening on port 2222". Each passed alone.
+
+**Root cause.** Not yet known. Ruled out: Docker giving the port different IPv4 and IPv6 host ports (never, in 30
+tries on Docker 29.8). The three candidates (no forwarding on the host, a wrong host port, no server inside) could not
+be told apart, because the wait reported only its last dial.
+
+**Fix.** Diagnosis first: `8fb70883` makes a timed-out greeting wait report Docker's bindings for the port, the port
+it was dialing, and whether a socket inside listens on it (from `/proc/net/tcp`). The next occurrence names its cause.

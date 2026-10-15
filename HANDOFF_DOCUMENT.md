@@ -50,7 +50,7 @@ running them with the tree read-only.
   this handoff, with the result in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
   `-race` on its own, the live k3s session tests and the real-Docker check test included.
 
-### Pull requests #56 (merged) and #57
+### Pull requests #56 and #57 (both merged), and `test/ci-harness`
 
 Opened 2026-10-15 at `4e73ba28` (33 commits, including `chore/pr-check-receipt`'s four). `containers (2)` failed
 before any test: CI's pull step asked Docker Hub for a fake image ID a docker test names (FAILURE_PATTERNS 465, a
@@ -59,7 +59,10 @@ for every image CI will pull). The other checks had passed or were still running
 
 #56 merged as `9f484e54` with every check green and no test re-run. The commits after it went to a new
 branch, `fix/result-before-dispatch`, as #57 (green). #57's `fast` job tolerated one failure, a repeat of 211's test
-race in its twin (FAILURE_PATTERNS 468), fixed on the same branch.
+race in its twin (FAILURE_PATTERNS 468), fixed on the same branch. #57 merged as `907dfd0a`, green; its last
+run's `fast-macos` tolerated the reaper end-to-end test, a test race (469), fixed with the fixture diagnostics for
+470 (left open: the openssh fixture's mapped port refused for two minutes twice, cause unknown, and the wait now
+reports what it finds) on `test/ci-harness`, the next pull request.
 
 The pr-check before #56's last push tolerated two failures. The onboarding stress test's was a fixture timeout. The
 rollback gate's was a real race (FAILURE_PATTERNS 466): a result that beat its dispatch's row was dropped for
