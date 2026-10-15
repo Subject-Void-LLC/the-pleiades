@@ -186,8 +186,14 @@ func TestSubsystem_RefusedRequestReportsTheServerExplanation(t *testing.T) {
 func TestSubsystem_StderrIsCompleteAfterClose(t *testing.T) {
 	const diagnostic = "netconf-yang is not configured"
 
+	// The diagnostic comes last, after most of the bound's worth of other
+	// text, so it is still on its way through the drain when Close is
+	// called: only Close's own wait for the drain makes it complete.
+	sent := strings.Repeat("progress line\n", 500) + diagnostic
+	wrote := make(chan struct{})
 	dial := newFakeSubsystemSSHServer(t, true, func(name string, channel ssh.Channel) {
-		channel.Stderr().Write([]byte(diagnostic))
+		channel.Stderr().Write([]byte(sent))
+		close(wrote)
 		// Held open so the test controls when the session ends, which
 		// is what makes this about Close's own wait rather than about
 		// the server happening to finish first.
@@ -201,6 +207,11 @@ func TestSubsystem_StderrIsCompleteAfterClose(t *testing.T) {
 		t.Fatalf("Subsystem() error = %v, want nil", err)
 	}
 
+	// Close only once the server has written: Close waits for what has
+	// been sent, and nothing can collect what a server writes after the
+	// client has closed. Without this wait the test raced the server's own
+	// goroutine and, on a loaded CI runner, closed first (Stderr was "").
+	<-wrote
 	if err := sub.Close(); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Close() error = %v", err)
 	}
