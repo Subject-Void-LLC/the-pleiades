@@ -66,3 +66,22 @@ func TestImportKubeconfig_AReplaceNeverMovesAClusterBetweenOrganizations(t *test
 		t.Errorf("the refused replace stored credentials %v, %v", others, err)
 	}
 }
+
+// TestImportKubeconfig_ARefusedServerIsNotEchoed: the route answers an
+// import it refuses with the reason, and a server address carrying a
+// password is refused without the password reaching the response.
+func TestImportKubeconfig_ARefusedServerIsNotEchoed(t *testing.T) {
+	f := newImportFixture(t, false)
+	const secret = "s3cr3tpass77"
+	for _, server := range []string{"http://admin:" + secret + "@k8s.example.com:6443", "https://admin:" + secret + "@k8s.example.com:x"} {
+		rec := f.post(t, map[string]any{"name": "prod", "organization": f.org,
+			"kubeconfig": kubeconfigFor(server, testCAPEM(t), "    token: "+importToken+"\n")},
+			auth.ScopeCredentialWrite, auth.ScopeInventoryWrite)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("server %q: import = %d: %s", server, rec.Code, rec.Body)
+		}
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Errorf("server %q: the response repeats the password: %s", server, rec.Body)
+		}
+	}
+}

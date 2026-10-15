@@ -118,20 +118,30 @@ func Config(ep Endpoint, id Identity, limits Limits) (*rest.Config, error) {
 
 // checkServer refuses a server address that is not an https URL with a
 // host, or that carries anything a client could mistake for a credential.
+//
+// Its errors reach an API response, a log and a terminal, and the address
+// may carry a secret (a password in https://user:pass@host, a token in its
+// query), so no error quotes it: one that does not parse gives only the
+// parser's reason, since net/url's own error repeats the raw address, and
+// the others name what is wrong with it rather than repeat it.
 func checkServer(server string) error {
 	u, err := url.Parse(server)
 	if err != nil {
-		return fmt.Errorf("kubeapi: the API server address %q does not parse: %w", server, err)
+		var parseErr *url.Error
+		if errors.As(err, &parseErr) {
+			err = parseErr.Err
+		}
+		return fmt.Errorf("kubeapi: the API server address does not parse: %v", err)
 	}
 	switch {
-	case u.Scheme != "https":
-		return fmt.Errorf("kubeapi: the API server address %q is not https; a cluster is reached over TLS only", server)
-	case u.Host == "":
-		return fmt.Errorf("kubeapi: the API server address %q names no host", server)
 	case u.User != nil:
 		return fmt.Errorf("kubeapi: the API server address carries a user name or password; a cluster's credential is bound, never written into its address")
+	case u.Scheme != "https":
+		return fmt.Errorf("kubeapi: the API server address uses %q, not https; a cluster is reached over TLS only", u.Scheme)
+	case u.Host == "":
+		return fmt.Errorf("kubeapi: the API server address names no host")
 	case u.RawQuery != "" || u.Fragment != "":
-		return fmt.Errorf("kubeapi: the API server address %q carries a query or fragment", server)
+		return fmt.Errorf("kubeapi: the API server address carries a query or fragment")
 	}
 	return nil
 }

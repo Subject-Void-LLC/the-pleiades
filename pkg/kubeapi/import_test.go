@@ -121,3 +121,30 @@ func FuzzImport(f *testing.F) {
 		}
 	})
 }
+
+// TestImport_NeverQuotesACredentialInTheServer: an import's errors reach an
+// API response, a log and a terminal, so a server address carrying a
+// password or a token in its query is refused without being repeated, in
+// every branch that refuses it, including one net/url cannot parse, whose
+// own error would repeat the raw address.
+func TestImport_NeverQuotesACredentialInTheServer(t *testing.T) {
+	const secret = "s3cr3tpass77"
+	for _, server := range []string{
+		"http://admin:" + secret + "@10.0.0.1:8080",
+		"https://admin:" + secret + "@10.0.0.1:notaport",
+		"https://admin:" + secret + "@10.0.0.1:6443",
+		"https://10.0.0.1:6443/?token=" + secret,
+		"https://10.0.0.1:6443/#" + secret,
+		"https:///" + secret,
+	} {
+		cfg := strings.Replace(kubeconfig("", "    token: t\n"), "https://10.0.0.1:6443", server, 1)
+		_, err := Import([]byte(cfg), "")
+		if err == nil {
+			t.Errorf("server %q was accepted", server)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("server %q: the refusal repeats the secret: %v", server, err)
+		}
+	}
+}
