@@ -94,6 +94,9 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramForce, err)
 	}
+	if err := checkName(name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -123,9 +126,9 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if changed {
 		args := []string{"docker", "rm"}
 		if force {
-			args = append(args, "-f")
+			args = append(args, "--force")
 		}
-		if err := runDockerCmd(ctx, conn, append(args, name)); err != nil {
+		if err := runDockerCmd(ctx, conn, append(args, "--", name)); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		after = containerState{}

@@ -40,10 +40,12 @@ package docker
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -85,22 +87,99 @@ func (s containerState) Map() map[string]any {
 	return map[string]any{"exists": s.exists, "status": s.status}
 }
 
-// queryContainer asks docker inspect for a container's status, treating
-// any non-zero exit as absent. docker inspect gives no separate exit
-// code for "no such container" the way getent's 2 does
-// (identity/user/user.go's queryUser); this settles for the same answer
-// internal/catalog/fs's queryMount does for findmnt's identical lack of
-// one.
+// queryContainer asks docker inspect for a container's id and status.
+// docker inspect gives no separate exit code for "no such container" the
+// way getent's 2 does (identity/user/user.go's queryUser), so absence is
+// read from its message instead (noSuchContainer).
+//
+// Only docker's own "No such container" answer reads as absent. Any other
+// non-zero exit (a daemon that is down, a socket the login cannot open) is
+// "could not look", which is an error and never an absence: read as one, it
+// had run create a container on an engine it had not reached, and stop and
+// remove report a container they could not see as already gone. Measured
+// against Docker 29.8 on 2026-10-14: a missing container exits 1 with
+// "No such container: NAME", an unreachable daemon exits 1 with "failed to
+// connect to the docker API".
+//
+// The name follows "--", so a value that begins with "-" can never be read
+// as an option; checkName refuses one before this runs anyway.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--format", "{{.Id}} {{.State.Status}}", name}))
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}}", "--", name}))
 	if err != nil {
 		return containerState{}, err
 	}
 	if result.ExitCode != 0 {
-		return containerState{}, nil
+		if noSuchContainer(result) {
+			return containerState{}, nil
+		}
+		return containerState{}, fmt.Errorf("docker inspect could not read container %s (exit %d): %s", name, result.ExitCode, failureDetail(result))
 	}
 	id, status, _ := strings.Cut(strings.TrimSpace(result.Stdout), " ")
 	return containerState{exists: true, status: status, id: id}, nil
+}
+
+// noSuchContainer reports whether a failed docker inspect said the container
+// does not exist, which the daemon words as "No such container" (and older
+// CLIs, inspecting with no --type, as "No such object").
+func noSuchContainer(result remoteexec.Result) bool {
+	text := strings.ToLower(result.Stderr)
+	return strings.Contains(text, "no such container") || strings.Contains(text, "no such object")
+}
+
+// restartPolicyPattern is every restart policy docker run accepts: no,
+// always, unless-stopped, and on-failure with an optional retry count.
+var restartPolicyPattern = regexp.MustCompile(`^(no|always|unless-stopped|on-failure(:[0-9]{1,9})?)$`)
+
+// checkName refuses a container name no engine would give a container
+// (containerengine.ValidName's grammar), before anything reaches the device.
+// The grammar starts with a letter or digit, so no name can be read as an
+// option, and holds no whitespace or shell metacharacter.
+func checkName(name string) error {
+	return containerengine.ValidName("container", name)
+}
+
+// checkRunParams refuses, before anything reaches the device, a value docker
+// run would read as something other than what the runbook wrote: an image
+// that is not an image reference (containerengine.ValidImage), a restart
+// policy docker does not have, or a port or volume that is empty, begins
+// with "-" or holds a control character. Each flag also travels in its
+// equals form (--publish=VALUE), which binds the value to its flag whatever
+// it holds, so the check is the first of two guards rather than the only one.
+func checkRunParams(image string, ports, volumes []string, restartPolicy string) error {
+	if err := containerengine.ValidImage(image); err != nil {
+		return fmt.Errorf("%s: %w", paramImage, err)
+	}
+	if restartPolicy != "" && !restartPolicyPattern.MatchString(restartPolicy) {
+		return fmt.Errorf("%s %q is not one of no, always, unless-stopped or on-failure[:N]", paramRestartPolicy, restartPolicy)
+	}
+	for _, list := range []struct {
+		param  string
+		values []string
+	}{{paramPorts, ports}, {paramVolumes, volumes}} {
+		for _, v := range list.values {
+			if err := checkFlagValue(v); err != nil {
+				return fmt.Errorf("%s: %w", list.param, err)
+			}
+		}
+	}
+	return nil
+}
+
+// checkFlagValue refuses a flag's value that is empty, begins with "-", or
+// holds a control character or a NUL byte.
+func checkFlagValue(v string) error {
+	if v == "" {
+		return fmt.Errorf("an entry is empty")
+	}
+	if v[0] == '-' {
+		return fmt.Errorf("%q begins with \"-\", which docker would read as an option", v)
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%q holds a control character", v)
+		}
+	}
+	return nil
 }
 
 // envParam reads the env param as a map of string keys to string
@@ -157,15 +236,22 @@ func checkEnvEntry(name, value string) error {
 // went as -e NAME=value, where any user on the host could read them with
 // ps while the command ran, and where a failed run quoted them back in its
 // error (finding S2). They go as an env file on standard input instead
-// (--env-file /dev/stdin), which the docker CLI reads before it creates the
+// (--env-file=/dev/stdin), which the docker CLI reads before it creates the
 // container; entries checkEnvEntry refused never reach here.
+//
+// Every flag takes its value in the equals form (--name=web), which binds the
+// value to its flag whatever it holds, and "--" ends the options before the
+// image, so neither an image nor anything after it is ever read as an option
+// (LESSONS_LEARNED 137: quoting stops a shell, not option parsing). The
+// command after the image is the container's own, where a leading "-" is
+// ordinary ("nginx -g ...").
 func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) (argv []string, stdin string) {
-	args := []string{"docker", "run", "-d", "--name", name}
+	args := []string{"docker", "run", "-d", "--name=" + name}
 	for _, p := range ports {
-		args = append(args, "-p", p)
+		args = append(args, "--publish="+p)
 	}
 	for _, v := range volumes {
-		args = append(args, "-v", v)
+		args = append(args, "--volume="+v)
 	}
 	if len(env) > 0 {
 		keys := make([]string, 0, len(env))
@@ -180,13 +266,13 @@ func dockerRunArgs(name, image string, command, ports, volumes []string, env map
 			file.WriteString(env[k])
 			file.WriteByte('\n')
 		}
-		args = append(args, "--env-file", "/dev/stdin")
+		args = append(args, "--env-file=/dev/stdin")
 		stdin = file.String()
 	}
 	if restartPolicy != "" {
-		args = append(args, "--restart", restartPolicy)
+		args = append(args, "--restart="+restartPolicy)
 	}
-	args = append(args, image)
+	args = append(args, "--", image)
 	return append(args, command...), stdin
 }
 

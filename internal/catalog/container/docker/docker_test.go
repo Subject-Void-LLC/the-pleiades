@@ -69,6 +69,10 @@ type containerFixture struct {
 	stopFailStream string
 	rmExit         int
 	rmFailStream   string
+
+	// inspectUnreachable makes docker inspect fail the way it does when the
+	// CLI cannot reach its daemon, which is not an absent container.
+	inspectUnreachable bool
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -101,6 +105,11 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 	script := `#!/bin/sh
 case "$1" in
   inspect)
+    # A daemon the CLI cannot reach, worded as Docker 29 words it.
+    if [ "$FAKE_INSPECT_UNREACHABLE" = "1" ]; then
+      printf 'failed to connect to the docker API at unix:///var/run/docker.sock\n' >&2
+      exit 1
+    fi
     status="$FAKE_STATUS"
     # A container a successful run created exists afterwards, running, as
     # it would on a real daemon.
@@ -108,19 +117,25 @@ case "$1" in
       FAKE_EXISTS=1
       status=running
     fi
+    template=""
+    last=""
+    for a in "$@"; do
+      case "$a" in --format=*) template="${a#--format=}" ;; esac
+      last="$a"
+    done
     if [ "$FAKE_EXISTS" = "1" ]; then
-      # Render --format as the real CLI does: $2 is --format, $3 the template.
-      printf '%s\n' "$3" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/"
+      # Render --format as the real CLI does.
+      printf '%s\n' "$template" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/"
       exit 0
     fi
-    printf 'Error: No such object\n' >&2
+    printf 'Error response from daemon: No such container: %s\n' "$last" >&2
     exit 1
     ;;
   run)
     # Read an env file from standard input the way the real CLI does, so a
     # test sees exactly what reached it there.
     case " $* " in
-      *" --env-file /dev/stdin "*) cat > "$FAKE_RECORD.env" ;;
+      *" --env-file=/dev/stdin "*) cat > "$FAKE_RECORD.env" ;;
     esac
     printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
@@ -184,6 +199,7 @@ esac
 	t.Setenv("FAKE_STOP_FAIL_STREAM", fixture.stopFailStream)
 	t.Setenv("FAKE_RM_EXIT", strconv.Itoa(fixture.rmExit))
 	t.Setenv("FAKE_RM_FAIL_STREAM", fixture.rmFailStream)
+	t.Setenv("FAKE_INSPECT_UNREACHABLE", boolEnv(fixture.inspectUnreachable))
 
 	opts := remoteexectest.Options{}
 	if budget >= 0 {
@@ -337,7 +353,7 @@ func TestRun_AbsentCreatesContainer(t *testing.T) {
 		t.Fatalf("invocations = %v", calls)
 	}
 	call := calls[0]
-	for _, want := range []string{"-d", "--name web", "-p 8080:80", "-v /data:/data", "--env-file /dev/stdin", "--restart unless-stopped", "nginx:1.27", "daemon off;"} {
+	for _, want := range []string{"-d", "--name=web", "--publish=8080:80", "--volume=/data:/data", "--env-file=/dev/stdin", "--restart=unless-stopped", " -- nginx:1.27 nginx -g daemon off;"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("call = %q, want it to contain %q", call, want)
 		}
@@ -379,7 +395,7 @@ func TestRemove_TheIDGuardRefusesAnotherContainerOfTheName(t *testing.T) {
 	if err != nil || !result.Changed {
 		t.Fatalf("remove with the container's own id = %+v, %v", result, err)
 	}
-	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "docker rm web" {
+	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "docker rm -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -594,7 +610,7 @@ func TestStop_RunningStops(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker stop web" {
+	if len(calls) != 1 || calls[0] != "docker stop -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -697,7 +713,7 @@ func TestRemove_PresentRemoves(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker rm web" {
+	if len(calls) != 1 || calls[0] != "docker rm -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -708,7 +724,7 @@ func TestRemove_ForcePassesFlag(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker rm -f web" {
+	if len(calls) != 1 || calls[0] != "docker rm --force -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }

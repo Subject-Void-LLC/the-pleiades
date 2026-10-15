@@ -114,6 +114,12 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	restartPolicy := sdk.StringParam(params, paramRestartPolicy)
+	if err := checkName(name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := checkRunParams(image, ports, volumes, restartPolicy); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {

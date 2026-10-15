@@ -81,6 +81,9 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	if err := checkName(name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -99,7 +102,7 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	after := before
 	if changed {
-		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", name}); err != nil {
+		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", "--", name}); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		if after, err = queryContainer(ctx, conn, name); err != nil {

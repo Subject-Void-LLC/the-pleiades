@@ -45,6 +45,29 @@ func TestRegistryHostOf(t *testing.T) {
 
 const sixtyFourHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+// TestValidImage admits the references an engine accepts and refuses every
+// hostile value a command line would read as an option or a shell would
+// act on.
+func TestValidImage(t *testing.T) {
+	for _, ok := range []string{
+		"alpine", "nginx:1.27", "library/alpine:3.20", "ghcr.io/org/app:1", "localhost:5000/app",
+		"registry.example.com:5000/a/b@sha256:" + sixtyFourHex, "alpine@sha256:" + sixtyFourHex,
+	} {
+		if err := ValidImage(ok); err != nil {
+			t.Errorf("ValidImage(%q) = %v, want it accepted", ok, err)
+		}
+	}
+	for _, bad := range []string{
+		"", "-", "--privileged", "-v=/:/host", "--network=host", "-it",
+		"alpine;id", "alpine && id", "$(id)", "`id`", "alpine id", "alpine\nid", "Alpine",
+		"alpine:", "@sha256:" + sixtyFourHex, "alpine\x00",
+	} {
+		if err := ValidImage(bad); err == nil {
+			t.Errorf("ValidImage(%q) accepted a hostile reference", bad)
+		}
+	}
+}
+
 // TestRegistryAuth encodes the account for the image's own registry and
 // nothing for any other.
 func TestRegistryAuth(t *testing.T) {
