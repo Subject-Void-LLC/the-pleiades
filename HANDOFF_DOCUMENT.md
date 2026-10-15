@@ -50,6 +50,13 @@ running them with the tree read-only.
   this handoff, with the result in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
   `-race` on its own, the live k3s session tests and the real-Docker check test included.
 
+### Pull request #56
+
+Opened 2026-10-15 at `4e73ba28` (33 commits, including `chore/pr-check-receipt`'s four). `containers (2)` failed
+before any test: CI's pull step asked Docker Hub for a fake image ID a docker test names (FAILURE_PATTERNS 465, a
+repeat of 416). Fixed by `0a364b4b` (the scanner refuses image IDs) and `89f7ad2a` (`make pr-check` asks a registry
+for every image CI will pull). The other checks had passed or were still running when it failed.
+
 ### Still listed, not built
 
 - `kubeapi.bound` and `containerengine.truncate` could move onto `remoteexec.Excerpt`.

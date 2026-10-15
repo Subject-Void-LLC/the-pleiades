@@ -12154,3 +12154,21 @@ the seam the refusal sits in.
 `onboard.AllowLocalEngine` is gone; `TestLocalEngine_IsTheEnginePortsOneSwitch` fails when onboarding keeps its own.
 
 **Lesson.** See LESSONS 281.
+
+## 465. CI's pull step asked Docker Hub for a fake image ID a test had named (a repeat of 416)
+
+**Symptom.** Pull request #56's `containers (2)` job failed before any test ran: "pull access denied for sha256,
+repository does not exist", three times, for `sha256:9f2c0e6a...`.
+
+**Root cause.** `tools/testimages` keeps the value of any constant whose name contains `Image`, and
+`internal/catalog/container/docker`'s tests name a fake image ID `fakeImageID`; an image ID has `name:tag`'s shape
+(a repository called `sha256`, a 64-character tag). Why 416's fix did not hold: it refused one shape a non-image
+can take (a name with no letter, after a uid:gid pair) and left the class open, a guess from a variable's name; and
+the step that would have caught either, the pull, ran only in CI, so `make pr-check` passed both times.
+
+**Fix.** `0a364b4b`: an image ID (`sha256:<64 hex>`, `sha512:<128 hex>`) is refused by the scanner, since no
+registry serves one under any name. `89f7ad2a`: `make pr-check` runs `tools/testimages -served` over every container
+package, asking a registry for the manifest of each image this machine's engine lacks, so the next shape the guess
+admits fails before a push. With the scanner's fix reverted, that step names the fake ID on the real list.
+
+**Lesson.** See LESSONS 282.

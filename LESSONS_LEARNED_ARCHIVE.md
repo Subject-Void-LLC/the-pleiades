@@ -5634,3 +5634,14 @@ records the same fact, and read that one instead.
 
 **Why.** FAILURE_PATTERNS 464: the engine port's new local-carrier refusal broke onboarding's live test, which
 only `make pr-check` ran; onboarding already had a switch for the same fact.
+
+## 282. When a guard guesses from a name, refuse by what the value is, and run the step that would catch a wrong guess before the push
+
+**Rule.** A heuristic input (every constant whose name contains `Image`) admits a new non-image each time someone
+names a value that way; patching the shape that failed leaves the next shape open. Refuse values by what they are
+(an image ID is a content address no registry serves), and move the step that checks the guess's output against
+the real world (does a registry serve it) into the local pre-push gate, in its cheapest form (a manifest lookup
+rather than a pull).
+
+**Why.** FAILURE_PATTERNS 465, a repeat of 416: a uid:gid pair, then a fake image ID, each reached CI's pull step
+because only CI ran it.
