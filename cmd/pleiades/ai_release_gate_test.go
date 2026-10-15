@@ -335,3 +335,59 @@ func TestCLI_AIMethodsHaveReferencePages(t *testing.T) {
 		}
 	}
 }
+
+// TestCLI_AIExampleChecksWithoutChanging runs examples/ai_lab in check
+// mode against real HTTP servers speaking Ollama's API: the example's
+// providers are pointed at them and onboarded, and the check calls no
+// model, loads nothing, and writes nothing to the project.
+func TestCLI_AIExampleChecksWithoutChanging(t *testing.T) {
+	workstation, lab := aitest.NewOllama(t, "qwen3:14b"), aitest.NewOllama(t, "qwen3:14b")
+	dir := t.TempDir()
+	src := filepath.Join("..", "..", "examples", "ai_lab", "pleiades")
+	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	inv := filepath.Join(dir, "inventory.yaml")
+	data, err := os.ReadFile(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointed := strings.NewReplacer("http://127.0.0.1:11434", workstation.URL, "http://127.0.0.1:11435", lab.URL).Replace(string(data))
+	if err := os.WriteFile(inv, []byte(pointed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := personEnv(nil)
+	for _, name := range []string{"workstation", "lab-ollama"} {
+		if out, err := runPleiadesWithEnv(t, dir, env, "onboard", name); err != nil {
+			t.Fatalf("onboard %s: %v\n%s", name, err, out)
+		}
+	}
+	if out, err := runPleiadesWithEnv(t, dir, env, "validate", "runbooks/triage.yaml"); err != nil || !strings.Contains(out, "no issues found") {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+	rep, raw, code := runPleiadesJSON(t, dir, "run", "runbooks/triage.yaml", "--mode", "check")
+	want := []string{"ok", "would_change", "would_change", "would_change"}
+	if code != 0 || len(rep.Tasks) != len(want) {
+		t.Fatalf("check: exit %d\n%s", code, raw)
+	}
+	for i, w := range want {
+		if rep.Tasks[i].Status != w {
+			t.Errorf("task %s: %s, want %s", rep.Tasks[i].Name, rep.Tasks[i].Status, w)
+		}
+	}
+	for _, host := range []*aitest.Ollama{workstation, lab} {
+		for _, r := range host.Requests() {
+			if !strings.HasPrefix(r, "GET ") {
+				t.Errorf("the check sent %s", r)
+			}
+		}
+		if _, memory := host.State(); len(memory) != 0 {
+			t.Errorf("the check loaded %v", memory)
+		}
+	}
+	for _, p := range []string{"ai/usage", "ai/review", ".pleiades/prompt-versions.json"} {
+		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
+			t.Errorf("the check wrote %s", p)
+		}
+	}
+}

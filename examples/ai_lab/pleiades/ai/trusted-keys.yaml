@@ -1,0 +1,5 @@
+# Public keys trusted to sign prompts, each for the uses its role lists.
+# Make a key with `pleiades ai prompt keygen --out <outside this project>`
+# and paste the entry it prints here. Until one is listed, a signed prompt
+# cannot be verified, and a use whose signing is required refuses to run.
+keys: []
