@@ -452,6 +452,19 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted (a repeat of 239)
 448. pkg/tftpxfer's Get timed out on macOS twice running, and the cause is still unknown
 449. A touched package CI could not floor-check was left out of the pre-push measurement
+450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
+451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
+452. The engine drops a failed task's undo, so a docker run that created a container and failed to start it left it unrecoverable
+453. The docker CLI methods buffered whatever the device wrote and copied all of stderr into their errors (a repeat of 431)
+454. The docker CLI methods skipped the engine identity pin container.docker.exec checks
+455. A registry account a method obtained was never masked on the command line, and its encoded header nowhere (a repeat of 394)
+456. Controller onboarding lent any organization's Kubernetes credential to a record naming its address, under the record's authority and route
+457. A refused server address was quoted, password included, into the import API's response
+458. HasEmbeddedSecret checked only a URL's password, so a token in the user position passed
+459. The README and start-here counts drifted 22 methods behind the registry with nothing to notice
+460. Session-budgeted tests kept passing after a new first command, now testing the step before the one they name
+461. The local engine probe's unit tests read the developer's real Docker socket first
+462. A failed Podman start's cleanup ran on an unbounded context while close() bounded the same script
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

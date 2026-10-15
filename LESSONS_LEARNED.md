@@ -307,6 +307,9 @@ story, per `.AGENTS/AGENTS.md`.
 272. **Wait for a container's own startup to finish before acting inside it (2026-10-14).**
 273. **A repeat of 114: a guard over a hand-kept list reads the property the list stands for, not a proxy for it, and a known miss written beside it is its defect (2026-10-14).**
 274. **Before writing a failure pattern or a lesson, search the archive for its class; a repeat names what it repeats and why that fix did not hold (2026-10-14).**
+275. **A test that cuts a connection at its Nth step tests whatever is Nth: when a step is added or removed, re-aim every budgeted test at the step its name says, and give the new step its own (2026-10-14).**
+276. **A lookup that lends a stored secret takes the organization, the authority and the route from the secret's owner, never from the borrowing record, whose writer is somebody else (2026-10-14).**
+277. **A secret check asks where the receiving protocol accepts a credential, not where a parser files one: HTTP takes a token as the user name (2026-10-14).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

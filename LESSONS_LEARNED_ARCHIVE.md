@@ -5563,3 +5563,31 @@ warned about), and lesson 273 restated 114 almost word for word. An index read b
 each; recording them as new hid that the earlier fixes had not held, which is the one thing a repeat says. Asked "do
 we see a trend?", the answer was in the records and not in their titles.
 
+
+## 275. A test that cuts a connection at its Nth step tests whatever is Nth; adding a step moves every such test
+
+**Rule.** When a test fails a named step by budget (the Nth session, the Nth request), adding or removing a step
+before it silently re-aims the test at a neighbor, and it usually still passes. Treat a change in the sequence as
+a change to every budgeted test: re-aim each so it fails the step its name says, and give the new step its own.
+
+**Why.** FAILURE_PATTERNS 460: adding `docker info` as the docker methods' first command left three budgeted tests
+green while failing the step before the one their names said, and only one went red.
+
+## 276. A lookup that lends a stored secret takes every fact deciding where it goes from the store's side
+
+**Rule.** When a record with no secret of its own borrows one from a store (by matching an address, a host, a
+name), the organization, the authority it is verified against and the route it travels are decided by what the
+secret's owner wrote, never by the record: the record's writer is somebody else, and each of those facts is a
+way to send the secret to them. Refuse when the record's facts cannot be squared with the store's.
+
+**Why.** FAILURE_PATTERNS 456: a cluster record naming another organization's API server borrowed that
+organization's token, verified against the record's own authority and carried through the record's route.
+
+## 277. A secret check asks where the protocol accepts a credential, not where the parser files one
+
+**Rule.** Before writing "this value carries no secret", list the positions the receiving protocol accepts a
+credential in, and check each; a parser's field names are one program's opinion. HTTP takes a token as the user
+name, and an scp-like git URL's parser files a password inside the user.
+
+**Why.** FAILURE_PATTERNS 458: `HasEmbeddedSecret` checked `endpoint.Password`, so `https://<token>@host` and
+`git:password@host:path` passed and were stored in plain text and returned by the API.

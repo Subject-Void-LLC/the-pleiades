@@ -11924,3 +11924,191 @@ required for a branch push.
 
 **Lesson.** See LESSONS 271.
 
+
+## 450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
+
+**Symptom.** A verification sweep of the container methods (2026-10-14) found `container.docker.run`, `stop` and
+`remove` building `docker run -d --name NAME ... IMAGE CMD` with every value quoted and none checked, and no `--`
+before the operands. `image: --privileged` with `command: [alpine, sh]` created a privileged container; a name of
+`--help` made `docker inspect` exit 0, read as "exists".
+
+**Root cause.** Quoting stops a shell, not option parsing (LESSONS 137). 148 fixed the one `cd` in
+`internal/catalog/exec`'s command line and 137 stated the rule, but the sweep that followed looked at shell
+commands, and these methods build an argv for `remoteexec.QuoteCommand`, which reads as already safe.
+
+**Fix.** `eff5b82d`: names through `containerengine.ValidName`, images through the new `containerengine.ValidImage`
+(the distribution reference grammar), restart policies against docker's set, ports and volumes refused with a
+leading `-` or a control character, all before connecting; every flag in its equals form and `--` before the
+image and the name. Hostile-value table tests fail on the old code.
+
+**Lesson.** A repeat of 148: its fix covered the instance, and the rule's sweep searched by the instance's shape
+(a shell string) rather than by what the code does (put a caller's value where a program reads options).
+
+## 451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
+
+**Symptom.** `queryContainer` treated every non-zero `docker inspect` exit as "no such container". Docker 29.8
+exits 1 for a missing container ("No such container") and also for a daemon it cannot reach ("failed to connect to
+the docker API"), measured 2026-10-14. With the daemon unreachable, `run` went on to `docker run`, and `stop` and
+`remove` reported success for a container they never saw.
+
+**Root cause.** LESSONS 138's second half, "I could not look" collapsed into "it is not there", in a module 138
+never reached.
+
+**Fix.** `eff5b82d`: only docker's own "No such container" (or "No such object") is absence; anything else is an
+error naming the exit and the bounded text.
+
+**Lesson.** A predicate that can fail to evaluate has three answers, and the message is the only place docker
+gives the third.
+
+## 452. The engine drops a failed task's undo, so a docker run that created a container and failed to start it left it unrecoverable
+
+**Symptom.** `docker run -d` creates a container before starting it. A start that failed (a host port already
+taken) left it "created" under the name, and the method returned the error. A second inspect failing after a
+successful run did the same. The engine keeps a method's stats only when it succeeds (`collection_action.go`), so
+no undo was journaled, and the next `container.docker.run` found the name, reported no change, and never started
+it. An inspect that failed after the create also recorded an empty id, which disables the remove's guard.
+
+**Root cause.** The method assumed an inverse recorded before returning an error would survive.
+
+**Fix.** `921047c8`: a failed run removes the container it left "created", by id, never one docker said was
+already in use and never one in another state, and says so; the undo is pinned to the id `docker run -d` printed,
+validated as 64 hex digits, and a failed read back after a successful create is a warning, not a failure.
+
+**Lesson.** Whatever a method records is dropped with its failure: a change it cannot undo by returning success
+must be undone, or completed, before it returns the error.
+
+## 453. The docker CLI methods buffered whatever the device wrote and copied all of stderr into their errors (a repeat of 431)
+
+**Symptom.** `remoteexec.Conn.Run` buffers a command's output without limit, and `runDockerCmd` quoted all of
+stderr, control characters included, into the error.
+
+**Root cause.** LESSONS 266 (from 431) bounds and escapes remote text at the port it comes through; 431's fix was
+the Kubernetes port, and the SSH output port was not swept for the same class.
+
+**Fix.** `43f7ad70`: `remoteexec.RunWithStdinBounded` cuts a command off past its bound, taints the connection and
+fails with `ErrOutputTooLarge`; `remoteexec.Excerpt` bounds and escapes text as `pkg/kubeapi` does; the docker
+methods use 1 MiB per stream and 512 bytes of escaped failure text. Every other SSH method still uses the
+unbounded `Run`, listed for the owner as a contract change.
+
+**Lesson.** A repeat of 431: the rule names every port remote text comes through, and the fix covered one.
+
+## 454. The docker CLI methods skipped the engine identity pin container.docker.exec checks
+
+**Symptom.** `container.docker.exec` compared the engine it reached with the identity onboarding pinned; `run`,
+`stop` and `remove` ran whatever engine the login's own docker configuration pointed at (`DOCKER_HOST`, a context).
+
+**Root cause.** The sibling-guard class (LESSONS 244, FAILURE_PATTERNS 352): one path of two carried the guard.
+
+**Fix.** `a1c248f7`: each asks `docker info --format={{.ID}}` and refuses an engine that is not the pinned one, and a
+device with no pin, naming `pleiades onboard`.
+
+**Lesson.** When a guard lands on one method of a family, the family is the unit to check.
+
+## 455. A registry account a method obtained was never masked on the command line, and its encoded header nowhere (a repeat of 394)
+
+**Symptom.** The Crawl tier masked what `InjectSecrets` handed a method; a registry account a method asked for
+(`sdk.RegistryCredentials`) was not in that set, and the Runner masked the password but not the `X-Registry-Auth`
+value, which carries it base64-encoded.
+
+**Root cause.** 394 fixed the credential a method is handed at the start; a secret obtained during the run had no
+way into the mask (LESSONS 29: the check belongs at the call site that adds the value).
+
+**Fix.** `26c89fe2`: `sdk.SecretRegistrar`; the engine's context registers the password it answers with,
+`containerengine.RegistryAuth` registers the header, and the executor masks both on failure and on success; the
+Runner computes the header with `containerengine.EncodeRegistryAuth`.
+
+**Lesson.** A repeat of 394 for secrets that arrive after the run starts: every way a secret reaches a method is a
+way into the mask.
+
+## 456. Controller onboarding lent any organization's Kubernetes credential to a record naming its address, under the record's authority and route
+
+**Symptom.** A cluster with no credential of its own onboarded with the one stored Kubernetes credential whose host
+matched its `api_server`, searched across every organization; the record's pinned authority won over the
+credential's, and its route carried the connection. Whoever could write and onboard a device could read another
+organization's cluster facts, and with their own authority and a hop they controlled could receive its token.
+Reasoned from the code, not reproduced; the template-bound native path had the same authority rule.
+
+**Root cause.** The facts that decide where a lent secret goes (organization, authority, route) were read from the
+record, whose writer is not the secret's owner. Devices also carried no organization in practice (the import
+created them without one).
+
+**Fix.** `cab66aef`: `resolve.BorrowedKubernetesSecrets` lends only within the cluster's organization and refuses a
+cluster in none, behind a route, or pinning another authority; the import puts the cluster in its credential's
+organization (`AssignDeviceOrganization`, which never moves a device between organizations); a template's
+credential is checked only against its own authority, the record's being dropped from the dispatch.
+
+**Lesson.** See LESSONS 276.
+
+## 457. A refused server address was quoted, password included, into the import API's response
+
+**Symptom.** `kubeapi.checkServer` quoted the address in every refusal but one and wrapped `net/url`'s parse error,
+which repeats the raw address, so `http://user:pass@host`, an unparsable address with a password, or a token in a
+query came back in `POST /inventory/kubeconfig-imports`' 422 and the CLI's message.
+
+**Root cause.** The class of 298 and LESSONS 266: a refusal that quotes the input it refused.
+
+**Fix.** `ca204d1f`: the user name is refused first, a parse failure gives only the parser's reason, and no other
+refusal quotes the address.
+
+**Lesson.** A validator's error quotes what it judged; when the input can carry a secret, it names the problem
+instead.
+
+## 458. HasEmbeddedSecret checked only a URL's password, so a token in the user position passed
+
+**Symptom.** `https://<token>@github.com/org/repo.git` passed the project write check, was stored in the plain
+`scm_url` column and returned by the API and the web UI; git sends the user as Basic auth and a forge accepts a
+token there. go-git also reads an scp-like `git:password@host:path` userinfo whole, so its password arrived in the
+user and passed too (probed 2026-10-14).
+
+**Root cause.** The check asked where the parser files a password, not where the protocol accepts a credential.
+
+**Fix.** `f5512ff5`: any password, any user over http or https, and a colon in an ssh user count; stored rows keep
+syncing with a warning, and the API and UI show them through `RedactedSourceURL`.
+
+**Lesson.** See LESSONS 277.
+
+## 459. The README and start-here counts drifted 22 methods behind the registry with nothing to notice
+
+**Symptom.** Both said 82 registered, 79 implemented, 16 namespaces and 70 checkable; the registry had 104, 101,
+17 and 91, and the start-here page's per-namespace list had no `virt`.
+
+**Root cause.** Prose counts with no test (LESSONS 99: anchor one side outside the implementation).
+
+**Fix.** `a7b36716`: corrected, and `TestStatusCounts_MatchTheRegistry` reads every count both documents state.
+
+**Lesson.** A number a document states about the code is a claim the build can check.
+
+## 460. Session-budgeted tests kept passing after a new first command, now testing the step before the one they name
+
+**Symptom.** The docker tests cut the SSH connection at the Nth session to fail a named step
+(`TestRun_ConnectionDiesRunning` at session 1). Adding `docker info` as the first command moved every cut one step
+earlier; three tests still passed, now failing the step before the one their names say, and one failed.
+
+**Root cause.** A test indexed by a count tests whatever step that count lands on.
+
+**Fix.** `a1c248f7`: each budget moved by one, and a test of its own for the new step.
+
+**Lesson.** See LESSONS 275.
+
+## 461. The local engine probe's unit tests read the developer's real Docker socket first
+
+**Symptom.** `probeLocalEngines` tried `/var/run/docker.sock` and `/run/podman/podman.sock` before the test's own
+sockets, so its tests read this machine's daemon whenever one ran, and asserted loosely enough to pass either way.
+
+**Root cause.** A system path as a constant in code a unit test drives (LESSONS 148's shape).
+
+**Fix.** `42ec10bf`: the local system sockets are a variable the tests point at absent paths, and the tests assert
+the rootless engine they served is the one found.
+
+**Lesson.** A test that passes on any machine's state is not testing the state it set up.
+
+## 462. A failed Podman start's cleanup ran on an unbounded context while close() bounded the same script
+
+**Symptom.** Two cleanups ran one stop script; `close()` held it to ten seconds, the failed-start path to
+`context.Background()` with no deadline.
+
+**Root cause.** The sibling-guard class again (LESSONS 244).
+
+**Fix.** `42ec10bf`: one `stopService` with one bound, tested with a hanging `rm` on the harness shell's PATH.
+
+**Lesson.** Two copies of a cleanup drift; one helper cannot.
