@@ -67,7 +67,7 @@ var reachedBy = map[string][]Name{
 	TransportSSH:          {NameSSHTransport},
 	TransportWinRM:        {NameWinRM},
 	TransportNetconf:      {NameNetconf},
-	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider},
+	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider, NameCloudflareAPI},
 	TransportEngineLocal:  {NameEngineLocal},
 	TransportEngineSocket: {NameEngineSocket},
 	TransportEngineStdio:  {NameEngineStdio},
