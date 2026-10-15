@@ -45,4 +45,10 @@ type AIProject interface {
 	// its own credential, flattened as InjectSecrets flattens one. Any
 	// other device is refused, so this never yields a machine's login.
 	AIProvider(ctx context.Context, name string) (inventory.InventoryItem, map[string]string, error)
+	// AIDropped returns the parameters a provider rejected earlier in the
+	// run for one model, and AIDrop records another, so a dropped
+	// parameter is never sent to that provider for that model again in
+	// the run. Both are safe for concurrent use.
+	AIDropped(provider, model string) []string
+	AIDrop(provider, model, param string)
 }

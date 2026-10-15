@@ -12,7 +12,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -49,6 +51,9 @@ type aiProject struct {
 	devices     providerInventory
 	credentials credential.Store
 	versions    *promptsign.FileVersions
+	// dropped is, per provider and model, the parameters rejected this run.
+	mu      sync.Mutex
+	dropped map[[2]string]map[string]bool
 }
 
 // WithAIProject lets every Collection method of the run read prompt
@@ -257,6 +262,38 @@ func (c *runbookContext) AIProvider(ctx context.Context, name string) (pkginvent
 		c.RegisterSecret(v)
 	}
 	return item, secrets, nil
+}
+
+// AIDropped implements sdk.AIProject.
+func (c *runbookContext) AIDropped(provider, model string) []string {
+	if c.ai == nil {
+		return nil
+	}
+	c.ai.mu.Lock()
+	defer c.ai.mu.Unlock()
+	out := make([]string, 0, len(c.ai.dropped[[2]string{provider, model}]))
+	for p := range c.ai.dropped[[2]string{provider, model}] {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// AIDrop implements sdk.AIProject.
+func (c *runbookContext) AIDrop(provider, model, param string) {
+	if c.ai == nil {
+		return
+	}
+	c.ai.mu.Lock()
+	defer c.ai.mu.Unlock()
+	if c.ai.dropped == nil {
+		c.ai.dropped = map[[2]string]map[string]bool{}
+	}
+	key := [2]string{provider, model}
+	if c.ai.dropped[key] == nil {
+		c.ai.dropped[key] = map[string]bool{}
+	}
+	c.ai.dropped[key][param] = true
 }
 
 // lendAIProject gives rc the run's project, when it has one.

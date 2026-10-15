@@ -228,3 +228,25 @@ func mapValues(m map[string]string) []string {
 	}
 	return out
 }
+
+// TestAIProject_DropsLastTheRun: a parameter dropped by one task's call is
+// known to every later context of the run, for that provider and model
+// only.
+func TestAIProject_DropsLastTheRun(t *testing.T) {
+	e := &collectionActionExecutor{}
+	WithAIProject(t.TempDir(), nil, nil)(e)
+	first, second := NewRunbookContext(nil).(*runbookContext), NewRunbookContext(nil).(*runbookContext)
+	e.lendAIProject(first)
+	e.lendAIProject(second)
+	first.AIDrop("claude", "m1", "top_p")
+	first.AIDrop("claude", "m1", "temperature")
+	if got := second.AIDropped("claude", "m1"); !slices.Equal(got, []string{"temperature", "top_p"}) {
+		t.Errorf("dropped %v", got)
+	}
+	if got := second.AIDropped("claude", "m2"); len(got) != 0 {
+		t.Errorf("another model's drops: %v", got)
+	}
+	if got := NewRunbookContext(nil).(*runbookContext).AIDropped("claude", "m1"); got != nil {
+		t.Errorf("a context with no project: %v", got)
+	}
+}
