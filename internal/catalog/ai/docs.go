@@ -19,13 +19,15 @@ func callReturns() []collection.ReturnField {
 		{Name: "dropped", Type: "list of string", Returned: "success", Description: "Parameters the provider rejected, removed and never sent to it for that model again in the run."},
 		{Name: "estimate", Type: "dict", Returned: "in a check", Description: "What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and max_cost with its currency when the model is priced."},
 		{Name: "warnings", Type: "list of string", Returned: "when there is one", Description: "What the provider's record allows that a run must say: a key sent over plain http://, weakened TLS."},
+		{Name: "review", Type: "dict", Returned: "with review rules", Description: "The answer's review: not held, or approved with the key, the rules it matched, who decided and when; in a check, the rules and any decision already on record. A held answer is never returned: the task fails as held."},
+		{Name: "reused", Type: "bool", Returned: "when a decided answer is reused", Description: "True when the answer was approved earlier for this very request and returned from its review with no call; usage is the original call's."},
 	}
 }
 
 func chatDoc() collection.Doc {
 	params := aitask.DocParams(aitask.ParamModel)
 	params = append(params, aitask.DocParams(aitask.PromptParams...)...)
-	params = append(params, aitask.DocParams(aitask.ParamSigning, aitask.ParamResidency)...)
+	params = append(params, aitask.DocParams(aitask.ParamSigning, aitask.ParamResidency, aitask.ParamReview)...)
 	params = append(params, aitask.DocParams(aitask.OptionParams...)...)
 	params = append(params, aitask.DocParams(aitask.ParamUsageSink)...)
 	return collection.Doc{
@@ -33,7 +35,7 @@ func chatDoc() collection.Doc {
 		Description: "Sends messages, or a prompt bundle with optional untrusted input, to the model named on the ai_provider device the task targets, through its kind (ollama, anthropic, google, or any server speaking OpenAI's chat completions API), with the device's own key over its own TLS and no redirect followed. " +
 			"Before any call it refuses a use tagged local against a hosted provider, a kind needing a key the device does not have, and a bundle its signing policy does not admit; a parameter the kind does not accept is reported ignored and not sent, and one the provider rejects (a 400 naming it) is reported dropped, the call sent once more without it, and never sent again to that provider for that model in the run. " +
 			"Only rate limits, overload, server errors and a provider never reached are retried, with exponential backoff and jitter and honoring Retry-After, and nothing after the answer began streaming, which could bill twice. With schema the answer is asked for through the kind's structured output and checked against the schema before the task succeeds. " +
-			"Every call ends in a usage record, returned and, with usage_sink, appended to a file in the project; the messages and the answer are never in it. A signature says who approved a bundle's text and that it is unchanged; it is provenance and integrity, not a promise about what the model does with it. " +
+			"Every call ends in a usage record, returned and, with usage_sink, appended to a file in the project; the messages and the answer are never in it. With review rules, an answer crossing a threshold is held for a person before any later task can read it: asked at the terminal when someone is there, otherwise kept in the project's ai/review with the task failing as held until it is decided with pleiades ai review, after which running again reuses the decision with no second call; with nobody to ask at all it fails closed. A signature says who approved a bundle's text and that it is unchanged; it is provenance and integrity, not a promise about what the model does with it. " +
 			"A check makes no call: it validates the key, the residency, the parameters against the kind, the schema and the bundle's signature, and estimates the cost from the prompt's size and max_tokens. It reports changed, since a real run makes a counted call.",
 		Params:  params,
 		Returns: callReturns(),
@@ -46,7 +48,7 @@ func chatDoc() collection.Doc {
 }
 
 func routeDoc() collection.Doc {
-	params := aitask.DocParams(aitask.ParamUse, aitask.ParamRoutes)
+	params := aitask.DocParams(aitask.ParamUse, aitask.ParamRoutes, aitask.ParamReview)
 	params = append(params, aitask.DocParams(aitask.PromptParams...)...)
 	params = append(params, aitask.DocParams(aitask.OptionParams...)...)
 	params = append(params, aitask.DocParams(aitask.ParamUsageSink)...)

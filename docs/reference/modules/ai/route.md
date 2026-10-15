@@ -24,7 +24,8 @@ Routes a call by use: the routing table names, for each use, its residency (loca
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `use` | `string` | yes | - | The use to route: a key of routes. |
-| `routes` | `dict` | yes | - | The routing table: each use's residency (local or hosted, required), signing policy, and providers in fallback order, as {provider: <ai_provider device>, model}. A literal table is checked against the inventory at validate. |
+| `routes` | `dict` | yes | - | The routing table: each use's residency (local or hosted, required), signing policy, review rules (as review takes them; a task's add to the use's), and providers in fallback order, as {provider: <ai_provider device>, model}. A literal table is checked against the inventory at validate. |
+| `review` | `list of dict` | no | - | Review rules (human in the loop): thresholds on the answer, any one of which holds it for a person's decision before a later task can read it. Each is one of cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed. |
 | `messages` | `list of dict` | no | - | The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. One of messages, prompt and prompt_file. |
 | `prompt` | `dict` | no | - | A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file. |
 | `prompt_file` | `string` | no | - | A prompt bundle in the project by name: ai/prompts/<name>.json, with its signature, if any, in <name>.json.sig beside it. Crawl tier only. |
@@ -53,6 +54,8 @@ Routes a call by use: the routing table names, for each use, its residency (loca
 | `dropped` | `list of string` | success | Parameters the provider rejected, removed and never sent to it for that model again in the run. |
 | `estimate` | `dict` | in a check | What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and max_cost with its currency when the model is priced. |
 | `warnings` | `list of string` | when there is one | What the provider's record allows that a run must say: a key sent over plain http://, weakened TLS. |
+| `review` | `dict` | with review rules | The answer's review: not held, or approved with the key, the rules it matched, who decided and when; in a check, the rules and any decision already on record. A held answer is never returned: the task fails as held. |
+| `reused` | `bool` | when a decided answer is reused | True when the answer was approved earlier for this very request and returned from its review with no call; usage is the original call's. |
 | `provider` | `string` | success | The provider that answered. |
 | `model` | `string` | success | The model it was asked for. |
 | `use` | `string` | always | The use routed. |

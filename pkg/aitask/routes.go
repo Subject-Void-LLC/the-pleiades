@@ -30,18 +30,22 @@ type Step struct {
 }
 
 // Use is one use in a routing table: its residency (required), its
-// signing policy, and its providers in fallback order.
+// signing policy, its review rules, and its providers in fallback order.
 type Use struct {
 	Name      string
 	Residency string
 	Signing   promptsign.Policy
-	Steps     []Step
+	// Review are the use's review rules, which a task's can add to and
+	// never take from.
+	Review []Rule
+	Steps  []Step
 }
 
 // ParseRoutes reads a routing table: a mapping of use names to
 //
 //	residency: local | hosted        (required)
 //	signing: off | optional | required   (optional when absent)
+//	review: [<rule>, ...]           (ParseReview)
 //	providers:
 //	  - {provider: <ai_provider device>, model: <model>}
 //
@@ -79,9 +83,9 @@ func parseUse(name string, raw any) (Use, error) {
 	}
 	for k := range m {
 		switch k {
-		case "residency", "signing", "providers":
+		case "residency", "signing", "review", "providers":
 		default:
-			return Use{}, fmt.Errorf("%s is not residency, signing or providers", k)
+			return Use{}, fmt.Errorf("%s is not residency, signing, review or providers", k)
 		}
 	}
 	u := Use{Name: name}
@@ -95,6 +99,9 @@ func parseUse(name string, raw any) (Use, error) {
 	}
 	var err error
 	if u.Signing, err = promptsign.ParsePolicy(signing); err != nil {
+		return Use{}, err
+	}
+	if u.Review, err = ParseReview(m["review"]); err != nil {
 		return Use{}, err
 	}
 	steps, ok := m["providers"].([]any)

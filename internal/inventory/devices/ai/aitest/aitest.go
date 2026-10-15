@@ -177,8 +177,12 @@ type Context struct {
 	Versions  map[string]int64
 	Written   map[string][]byte
 	Providers map[string]inventory.InventoryItem
-	mu        sync.Mutex
-	dropped   map[string][]string
+	// Reviews are the reviews held, by key; Decide, when set, decides a
+	// held one at once, as a person at the terminal would.
+	Reviews map[string]sdk.Review
+	Decide  func(sdk.Review) sdk.ReviewStatus
+	mu      sync.Mutex
+	dropped map[string][]string
 }
 
 // NewContext is a context with nothing in its project.
@@ -290,3 +294,50 @@ func (v versions) Use(kind, name string, version int64) error {
 	}
 	return nil
 }
+
+// Decided implements sdk.Reviewer over the context's reviews.
+func (c *Context) Decided(key string) (sdk.Review, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.Reviews[key]
+	return r, ok, nil
+}
+
+// Hold implements sdk.Reviewer: Decide, when set, is the person at the
+// terminal; with none the review is kept pending, as the Crawl tier keeps
+// it with nobody there.
+func (c *Context) Hold(_ context.Context, r sdk.Review) (sdk.Review, error) {
+	r.Status = sdk.ReviewPending
+	if c.Decide != nil {
+		r.Status = c.Decide(r)
+		r.DecidedBy = "tester"
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Reviews == nil {
+		c.Reviews = map[string]sdk.Review{}
+	}
+	c.Reviews[r.Key] = r
+	return r, nil
+}
+
+// Unreviewed is a context with a project and no reviewer: a run with
+// nobody to ask, as a Walk Runner's is until Phase 27.
+type Unreviewed struct{ C *Context }
+
+func (u Unreviewed) InjectSecrets() map[string]string     { return u.C.InjectSecrets() }
+func (u Unreviewed) SetStat(k string, v any) error        { return u.C.SetStat(k, v) }
+func (u Unreviewed) EmitFact(k string, v any) error       { return u.C.EmitFact(k, v) }
+func (u Unreviewed) AITrustedKeys() ([]byte, bool, error) { return u.C.AITrustedKeys() }
+func (u Unreviewed) AIPrompt(n string) ([]byte, []byte, error) {
+	return u.C.AIPrompt(n)
+}
+func (u Unreviewed) AIPromptVersions() (sdk.PromptVersions, error) { return u.C.AIPromptVersions() }
+func (u Unreviewed) AIWrite(rel string, data []byte, appendTo bool) error {
+	return u.C.AIWrite(rel, data, appendTo)
+}
+func (u Unreviewed) AIProvider(ctx context.Context, n string) (inventory.InventoryItem, map[string]string, error) {
+	return u.C.AIProvider(ctx, n)
+}
+func (u Unreviewed) AIDropped(p, m string) []string { return u.C.AIDropped(p, m) }
+func (u Unreviewed) AIDrop(p, m, param string)      { u.C.AIDrop(p, m, param) }

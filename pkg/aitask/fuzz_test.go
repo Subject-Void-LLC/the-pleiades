@@ -39,3 +39,26 @@ func FuzzDelimit(f *testing.F) {
 		}
 	})
 }
+
+// FuzzReviewMatch: a model's answer is untrusted text, and every rule
+// reads it; none may panic, and each says the same thing twice.
+func FuzzReviewMatch(f *testing.F) {
+	for _, seed := range []string{"", `{"a":{"b":0.5}}`, `{"a":[1,2]}`, `[`, `{"a":1e999}`, `{"a":"x","a":"y"}`, "\x00\xff"} {
+		f.Add(seed, "length")
+	}
+	parsed, err := ParseReview([]any{
+		map[string]any{"field": "a.b", "below": 0.8}, map[string]any{"field": "a", "in": []any{"x", 1.0}},
+		map[string]any{"field": "a", "not_in": []any{map[string]any{"k": "v"}}}, map[string]any{"answer_matches": "(?i)a+b"},
+		map[string]any{"stop_reason": []any{"length"}}, map[string]any{"cost_over": 0.1},
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Fuzz(func(t *testing.T, answer, stop string) {
+		o := Outcome{Answer: answer, StopReason: stop, Cost: 0.2, Priced: true}
+		first := Reasons(parsed, o)
+		if again := Reasons(parsed, o); strings.Join(first, "\n") != strings.Join(again, "\n") {
+			t.Fatalf("reasons differ: %q then %q", first, again)
+		}
+	})
+}
