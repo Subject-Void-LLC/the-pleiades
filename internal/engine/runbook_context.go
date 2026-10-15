@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // runbookContext is the Crawl-tier sdk.RunbookContext handed to a Collection
@@ -41,6 +42,10 @@ type runbookContext struct {
 	// one container registry (sdk.RegistryCredentials), from the project's
 	// credential store, for the host the method names and no other.
 	registries credential.RegistryStore
+	// databases, when set, answers a method's request for a named database
+	// connection (sdk.DatabaseConnections), from the project's credential
+	// store, for the name the method asks for and no other.
+	databases credential.DatabaseStore
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.
 	route sdk.RouteDial
@@ -60,6 +65,7 @@ var (
 	_ FactCollector           = (*runbookContext)(nil)
 	_ sdk.ConnectionPooler    = (*runbookContext)(nil)
 	_ sdk.RegistryCredentials = (*runbookContext)(nil)
+	_ sdk.DatabaseConnections = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.
@@ -194,8 +200,8 @@ func NewCredentialRunbookContext(store credential.Store) RunbookContextFunc {
 	}
 }
 
-// withRegistries lets rc answer for container registries from store, when
-// the store keeps them.
+// withRegistries lets rc answer for container registries and named
+// database connections from store, when the store keeps them.
 func withRegistries(rc sdk.RunbookContext, store credential.Store) sdk.RunbookContext {
 	c, ok := rc.(*runbookContext)
 	if !ok {
@@ -204,7 +210,27 @@ func withRegistries(rc sdk.RunbookContext, store credential.Store) sdk.RunbookCo
 	if rs, ok := store.(credential.RegistryStore); ok {
 		c.registries = rs
 	}
+	if ds, ok := store.(credential.DatabaseStore); ok {
+		c.databases = ds
+	}
 	return c
+}
+
+// DatabaseConnection implements sdk.DatabaseConnections. Unlike a
+// registry, a connection a task names is required, so a store that cannot
+// be read is an error rather than an absent connection.
+func (c *runbookContext) DatabaseConnection(name string) (wire.DatabaseConnection, bool, error) {
+	if c.databases == nil {
+		return wire.DatabaseConnection{}, false, nil
+	}
+	conn, ok, err := c.databases.LookupDatabase(context.Background(), name)
+	if err != nil || !ok {
+		return wire.DatabaseConnection{}, false, err
+	}
+	// The password joins the run's masking set the moment it is handed out,
+	// as a registry password does.
+	c.RegisterSecret(conn.Password)
+	return conn, true, nil
 }
 
 // RegistryCredential implements sdk.RegistryCredentials. A store that
