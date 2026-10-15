@@ -73,6 +73,16 @@ type containerFixture struct {
 	// inspectUnreachable makes docker inspect fail the way it does when the
 	// CLI cannot reach its daemon, which is not an absent container.
 	inspectUnreachable bool
+
+	// runLeftover is the status of the container a failed docker run leaves
+	// under the name ("created" for a start that failed); empty leaves none.
+	runLeftover string
+	// runFailMessage replaces the fake's failure text, such as docker's own
+	// "is already in use" conflict.
+	runFailMessage string
+	// runStdout, when set, replaces the container id a successful docker run
+	// prints.
+	runStdout *string
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -117,6 +127,11 @@ case "$1" in
       FAKE_EXISTS=1
       status=running
     fi
+    # A container a failed run left behind, in the status the test chose.
+    if [ -f "$FAKE_RECORD.leftover" ]; then
+      FAKE_EXISTS=1
+      status="$(cat "$FAKE_RECORD.leftover")"
+    fi
     template=""
     last=""
     for a in "$@"; do
@@ -143,12 +158,18 @@ case "$1" in
     exit_code="${FAKE_RUN_EXIT:-0}"
     if [ "$exit_code" = "0" ]; then
       : > "$FAKE_RECORD.created"
+      # docker run -d prints the new container's id, as the real CLI does.
+      printf '%s\n' "${FAKE_RUN_STDOUT-$FAKE_ID}"
     fi
     if [ "$exit_code" != "0" ]; then
+      if [ -n "$FAKE_RUN_LEFTOVER" ]; then
+        printf '%s' "$FAKE_RUN_LEFTOVER" > "$FAKE_RECORD.leftover"
+      fi
+      message="${FAKE_RUN_FAIL_MESSAGE:-fake failure}"
       case "$FAKE_RUN_FAIL_STREAM" in
-        stdout) printf 'fake failure\n' ;;
+        stdout) printf '%s\n' "$message" ;;
         none) : ;;
-        *) printf 'fake failure\n' >&2 ;;
+        *) printf '%s\n' "$message" >&2 ;;
       esac
     fi
     exit "$exit_code"
@@ -172,6 +193,9 @@ case "$1" in
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
     printf -- '---\n' >> "$FAKE_RECORD"
     exit_code="${FAKE_RM_EXIT:-0}"
+    if [ "$exit_code" = "0" ]; then
+      rm -f "$FAKE_RECORD.leftover"
+    fi
     if [ "$exit_code" != "0" ]; then
       case "$FAKE_RM_FAIL_STREAM" in
         stdout) printf 'fake failure\n' ;;
@@ -200,6 +224,11 @@ esac
 	t.Setenv("FAKE_RM_EXIT", strconv.Itoa(fixture.rmExit))
 	t.Setenv("FAKE_RM_FAIL_STREAM", fixture.rmFailStream)
 	t.Setenv("FAKE_INSPECT_UNREACHABLE", boolEnv(fixture.inspectUnreachable))
+	t.Setenv("FAKE_RUN_LEFTOVER", fixture.runLeftover)
+	t.Setenv("FAKE_RUN_FAIL_MESSAGE", fixture.runFailMessage)
+	if fixture.runStdout != nil {
+		t.Setenv("FAKE_RUN_STDOUT", *fixture.runStdout)
+	}
 
 	opts := remoteexectest.Options{}
 	if budget >= 0 {
@@ -544,12 +573,24 @@ func TestRun_ConnectionDiesRunning(t *testing.T) {
 	}
 }
 
+// TestRun_ConnectionDiesQueryingAfter: once docker run has created the
+// container and printed its id, losing the connection before it is read back
+// cannot fail the task, since the engine would drop the undo of a container
+// that exists. It succeeds, says what it could not read, and keeps the undo
+// pinned to the id docker printed.
 func TestRun_ConnectionDiesQueryingAfter(t *testing.T) {
 	h := newHarnessBudgeted(t, absent, 2)
-	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
+	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
-	})); err == nil {
-		t.Fatal("expected a connection failure re-querying the container after creation")
+	}))
+	if err != nil || !result.Changed {
+		t.Fatalf("Run = %+v, %v; want a change reported", result, err)
+	}
+	if warnings, _ := h.rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "could not read it back") {
+		t.Errorf("warnings = %v, want the failed read named", h.rc.stats[sdk.StatWarnings])
+	}
+	if _, params, ok := inverseOf(h.rc); !ok || params["id"] != fakeContainerID {
+		t.Fatalf("inverse params = %v, ok=%v; want it pinned to the id docker run printed", params, ok)
 	}
 }
 

@@ -279,21 +279,70 @@ func dockerRunArgs(name, image string, command, ports, volumes []string, env map
 // runDockerCmd runs one docker invocation and treats a non-zero exit as
 // a real error.
 func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) error {
-	return runDockerCmdWithStdin(ctx, conn, argv, "")
+	_, err := runDockerCmdWithStdin(ctx, conn, argv, "")
+	return err
 }
 
-// runDockerCmdWithStdin is runDockerCmd with stdin piped to the command.
-// The error quotes argv, which is why nothing secret may be in it.
-func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) error {
+// runDockerCmdWithStdin is runDockerCmd with stdin piped to the command,
+// returning what it printed on standard output. The error quotes argv,
+// which is why nothing secret may be in it.
+func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) (string, error) {
 	command := remoteexec.QuoteCommand(argv)
 	result, err := conn.RunWithStdin(ctx, command, strings.NewReader(stdin))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%s exited %d: %s", command, result.ExitCode, failureDetail(result))
+		return "", fmt.Errorf("%s exited %d: %s", command, result.ExitCode, failureDetail(result))
 	}
-	return nil
+	return result.Stdout, nil
+}
+
+// containerIDPattern is a full container id as docker prints and inspects
+// it: 64 lowercase hexadecimal digits.
+var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// createdContainerID reads the id docker run -d prints on its last line of
+// standard output. It is refused unless it is a full container id: it is
+// text from the device, and it becomes the undo's identity guard and a later
+// command's operand.
+func createdContainerID(stdout string) (string, error) {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	id := strings.TrimSpace(lines[len(lines)-1])
+	if !containerIDPattern.MatchString(id) {
+		return "", fmt.Errorf("docker run succeeded but printed no container id")
+	}
+	return id, nil
+}
+
+// cleanupFailedRun is what a docker run that exited non-zero leaves behind.
+// docker creates a container before it starts one, so a start that fails (a
+// host port already taken) leaves the container "created" under the name,
+// and the engine drops a failed task's undo; the next run would find the
+// name, report no change, and never start it. So the container is removed
+// here, by the id docker inspect reports, when it is still "created", and
+// never when docker said the name was already in use, which means the
+// container is someone else's. The returned error is runErr, with what
+// happened to the container appended.
+func cleanupFailedRun(ctx context.Context, conn *remoteexec.Conn, name string, runErr error) error {
+	if strings.Contains(runErr.Error(), "is already in use") {
+		return runErr
+	}
+	left, err := queryContainer(ctx, conn, name)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w; whether it left container %s behind is unknown: %v", runErr, name, err)
+	case !left.exists:
+		return runErr
+	case left.status != "created":
+		return fmt.Errorf("%w; container %s exists and is %s, so it is not this task's to remove", runErr, name, left.status)
+	case !containerIDPattern.MatchString(left.id):
+		return fmt.Errorf("%w; it left container %s behind, and docker inspect gave no usable id to remove it by", runErr, name)
+	}
+	if err := runDockerCmd(ctx, conn, []string{"docker", "rm", "--force", "--", left.id}); err != nil {
+		return fmt.Errorf("%w; it left container %s (%s) behind, and removing it failed: %v", runErr, name, left.id, err)
+	}
+	return fmt.Errorf("%w; the container it created and could not start (%s) was removed", runErr, left.id)
 }
 
 // failureDetail picks the stream an operator should read after a

@@ -140,14 +140,26 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 
 	changed := false
 	after := before
+	var createdID string
 	if !before.exists {
 		argv, stdin := dockerRunArgs(name, image, command, ports, volumes, env, restartPolicy)
-		if err := runDockerCmdWithStdin(ctx, conn, argv, stdin); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		out, err := runDockerCmdWithStdin(ctx, conn, argv, stdin)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, cleanupFailedRun(ctx, conn, name, err))
 		}
 		changed = true
-		if after, err = queryContainer(ctx, conn, name); err != nil {
+		// The undo is pinned to the id docker run itself printed, never to a
+		// second inspect: the engine drops a failed task's undo, so reading
+		// the container back is not allowed to fail the task once the
+		// container exists.
+		if createdID, err = createdContainerID(out); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if after, err = queryContainer(ctx, conn, name); err != nil {
+			after = containerState{exists: true, id: createdID}
+			if err := sdk.RecordWarnings(rc, []string{fmt.Sprintf("created container %s (%s) but could not read it back, so its status is not reported: %v", name, createdID, err)}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 		}
 	}
 
@@ -160,7 +172,7 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 			FQCN: "container.docker.remove",
 			// The id pins the undo to the container this task created: one
 			// run later under the same name is refused rather than removed.
-			Params: map[string]any{paramName: name, paramForce: true, paramID: after.id},
+			Params: map[string]any{paramName: name, paramForce: true, paramID: createdID},
 			Description: fmt.Sprintf("Remove %s, which this task created. Its volumes' contents on the host "+
 				"are not touched by that removal, and are not restorable by this inverse either.", name),
 		}); err != nil {
