@@ -137,3 +137,32 @@ func FuzzRegistryAuth(f *testing.F) {
 		}
 	})
 }
+
+// registrarRC answers for one registry and keeps what is registered as a
+// secret (sdk.SecretRegistrar).
+type registrarRC struct {
+	regRC
+	registered *[]string
+}
+
+func (r registrarRC) RegisterSecret(values ...string) {
+	*r.registered = append(*r.registered, values...)
+}
+
+// TestRegistryAuth_RegistersTheHeaderItBuilds: the header carries the
+// password encoded, which a masking set holding the password alone would not
+// find, so RegistryAuth registers the value it returns.
+func TestRegistryAuth_RegistersTheHeaderItBuilds(t *testing.T) {
+	var registered []string
+	rc := registrarRC{regRC: regRC{cred: &wire.RegistryCredential{Host: "ghcr.io", Username: "u", Password: "p"}}, registered: &registered}
+	header, err := RegistryAuth(rc, "ghcr.io/org/app:1")
+	if err != nil || header == "" {
+		t.Fatalf("RegistryAuth = %q, %v", header, err)
+	}
+	if len(registered) != 1 || registered[0] != header {
+		t.Fatalf("registered = %v, want the header %q", registered, header)
+	}
+	if again, err := EncodeRegistryAuth("u", "p", "ghcr.io"); err != nil || again != header {
+		t.Errorf("EncodeRegistryAuth = %q, %v; want the same value RegistryAuth built", again, err)
+	}
+}

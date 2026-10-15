@@ -63,6 +63,20 @@ func RegistryAuth(rc sdk.RunbookContext, image string) (string, error) {
 	if !ok {
 		return "", nil
 	}
+	value, err := EncodeRegistryAuth(user, password, host)
+	if err != nil {
+		return "", err
+	}
+	// The header carries the password encoded, which a masking set holding
+	// the password alone would not find; the run masks the encoded value too.
+	sdk.RegisterSecret(rc, value)
+	return value, nil
+}
+
+// EncodeRegistryAuth is the X-Registry-Auth value for one account on host, as
+// RegistryAuth builds it: the Runner masks this same value from a child's
+// output, since it knows the account it sent and not the header.
+func EncodeRegistryAuth(user, password, host string) (string, error) {
 	return encodeAuth(registry.AuthConfig{Username: user, Password: password, ServerAddress: host})
 }
 
