@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
 )
 
@@ -64,6 +65,10 @@ func run(args []string) int {
 	// client-go's own log, from a Kubernetes task or onboarding a cluster,
 	// through the CLI's masking (pkg/kubeapi.LogTo).
 	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
+	// The command line runs every task in its own process, on the machine
+	// whose engine onboarding found, so it alone may reach an engine
+	// through this machine's own socket (containerengine.AllowLocalCarrier).
+	containerengine.AllowLocalCarrier()
 	if len(args) == 0 {
 		printUsage()
 		return 2

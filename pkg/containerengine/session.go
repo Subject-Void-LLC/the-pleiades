@@ -275,6 +275,9 @@ func (s *Session) connect(ctx context.Context, rc sdk.RunbookContext, device inv
 	socket := reach.EngineSocket(kind)
 	switch carrier := carriers[0]; carrier {
 	case capability.CarrierLocal:
+		if !localCarrier.Load() {
+			return nil, "", refuseLocalCarrier(fqcn, device.Name())
+		}
 		who, err := LocalUser()
 		if err != nil {
 			return nil, "", fmt.Errorf("%s: %w", fqcn, err)

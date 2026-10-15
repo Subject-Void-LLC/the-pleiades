@@ -2088,8 +2088,12 @@ fallback at run time:
 | `engine_stdio` | the engine's own `docker system dial-stdio` or `podman system dial-stdio`, run over SSH | the engine's CLI on the host; no forwarding at all |
 | `engine_tls` | TCP with mutual TLS | a TLS listener, and the device's TLS settings (below) |
 
-Plain TCP is refused. `pleiades validate` prints the route each task will
-take, decided the way the run decides it:
+Plain TCP is refused, and so is `engine_local` anywhere but the `pleiades`
+command line: a Runner's machine is never the device, so a task a Runner takes
+for a device reached only through a local socket fails, naming the alternatives
+(run it with `pleiades run`, or onboard the device over SSH or TLS).
+`pleiades validate` prints the route each task will take, decided the way the
+run decides it:
 
 ```
 [route] node "deploy" on box: engine_stdio, the docker engine
