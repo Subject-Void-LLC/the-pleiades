@@ -527,7 +527,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Removes a Docker container from the target.",
-      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",
@@ -621,7 +621,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Runs a Docker container on the target.",
-      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
+      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",
@@ -649,6 +649,12 @@
           "name": "volumes",
           "type": "list",
           "description": "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."
+        },
+        {
+          "name": "pull_timeout",
+          "type": "int",
+          "default": "900",
+          "description": "How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link."
         },
         {
           "name": "start",
@@ -742,7 +748,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Stops a running Docker container on the target.",
-      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo.",
+      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",

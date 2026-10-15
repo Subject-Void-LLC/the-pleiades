@@ -45,7 +45,8 @@ func stopDoc() collection.Doc {
 			"state is read from docker inspect before anything is sent, so a container already stopped, or " +
 			"absent entirely, reports no change and no command reaches the device." +
 			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
-			" It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo.",
+			" It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo." +
+			" Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to stop."},
 			{Name: paramID, Type: "string", Description: "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."},
@@ -118,7 +119,7 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		if !containerIDPattern.MatchString(before.id) {
 			return collection.Result{}, fmt.Errorf("%s: docker inspect gave no usable id to stop container %s by", fqcn, name)
 		}
-		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", "--", before.id}); err != nil {
+		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", "--", before.id}, stopCallTimeout); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		// The engine drops a failed task's undo, so once the container is

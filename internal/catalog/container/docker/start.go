@@ -46,5 +46,5 @@ func startContainer(ctx context.Context, conn *remoteexec.Conn, before container
 	if !containerIDPattern.MatchString(before.id) {
 		return fmt.Errorf("docker inspect gave no usable id to start the container by")
 	}
-	return runDockerCmd(ctx, conn, []string{"docker", "start", "--", before.id})
+	return runDockerCmd(ctx, conn, []string{"docker", "start", "--", before.id}, startCallTimeout)
 }

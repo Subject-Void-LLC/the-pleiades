@@ -112,7 +112,7 @@ func cleanupFailedRun(ctx context.Context, conn *remoteexec.Conn, name string, r
 	case !containerIDPattern.MatchString(left.id):
 		return fmt.Errorf("%w; it left container %s behind, and docker inspect gave no usable id to remove it by", runErr, name)
 	}
-	if err := runDockerCmd(ctx, conn, []string{"docker", "rm", "--force", "--", left.id}); err != nil {
+	if err := runDockerCmd(ctx, conn, []string{"docker", "rm", "--force", "--", left.id}, removeCallTimeout); err != nil {
 		return fmt.Errorf("%w; it left container %s (%s) behind, and removing it failed: %v", runErr, name, left.id, err)
 	}
 	return fmt.Errorf("%w; the container it created and could not start (%s) was removed", runErr, left.id)

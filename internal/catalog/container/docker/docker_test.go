@@ -123,6 +123,10 @@ type containerFixture struct {
 	pullNoop bool
 	// startExit is the exit status a docker start ends with.
 	startExit int
+	// hang names the docker subcommand that answers only after
+	// hangSeconds (one by default), a daemon that has stopped answering.
+	hang        string
+	hangSeconds int
 	// containerID, when set, replaces the id docker inspect reports.
 	containerID string
 }
@@ -155,6 +159,11 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 	record := filepath.Join(dir, "invocations")
 
 	script := `#!/bin/sh
+# A daemon that accepts the call and does not answer in time, for one
+# subcommand.
+if [ -n "$FAKE_HANG" ] && [ "$FAKE_HANG" = "$1" ]; then
+  sleep "${FAKE_HANG_SECONDS:-1}"
+fi
 case "$1" in
   image)
     # docker image inspect --format={{.Id}} -- REF: the image is present
@@ -321,6 +330,8 @@ esac
 	t.Setenv("FAKE_IMAGE_FAILS", boolEnv(fixture.imageFails))
 	t.Setenv("FAKE_PULL_NOOP", boolEnv(fixture.pullNoop))
 	t.Setenv("FAKE_START_EXIT", strconv.Itoa(fixture.startExit))
+	t.Setenv("FAKE_HANG", fixture.hang)
+	t.Setenv("FAKE_HANG_SECONDS", strconv.Itoa(max(fixture.hangSeconds, 1)))
 	t.Setenv("FAKE_PULL_EXIT", strconv.Itoa(fixture.pullExit))
 	if fixture.containerID != "" {
 		t.Setenv("FAKE_ID", fixture.containerID)

@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -52,13 +53,15 @@ func runDoc() collection.Doc {
 			" Always runs detached (-d), since this platform has no interactive session to " +
 			"attach one to." +
 			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
-			" Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
+			" Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs." +
+			" Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container name to create or leave alone."},
 			{Name: paramImage, Type: "string", Required: true, Description: "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."},
 			{Name: paramCommand, Type: "list", Description: "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."},
 			{Name: paramPorts, Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."},
 			{Name: paramVolumes, Type: "list", Description: "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."},
+			{Name: paramPullTimeout, Type: "int", Default: "900", Description: "How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link."},
 			{Name: paramStart, Type: "bool", Default: "true", Description: "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."},
 			{Name: paramNetwork, Type: "string", Default: networkDefault, Description: "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."},
 			{Name: paramEnv, Type: "dict", Description: "Environment variables to set in the container, as a map of name to value."},
@@ -128,6 +131,12 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramStart, err)
 	}
+	pullTimeout := pullTimeoutDefault
+	if seconds, set, err := sdk.IntParam(params, paramPullTimeout); err != nil || (set && seconds <= 0) {
+		return collection.Result{}, fmt.Errorf("%s: %s must be a whole number of seconds above zero", fqcn, paramPullTimeout)
+	} else if set {
+		pullTimeout = time.Duration(seconds) * time.Second
+	}
 	if err := checkName(name); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -196,7 +205,7 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	}
 	if !before.exists {
 		var createdID string
-		imageID, _, err := resolveImage(ctx, conn, image)
+		imageID, _, err := resolveImage(ctx, conn, image, pullTimeout)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
@@ -205,7 +214,7 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		}
 		argv, stdin := dockerRunArgs(runSpec{name: name, imageRef: image, imageID: imageID, network: network,
 			restartPolicy: restartPolicy, command: command, ports: ports, volumes: mounts, env: env})
-		out, err := runDockerCmdWithStdin(ctx, conn, argv, stdin)
+		out, err := runDockerCmdWithStdin(ctx, conn, argv, stdin, startCallTimeout)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, cleanupFailedRun(ctx, conn, name, err))
 		}

@@ -41,6 +41,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -117,7 +118,7 @@ func (s containerState) Map() map[string]any {
 // The name follows "--", so a value that begins with "-" can never be read
 // as an option; checkName refuses one before this runs anyway.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}} {{.Config.Image}}", "--", name}), nil, dockerOutputLimit)
+	result, err := runBounded(ctx, conn, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}} {{.Config.Image}}", "--", name}), nil, quickCallTimeout)
 	if err != nil {
 		return containerState{}, err
 	}
@@ -158,17 +159,17 @@ const maxFailureDetail = 512
 
 // runDockerCmd runs one docker invocation and treats a non-zero exit as
 // a real error.
-func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) error {
-	_, err := runDockerCmdWithStdin(ctx, conn, argv, "")
+func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string, deadline time.Duration) error {
+	_, err := runDockerCmdWithStdin(ctx, conn, argv, "", deadline)
 	return err
 }
 
 // runDockerCmdWithStdin is runDockerCmd with stdin piped to the command,
 // returning what it printed on standard output. The error quotes argv,
 // which is why nothing secret may be in it.
-func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) (string, error) {
+func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string, deadline time.Duration) (string, error) {
 	command := remoteexec.QuoteCommand(argv)
-	result, err := conn.RunWithStdinBounded(ctx, command, strings.NewReader(stdin), dockerOutputLimit)
+	result, err := runBounded(ctx, conn, command, strings.NewReader(stdin), deadline)
 	if err != nil {
 		return "", err
 	}

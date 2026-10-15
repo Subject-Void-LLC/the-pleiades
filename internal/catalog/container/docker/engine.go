@@ -31,7 +31,7 @@ func checkEngine(ctx context.Context, conn *remoteexec.Conn, device inventory.In
 	if want == "" {
 		return fmt.Errorf("device %s records no pinned Docker engine identity; onboard it (pleiades onboard %s) so a task can tell its engine from another", device.Name(), device.Name())
 	}
-	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "info", "--format={{.ID}}"}), nil, dockerOutputLimit)
+	result, err := runBounded(ctx, conn, remoteexec.QuoteCommand([]string{"docker", "info", "--format={{.ID}}"}), nil, quickCallTimeout)
 	if err != nil {
 		return err
 	}

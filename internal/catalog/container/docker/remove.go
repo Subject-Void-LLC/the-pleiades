@@ -47,7 +47,8 @@ func removeDoc() collection.Doc {
 			"A check reads the same state and removes nothing; a container that is not stopped, with force unset, " +
 			"makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in " +
 			"the same run stops it." +
-			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
+			" Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to remove."},
 			{Name: paramForce, Type: "bool", Default: "false", Description: "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."},
@@ -132,7 +133,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if force {
 			args = append(args, "--force")
 		}
-		if err := runDockerCmd(ctx, conn, append(args, "--", name)); err != nil {
+		if err := runDockerCmd(ctx, conn, append(args, "--", name), removeCallTimeout); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		after = containerState{}
