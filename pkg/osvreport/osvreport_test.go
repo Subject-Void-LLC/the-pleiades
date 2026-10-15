@@ -35,6 +35,24 @@ func TestParse_ARealReport(t *testing.T) {
 	}
 }
 
+// TestParse_BinaryPackages: an operating system's binary packages built
+// from one source package are told apart by their own names.
+func TestParse_BinaryPackages(t *testing.T) {
+	report := `{"results":[{"source":{"path":"/lib/apk/db/installed"},"packages":[
+{"package":{"name":"busybox","os_package_name":"ssl_client","version":"1.36.1-r31","ecosystem":"Alpine:v3.20"},"groups":[{"ids":["A-1"],"max_severity":"9.8"}]},
+{"package":{"name":"busybox","os_package_name":"busybox","version":"1.36.1-r31","ecosystem":"Alpine:v3.20"},"groups":[{"ids":["A-1"],"max_severity":"9.8"}]}]}]}`
+	findings, err := osvreport.Parse([]byte(report))
+	if err != nil || len(findings) != 2 {
+		t.Fatalf("Parse = %+v, %v", findings, err)
+	}
+	if got := findings[0].Label(); got != "Alpine:v3.20 busybox (ssl_client)@1.36.1-r31" {
+		t.Errorf("a binary package's label = %s", got)
+	}
+	if got := findings[1].Label(); got != "Alpine:v3.20 busybox@1.36.1-r31" {
+		t.Errorf("the source package's label = %s", got)
+	}
+}
+
 // TestParse_GroupsFixesAndRefusals: a group's fixed versions are the ones
 // its advisories name for the package's own ecosystem; an unscored group
 // is unknown; a report that is not OSV-Scanner's, or that it cannot read

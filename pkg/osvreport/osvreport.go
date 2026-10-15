@@ -77,6 +77,10 @@ type Finding struct {
 	Source string
 	// Ecosystem, Package and Version name what is exposed.
 	Ecosystem, Package, Version string
+	// Binary is the binary package an operating system installed from
+	// Package, when it has another name (Alpine's ssl_client, from
+	// busybox); empty otherwise.
+	Binary string
 	// ID is the group's first advisory id; IDs is every id in the group,
 	// and Aliases every alias, sorted.
 	ID      string
@@ -107,6 +111,7 @@ type report struct {
 		Packages []struct {
 			Package struct {
 				Name      string `json:"name"`
+				Binary    string `json:"os_package_name"`
 				Version   string `json:"version"`
 				Ecosystem string `json:"ecosystem"`
 			} `json:"package"`
@@ -161,7 +166,8 @@ func Parse(data []byte) ([]Finding, error) {
 				}
 				f := Finding{
 					Source: result.Source.Path, Ecosystem: p.Package.Ecosystem, Package: p.Package.Name, Version: p.Package.Version,
-					ID: g.IDs[0], IDs: sorted(g.IDs), Aliases: sorted(g.Aliases), Score: g.MaxSeverity, Rating: RatingOf(g.MaxSeverity),
+					Binary: binaryName(p.Package.Binary, p.Package.Name),
+					ID:     g.IDs[0], IDs: sorted(g.IDs), Aliases: sorted(g.Aliases), Score: g.MaxSeverity, Rating: RatingOf(g.MaxSeverity),
 				}
 				fixed := map[string]bool{}
 				for _, v := range p.Vulnerabilities {
@@ -196,6 +202,25 @@ func Parse(data []byte) ([]Finding, error) {
 		}
 	}
 	return out, nil
+}
+
+// binaryName is a binary package's name when it differs from its source
+// package's.
+func binaryName(binary, source string) string {
+	if binary == source {
+		return ""
+	}
+	return binary
+}
+
+// Label names what is exposed for a person: ecosystem, package (and the
+// binary package, when it has its own name) and version.
+func (f Finding) Label() string {
+	name := f.Package
+	if f.Binary != "" {
+		name += " (" + f.Binary + ")"
+	}
+	return f.Ecosystem + " " + name + "@" + f.Version
 }
 
 // sorted is a sorted copy without repeats.
