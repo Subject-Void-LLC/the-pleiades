@@ -1,0 +1,9 @@
+# An ignore file scan.vuln and scan.secrets read from the device (copy it
+# to /srv/app/scan-ignore.yaml). Every entry needs a reason and an end
+# date; past its date an entry suppresses nothing and the run says so.
+- id: GHSA-xxxx-xxxx-xxxx
+  reason: the vulnerable function is never called; see the release notes for 2.4.1
+  until: 2026-12-31
+- id: docs/example.ini:generic-api-key:3
+  reason: a documented placeholder, never a real key
+  until: 2027-06-30

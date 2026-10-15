@@ -1,0 +1,22 @@
+id: scan-release
+hosts: release-box
+tasks:
+  - name: No fixable high or critical vulnerability ships
+    scan.vuln:
+      image_archive: /srv/release/app.tar
+      fail_on: high
+      fixable_only: true
+      ignore: /srv/app/scan-ignore.yaml
+
+  - name: No credential ships
+    scan.secrets:
+      dir: /srv/app
+      ignore: /srv/app/scan-ignore.yaml
+
+  - name: Describe what ships
+    scan.sbom:
+      image_archive: /srv/release/app.tar
+      dest: /srv/release/sbom-2.4.1
+      name: app
+      version: 2.4.1
+      supplier: "Organization: Example Co"

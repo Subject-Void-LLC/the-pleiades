@@ -1,0 +1,17 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# release-box is a Linux server you reach over SSH that holds the release
+# being shipped and runs a container engine (Docker or Podman), on which
+# the pinned scanners run. Point host and port at it, then:
+#   pleiades add-credential release-box --username <you> --password-stdin
+#   pleiades onboard release-box     # records its container engine
+# Credentials are never stored here or anywhere in this directory.
+hosts:
+  - id: release-box
+    name: release-box
+    type: linux_server
+    tags:
+      - release
+    properties:
+      host: 127.0.0.1
+      port: 2222
