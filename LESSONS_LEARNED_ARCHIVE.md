@@ -5591,3 +5591,36 @@ name, and an scp-like git URL's parser files a password inside the user.
 
 **Why.** FAILURE_PATTERNS 458: `HasEmbeddedSecret` checked `endpoint.Password`, so `https://<token>@host` and
 `git:password@host:path` passed and were stored in plain text and returned by the API.
+
+## 278. Before ruling a shared resource irremovable, ask the tool for a way to present what is not on disk
+
+**Rule.** "This test has to write into the shared tree" is a claim about the tool, and a tolerance written into
+one reader of the tree protects no reader added later. Check the tool for a virtual input first: the go command's
+`-overlay` builds and tests a package that exists only in a JSON map, `internal/` imports included, with the
+module untouched. Prove a test no longer writes somewhere by making that place read-only and running it, which
+turns a race that reproduces one run in three into a failure on every run of the old code.
+
+**Why.** FAILURE_PATTERNS 463, a repeat of 53 and 55: LESSONS 91 judged the writes irremovable and made
+`internal/archtest`'s `go list` tolerate them; flakegate's later scan did not, and failed on a package the
+gencatalog test had just removed.
+
+## 279. Bound a long-lived client per answer, not with one total, and leave streams to the code that opens them
+
+**Rule.** A total byte budget fits a call that ends (discovery reads what the server serves, once). A session that
+lives a whole task would be cut off by it partway through a long watch or log, for having been useful. Bound each
+answer on its own, refuse one declaring more than the bound before reading it, and pass through what is a stream
+by protocol (a watch, a followed log, an upgraded connection), whose bound only its opener knows.
+
+**Why.** Decision 6 of the Phase 0 contract list (2026-10-15, `4cbcf6f7`): the sweep found Kubernetes session
+clients unbounded, and the discovery budget, reused as is, would have ended every watch 119g's methods open.
+
+## 280. A by-value mask may forget only a value one holder had alone
+
+**Rule.** Register a secret with the log masker where a library first holds it, not where a caller happens to
+use it, and forget it only when its sole holder replaces it (a minted token rotated, which has expired anyway).
+Never forget a static credential at the end of one use: two sessions may hold the same one, and the set is not
+reference-counted, so forgetting it for one unmasks it for the other.
+
+**Why.** Decision 7 (2026-10-15, `be8a50f5`): cluster tokens were masked in client-go's log by shape only. A
+bare token passed; registering each minted EKS token without forgetting its predecessor would have grown the
+10,000-value set by one per refresh for a long session.

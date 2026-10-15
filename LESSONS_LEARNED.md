@@ -310,6 +310,9 @@ story, per `.AGENTS/AGENTS.md`.
 275. **A test that cuts a connection at its Nth step tests whatever is Nth: when a step is added or removed, re-aim every budgeted test at the step its name says, and give the new step its own (2026-10-14).**
 276. **A lookup that lends a stored secret takes the organization, the authority and the route from the secret's owner, never from the borrowing record, whose writer is somebody else (2026-10-14).**
 277. **A secret check asks where the receiving protocol accepts a credential, not where a parser files one: HTTP takes a token as the user name (2026-10-14).**
+278. **Before ruling a shared resource irremovable, ask the tool for a way to present what is not on disk (go's `-overlay`), and prove a test no longer writes somewhere by making it read-only (2026-10-15).**
+279. **Bound a long-lived client per answer, not with one total, and leave streams to the code that opens them (2026-10-15).**
+280. **A by-value mask may forget only a value one holder had alone; a static credential two sessions may share is never forgotten (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

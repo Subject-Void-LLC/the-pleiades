@@ -12112,3 +12112,27 @@ the rootless engine they served is the one found.
 **Fix.** `42ec10bf`: one `stopService` with one bound, tested with a hanging `rm` on the harness shell's PATH.
 
 **Lesson.** Two copies of a cleanup drift; one helper cannot.
+
+## 463. Generated packages written into the module tree failed a new reader of it (a repeat of 53 and 55)
+
+**Symptom.** `make devtools` failed `tools/internal/flakegate`'s `TestRepeatGate` with "open
+../../../internal/catalog/test/gencatalogtest26309/check.go: no such file or directory": its container scan walked
+the module while `tools/gencatalog`'s dogfood test, in a parallel package, removed the collection it had generated
+there. Passed alone, every time.
+
+**Root cause.** Five tests wrote generated source into the module tree: `tools/gencatalog`'s dogfood test,
+`cmd/pleiades`'s two forge end-to-end tests, and the collection and device scaffold release gates. The filter
+scaffold's gate added files to `pkg/filters` itself, so every package importing it that another test built
+meanwhile compiled them. Why 53 and 55 did not hold: 53 was left unfixed as disproportionate, 55 fixed only the
+deletion of the shared parent, and LESSONS 91 had each *reader* tolerate the writes (`go list -e`) on the premise
+that the writes could not be removed, because a throwaway module cannot import `internal/`. The premise was wrong,
+and a tolerance added to one reader protects no reader written later; flakegate's scan was one.
+
+**Fix.** `0bef18a4`: `internal/testsupport/gooverlay` keeps generated files in a temporary tree laid out like the
+module's and hands them to the go command with `-overlay`, so they build and test as members of the module,
+internal imports included, while nothing in the module changes. All five tests use it. Proof: with every directory
+under `internal/catalog`, `internal/inventory` and `pkg/filters` read-only, all five pass, and the old gencatalog
+test fails with "mkdir internal/catalog/test: permission denied". Given up: `go vet` on the generated packages,
+which runs in a directory that exists only in the overlay.
+
+**Lesson.** See LESSONS 278.
