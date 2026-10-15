@@ -143,6 +143,20 @@ func TestRunOnce_RunsHardenedStreamsAndRemoves(t *testing.T) {
 	}
 }
 
+// TestRunOnce_ErrorsApartKeepsAReportWhole: with Errors set, standard
+// error goes there and Output keeps standard output alone, so a tool's
+// report is not interleaved with its logs.
+func TestRunOnce_ErrorsApartKeepsAReportWhole(t *testing.T) {
+	e := &runEngine{imagePresent: true, stream: frames(byte(2), "scanning\n", byte(1), `{"results":`, byte(2), "done\n", byte(1), "[]}")}
+	var out, errs bytes.Buffer
+	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"scan"}, Timeout: time.Minute, Output: &out, Errors: &errs}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != `{"results":[]}` || errs.String() != "scanning\ndone\n" {
+		t.Errorf("output %q, errors %q", out.String(), errs.String())
+	}
+}
+
 // TestRunOnce_ANamedNetworkAndAWritableRoot are opted into, never default.
 func TestRunOnce_ANamedNetworkAndAWritableRoot(t *testing.T) {
 	e := &runEngine{imagePresent: true}

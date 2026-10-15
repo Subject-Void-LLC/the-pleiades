@@ -69,6 +69,10 @@ type RunOnceOptions struct {
 	// standard error, in the order the engine sent it. A bounded writer
 	// (gate.Tail) keeps a chatty command in constant memory.
 	Output io.Writer
+	// Errors, when set, receives standard error apart, and Output then
+	// standard output alone: a tool that writes a report on one and logs
+	// on the other has its report kept whole.
+	Errors io.Writer
 }
 
 // ReadOnlyMount binds Source, a path on the engine's host, at Target in
@@ -202,7 +206,11 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 			copied <- err
 			return
 		}
-		copied <- copyFrames(attached.Reader, output)
+		errs := opts.Errors
+		if errs == nil {
+			errs = output
+		}
+		copied <- copyFrames(attached.Reader, output, errs)
 	}()
 
 	if _, err := s.API.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
@@ -279,11 +287,12 @@ func (s *Session) removeOnce(id string) {
 	_, _ = s.API.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
-// copyFrames streams an attached container's framed output to w: each
-// frame's payload, standard output and standard error alike, in the order
-// the engine sent them. Nothing is buffered beyond what io.CopyN needs, so
-// a frame claiming a huge length costs no allocation; w bounds what is kept.
-func copyFrames(r io.Reader, w io.Writer) error {
+// copyFrames streams an attached container's framed output: each frame's
+// payload, in the order the engine sent them, to stdout or, for a standard
+// error frame, to stderr (which may be the same writer). Nothing is
+// buffered beyond what io.CopyN needs, so a frame claiming a huge length
+// costs no allocation; the writers bound what is kept.
+func copyFrames(r io.Reader, stdout, stderr io.Writer) error {
 	header := make([]byte, 8)
 	for {
 		if _, err := io.ReadFull(r, header); err != nil {
@@ -293,6 +302,10 @@ func copyFrames(r io.Reader, w io.Writer) error {
 			return fmt.Errorf("reading a frame header: %w", err)
 		}
 		size := int64(binary.BigEndian.Uint32(header[4:8]))
+		w := stdout
+		if header[0] == 2 {
+			w = stderr
+		}
 		if _, err := io.CopyN(w, r, size); err != nil {
 			return fmt.Errorf("reading a %d-byte frame: %w", size, err)
 		}
