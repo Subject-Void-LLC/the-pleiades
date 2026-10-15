@@ -40,14 +40,9 @@ package docker
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"sort"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -120,39 +115,6 @@ func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (co
 	return containerState{exists: true, status: status, id: id}, nil
 }
 
-// checkEngine refuses to act unless the Docker engine the device's login
-// reaches is the one onboarding pinned for the device.
-//
-// These methods run the docker CLI over SSH, so which engine they act on is
-// whatever that login's own docker configuration points at (DOCKER_HOST, a
-// docker context), not something the device's record decides. The engine
-// identity onboarding pinned (capability.EngineReach.EngineID, Docker's own
-// /info ID) is what container.docker.exec already compares through the
-// engine port; this holds the CLI methods to the same pin, by asking docker
-// info for the ID the login sees, before the first inspect. A device with no
-// pinned identity was never onboarded and is refused, naming the command.
-func checkEngine(ctx context.Context, conn *remoteexec.Conn, device inventory.InventoryItem) error {
-	var want capability.EngineID
-	if reach, ok := device.(capability.EngineReach); ok {
-		want = reach.EngineID(capability.EngineDocker)
-	}
-	if want == "" {
-		return fmt.Errorf("device %s records no pinned Docker engine identity; onboard it (pleiades onboard %s) so a task can tell its engine from another", device.Name(), device.Name())
-	}
-	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "info", "--format={{.ID}}"}), nil, dockerOutputLimit)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("docker info could not read the engine's identity (exit %d): %s", result.ExitCode, failureDetail(result))
-	}
-	if got := strings.TrimSpace(result.Stdout); got != string(want) {
-		return fmt.Errorf("the Docker engine this login reaches (%s) is not the one onboarding pinned for %s (%s); nothing was changed, and if the engine was replaced, onboard the device again",
-			remoteexec.Excerpt(got, 128), device.Name(), want)
-	}
-	return nil
-}
-
 // noSuchContainer reports whether a failed docker inspect said the container
 // does not exist, which the daemon words as "No such container" (and older
 // CLIs, inspecting with no --type, as "No such object").
@@ -171,156 +133,6 @@ const dockerOutputLimit = 1 << 20
 // maxFailureDetail bounds how much of a failed command's own text an error
 // quotes.
 const maxFailureDetail = 512
-
-// restartPolicyPattern is every restart policy docker run accepts: no,
-// always, unless-stopped, and on-failure with an optional retry count.
-var restartPolicyPattern = regexp.MustCompile(`^(no|always|unless-stopped|on-failure(:[0-9]{1,9})?)$`)
-
-// checkName refuses a container name no engine would give a container
-// (containerengine.ValidName's grammar), before anything reaches the device.
-// The grammar starts with a letter or digit, so no name can be read as an
-// option, and holds no whitespace or shell metacharacter.
-func checkName(name string) error {
-	return containerengine.ValidName("container", name)
-}
-
-// checkRunParams refuses, before anything reaches the device, a value docker
-// run would read as something other than what the runbook wrote: an image
-// that is not an image reference (containerengine.ValidImage), a restart
-// policy docker does not have, or a port or volume that is empty, begins
-// with "-" or holds a control character. Each flag also travels in its
-// equals form (--publish=VALUE), which binds the value to its flag whatever
-// it holds, so the check is the first of two guards rather than the only one.
-func checkRunParams(image string, ports, volumes []string, restartPolicy string) error {
-	if err := containerengine.ValidImage(image); err != nil {
-		return fmt.Errorf("%s: %w", paramImage, err)
-	}
-	if restartPolicy != "" && !restartPolicyPattern.MatchString(restartPolicy) {
-		return fmt.Errorf("%s %q is not one of no, always, unless-stopped or on-failure[:N]", paramRestartPolicy, restartPolicy)
-	}
-	for _, list := range []struct {
-		param  string
-		values []string
-	}{{paramPorts, ports}, {paramVolumes, volumes}} {
-		for _, v := range list.values {
-			if err := checkFlagValue(v); err != nil {
-				return fmt.Errorf("%s: %w", list.param, err)
-			}
-		}
-	}
-	return nil
-}
-
-// checkFlagValue refuses a flag's value that is empty, begins with "-", or
-// holds a control character or a NUL byte.
-func checkFlagValue(v string) error {
-	if v == "" {
-		return fmt.Errorf("an entry is empty")
-	}
-	if v[0] == '-' {
-		return fmt.Errorf("%q begins with \"-\", which docker would read as an option", v)
-	}
-	for _, r := range v {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("%q holds a control character", v)
-		}
-	}
-	return nil
-}
-
-// envParam reads the env param as a map of string keys to string
-// values, refusing anything else the way sdk.StringSlice refuses a
-// non-string list element: a value that arrived as a number or a bool
-// would render differently on the Crawl tier than across the Runner's
-// JSON subprocess boundary, and a silently different docker run command
-// is worse than a refusal.
-func envParam(params map[string]any) (map[string]string, error) {
-	raw, present := params[paramEnv]
-	if !present || raw == nil {
-		return nil, nil
-	}
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("%s must be a map of string keys to string values", paramEnv)
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("%s[%s] is %T, not a string: quote it in the runbook", paramEnv, k, v)
-		}
-		if err := checkEnvEntry(k, s); err != nil {
-			return nil, fmt.Errorf("%s: %w", paramEnv, err)
-		}
-		out[k] = s
-	}
-	return out, nil
-}
-
-// checkEnvEntry refuses a name or value docker's env-file format cannot
-// carry exactly. The values travel as an env file on standard input (see
-// dockerRunArgs), one NAME=value per line, where docker skips a line
-// starting with "#" and refuses a name holding whitespace, so a name that
-// is empty, starts with "#", or holds whitespace, "=" or a NUL byte, and a
-// value holding a line break or a NUL byte, would arrive as something other
-// than what the runbook wrote.
-func checkEnvEntry(name, value string) error {
-	if name == "" || strings.HasPrefix(name, "#") || strings.ContainsAny(name, "= \t\r\n\v\f\x00") {
-		return fmt.Errorf("variable name %q is empty, starts with #, or holds whitespace, = or a NUL byte", name)
-	}
-	if strings.ContainsAny(value, "\r\n\x00") {
-		return fmt.Errorf("the value of %s holds a line break or a NUL byte, which an env file cannot carry", name)
-	}
-	return nil
-}
-
-// dockerRunArgs builds a fresh container's full docker run invocation and
-// the standard input it reads. -d always: this platform has no interactive
-// session to attach one to.
-//
-// Environment values never go on the command line. Until Phase 119a they
-// went as -e NAME=value, where any user on the host could read them with
-// ps while the command ran, and where a failed run quoted them back in its
-// error (finding S2). They go as an env file on standard input instead
-// (--env-file=/dev/stdin), which the docker CLI reads before it creates the
-// container; entries checkEnvEntry refused never reach here.
-//
-// Every flag takes its value in the equals form (--name=web), which binds the
-// value to its flag whatever it holds, and "--" ends the options before the
-// image, so neither an image nor anything after it is ever read as an option
-// (LESSONS_LEARNED 137: quoting stops a shell, not option parsing). The
-// command after the image is the container's own, where a leading "-" is
-// ordinary ("nginx -g ...").
-func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) (argv []string, stdin string) {
-	args := []string{"docker", "run", "-d", "--name=" + name}
-	for _, p := range ports {
-		args = append(args, "--publish="+p)
-	}
-	for _, v := range volumes {
-		args = append(args, "--volume="+v)
-	}
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var file strings.Builder
-		for _, k := range keys {
-			file.WriteString(k)
-			file.WriteByte('=')
-			file.WriteString(env[k])
-			file.WriteByte('\n')
-		}
-		args = append(args, "--env-file=/dev/stdin")
-		stdin = file.String()
-	}
-	if restartPolicy != "" {
-		args = append(args, "--restart="+restartPolicy)
-	}
-	args = append(args, "--", image)
-	return append(args, command...), stdin
-}
 
 // runDockerCmd runs one docker invocation and treats a non-zero exit as
 // a real error.
@@ -342,53 +154,6 @@ func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []st
 		return "", fmt.Errorf("%s exited %d: %s", command, result.ExitCode, failureDetail(result))
 	}
 	return result.Stdout, nil
-}
-
-// containerIDPattern is a full container id as docker prints and inspects
-// it: 64 lowercase hexadecimal digits.
-var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-// createdContainerID reads the id docker run -d prints on its last line of
-// standard output. It is refused unless it is a full container id: it is
-// text from the device, and it becomes the undo's identity guard and a later
-// command's operand.
-func createdContainerID(stdout string) (string, error) {
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	id := strings.TrimSpace(lines[len(lines)-1])
-	if !containerIDPattern.MatchString(id) {
-		return "", fmt.Errorf("docker run succeeded but printed no container id")
-	}
-	return id, nil
-}
-
-// cleanupFailedRun is what a docker run that exited non-zero leaves behind.
-// docker creates a container before it starts one, so a start that fails (a
-// host port already taken) leaves the container "created" under the name,
-// and the engine drops a failed task's undo; the next run would find the
-// name, report no change, and never start it. So the container is removed
-// here, by the id docker inspect reports, when it is still "created", and
-// never when docker said the name was already in use, which means the
-// container is someone else's. The returned error is runErr, with what
-// happened to the container appended.
-func cleanupFailedRun(ctx context.Context, conn *remoteexec.Conn, name string, runErr error) error {
-	if strings.Contains(runErr.Error(), "is already in use") {
-		return runErr
-	}
-	left, err := queryContainer(ctx, conn, name)
-	switch {
-	case err != nil:
-		return fmt.Errorf("%w; whether it left container %s behind is unknown: %v", runErr, name, err)
-	case !left.exists:
-		return runErr
-	case left.status != "created":
-		return fmt.Errorf("%w; container %s exists and is %s, so it is not this task's to remove", runErr, name, left.status)
-	case !containerIDPattern.MatchString(left.id):
-		return fmt.Errorf("%w; it left container %s behind, and docker inspect gave no usable id to remove it by", runErr, name)
-	}
-	if err := runDockerCmd(ctx, conn, []string{"docker", "rm", "--force", "--", left.id}); err != nil {
-		return fmt.Errorf("%w; it left container %s (%s) behind, and removing it failed: %v", runErr, name, left.id, err)
-	}
-	return fmt.Errorf("%w; the container it created and could not start (%s) was removed", runErr, left.id)
 }
 
 // failureDetail picks the stream an operator should read after a
