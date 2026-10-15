@@ -21,15 +21,20 @@ kinds:                        # optional: kinds beyond the built-in pure, db, ne
   - name: browser
     description: needs a headless browser
 defaults:
-  timeout: 10m
+  timeout: 30m                # required here or on every check: there is no implicit timeout
+  parallelism: 2              # optional; 1 when absent
 checks:
   - name: unit
     kind: pure
     command: [go, test, ./...]   # an argument vector, quoted by the platform
     dir: .                       # relative to the manifest's directory
+    requires:                    # tested before the check starts; unmet means SKIP, naming which
+      commands: [go]
+      env: [GOFLAGS]             # presence only; a value is never read into a result
   - name: lint
     kind: pure
     shell: make lint             # or one shell string, run by sh -c, the project's own command
+    skip_exit: [5]               # exit codes this check uses to mean "skipped"; none by default
   - name: migrations
     kind: db
     heavy: true                  # at most one heavy check runs at a time
@@ -39,14 +44,19 @@ checks:
 ```
 
 An entry with no `kind`, or with a kind neither built in nor declared, is a validation error, and so is a duplicate
-or malformed `name`, an entry with both `command` and `shell` or neither, and an entry with both `image` and `dir`.
-The whole manifest is refused before anything runs.
+or malformed `name`, an entry with both `command` and `shell` or neither, an entry with both `image` and `dir`, and a
+check with no timeout of its own when the manifest sets no `defaults.timeout`. The whole manifest is refused before
+anything runs.
+
+`requires` takes `commands` (on the PATH of the shell the check runs in), `env` (variables set, by name), `files`
+(paths that exist, relative to the check's directory), `os` (`linux`, `darwin`, `freebsd`), `engine: true` (the
+device's container engine answers) and `tcp` (`host:port` endpoints that accept a connection, from the device).
 
 ## Parameters
 
 `gate.run`: `manifest` (required), `kinds` (default: every kind), `checks` (names, default: all selected by kind),
-`heavy` (`include`, `exclude`, `only`; default `include`), `parallelism` (default 4, at most 16), `fail_on_skip`
-(default false). `gate.list` takes `manifest`, `kinds` and `checks`, and marks which checks a run would select.
+`heavy` (`include`, `exclude`, `only`; default `include`), `parallelism` (overrides the manifest's; 1 when neither
+sets it, at most 16; heavy checks always run one at a time and serial ones alone), `fail_on_skip` (default false). `gate.list` takes `manifest`, `kinds` and `checks`, and marks which checks a run would select.
 
 ## Results
 
@@ -54,8 +64,11 @@ Each check yields `{name, kind, status, reason, duration_ms, tail}`.
 
 - **PASS:** exit status 0.
 - **FAIL:** a non-zero exit, a timeout, a lost session, or an engine refusal, with the reason stated.
-- **SKIP:** the check was not selected (reason names the kind or the filter), the check exited 77 (the automake
-  convention; the reason is its last output line), or the run was canceled before it started.
+- **SKIP:** the check was not selected (the reason names the kind or the filter), a declared precondition was not
+  met (the reason names it: "needs command psql", "needs env DATABASE_URL"), the check exited with a code its own
+  `skip_exit` lists (the reason is its last output line, bounded and escaped), or the run was canceled or reached
+  its deadline before the check started. No exit code means SKIP unless the check declares it: 77, the automake
+  skip code, is also the sysexits "permission denied" code, and reading it as SKIP would hide a real failure.
 
 A SKIP is reported as a SKIP in the result and the summary counts, never folded into PASS; with `fail_on_skip`
 it fails the task. The tail is the last 40 lines and at most 8 KiB of a failing check's combined output, with
@@ -83,10 +96,19 @@ with no engine is refused whole rather than failing that one check.
 - **Where checks run: the target device only.** Running on the machine that runs pleiades would read its own
   checkout and credentials, which the device model forbids; a project checked out on a device is reached over the
   device's transport like any other.
-- **Timeouts are enforced on the device**, by wrapping each command in `timeout --kill-after=10s` (coreutils and
-  busybox both have it), because closing an SSH session does not stop the process it started. The task's own
-  deadline bounds the whole run; a check still running when it passes is a FAIL naming the deadline, and checks
-  not yet started are SKIP ("the task's deadline passed").
+- **Every check has a timeout, and the manifest states it.** No default fits checks that run from seconds to over
+  half an hour (this repository's own suites: 2 to 40 minutes), and the engine's task timeout is none unless a
+  launch sets one, so an implicit default would either fail real suites or let a hang run forever. Each result
+  records its duration, for choosing the number. Timeouts are enforced on the device, by wrapping each command in
+  `timeout --kill-after=10s` (coreutils and busybox both have it), because closing an SSH session does not stop the
+  process it started. The task's own deadline still bounds the run: a check still running when it passes is a FAIL
+  naming the deadline, and checks not yet started are SKIP.
+- **Serial unless the manifest or the task says otherwise.** Checks are often parallel inside (go test, pytest
+  workers), memory rather than CPU is what runs out, and this repository's own load-induced failures came from
+  running container work side by side; speed is one line once a project knows its checks' footprint.
+- **SKIP comes from declared preconditions first.** That is how this repository's own tests skip (a missing
+  Docker, Landlock, a tool or a live target's variables), and the gate states the reason itself rather than reading
+  it from a command's output.
 - **`image` checks need a digest-pinned image** and run with no network and a read-only root, unless the entry
   declares `network:` (a named network) or `writable: true`. The image is not pulled implicitly unless the entry
   says `pull: true`. This is the policy `container.docker.run` follows, for the same reasons.
