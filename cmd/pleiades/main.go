@@ -47,6 +47,7 @@ var commands = map[string]commandFunc{
 	"inventory":                  runInventory,
 	"doc":                        runDoc,
 	"collection":                 runCollection,
+	"ai":                         runAI,
 	"version":                    runVersion,
 }
 

@@ -407,6 +407,10 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// project, write usage under its ai directory, and reach the
 		// providers a routing table names.
 		engine.WithAIProject(opts.dir, inventoryRepo, credentials),
+		// An answer held for review is put to the person at this terminal,
+		// one at a time; with nobody there (a pipe, a schedule, an agent)
+		// it is kept pending for `pleiades ai review`.
+		engine.WithReviewPrompter(runReviewPrompter()),
 	)
 
 	executor := engine.NewExecutor(

@@ -88,7 +88,7 @@ store an encrypted credential for a device
 | --passphrase-stdin | `bool` | `false` | read the private key's or the bundle's passphrase as one line on standard input |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
-| --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster) |
+| --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
 
 `pleiades add-credential web01 --username admin`
 
@@ -412,6 +412,105 @@ list every approved build, who approved it and when
 `pleiades collection list [flags]`
 
 `pleiades collection list`
+
+## pleiades ai
+
+sign prompts and decide answers a run held for review: what the ai collection needs a person for (see 'pleiades ai --help')
+
+`pleiades ai [flags]`
+
+### pleiades ai prompt
+
+make a prompt signing key, and sign a prompt bundle with it, at a terminal
+
+`pleiades ai prompt [flags]`
+
+#### pleiades ai prompt keygen
+
+write an Ed25519 signing key outside the project and print the trusted keys entry for it; needs a person at a terminal
+
+`pleiades ai prompt keygen [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --out | `string` | - | the private key file to write (mode 0600), outside the project |
+| --uses | `string` | - | the uses the key may sign for, comma separated, for the printed entry |
+| --dir | `string` | `.` | project directory |
+
+`pleiades ai prompt keygen --out ~/.config/pleiades/prompts.key --uses triage`
+
+#### pleiades ai prompt sign
+
+show a prompt bundle, parameter set or routing table and, once you type sign, write its detached signature as <bundle.json>.sig; needs a person at a terminal
+
+`pleiades ai prompt sign <bundle.json> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --key | `string` | - | the private key file, as keygen writes it; refused when others can read it |
+| --dir | `string` | `.` | project directory, whose ai/trusted-keys.yaml is checked for the key |
+
+`pleiades ai prompt sign ai/prompts/triage.json --key ~/.config/pleiades/prompts.key`
+
+### pleiades ai review
+
+list, show, approve and deny the answers runs held for review (ai/review)
+
+`pleiades ai review [flags]`
+
+#### pleiades ai review list
+
+list every review, newest held first, and any file that fails its own checks
+
+`pleiades ai review list [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --json | `bool` | `false` | print JSON |
+| --dir | `string` | `.` | project directory |
+
+`pleiades ai review list`
+
+`pleiades ai review list --json`
+
+#### pleiades ai review show
+
+show one review whole: what was asked of whom, why it was held, and the answer, escaped
+
+`pleiades ai review show <key> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --json | `bool` | `false` | print JSON |
+| --dir | `string` | `.` | project directory |
+
+`pleiades ai review show 3f2a9c1e`
+
+#### pleiades ai review approve
+
+show a pending review and, once you type approve, release its answer to the next run that asks the same thing; needs a person at a terminal
+
+`pleiades ai review approve <key> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --comment | `string` | - | why, recorded with the decision |
+| --dir | `string` | `.` | project directory |
+
+`pleiades ai review approve 3f2a9c1e --comment "checked against the ticket"`
+
+#### pleiades ai review deny
+
+show a pending review and, once you type deny, fail every run that asks the same thing; needs a person at a terminal
+
+`pleiades ai review deny <key> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --comment | `string` | - | why, recorded with the decision |
+| --dir | `string` | `.` | project directory |
+
+`pleiades ai review deny 3f2a9c1e`
 
 ## pleiades import
 
