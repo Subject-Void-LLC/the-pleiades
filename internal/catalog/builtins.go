@@ -25,6 +25,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/registry"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/edge"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec/winrm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts"

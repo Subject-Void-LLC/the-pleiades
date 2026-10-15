@@ -6138,6 +6138,294 @@
       ]
     }
   },
+  "edge.access": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a Cloudflare Access application's audience, issuer, settings and policies against what is expected.",
+      "description": "Reads an Access application by id, or by its domain (one two applications share is refused, naming both), its policies, and the issuer of the tokens Access signs for it (https:// and the account's team domain). Each field expect names is compared: audience, issuer and domain (domain and issuer without regard to case), type and session_duration. Policies are compared by name: a policy expected and absent is missing; one whose decision, precedence or include, exclude or require rules differ is changed, rules compared as JSON with their keys sorted; and with exact_policies one present and not expected is extra. The task fails listing every difference. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "app",
+          "type": "string",
+          "required": true,
+          "description": "The application's id, or its domain."
+        },
+        {
+          "name": "expect",
+          "type": "dict",
+          "description": "What the application must be: any of audience, issuer, domain, type, session_duration, and policies (a list of {name, decision, precedence, include, exclude, require}, each field optional but name)."
+        },
+        {
+          "name": "exact_policies",
+          "type": "bool",
+          "default": "false",
+          "description": "Fail on a policy the application has and expect.policies does not name."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The application's id."
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "Its domain."
+        },
+        {
+          "name": "audience",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "Its audience tag (aud), which an origin validating Access tokens must expect."
+        },
+        {
+          "name": "issuer",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The issuer of its tokens."
+        },
+        {
+          "name": "policies",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each policy's name, decision and precedence."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Every difference from what was expected; the task fails when there is one."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Only staff reach the admin site",
+          "runbookYaml": "- name: Access\n  hosts: prod-cf\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.tunnel",
+        "edge.dns"
+      ]
+    }
+  },
+  "edge.dns": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a DNS record set in a Cloudflare zone against what is expected.",
+      "description": "Reads a zone by id, or by name within the account (a zone of another account is refused, even where the token reaches it), and its records of one name and type. The set of contents is compared with expect.content, addresses in their canonical form and names in lower case without the final dot; proxied and ttl are compared on every record when expected; and absent requires there be none. With no expect, the task fails only when there is no such record. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "zone",
+          "type": "string",
+          "required": true,
+          "description": "The zone's id, or its name."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The record's full name (www.example.com)."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "A",
+            "AAAA",
+            "CNAME",
+            "TXT",
+            "MX",
+            "NS",
+            "SRV",
+            "CAA",
+            "HTTPS",
+            "SVCB",
+            "PTR"
+          ],
+          "description": "The record type."
+        },
+        {
+          "name": "expect",
+          "type": "dict",
+          "description": "What the records must be: content (one value or a list, compared as a set), proxied, ttl (1 is automatic), or absent: true."
+        }
+      ],
+      "returns": [
+        {
+          "name": "zone",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The zone's name."
+        },
+        {
+          "name": "records",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each record's content, proxied and ttl."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Every difference from what was expected; the task fails when there is one."
+        }
+      ],
+      "examples": [
+        {
+          "name": "www points at the two load balancers, proxied",
+          "runbookYaml": "- name: DNS\n  hosts: prod-cf\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.tunnel",
+        "edge.access"
+      ]
+    }
+  },
+  "edge.tunnel": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
+      "description": "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a connection. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "tunnel",
+          "type": "string",
+          "required": true,
+          "description": "The tunnel's id, or its name."
+        },
+        {
+          "name": "expect_status",
+          "type": "string",
+          "default": "healthy",
+          "choices": [
+            "healthy",
+            "degraded",
+            "down",
+            "inactive",
+            "any"
+          ],
+          "description": "The status the tunnel must have; any accepts every status."
+        },
+        {
+          "name": "min_connectors",
+          "type": "int",
+          "default": "1",
+          "description": "The fewest connectors that must have a connection to Cloudflare's edge, 0 to 1000."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The tunnel's id."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The tunnel's name."
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "healthy, degraded, down or inactive, as Cloudflare reports it."
+        },
+        {
+          "name": "connectors",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each connector's id, version, architecture, connection count and colos."
+        },
+        {
+          "name": "connectors_up",
+          "type": "int",
+          "returned": "success or difference",
+          "description": "How many connectors have a connection."
+        },
+        {
+          "name": "connections",
+          "type": "int",
+          "returned": "success or difference",
+          "description": "How many connections the connectors hold in all."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Every difference from what was expected; the task fails when there is one."
+        }
+      ],
+      "examples": [
+        {
+          "name": "The production tunnel is healthy on two connectors",
+          "runbookYaml": "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.access",
+        "edge.dns"
+      ]
+    }
+  },
   "exec.command": {
     "supportedTransports": [
       "ssh"
