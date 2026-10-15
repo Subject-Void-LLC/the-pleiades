@@ -73,18 +73,26 @@ anything until you run it.
 
 The gate is this repository's GitHub Actions checks. A change reaches `main` only by
 merging a pull request, and the repository's rules require that pull request's checks to
-pass first, so the usual flow is a branch, a push and a pull request, with no local gate
-run at all:
+pass first. So the usual flow is a branch, `make pr-check`, a push and a pull request:
 
 ```bash
-git push -u origin my-branch   # the hook passes a branch in about a second
+make pr-check                  # what the pull request's required jobs run, for your branch's packages
+git push -u origin my-branch   # the hook reads pr-check's receipt back, in about a second
 gh pr create                   # its checks are the gate; merge once they are green
 ```
 
-The `pre-push` hook decides each ref by where it lands. A branch passes, since pushing it is
-how its pull request gets checked. `main` is refused, since it changes only through a pull
-request (and the server refuses a direct push anyway). A tag passes when its commit is
-already on the remote's `main`, as your clone last fetched it.
+`make pr-check` runs the static checks, `go vet` as macOS and Windows build, each package your
+branch changes in the test tier CI gives it, and the coverage floors of what it measured. Run
+it on a committed, clean tree: it ends by writing a receipt naming the commit it checked, and
+a dirty tree gets none. It is narrower than CI, which still tests every package.
+
+The `pre-push` hook decides each ref by where it lands. A branch needs a `make pr-check`
+receipt for its tip (a `make push-gate` or `make ci` one also counts), unless its tip is
+already on the remote's `main`. The pull request's checks still decide what merges; the
+receipt is there so they confirm what your machine already found rather than discover it
+half an hour later. `main` is refused, since it changes only through a pull request (and
+the server refuses a direct push anyway). A tag passes when its commit is already on the
+remote's `main`, as your clone last fetched it.
 
 Anything else, such as a tag on a commit `main` does not have, needs a local gate's receipt.
 The hook does **not** run the gate: Git opens its connection to the remote before calling

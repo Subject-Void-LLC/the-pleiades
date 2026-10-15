@@ -1465,11 +1465,16 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
 - `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
   is a repository on the Controller's own disk. Note that a URL with no scheme at
   all is a local path, so this also covers `/srv/repos/x` and `../x`.
-- A password in the URL (`https://user:token@host/repo`) is refused outright, with
-  no toggle. `scm_url` is an ordinary column while a credential is encrypted, so the
-  two are not equivalent places to put a secret. An existing project that already
-  carries one keeps syncing; it is refused the next time somebody saves that
-  project, which is the moment there is somewhere better to put it.
+- A credential in the URL is refused outright, with no toggle: a password on any
+  URL (`https://user:token@host/repo`), and over http or https a user name alone
+  (`https://<token>@host/repo`), since a forge accepts a token in the user position
+  too. An ssh URL's user (`git@host:org/repo`) is ordinary and allowed. `scm_url` is
+  an ordinary column while a credential is encrypted, so the two are not equivalent
+  places to put a secret. An existing project that already carries one keeps
+  syncing, with a warning in every sync's log; the API and the web UI show its URL
+  with the credential replaced by `redacted`, and it is refused the next time
+  somebody saves that project, which is the moment there is somewhere better to put
+  it.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A
@@ -2083,8 +2088,12 @@ fallback at run time:
 | `engine_stdio` | the engine's own `docker system dial-stdio` or `podman system dial-stdio`, run over SSH | the engine's CLI on the host; no forwarding at all |
 | `engine_tls` | TCP with mutual TLS | a TLS listener, and the device's TLS settings (below) |
 
-Plain TCP is refused. `pleiades validate` prints the route each task will
-take, decided the way the run decides it:
+Plain TCP is refused, and so is `engine_local` anywhere but the `pleiades`
+command line: a Runner's machine is never the device, so a task a Runner takes
+for a device reached only through a local socket fails, naming the alternatives
+(run it with `pleiades run`, or onboard the device over SSH or TLS).
+`pleiades validate` prints the route each task will take, decided the way the
+run decides it:
 
 ```
 [route] node "deploy" on box: engine_stdio, the docker engine
@@ -2223,8 +2232,14 @@ context, set `node_engine_host` to it, and onboard the cluster.
 
 On the Controller, onboarding uses the cluster's per-device credential, and
 for a cluster with none (one imported over the API) the one stored Kubernetes
-credential whose host names its API server. Two such credentials are refused,
-naming both, rather than one picked.
+credential of the cluster's own organization whose host names its API server.
+An import puts the cluster in the organization its credential is stored in, and
+never moves a cluster out of another organization. Nothing the cluster's record
+says may decide where a lent credential goes, since the record is written by
+whoever can write inventory: a cluster in no organization, one reached through
+a route, and one whose pinned authority is not the credential's own
+`ssl_ca_cert` are each refused by name, and store their own credential instead.
+Two matching credentials are refused, naming both, rather than one picked.
 
 **Credentials.** A cluster authenticates with its own credential only. A
 template's machine credential, an SSH login, never reaches a cluster, even
@@ -2232,9 +2247,11 @@ though it reaches every machine in the same run. The native path reads
 `kubernetes_bearer_token` directly: bound to a template, it becomes the
 credential of the cluster whose `api_server` it names (the same host and
 port; 443 when none is written), in place of that cluster's own, and no other
-device in the run receives it. Its `ssl_ca_cert` is used for a cluster whose
-record pins no authority; a pinned one always wins. The native path checks
-every cluster's certificate, so `verify_ssl: false` has no effect there.
+device in the run receives it. Because it is not the cluster's own, the
+authority and server name the cluster's record pins are not used beside it:
+the session trusts the credential's `ssl_ca_cert`, or the system's authorities
+when it has none, for the API server's own name. The native path checks every
+cluster's certificate, so `verify_ssl: false` has no effect there.
 
 On the Ansible path the same credential sets AWX's own environment for
 `kubernetes.core`: `K8S_AUTH_HOST`, `K8S_AUTH_API_KEY`, `K8S_AUTH_VERIFY_SSL`
@@ -2285,9 +2302,13 @@ Nothing ambient reaches a cluster. A Runner inside a cluster never uses its
 own ServiceAccount, `KUBECONFIG` and `~/.kube/config` are never read, and a
 cluster with no stored credential is refused rather than reached as anything
 else. What client-go logs passes through the same redaction as everything
-else, and a server's answers are bounded: discovery reads at most 128 MiB in
-all, and an error quotes at most 512 bytes of the server's text, with
-anything a terminal would act on escaped.
+else, and a cluster's token, client key, and the AWS key an EKS token is
+minted from are masked there by value as soon as a session holds them, as is
+each minted token, whatever their shape. A server's answers are bounded:
+discovery reads at most 128 MiB in all, any other answer at most 64 MiB (a
+watch, a followed log and an exec or port-forward connection are streams, and
+are not cut off), and an error quotes at most 512 bytes of the server's text,
+with anything a terminal would act on escaped.
 
 ### PKI and TLS
 

@@ -147,9 +147,9 @@
     },
     {
       "file": "pkg/containerengine/registry.go",
-      "line": "53",
+      "line": "86",
       "rule_id": "G117",
-      "reason": "Owned by Phase 119b (registry credentials). encodeAuth marshals registry.AuthConfig, whose Password field is the registry account's secret, because that JSON, base64url-encoded, IS the Engine API's X-Registry-Auth header: the engine accepts a registry account in no other form. The value is built for one pull or push request, only for the registry the image reference names (RegistryAuth matches the credential's host against the image's own registry, so a runbook cannot send one registry's password to another, held by FuzzRegistryAuth), sent in that request's header to the engine over the session's guarded carrier, and never logged, stored, written to the host, or placed in an error. G117 is a heuristic over field names; marshaling this field is the function's purpose, not an accident of a struct that happens to hold one."
+      "reason": "Owned by Phase 119b (registry credentials). encodeAuth marshals registry.AuthConfig, whose Password field is the registry account's secret, because that JSON, base64url-encoded, IS the Engine API's X-Registry-Auth header: the engine accepts a registry account in no other form. The value is built for one pull or push request, only for the registry the image reference names (RegistryAuth matches the credential's host against the image's own registry, so a runbook cannot send one registry's password to another, held by FuzzRegistryAuth), sent in that request's header to the engine over the session's guarded carrier, and never logged, stored, written to the host, or placed in an error. G117 is a heuristic over field names; marshaling this field is the function's purpose, not an accident of a struct that happens to hold one. Since 2026-10-14 the encoded value is also registered with the run's masking set (sdk.RegisterSecret) and masked by the Runner (EncodeRegistryAuth), so an error echoing the header is masked like the password."
     },
     {
       "file": "pkg/wire/dispatch.go",

@@ -6,7 +6,7 @@ status: beta
 
 Runs a Docker container on the target.
 
-Makes sure a container named name is running, starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to.
+Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.
 
 ## Attributes
 
@@ -24,10 +24,13 @@ Makes sure a container named name is running, starting one from image if no cont
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The container name to create or leave alone. |
-| `image` | `string` | yes | - | The image to run. Ignored when a container already exists under name. |
+| `image` | `string` | yes | - | The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name. |
 | `command` | `list` | no | - | The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command. |
-| `ports` | `list` | no | - | Port mappings, each "host:container" (docker run's own -p syntax). |
-| `volumes` | `list` | no | - | Volume mappings, each "host:container" (docker run's own -v syntax). |
+| `ports` | `list` | no | - | Port mappings, each "host:container" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one. |
+| `volumes` | `list` | no | - | Volume mappings, each "host:container" or "host:container:options" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in "/srv/data:/data:rw". |
+| `pull_timeout` | `int` | no | `900` | How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link. |
+| `start` | `bool` | no | `true` | Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again. |
+| `network` | `string` | no | `none` | The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports. |
 | `env` | `dict` | no | - | Environment variables to set in the container, as a map of name to value. |
 | `restart_policy` | `string` | no | - | The restart policy (docker run's own --restart value, e.g. unless-stopped). |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
@@ -38,12 +41,13 @@ Makes sure a container named name is running, starting one from image if no cont
 | --- | --- | --- | --- |
 | `name` | `string` | always | The container this task acted on. |
 | `diff` | `dict` | always | What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing. |
+| `image_id` | `string` | changed | The image ID the container was started from, when this task created it. |
 
 ## Undoing this
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.
+A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that started an existing stopped container emits a container.docker.stop naming it by id. A run that found the container already running emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 
@@ -61,6 +65,7 @@ Run a container:
   container.docker.run:
     name: web
     image: nginx:1.27
+    network: bridge
     ports:
       - "8080:80"
 ```

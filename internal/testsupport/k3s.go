@@ -121,10 +121,20 @@ func StartK3s(tb testing.TB, opts K3sOptions) *K3sCluster {
 			// in CI, reproduced here with the container's CPU throttled).
 			// k3s logs "Starting k3s" only after the move, so no exec
 			// enters before it.
+			//
+			// The last wait is the one a client depends on: the API port
+			// answering through its mapped host port. Every check before it
+			// runs inside the container, and a server ready in there can
+			// still be unreachable from the host until Docker forwards the
+			// port (CONTRIBUTING's rule; FAILURE_PATTERNS 408's class): a
+			// test's first request was refused that way on 2026-10-14. It
+			// comes last, so a k3s that dies fails at the log wait in
+			// seconds rather than as a port that never opens.
 			WaitingFor: wait.ForAll(
 				wait.ForLog("Starting k3s").WithStartupTimeout(ContainerStartupTimeout),
 				wait.ForExec([]string{"kubectl", "get", "--raw", "/readyz"}).WithStartupTimeout(ContainerStartupTimeout),
 				wait.ForExec([]string{"kubectl", "wait", "--for=condition=Ready", "node", "--all", "--timeout=5s"}).WithStartupTimeout(ContainerStartupTimeout),
+				wait.ForListeningPort(k3sAPIPort).SkipInternalCheck().WithStartupTimeout(ContainerStartupTimeout),
 			),
 		},
 		Started: true,

@@ -10,6 +10,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -29,8 +30,8 @@ func TestWithKubernetesFallback(t *testing.T) {
 	}
 	own := map[string]string{"bearer_token": "own"}
 	var asked []string
-	lookup := func(_ context.Context, apiServer string) (map[string]string, error) {
-		asked = append(asked, apiServer)
+	lookup := func(_ context.Context, device inventory.InventoryItem) (map[string]string, error) {
+		asked = append(asked, device.(capability.KubernetesCapable).KubeAPIServer())
 		return map[string]string{"bearer_token": "stored"}, nil
 	}
 	primary := func(stored map[string]string, err error) SecretsFunc {

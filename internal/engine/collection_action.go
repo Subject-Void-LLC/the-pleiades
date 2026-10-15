@@ -276,6 +276,12 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	e.lendPool(ctx, rc, device)
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
+	// A secret the method obtained while it ran (a registry password, a
+	// header built from one) joins the masking set too, on failure as on
+	// success, since an error is where one would first be echoed.
+	if reg, ok := rc.(secretRegistry); ok {
+		secrets = append(secrets, reg.RegisteredSecrets()...)
+	}
 	if err != nil {
 		return ActionResult{Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}
@@ -313,6 +319,14 @@ func holdReadOnly(desc collection.Descriptor, fqcn string, changed bool, stats m
 		return fmt.Errorf("collection method %q declares that it only reads, and recorded an undo", fqcn)
 	}
 	return nil
+}
+
+// secretRegistry is satisfied by a RunbookContext that kept the secrets a
+// method registered while it ran (sdk.SecretRegistrar), which the executor
+// reads back once the method returns. Like FactCollector, it is the
+// engine's question for the context it built, not part of the SDK contract.
+type secretRegistry interface {
+	RegisteredSecrets() []string
 }
 
 // FactCollector is satisfied by a RunbookContext that accumulates the facts

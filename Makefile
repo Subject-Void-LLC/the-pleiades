@@ -137,7 +137,8 @@ lsp:
 #                second: no build, no tests, index only)
 #   commit-msg   tools/commitgate over the commit message
 #   pre-push     tools/gatereceipt verify, which reads back the receipt
-#                `make push-gate` or `make ci` left behind. It does NOT
+#                `make pr-check` (for a branch), `make push-gate` or
+#                `make ci` left behind. It does NOT
 #                run the gate: git opens its connection to the remote
 #                before calling the hook, so a twenty minute suite in here
 #                kills the push with SIGPIPE and no output at all (see
@@ -619,6 +620,12 @@ ci-containers:
 # strictly three times as test-repeat does; and the floors of exactly the
 # packages it measured (coverage-check -scoped). The container-list guard
 # and the architecture rules always run, since they read the whole tree.
+# So does the one CI-only step a local run can make without pulling: every
+# image CI's containers jobs will pull must be one a registry serves
+# (tools/testimages -served asks for the manifest of each image this
+# machine lacks), since twice a value the image scan mistook for an image
+# reached CI's pull step first (FAILURE_PATTERNS 416, 465). With no Docker
+# daemon it says that check did not run.
 #
 # It exists because pull requests #54 and #55 went red in CI again and
 # again on checks a local run could have made in minutes (coverage floors,
@@ -630,6 +637,13 @@ ci-containers:
 # should not. PR_BASE is what the branch merges into, and
 # PR_CHECK_PARALLELISM bounds how many container-free packages run at
 # once (0 keeps go test's default).
+#
+# A pass ends by writing a receipt (tools/gatereceipt, its own file under
+# .git), and .githooks/pre-push refuses a branch whose tip no receipt
+# covers: run it on a committed, clean tree, since a receipt names a
+# commit. A make flag that skips a prerequisite (-o ci-remote, -t) still
+# gets a receipt for what did run, the way `git push --no-verify` skips the
+# hook: both are deliberate, and both are the developer's to answer for.
 PR_BASE ?= origin/main
 PR_CHECK_PARALLELISM ?= 0
 PR_CHECK_ALWAYS := \
@@ -653,9 +667,15 @@ pr-check: ci-remote pr-check-vet
 	if [ -n "$$mine_docker" ]; then \
 		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
 	fi; \
+	if docker info >/dev/null 2>&1; then \
+		go run ./tools/testimages -served $$docker >/dev/null || status=1; \
+	else \
+		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
+	fi; \
 	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
+	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
 # pr-check-vet vets every package, tests and the integration tag included,
 # as macOS and Windows build them: a file named for one operating system
@@ -826,7 +846,7 @@ helm-lint:
 # build` does not pay for two git calls; gatereceipt refuses an empty value
 # rather than assuming anything, so a gate reached some other way says so
 # instead of certifying a commit nobody looked at.
-ifneq ($(filter ci push-gate,$(MAKECMDGOALS)),)
+ifneq ($(filter ci push-gate pr-check,$(MAKECMDGOALS)),)
 GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
 endif

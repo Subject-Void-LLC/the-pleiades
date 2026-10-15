@@ -3,6 +3,7 @@ package kubeapi
 
 import (
 	"fmt"
+	"net/http"
 
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -31,6 +32,12 @@ func NewSession(ep Endpoint, id Identity, limits Limits, namespace string) (*Ses
 	if err != nil {
 		return nil, err
 	}
+	// Every answer a session reads is bounded, a stream excepted
+	// (responseBoundTransport), so a method cannot forget to bound a get or a
+	// list it adds.
+	cfg.Wrap(func(next http.RoundTripper) http.RoundTripper {
+		return &responseBoundTransport{next: next, max: maxSessionResponseBytes}
+	})
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("kubeapi: building the dynamic client: %w", err)

@@ -40,8 +40,8 @@ package docker
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -63,12 +63,24 @@ const (
 	paramEnv           = "env"
 	paramRestartPolicy = "restart_policy"
 	paramForce         = "force"
+	// paramNetwork is community.docker.docker_container's network_mode,
+	// named for what it is; none when absent (networkDefault).
+	paramNetwork = "network"
 	// paramID is container.docker.remove's identity guard, which the undo
 	// of container.docker.run sets.
 	paramID = "id"
 )
 
-const statName = "name"
+const (
+	statName = "name"
+	// statImageID is the image ID a run started its container from.
+	statImageID = "image_id"
+)
+
+// imageLabel is the label a run puts on its container naming the image
+// reference it was asked for, since the container itself names the ID it
+// was run by.
+const imageLabel = "org.pleiades.image"
 
 // containerState is what docker inspect reports about one container
 // name.
@@ -79,146 +91,105 @@ type containerState struct {
 	// Map (and so of a diff): it names which container this is, which is
 	// what container.docker.remove's id guard compares, not a state.
 	id string
+	// image is the image the container was created from, as its
+	// configuration names it (an image ID, for one this catalog ran). Not
+	// part of Map either; container.docker.stop's undo names it.
+	image string
 }
 
 func (s containerState) Map() map[string]any {
 	return map[string]any{"exists": s.exists, "status": s.status}
 }
 
-// queryContainer asks docker inspect for a container's status, treating
-// any non-zero exit as absent. docker inspect gives no separate exit
-// code for "no such container" the way getent's 2 does
-// (identity/user/user.go's queryUser); this settles for the same answer
-// internal/catalog/fs's queryMount does for findmnt's identical lack of
-// one.
+// queryContainer asks docker inspect for a container's id and status.
+// docker inspect gives no separate exit code for "no such container" the
+// way getent's 2 does (identity/user/user.go's queryUser), so absence is
+// read from its message instead (noSuchContainer).
+//
+// Only docker's own "No such container" answer reads as absent. Any other
+// non-zero exit (a daemon that is down, a socket the login cannot open) is
+// "could not look", which is an error and never an absence: read as one, it
+// had run create a container on an engine it had not reached, and stop and
+// remove report a container they could not see as already gone. Measured
+// against Docker 29.8 on 2026-10-14: a missing container exits 1 with
+// "No such container: NAME", an unreachable daemon exits 1 with "failed to
+// connect to the docker API".
+//
+// The name follows "--", so a value that begins with "-" can never be read
+// as an option; checkName refuses one before this runs anyway.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--format", "{{.Id}} {{.State.Status}}", name}))
+	result, err := runBounded(ctx, conn, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}} {{.Config.Image}}", "--", name}), nil, quickCallTimeout)
 	if err != nil {
 		return containerState{}, err
 	}
 	if result.ExitCode != 0 {
-		return containerState{}, nil
+		if noSuchContainer(result) {
+			return containerState{}, nil
+		}
+		return containerState{}, fmt.Errorf("docker inspect could not read container %s (exit %d): %s", name, result.ExitCode, failureDetail(result))
 	}
-	id, status, _ := strings.Cut(strings.TrimSpace(result.Stdout), " ")
-	return containerState{exists: true, status: status, id: id}, nil
+	fields := strings.Fields(result.Stdout)
+	state := containerState{exists: true}
+	for i, f := range []*string{&state.id, &state.status, &state.image} {
+		if i < len(fields) {
+			*f = fields[i]
+		}
+	}
+	return state, nil
 }
 
-// envParam reads the env param as a map of string keys to string
-// values, refusing anything else the way sdk.StringSlice refuses a
-// non-string list element: a value that arrived as a number or a bool
-// would render differently on the Crawl tier than across the Runner's
-// JSON subprocess boundary, and a silently different docker run command
-// is worse than a refusal.
-func envParam(params map[string]any) (map[string]string, error) {
-	raw, present := params[paramEnv]
-	if !present || raw == nil {
-		return nil, nil
-	}
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("%s must be a map of string keys to string values", paramEnv)
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("%s[%s] is %T, not a string: quote it in the runbook", paramEnv, k, v)
-		}
-		if err := checkEnvEntry(k, s); err != nil {
-			return nil, fmt.Errorf("%s: %w", paramEnv, err)
-		}
-		out[k] = s
-	}
-	return out, nil
+// noSuchContainer reports whether a failed docker inspect said the container
+// does not exist, which the daemon words as "No such container" (and older
+// CLIs, inspecting with no --type, as "No such object").
+func noSuchContainer(result remoteexec.Result) bool {
+	text := strings.ToLower(result.Stderr)
+	return strings.Contains(text, "no such container") || strings.Contains(text, "no such object")
 }
 
-// checkEnvEntry refuses a name or value docker's env-file format cannot
-// carry exactly. The values travel as an env file on standard input (see
-// dockerRunArgs), one NAME=value per line, where docker skips a line
-// starting with "#" and refuses a name holding whitespace, so a name that
-// is empty, starts with "#", or holds whitespace, "=" or a NUL byte, and a
-// value holding a line break or a NUL byte, would arrive as something other
-// than what the runbook wrote.
-func checkEnvEntry(name, value string) error {
-	if name == "" || strings.HasPrefix(name, "#") || strings.ContainsAny(name, "= \t\r\n\v\f\x00") {
-		return fmt.Errorf("variable name %q is empty, starts with #, or holds whitespace, = or a NUL byte", name)
-	}
-	if strings.ContainsAny(value, "\r\n\x00") {
-		return fmt.Errorf("the value of %s holds a line break or a NUL byte, which an env file cannot carry", name)
-	}
-	return nil
-}
+// dockerOutputLimit bounds what one docker command may write to each of
+// standard output and standard error. None of the commands here prints more
+// than a container id, an inspect line or a pull's progress, so a command
+// that writes more is cut off and fails rather than growing the memory of
+// the process running the task.
+const dockerOutputLimit = 1 << 20
 
-// dockerRunArgs builds a fresh container's full docker run invocation and
-// the standard input it reads. -d always: this platform has no interactive
-// session to attach one to.
-//
-// Environment values never go on the command line. Until Phase 119a they
-// went as -e NAME=value, where any user on the host could read them with
-// ps while the command ran, and where a failed run quoted them back in its
-// error (finding S2). They go as an env file on standard input instead
-// (--env-file /dev/stdin), which the docker CLI reads before it creates the
-// container; entries checkEnvEntry refused never reach here.
-func dockerRunArgs(name, image string, command, ports, volumes []string, env map[string]string, restartPolicy string) (argv []string, stdin string) {
-	args := []string{"docker", "run", "-d", "--name", name}
-	for _, p := range ports {
-		args = append(args, "-p", p)
-	}
-	for _, v := range volumes {
-		args = append(args, "-v", v)
-	}
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var file strings.Builder
-		for _, k := range keys {
-			file.WriteString(k)
-			file.WriteByte('=')
-			file.WriteString(env[k])
-			file.WriteByte('\n')
-		}
-		args = append(args, "--env-file", "/dev/stdin")
-		stdin = file.String()
-	}
-	if restartPolicy != "" {
-		args = append(args, "--restart", restartPolicy)
-	}
-	args = append(args, image)
-	return append(args, command...), stdin
-}
+// maxFailureDetail bounds how much of a failed command's own text an error
+// quotes.
+const maxFailureDetail = 512
 
 // runDockerCmd runs one docker invocation and treats a non-zero exit as
 // a real error.
-func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) error {
-	return runDockerCmdWithStdin(ctx, conn, argv, "")
+func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string, deadline time.Duration) error {
+	_, err := runDockerCmdWithStdin(ctx, conn, argv, "", deadline)
+	return err
 }
 
-// runDockerCmdWithStdin is runDockerCmd with stdin piped to the command.
-// The error quotes argv, which is why nothing secret may be in it.
-func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) error {
+// runDockerCmdWithStdin is runDockerCmd with stdin piped to the command,
+// returning what it printed on standard output. The error quotes argv,
+// which is why nothing secret may be in it.
+func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string, deadline time.Duration) (string, error) {
 	command := remoteexec.QuoteCommand(argv)
-	result, err := conn.RunWithStdin(ctx, command, strings.NewReader(stdin))
+	result, err := runBounded(ctx, conn, command, strings.NewReader(stdin), deadline)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%s exited %d: %s", command, result.ExitCode, failureDetail(result))
+		return "", fmt.Errorf("%s exited %d: %s", command, result.ExitCode, failureDetail(result))
 	}
-	return nil
+	return result.Stdout, nil
 }
 
 // failureDetail picks the stream an operator should read after a
-// non-zero exit. Mirrors internal/catalog/fs's own copy; docker almost
-// always explains itself on stderr.
+// non-zero exit, cut to maxFailureDetail bytes with anything a terminal acts
+// on escaped (remoteexec.Excerpt), since it is the device's own text and it
+// reaches an error, a log and a terminal. docker almost always explains
+// itself on stderr.
 func failureDetail(result remoteexec.Result) string {
 	if detail := strings.TrimSpace(result.Stderr); detail != "" {
-		return detail
+		return remoteexec.Excerpt(detail, maxFailureDetail)
 	}
 	if detail := strings.TrimSpace(result.Stdout); detail != "" {
-		return detail
+		return remoteexec.Excerpt(detail, maxFailureDetail)
 	}
 	return "no output"
 }

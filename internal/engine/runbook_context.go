@@ -44,6 +44,13 @@ type runbookContext struct {
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.
 	route sdk.RouteDial
+
+	// registered is every secret the method obtained while it ran
+	// (sdk.SecretRegistrar): a registry password this context answered with,
+	// and any value the method registered itself. The Collection executor
+	// adds them to the run's masking set once the method returns. Guarded by
+	// mu.
+	registered []string
 }
 
 // compile-time proof this satisfies both the SDK contract and the engine's
@@ -211,7 +218,29 @@ func (c *runbookContext) RegistryCredential(host string) (string, string, bool) 
 	if err != nil || !ok {
 		return "", "", false
 	}
+	// The password joins the run's masking set the moment it is handed out,
+	// as a device credential does when the run starts.
+	c.RegisterSecret(password)
 	return user, password, true
+}
+
+// RegisterSecret implements sdk.SecretRegistrar.
+func (c *runbookContext) RegisterSecret(values ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, v := range values {
+		if v != "" {
+			c.registered = append(c.registered, v)
+		}
+	}
+}
+
+// RegisteredSecrets returns every secret registered while the method ran,
+// for the Collection executor to mask (secretRegistry).
+func (c *runbookContext) RegisteredSecrets() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.registered...)
 }
 
 // DeviceRoute implements sdk.Router.

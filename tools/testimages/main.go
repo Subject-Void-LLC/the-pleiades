@@ -16,12 +16,17 @@
 // repository builds itself (pleiades/...) are left out: there is nothing
 // to pull.
 //
-// Usage: go run ./tools/testimages [-pull] package ...
+// With -served it pulls nothing, and asks a registry for the manifest of
+// each image this machine's engine lacks: make pr-check runs it, so a
+// reference no registry serves fails there, not in CI's pull step.
+//
+// Usage: go run ./tools/testimages [-pull | -served] package ...
 package main
 
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,6 +44,7 @@ var pullBackoff = []time.Duration{15 * time.Second, 45 * time.Second}
 
 func main() {
 	pull := flag.Bool("pull", false, "pull each image, retrying a failed pull, instead of only listing them")
+	served := flag.Bool("served", false, "check that a registry serves each image this machine's engine lacks, without pulling it")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "testimages: name the packages whose images to list")
@@ -53,10 +59,13 @@ func main() {
 		fmt.Println(image)
 	}
 	if *pull {
-		if err := pullAll(images); err != nil {
-			fmt.Fprintln(os.Stderr, "testimages:", err)
-			os.Exit(1)
-		}
+		err = pullAll(images)
+	} else if *served {
+		err = servedAll(images)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testimages:", err)
+		os.Exit(1)
 	}
 }
 
@@ -90,17 +99,43 @@ func imagesOf(packages []string) ([]string, error) {
 // pullAll pulls each image, retrying a failure after each pullBackoff
 // wait, and names every image that never arrived.
 func pullAll(images []string) error {
+	return eachWithRetry(images, "pull", os.Stderr, func(image string) []string { return []string{"pull", "--quiet", image} })
+}
+
+// servedAll asks, for each image this machine's engine does not already
+// hold, the registry it names for its manifest: the question CI's pull step
+// answers, without downloading a layer. It names every image no registry
+// served. An image the engine holds was pulled from one, so it costs an
+// inspect alone. A value the scanner took for an image and is not one (a
+// uid:gid pair once, a fake image ID later) is in no engine and no
+// registry, and fails here, before a pull request's first CI run finds it.
+func servedAll(images []string) error {
+	var absent []string
+	for _, image := range images {
+		// #nosec G204 -- an image reference read from this repository's source.
+		if exec.Command("docker", "image", "inspect", "--format={{.Id}}", image).Run() != nil {
+			absent = append(absent, image)
+		}
+	}
+	return eachWithRetry(absent, "find", io.Discard, func(image string) []string { return []string{"manifest", "inspect", image} })
+}
+
+// eachWithRetry runs docker with args(image) for each image, its output to
+// stdout and its errors to standard error, retrying a failure after each
+// pullBackoff wait, and names every image it failed for in the end. verb
+// says what failed.
+func eachWithRetry(images []string, verb string, stdout io.Writer, args func(image string) []string) error {
 	var failed []string
 	for _, image := range images {
 		var err error
 		for attempt := 0; ; attempt++ {
-			// #nosec G204 -- an image reference read from this repository's source.
-			cmd := exec.Command("docker", "pull", "--quiet", image)
-			cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+			// #nosec G204 -- fixed docker subcommands and an image reference read from this repository's source.
+			cmd := exec.Command("docker", args(image)...)
+			cmd.Stdout, cmd.Stderr = stdout, os.Stderr
 			if err = cmd.Run(); err == nil || attempt == len(pullBackoff) {
 				break
 			}
-			fmt.Fprintf(os.Stderr, "testimages: pulling %s failed (%v); retrying in %s\n", image, err, pullBackoff[attempt])
+			fmt.Fprintf(os.Stderr, "testimages: %s %s failed (%v); retrying in %s\n", verb, image, err, pullBackoff[attempt])
 			time.Sleep(pullBackoff[attempt])
 		}
 		if err != nil {
@@ -108,7 +143,7 @@ func pullAll(images []string) error {
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("could not pull %s", strings.Join(failed, ", "))
+		return fmt.Errorf("could not %s %s", verb, strings.Join(failed, ", "))
 	}
 	return nil
 }

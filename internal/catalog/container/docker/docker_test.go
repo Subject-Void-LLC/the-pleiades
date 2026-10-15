@@ -48,10 +48,29 @@ type target struct {
 	*inventorytest.Stub
 	host string
 	port int
+	// engineID is the Docker engine identity onboarding pinned for the
+	// device (capability.EngineReach).
+	engineID string
 }
 
 func (d *target) SSHHost() string { return d.host }
 func (d *target) SSHPort() int    { return d.port }
+
+// EngineID, EngineSocket, EngineCarriers and EngineLoginUser make target a
+// capability.EngineReach: only the pinned identity matters to these methods.
+func (d *target) EngineID(capability.EngineKind) capability.EngineID {
+	return capability.EngineID(d.engineID)
+}
+func (d *target) EngineSocket(capability.EngineKind) capability.SocketAddress { return "" }
+func (d *target) EngineCarriers(capability.EngineKind) []capability.Carrier   { return nil }
+func (d *target) EngineLoginUser() string                                     { return "" }
+
+// fakeImageID is the image ID the fake docker image inspect reports.
+const fakeImageID = "sha256:9f2c0e6a9b2d3c5e7f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e"
+
+// fakeEngineID is the Docker engine identity the fake docker info reports
+// and the harness's device pins.
+const fakeEngineID = "e62e8e92-0000-4d53-bc4d-f629ea371cdb"
 
 func noSSHDevice() inventory.InventoryItem {
 	return &inventorytest.Stub{StubName: "no-ssh", Caps: []capability.Name{capability.NameDocker}}
@@ -69,6 +88,47 @@ type containerFixture struct {
 	stopFailStream string
 	rmExit         int
 	rmFailStream   string
+
+	// inspectUnreachable makes docker inspect fail the way it does when the
+	// CLI cannot reach its daemon, which is not an absent container.
+	inspectUnreachable bool
+
+	// runLeftover is the status of the container a failed docker run leaves
+	// under the name ("created" for a start that failed); empty leaves none.
+	runLeftover string
+	// runFailMessage replaces the fake's failure text, such as docker's own
+	// "is already in use" conflict.
+	runFailMessage string
+	// runStdout, when set, replaces the container id a successful docker run
+	// prints.
+	runStdout *string
+	// runFlood makes a failing docker run write more than the method's
+	// output bound to standard error.
+	runFlood bool
+	// otherEngine makes docker info report an engine other than the one
+	// the device pins.
+	otherEngine bool
+	// infoFails makes docker info itself fail.
+	infoFails bool
+	// imageAbsent makes docker image inspect find no image until a pull.
+	imageAbsent bool
+	// pullExit is the exit status a docker pull ends with.
+	pullExit int
+	// imageFails makes docker image inspect fail the way an unreachable
+	// daemon does.
+	imageFails bool
+	// imageID, when set, replaces the image ID docker image inspect reports.
+	imageID string
+	// pullNoop makes a docker pull succeed without the image arriving.
+	pullNoop bool
+	// startExit is the exit status a docker start ends with.
+	startExit int
+	// hang names the docker subcommand that answers only after
+	// hangSeconds (one by default), a daemon that has stopped answering.
+	hang        string
+	hangSeconds int
+	// containerID, when set, replaces the id docker inspect reports.
+	containerID string
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -99,8 +159,53 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 	record := filepath.Join(dir, "invocations")
 
 	script := `#!/bin/sh
+# A daemon that accepts the call and does not answer in time, for one
+# subcommand.
+if [ -n "$FAKE_HANG" ] && [ "$FAKE_HANG" = "$1" ]; then
+  sleep "${FAKE_HANG_SECONDS:-1}"
+fi
 case "$1" in
+  image)
+    # docker image inspect --format={{.Id}} -- REF: the image is present
+    # unless the test says otherwise, or after a pull brought it.
+    if [ "$FAKE_IMAGE_FAILS" = "1" ]; then
+      printf 'failed to connect to the docker API at unix:///var/run/docker.sock\n' >&2
+      exit 1
+    fi
+    if [ "$FAKE_IMAGE_ABSENT" = "1" ] && [ ! -f "$FAKE_RECORD.pulled" ]; then
+      printf 'Error response from daemon: No such image: x\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$FAKE_IMAGE_ID"
+    exit 0
+    ;;
+  pull)
+    printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
+    for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
+    printf -- '---\n' >> "$FAKE_RECORD"
+    if [ "$FAKE_PULL_EXIT" != "" ] && [ "$FAKE_PULL_EXIT" != "0" ]; then
+      printf 'pull access denied\n' >&2
+      exit "$FAKE_PULL_EXIT"
+    fi
+    if [ "$FAKE_PULL_NOOP" != "1" ]; then
+      : > "$FAKE_RECORD.pulled"
+    fi
+    exit 0
+    ;;
+  info)
+    if [ "$FAKE_INFO_FAILS" = "1" ]; then
+      printf 'permission denied while trying to connect to the docker API\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$FAKE_ENGINE_ID"
+    exit 0
+    ;;
   inspect)
+    # A daemon the CLI cannot reach, worded as Docker 29 words it.
+    if [ "$FAKE_INSPECT_UNREACHABLE" = "1" ]; then
+      printf 'failed to connect to the docker API at unix:///var/run/docker.sock\n' >&2
+      exit 1
+    fi
     status="$FAKE_STATUS"
     # A container a successful run created exists afterwards, running, as
     # it would on a real daemon.
@@ -108,19 +213,30 @@ case "$1" in
       FAKE_EXISTS=1
       status=running
     fi
+    # A container a failed run left behind, in the status the test chose.
+    if [ -f "$FAKE_RECORD.leftover" ]; then
+      FAKE_EXISTS=1
+      status="$(cat "$FAKE_RECORD.leftover")"
+    fi
+    template=""
+    last=""
+    for a in "$@"; do
+      case "$a" in --format=*) template="${a#--format=}" ;; esac
+      last="$a"
+    done
     if [ "$FAKE_EXISTS" = "1" ]; then
-      # Render --format as the real CLI does: $2 is --format, $3 the template.
-      printf '%s\n' "$3" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/"
+      # Render --format as the real CLI does.
+      printf '%s\n' "$template" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/" -e "s/{{.Config.Image}}/${FAKE_CONTAINER_IMAGE:-nginx:1.27}/"
       exit 0
     fi
-    printf 'Error: No such object\n' >&2
+    printf 'Error response from daemon: No such container: %s\n' "$last" >&2
     exit 1
     ;;
   run)
     # Read an env file from standard input the way the real CLI does, so a
     # test sees exactly what reached it there.
     case " $* " in
-      *" --env-file /dev/stdin "*) cat > "$FAKE_RECORD.env" ;;
+      *" --env-file=/dev/stdin "*) cat > "$FAKE_RECORD.env" ;;
     esac
     printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
@@ -128,15 +244,38 @@ case "$1" in
     exit_code="${FAKE_RUN_EXIT:-0}"
     if [ "$exit_code" = "0" ]; then
       : > "$FAKE_RECORD.created"
+      # docker run -d prints the new container's id, as the real CLI does.
+      printf '%s\n' "${FAKE_RUN_STDOUT-$FAKE_ID}"
     fi
     if [ "$exit_code" != "0" ]; then
+      if [ -n "$FAKE_RUN_LEFTOVER" ]; then
+        printf '%s' "$FAKE_RUN_LEFTOVER" > "$FAKE_RECORD.leftover"
+      fi
+      if [ "$FAKE_RUN_FLOOD" = "1" ]; then
+        # More than the method's bound on one stream.
+        head -c 1100000 /dev/zero | tr '\0' x >&2
+        exit "$exit_code"
+      fi
+      message="${FAKE_RUN_FAIL_MESSAGE:-fake failure}"
       case "$FAKE_RUN_FAIL_STREAM" in
-        stdout) printf 'fake failure\n' ;;
+        stdout) printf '%s\n' "$message" ;;
         none) : ;;
-        *) printf 'fake failure\n' >&2 ;;
+        *) printf '%s\n' "$message" >&2 ;;
       esac
     fi
     exit "$exit_code"
+    ;;
+  start)
+    printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
+    for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
+    printf -- '---\n' >> "$FAKE_RECORD"
+    if [ "$FAKE_START_EXIT" != "" ] && [ "$FAKE_START_EXIT" != "0" ]; then
+      printf 'Error response from daemon: driver failed programming external connectivity\n' >&2
+      exit "$FAKE_START_EXIT"
+    fi
+    # A started container reads back as running, as a created one does.
+    : > "$FAKE_RECORD.created"
+    exit 0
     ;;
   stop)
     printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
@@ -157,6 +296,9 @@ case "$1" in
     for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
     printf -- '---\n' >> "$FAKE_RECORD"
     exit_code="${FAKE_RM_EXIT:-0}"
+    if [ "$exit_code" = "0" ]; then
+      rm -f "$FAKE_RECORD.leftover"
+    fi
     if [ "$exit_code" != "0" ]; then
       case "$FAKE_RM_FAIL_STREAM" in
         stdout) printf 'fake failure\n' ;;
@@ -178,12 +320,38 @@ esac
 	t.Setenv("FAKE_EXISTS", boolEnv(fixture.exists))
 	t.Setenv("FAKE_STATUS", fixture.status)
 	t.Setenv("FAKE_ID", fakeContainerID)
+	t.Setenv("FAKE_ENGINE_ID", fakeEngineID)
+	t.Setenv("FAKE_INFO_FAILS", boolEnv(fixture.infoFails))
+	t.Setenv("FAKE_IMAGE_ABSENT", boolEnv(fixture.imageAbsent))
+	t.Setenv("FAKE_IMAGE_ID", fakeImageID)
+	if fixture.imageID != "" {
+		t.Setenv("FAKE_IMAGE_ID", fixture.imageID)
+	}
+	t.Setenv("FAKE_IMAGE_FAILS", boolEnv(fixture.imageFails))
+	t.Setenv("FAKE_PULL_NOOP", boolEnv(fixture.pullNoop))
+	t.Setenv("FAKE_START_EXIT", strconv.Itoa(fixture.startExit))
+	t.Setenv("FAKE_HANG", fixture.hang)
+	t.Setenv("FAKE_HANG_SECONDS", strconv.Itoa(max(fixture.hangSeconds, 1)))
+	t.Setenv("FAKE_PULL_EXIT", strconv.Itoa(fixture.pullExit))
+	if fixture.containerID != "" {
+		t.Setenv("FAKE_ID", fixture.containerID)
+	}
+	if fixture.otherEngine {
+		t.Setenv("FAKE_ENGINE_ID", "another-engine")
+	}
 	t.Setenv("FAKE_RUN_EXIT", strconv.Itoa(fixture.runExit))
 	t.Setenv("FAKE_RUN_FAIL_STREAM", fixture.runFailStream)
 	t.Setenv("FAKE_STOP_EXIT", strconv.Itoa(fixture.stopExit))
 	t.Setenv("FAKE_STOP_FAIL_STREAM", fixture.stopFailStream)
 	t.Setenv("FAKE_RM_EXIT", strconv.Itoa(fixture.rmExit))
 	t.Setenv("FAKE_RM_FAIL_STREAM", fixture.rmFailStream)
+	t.Setenv("FAKE_INSPECT_UNREACHABLE", boolEnv(fixture.inspectUnreachable))
+	t.Setenv("FAKE_RUN_LEFTOVER", fixture.runLeftover)
+	t.Setenv("FAKE_RUN_FAIL_MESSAGE", fixture.runFailMessage)
+	t.Setenv("FAKE_RUN_FLOOD", boolEnv(fixture.runFlood))
+	if fixture.runStdout != nil {
+		t.Setenv("FAKE_RUN_STDOUT", *fixture.runStdout)
+	}
 
 	opts := remoteexectest.Options{}
 	if budget >= 0 {
@@ -199,7 +367,7 @@ esac
 		rc: &ctxStub{secrets: srv.Secrets(), stats: map[string]any{}},
 		device: &target{
 			Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameDocker}},
-			host: srv.Host, port: srv.Port,
+			host: srv.Host, port: srv.Port, engineID: fakeEngineID,
 		},
 		record: record,
 	}
@@ -289,8 +457,8 @@ func TestRegistration(t *testing.T) {
 	if !lookup(t, "container.docker.run").Manifest.Reversibility.Reversible {
 		t.Error("container.docker.run: expected Reversible: true")
 	}
-	if lookup(t, "container.docker.stop").Manifest.Reversibility.Reversible {
-		t.Error("container.docker.stop: expected Reversible: false")
+	if !lookup(t, "container.docker.stop").Manifest.Reversibility.Reversible {
+		t.Error("container.docker.stop: expected Reversible: true, since run starts a stopped container")
 	}
 	if lookup(t, "container.docker.remove").Manifest.Reversibility.Reversible {
 		t.Error("container.docker.remove: expected Reversible: false")
@@ -322,7 +490,7 @@ func TestRun_MissingRequiredParams(t *testing.T) {
 func TestRun_AbsentCreatesContainer(t *testing.T) {
 	h := newHarness(t, absent)
 	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
-		"name": "web", "image": "nginx:1.27", "ports": []any{"8080:80"}, "volumes": []any{"/data:/data"},
+		"name": "web", "image": "nginx:1.27", "network": "bridge", "ports": []any{"8080:80"}, "volumes": []any{"/data:/data"},
 		"env": map[string]any{"FOO": "bar"}, "restart_policy": "unless-stopped",
 		"command": []any{"nginx", "-g", "daemon off;"},
 	}))
@@ -337,7 +505,7 @@ func TestRun_AbsentCreatesContainer(t *testing.T) {
 		t.Fatalf("invocations = %v", calls)
 	}
 	call := calls[0]
-	for _, want := range []string{"-d", "--name web", "-p 8080:80", "-v /data:/data", "--env-file /dev/stdin", "--restart unless-stopped", "nginx:1.27", "daemon off;"} {
+	for _, want := range []string{"-d", "--name=web", "--network=bridge", "--label=org.pleiades.image=nginx:1.27", "--publish=8080:80", "--volume=/data:/data:ro", "--env-file=/dev/stdin", "--restart=unless-stopped", " -- " + fakeImageID + " nginx -g daemon off;"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("call = %q, want it to contain %q", call, want)
 		}
@@ -379,7 +547,7 @@ func TestRemove_TheIDGuardRefusesAnotherContainerOfTheName(t *testing.T) {
 	if err != nil || !result.Changed {
 		t.Fatalf("remove with the container's own id = %+v, %v", result, err)
 	}
-	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "docker rm web" {
+	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "docker rm -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -511,7 +679,7 @@ func TestRun_RunFailsSilently(t *testing.T) {
 }
 
 func TestRun_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 0)
+	h := newHarnessBudgeted(t, absent, 1)
 	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	})); err == nil {
@@ -519,8 +687,22 @@ func TestRun_ConnectionDiesQuerying(t *testing.T) {
 	}
 }
 
+// TestRun_ConnectionDiesResolvingTheImage: a connection lost while asking the
+// engine for the image's ID fails the task before anything is created.
+func TestRun_ConnectionDiesResolvingTheImage(t *testing.T) {
+	h := newHarnessBudgeted(t, absent, 2)
+	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
+		"name": "web", "image": "nginx",
+	})); err == nil {
+		t.Fatal("expected a connection failure resolving the image")
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Fatalf("a run created a container without its image's ID: %v", calls)
+	}
+}
+
 func TestRun_ConnectionDiesRunning(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1)
+	h := newHarnessBudgeted(t, absent, 3)
 	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	})); err == nil {
@@ -528,12 +710,24 @@ func TestRun_ConnectionDiesRunning(t *testing.T) {
 	}
 }
 
+// TestRun_ConnectionDiesQueryingAfter: once docker run has created the
+// container and printed its id, losing the connection before it is read back
+// cannot fail the task, since the engine would drop the undo of a container
+// that exists. It succeeds, says what it could not read, and keeps the undo
+// pinned to the id docker printed.
 func TestRun_ConnectionDiesQueryingAfter(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2)
-	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
+	h := newHarnessBudgeted(t, absent, 4)
+	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
-	})); err == nil {
-		t.Fatal("expected a connection failure re-querying the container after creation")
+	}))
+	if err != nil || !result.Changed {
+		t.Fatalf("Run = %+v, %v; want a change reported", result, err)
+	}
+	if warnings, _ := h.rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "could not read it back") {
+		t.Errorf("warnings = %v, want the failed read named", h.rc.stats[sdk.StatWarnings])
+	}
+	if _, params, ok := inverseOf(h.rc); !ok || params["id"] != fakeContainerID {
+		t.Fatalf("inverse params = %v, ok=%v; want it pinned to the id docker run printed", params, ok)
 	}
 }
 
@@ -594,8 +788,12 @@ func TestStop_RunningStops(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker stop web" {
-		t.Fatalf("invocations = %v", calls)
+	if len(calls) != 1 || calls[0] != "docker stop -- "+fakeContainerID {
+		t.Fatalf("invocations = %v, want the stop by the inspected id", calls)
+	}
+	fqcn, params, ok := inverseOf(h.rc)
+	if !ok || fqcn != "container.docker.run" || params["name"] != "web" || params["image"] != "nginx:1.27" || params["start"] != true {
+		t.Fatalf("inverse = %q, %v, ok=%v; want run starting it again from its image", fqcn, params, ok)
 	}
 }
 
@@ -634,23 +832,33 @@ func TestStop_Failure(t *testing.T) {
 }
 
 func TestStop_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 0)
+	h := newHarnessBudgeted(t, running, 1)
 	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure querying the container")
 	}
 }
 
 func TestStop_ConnectionDiesStopping(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 1)
+	h := newHarnessBudgeted(t, running, 2)
 	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure stopping the container")
 	}
 }
 
+// TestStop_ConnectionDiesQueryingAfter: once the container is stopped, a
+// lost read back is a warning and never a failure, since the engine would
+// drop the undo of a stop that happened (FAILURE_PATTERNS 452).
 func TestStop_ConnectionDiesQueryingAfter(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 2)
-	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
-		t.Fatal("expected a connection failure re-querying the container after stopping")
+	h := newHarnessBudgeted(t, running, 3)
+	result, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"}))
+	if err != nil || !result.Changed {
+		t.Fatalf("Stop = %+v, %v; want the stop reported", result, err)
+	}
+	if warnings, _ := h.rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "could not read it back") {
+		t.Errorf("warnings = %v, want the failed read named", h.rc.stats[sdk.StatWarnings])
+	}
+	if fqcn, _, ok := inverseOf(h.rc); !ok || fqcn != "container.docker.run" {
+		t.Errorf("inverse = %q, ok=%v; want the undo kept", fqcn, ok)
 	}
 }
 
@@ -697,7 +905,7 @@ func TestRemove_PresentRemoves(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker rm web" {
+	if len(calls) != 1 || calls[0] != "docker rm -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -708,7 +916,7 @@ func TestRemove_ForcePassesFlag(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker rm -f web" {
+	if len(calls) != 1 || calls[0] != "docker rm --force -- web" {
 		t.Fatalf("invocations = %v", calls)
 	}
 }
@@ -766,14 +974,14 @@ func TestRemove_FailsSilently(t *testing.T) {
 }
 
 func TestRemove_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, stopped, 0)
+	h := newHarnessBudgeted(t, stopped, 1)
 	if _, err := dockermod.Remove(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure querying the container")
 	}
 }
 
 func TestRemove_ConnectionDiesRemoving(t *testing.T) {
-	h := newHarnessBudgeted(t, stopped, 1)
+	h := newHarnessBudgeted(t, stopped, 2)
 	if _, err := dockermod.Remove(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure removing the container")
 	}

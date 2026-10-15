@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
@@ -63,9 +64,10 @@ func TestKubernetesOnboard_NodesAndRoutes(t *testing.T) {
 	}
 	reachable := exec.Command("docker", "info").Run() == nil // #nosec G204 -- fixed arguments
 	testsupport.Require(t, "docker", reachable, "this machine's Docker engine does not answer")
-	was := localEngine.Load()
-	t.Cleanup(func() { localEngine.Store(was) })
-	AllowLocalEngine()
+	// This test stands in for the command line, the one process that reaches
+	// this machine's engine through its own socket, and so turns on what
+	// cmd/pleiades's run does; onboarding reads the same switch.
+	containerengine.AllowLocalCarrier()
 
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

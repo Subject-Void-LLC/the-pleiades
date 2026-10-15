@@ -129,17 +129,15 @@ func TestProbeSockets_TwoCarriersAnsweringAsTwoEngines(t *testing.T) {
 // then this user's rootless sockets, under XDG_RUNTIME_DIR, are found and
 // marked rootless.
 func TestProbeLocalEngines(t *testing.T) {
-	was := localEngine.Load()
-	t.Cleanup(func() { localEngine.Store(was) })
-
-	localEngine.Store(false)
+	allowLocalEngine(t, false)
 	if _, _, err := probeLocalEngines(context.Background()); err == nil || !strings.Contains(err.Error(), "the machine that runs pleiades") {
-		t.Fatalf("a probe of this machine without AllowLocalEngine: %v", err)
+		t.Fatalf("a probe of this machine without AllowLocalCarrier: %v", err)
 	}
 
-	AllowLocalEngine()
+	allowLocalEngine(t, true)
 	runtime := shortTempDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	awayFromThisMachine(t, runtime)
 	podmanSocket := filepath.Join(runtime, "podman", "podman.sock")
 	serveEngineSocket(t, filepath.Join(runtime, "docker.sock"), capability.EngineDocker, "rootless-docker")
 	serveEngineSocket(t, podmanSocket, capability.EnginePodman, "/home/me/.local/share/containers")
@@ -157,10 +155,10 @@ func TestProbeLocalEngines(t *testing.T) {
 			t.Errorf("no %s engine found", kind)
 			continue
 		}
-		// A system-wide socket on this machine is tried first, and is not
-		// rootless; the one under the runtime directory is.
-		if (e.socket == rootless) != e.rootless || !slices.Equal(e.carriers, []capability.Carrier{capability.CarrierLocal}) {
-			t.Errorf("%s at %s: rootless %v, carriers %v", kind, e.socket, e.rootless, e.carriers)
+		// With the system sockets pointed away from this machine, the engine
+		// found is the one under the runtime directory, and it is rootless.
+		if e.socket != rootless || !e.rootless || !slices.Equal(e.carriers, []capability.Carrier{capability.CarrierLocal}) {
+			t.Errorf("%s at %s: rootless %v, carriers %v; want %s, rootless", kind, e.socket, e.rootless, e.carriers, rootless)
 		}
 	}
 }
@@ -169,11 +167,10 @@ func TestProbeLocalEngines(t *testing.T) {
 // machine, probed through its own sockets and recorded with the account
 // that opened them.
 func TestContainerProbe_LocalHost(t *testing.T) {
-	was := localEngine.Load()
-	t.Cleanup(func() { localEngine.Store(was) })
-	AllowLocalEngine()
+	allowLocalEngine(t, true)
 	runtime := shortTempDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	awayFromThisMachine(t, runtime)
 	serveEngineSocket(t, filepath.Join(runtime, "podman", "podman.sock"), capability.EnginePodman, "/home/me/.local/share/containers")
 
 	got, err := containerProber{}.Probe(context.Background(), hostRecord(t, nil), nil)
@@ -279,5 +276,38 @@ func TestSSHEngineProbes_RefuseWhatCannotLogIn(t *testing.T) {
 		if _, err := p.Probe(context.Background(), device, password); err == nil {
 			t.Errorf("%s: a login to a closed port succeeded", name)
 		}
+	}
+}
+
+// awayFromThisMachine points the local system sockets at paths under dir
+// that nothing serves, so a test never reads this machine's own Docker or
+// Podman engine, whatever is running on it.
+func awayFromThisMachine(t *testing.T, dir string) {
+	t.Helper()
+	was := localSystemSockets
+	t.Cleanup(func() { localSystemSockets = was })
+	localSystemSockets = map[capability.EngineKind]string{
+		capability.EngineDocker: filepath.Join(dir, "absent-system-docker.sock"),
+		capability.EnginePodman: filepath.Join(dir, "absent-system-podman.sock"),
+	}
+}
+
+// allowLocalEngine answers onboarding's question whether this process may
+// probe its own engine sockets, for this test alone.
+func allowLocalEngine(t *testing.T, allowed bool) {
+	t.Helper()
+	was := localEngineAllowed
+	t.Cleanup(func() { localEngineAllowed = was })
+	localEngineAllowed = func() bool { return allowed }
+}
+
+// TestLocalEngine_IsTheEnginePortsOneSwitch: onboarding may probe this
+// machine's own sockets exactly when the engine port may reach them, with
+// no switch of its own a process could set without the other (the onboarded
+// device would then be unreachable from the process that onboarded it).
+func TestLocalEngine_IsTheEnginePortsOneSwitch(t *testing.T) {
+	containerengine.AllowLocalCarrier()
+	if !localEngineAllowed() || !containerengine.LocalCarrierAllowed() {
+		t.Fatal("onboarding does not read the engine port's local switch")
 	}
 }

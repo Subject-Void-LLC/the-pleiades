@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 )
 
 var binPath string
@@ -440,17 +442,6 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
-func runGoBuildAndTest(t *testing.T, dir, pkgImportPath string) {
-	t.Helper()
-	for _, subcmd := range []string{"build", "test"} {
-		cmd := exec.Command("go", subcmd, pkgImportPath)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("go %s %s failed: %v\n%s", subcmd, pkgImportPath, err, out)
-		}
-	}
-}
-
 // TestCLI_ForgeNewDevice_EndToEnd is Phase 33's Release Gate, driven
 // through the actual built binary rather than devicescaffold's own
 // in-process tests: "pleiades forge new-device" writes a package that go
@@ -463,15 +454,13 @@ func TestCLI_ForgeNewDevice_EndToEnd(t *testing.T) {
 		t.Skip("skipping release gate test in -short mode")
 	}
 
-	root := repoRoot(t)
+	// Generated into a stand-in for this repository, never the module
+	// itself, which every other test may be reading (gooverlay).
+	tree := gooverlay.New(t, repoRoot(t))
 	vendor := fmt.Sprintf("e2egate%d", os.Getpid())
 	typeKey := vendor + "_widget"
 
-	t.Cleanup(func() {
-		_ = os.RemoveAll(filepath.Join(root, "internal", "inventory", "devices", vendor))
-	})
-
-	out, err := runPleiades(t, root, "forge", "new-device", vendor,
+	out, err := runPleiades(t, tree.Dir, "forge", "new-device", vendor,
 		"--type", typeKey, "--capabilities", "SSHTransportCapable")
 	if err != nil {
 		t.Fatalf("forge new-device failed: %v\n%s", err, out)
@@ -480,13 +469,14 @@ func TestCLI_ForgeNewDevice_EndToEnd(t *testing.T) {
 		t.Errorf("expected the composition-root honesty note in output, got:\n%s", out)
 	}
 
-	sourcePath := filepath.Join(root, "internal", "inventory", "devices", vendor, "widget.go")
+	sourcePath := filepath.Join(tree.Dir, "internal", "inventory", "devices", vendor, "widget.go")
 	if _, statErr := os.Stat(sourcePath); statErr != nil {
 		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
 	}
 
 	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + vendor
-	runGoBuildAndTest(t, root, pkgImportPath)
+	tree.Build(t, pkgImportPath)
+	tree.Test(t, pkgImportPath)
 }
 
 // TestCLI_ForgeNewCollection_EndToEnd is TestCLI_ForgeNewDevice_EndToEnd's
@@ -498,21 +488,12 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 		t.Skip("skipping release gate test in -short mode")
 	}
 
-	root := repoRoot(t)
+	// Generated into a stand-in for this repository, never the module
+	// itself, which every other test may be reading (gooverlay).
+	tree := gooverlay.New(t, repoRoot(t))
 	name := fmt.Sprintf("test.e2egate%d.check", os.Getpid())
 
-	// Remove only this test's own pid-namespaced package, never the shared
-	// internal/catalog/test parent. tools/gencatalog's dogfood test writes
-	// a sibling directory under the same parent, and a cleanup that took
-	// the parent would delete that test's package while it was still
-	// building it, which under a parallel `go test ./...` showed up as an
-	// unexplainable "no required module provides package" failure in
-	// whichever of the two happened to lose the race.
-	t.Cleanup(func() {
-		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid())))
-	})
-
-	out, err := runPleiades(t, root, "forge", "new-collection", name,
+	out, err := runPleiades(t, tree.Dir, "forge", "new-collection", name,
 		"--capabilities", "SSHTransportCapable", "--transports", "ssh")
 	if err != nil {
 		t.Fatalf("forge new-collection failed: %v\n%s", err, out)
@@ -521,13 +502,14 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 		t.Errorf("expected the reachability honesty note in output, got:\n%s", out)
 	}
 
-	sourcePath := filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid()), "check.go")
+	sourcePath := filepath.Join(tree.Dir, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid()), "check.go")
 	if _, statErr := os.Stat(sourcePath); statErr != nil {
 		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
 	}
 
 	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
-	runGoBuildAndTest(t, root, pkgImportPath)
+	tree.Build(t, pkgImportPath)
+	tree.Test(t, pkgImportPath)
 }
 
 // TestCLI_Doc_MatchesGeneratedReferencePage is Phase 68's own named

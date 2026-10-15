@@ -42,7 +42,10 @@
 // shape layering_test.go already uses for pkg/'s isolation from internal/.
 package archtest
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // authtestImportPath and testsupportImportPath are the packages this file
 // forbids any production package from depending on, directly or
@@ -54,20 +57,23 @@ const (
 
 // assertNotImportedByProductionCode fails if any package's own build (never
 // its _test.go files: go list's default Deps excludes them) depends on
-// forbidden.
+// forbidden or a package beneath it, outside forbidden's own tree: a helper
+// split into a subpackage (internal/testsupport/gooverlay) serves tests
+// exactly as its parent does.
 //
 // reason is appended to the failure, because the two callers below forbid
 // their package for genuinely different reasons and a bare "must only be
 // reachable from tests" would send the next reader to the wrong place.
 func assertNotImportedByProductionCode(t *testing.T, forbidden, reason string) {
 	t.Helper()
+	within := func(path string) bool { return path == forbidden || strings.HasPrefix(path, forbidden+"/") }
 	for _, pkg := range goList(t, true, modulePath+"/...") {
-		if pkg.ImportPath == forbidden {
+		if within(pkg.ImportPath) {
 			continue
 		}
 		for _, dep := range pkg.Deps {
-			if dep == forbidden {
-				t.Errorf("%s depends on %s outside of _test.go files; %s", pkg.ImportPath, forbidden, reason)
+			if within(dep) {
+				t.Errorf("%s depends on %s outside of _test.go files; %s", pkg.ImportPath, dep, reason)
 			}
 		}
 	}

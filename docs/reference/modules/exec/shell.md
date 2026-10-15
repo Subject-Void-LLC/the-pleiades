@@ -36,8 +36,8 @@ Runs a command line on the target through a real shell, which is what makes a pi
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `rc` | `int` | always | The command's exit status, which for a pipeline is the last command's. Zero when it succeeded, and 0 for a run that creates or removes skipped. |
-| `stdout` | `string` | always | Everything the command wrote to standard output, with the trailing newline removed. |
-| `stderr` | `string` | always | Everything the command wrote to standard error, with the trailing newline removed. |
+| `stdout` | `string` | always | Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it. |
+| `stderr` | `string` | always | Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it. |
 | `cmd` | `string` | always | The command line sent to the device, empty for a skipped run. |
 | `skipped` | `bool` | always | True when creates or removes short-circuited this task, so no command ran. |
 | `msg` | `string` | on skip | Why the task was skipped. |

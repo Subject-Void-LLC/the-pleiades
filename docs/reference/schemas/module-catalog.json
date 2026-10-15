@@ -527,7 +527,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Removes a Docker container from the target.",
-      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it.",
+      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",
@@ -599,7 +599,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
+      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that started an existing stopped container emits a container.docker.stop naming it by id. A run that found the container already running emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
       "inverses": [
         {
           "fqcn": "container.docker.remove",
@@ -608,13 +608,20 @@
             "force",
             "id"
           ]
+        },
+        {
+          "fqcn": "container.docker.stop",
+          "record": [
+            "name",
+            "id"
+          ]
         }
       ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Runs a Docker container on the target.",
-      "description": "Makes sure a container named name is running, starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to.",
+      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",
@@ -626,7 +633,7 @@
           "name": "image",
           "type": "string",
           "required": true,
-          "description": "The image to run. Ignored when a container already exists under name."
+          "description": "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."
         },
         {
           "name": "command",
@@ -636,12 +643,30 @@
         {
           "name": "ports",
           "type": "list",
-          "description": "Port mappings, each \"host:container\" (docker run's own -p syntax)."
+          "description": "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."
         },
         {
           "name": "volumes",
           "type": "list",
-          "description": "Volume mappings, each \"host:container\" (docker run's own -v syntax)."
+          "description": "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."
+        },
+        {
+          "name": "pull_timeout",
+          "type": "int",
+          "default": "900",
+          "description": "How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link."
+        },
+        {
+          "name": "start",
+          "type": "bool",
+          "default": "true",
+          "description": "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "default": "none",
+          "description": "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."
         },
         {
           "name": "env",
@@ -672,12 +697,18 @@
           "type": "dict",
           "returned": "always",
           "description": "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "changed",
+          "description": "The image ID the container was started from, when this task created it."
         }
       ],
       "examples": [
         {
           "name": "Run a container",
-          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"
+          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n"
         }
       ],
       "seeAlso": [
@@ -701,19 +732,34 @@
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
-      "reversible": false,
-      "notes": "This catalog declares no container.docker.start, and recording container.docker.run as this method's inverse would be dishonest: run's own idempotency means it would just no-op against the existing name rather than actually restart the container this stopped. The container's own state is still recorded under diff, so a rollback reaching this task can see it was running before and decide for itself, but this method emits no instruction because none would be true."
+      "reversible": true,
+      "notes": "A stop that stopped a running container emits a container.docker.run naming it, from the image the container was created from, with start: true, since run starts an existing stopped container. A stop that found nothing running emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.docker.run",
+          "record": [
+            "name",
+            "image",
+            "start"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Stops a running Docker container on the target.",
-      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device.",
+      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
       "params": [
         {
           "name": "name",
           "type": "string",
           "required": true,
           "description": "The container to stop."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -819,13 +865,13 @@
           "name": "stdout",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard output, with the trailing newline removed."
+          "description": "Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."
         },
         {
           "name": "stderr",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard error, with the trailing newline removed."
+          "description": "Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."
         },
         {
           "name": "cmd",
@@ -937,13 +983,13 @@
           "name": "stdout",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard output, with the trailing newline removed."
+          "description": "Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."
         },
         {
           "name": "stderr",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard error, with the trailing newline removed."
+          "description": "Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."
         },
         {
           "name": "cmd",
@@ -7964,7 +8010,7 @@
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits for a pattern to appear in a file's contents on the target.",
-      "description": "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.",
+      "description": "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.",
       "params": [
         {
           "name": "path",

@@ -250,13 +250,16 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Runs a Docker container on the target.",
-			Description: "Makes sure a container named name is running, starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to.",
+			Description: "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The container name to create or leave alone."},
-				{Name: "image", Type: "string", Required: true, Description: "The image to run. Ignored when a container already exists under name."},
+				{Name: "image", Type: "string", Required: true, Description: "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."},
 				{Name: "command", Type: "list", Description: "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."},
-				{Name: "ports", Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax)."},
-				{Name: "volumes", Type: "list", Description: "Volume mappings, each \"host:container\" (docker run's own -v syntax)."},
+				{Name: "ports", Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."},
+				{Name: "volumes", Type: "list", Description: "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."},
+				{Name: "pull_timeout", Type: "int", Default: "900", Description: "How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link."},
+				{Name: "start", Type: "bool", Default: "true", Description: "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."},
+				{Name: "network", Type: "string", Default: "none", Description: "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."},
 				{Name: "env", Type: "dict", Description: "Environment variables to set in the container, as a map of name to value."},
 				{Name: "restart_policy", Type: "string", Description: "The restart policy (docker run's own --restart value, e.g. unless-stopped)."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -264,9 +267,10 @@ var extendedCollections = []collectionscaffold.Config{
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The container this task acted on."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."},
+				{Name: "image_id", Type: "string", Returned: "changed", Description: "The image ID the container was started from, when this task created it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"},
+				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n"},
 			},
 			SeeAlso: []string{"container.docker.stop", "container.docker.remove"},
 		},
@@ -279,9 +283,10 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Stops a running Docker container on the target.",
-			Description: "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device.",
+			Description: "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The container to stop."},
+				{Name: "id", Type: "string", Description: "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -302,7 +307,7 @@ var extendedCollections = []collectionscaffold.Config{
 		EngineVersion:     engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Removes a Docker container from the target.",
-			Description: "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it.",
+			Description: "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The container to remove."},
 				{Name: "force", Type: "bool", Default: "false", Description: "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."},

@@ -430,7 +430,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 425. GitHub's Windows runner ships its own HTTPS WinRM listener, and the lab script refused to replace it
 426. The Podman fixture's passwords were refused on the CI runners and accepted under Docker Desktop
 427. Code moved between packages left its tests behind, and eight coverage floors failed at once
-428. probe_linux.go's file name built the Linux server prober on Linux only
+428. probe_linux.go's file name built the Linux server prober on Linux only (a repeat of 303)
 429. A refused SSH host key was retried three times and opened the address's circuit
 430. Kubernetes discovery recorded only preferred versions, which would have refused valid manifests
 431. A hostile API server could make discovery unbounded, and its whole answer reached an error
@@ -447,10 +447,28 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 442. trust-host --first-connect wrote a fixture's key into the real ~/.ssh/known_hosts
 443. A fixture's SSHDConfig option replaced its default AllowTcpForwarding instead of adding to it
 444. The SSH test fixture's forwarder never ended a connection its destination kept open
-445. Pull request #55 failed CI twice on checks that run locally in minutes
+445. Pull request #55 failed CI twice on checks that run locally in minutes (a repeat in kind of 427)
 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
-447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted
+447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted (a repeat of 239)
+448. pkg/tftpxfer's Get timed out on macOS twice running, and the cause is still unknown
+449. A touched package CI could not floor-check was left out of the pre-push measurement
+450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
+451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
+452. The engine drops a failed task's undo, so a docker run that created a container and failed to start it left it unrecoverable
+453. The docker CLI methods buffered whatever the device wrote and copied all of stderr into their errors (a repeat of 431)
+454. The docker CLI methods skipped the engine identity pin container.docker.exec checks
+455. A registry account a method obtained was never masked on the command line, and its encoded header nowhere (a repeat of 394)
+456. Controller onboarding lent any organization's Kubernetes credential to a record naming its address, under the record's authority and route
+457. A refused server address was quoted, password included, into the import API's response
+458. HasEmbeddedSecret checked only a URL's password, so a token in the user position passed
+459. The README and start-here counts drifted 22 methods behind the registry with nothing to notice
+460. Session-budgeted tests kept passing after a new first command, now testing the step before the one they name
+461. The local engine probe's unit tests read the developer's real Docker socket first
+462. A failed Podman start's cleanup ran on an unbounded context while close() bounded the same script
+463. Generated packages written into the module tree failed a new reader of it (a repeat of 53 and 55)
+464. A second switch for one fact let onboarding grant a reach the engine port then refused (the sibling-guard class, LESSONS 244)
+465. CI's pull step asked Docker Hub for a fake image ID a test had named (a repeat of 416)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
-Append a new entry to the archive first, in full, then add its one-line, same-numbered title here. Never renumber an existing entry.
+Append a new entry to the archive first, in full, then add its one-line, same-numbered title here. Never renumber an existing entry. Before writing one, search the archive for its class, by symptom and by cause: when it has happened before, the title says "(a repeat of N)" and the entry says why N's fix did not hold (LESSONS 274).

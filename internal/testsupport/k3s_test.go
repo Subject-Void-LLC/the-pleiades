@@ -6,8 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestK3s_StartsAndHandsOverItsIdentity starts the newest pinned k3s and
@@ -18,6 +21,17 @@ func TestK3s_StartsAndHandsOverItsIdentity(t *testing.T) {
 		t.Skip("starts a real k3s server")
 	}
 	k := StartK3s(t, K3sOptions{})
+	// Ready means answering where a client connects: the API's mapped host
+	// port, dialed once, with no retry (FAILURE_PATTERNS 408's class).
+	server, err := url.Parse(k.Server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.DialTimeout("tcp", server.Host, 5*time.Second)
+	if err != nil {
+		t.Fatalf("the fixture returned before its API port answered on the host: %v", err)
+	}
+	_ = conn.Close()
 	out, err := k.Kubectl(context.Background(), "get", "nodes", "-o", "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}")
 	if err != nil || strings.TrimSpace(out) != "True" {
 		t.Fatalf("node Ready = %q, %v", out, err)

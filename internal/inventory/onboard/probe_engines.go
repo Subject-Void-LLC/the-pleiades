@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -170,23 +169,30 @@ func probeSockets(ctx context.Context, kind capability.EngineKind, candidates []
 	return nil, notes
 }
 
-// localEngine says whether this process may probe a container host with no
-// address through its own sockets. Off unless the composition root turns it
-// on; see AllowLocalEngine.
-var localEngine atomic.Bool
+// localEngineAllowed says whether this process may probe a container host
+// with no address through its own sockets, and grant it EngineLocalCapable:
+// exactly when it may reach an engine that way at all
+// (containerengine.AllowLocalCarrier, which only the Crawl tier's
+// composition root calls). One switch, not two: onboarding's own used to sit
+// beside the engine port's, and a process that set one and not the other
+// (a test standing in for the CLI) onboarded what it could then not reach.
+// A variable so a test can say no.
+var localEngineAllowed = containerengine.LocalCarrierAllowed
 
-// AllowLocalEngine lets onboarding probe a container host with no host
-// through this machine's own engine sockets, and grant it
-// EngineLocalCapable. Only the Crawl tier's composition root (cmd/pleiades)
-// calls it, because there the process that onboards is the process that
-// runs the tasks. The Controller never does: it onboards on its own
-// machine, which is never the one a Runner runs a task on.
-func AllowLocalEngine() { localEngine.Store(true) }
+// localSystemSockets is where each engine's system (rootful) service listens
+// on the machine running pleiades, which probeLocalEngines tries before this
+// user's rootless ones. A variable so a test points it away from the
+// machine's own engines: a unit test must never read the developer's real
+// daemon.
+var localSystemSockets = map[capability.EngineKind]string{
+	capability.EngineDocker: rootfulDockerSocket,
+	capability.EnginePodman: "/run/podman/podman.sock",
+}
 
 // probeLocalEngines finds the engines this machine runs, through their
 // sockets: the system's, then this user's rootless ones.
 func probeLocalEngines(ctx context.Context) ([]engineFound, []string, error) {
-	if !localEngine.Load() {
+	if !localEngineAllowed() {
 		return nil, nil, errors.New("a container host with no host is the machine that runs pleiades itself; onboard it there with `pleiades onboard`, since this process cannot see that machine's engine")
 	}
 	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
@@ -194,14 +200,13 @@ func probeLocalEngines(ctx context.Context) ([]engineFound, []string, error) {
 	var tried []string
 	for _, kind := range capability.Engines() {
 		var candidates []string
+		candidates = append(candidates, localSystemSockets[kind])
 		switch kind {
 		case capability.EngineDocker:
-			candidates = append(candidates, rootfulDockerSocket)
 			if strings.HasPrefix(runtimeDir, "/") {
 				candidates = append(candidates, path.Join(runtimeDir, "docker.sock"))
 			}
 		case capability.EnginePodman:
-			candidates = append(candidates, "/run/podman/podman.sock")
 			if strings.HasPrefix(runtimeDir, "/") {
 				candidates = append(candidates, path.Join(runtimeDir, "podman", "podman.sock"))
 			}

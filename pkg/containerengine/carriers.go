@@ -170,13 +170,29 @@ func (c *stdioCarrier) startService(ctx context.Context) (capability.SocketAddre
 	// bounded by ctx, rather than racing the first request.
 	wait := remoteexec.QuoteCommand([]string{"sh", "-c", `i=0; while [ ! -S "$1" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -S "$1" ]`, "sh", socket})
 	if res, err := c.conn.Run(ctx, wait); err != nil || res.ExitCode != 0 {
-		stopScript := `[ -f "$1/pid" ] && kill "$(cat "$1/pid")" 2>/dev/null; rm -rf "$1"`
-		_, _ = c.conn.Run(context.Background(), remoteexec.QuoteCommand([]string{"sh", "-c", stopScript, "sh", dir}))
+		stopService(c.conn, dir)
 		_ = service.Close()
 		return "", fmt.Errorf("containerengine: the Podman API service did not listen (%s): %v", strings.TrimSpace(service.Stderr()), err)
 	}
 	c.service, c.dir = service, dir
 	return capability.SocketAddress(socket), nil
+}
+
+// serviceStopTimeout bounds stopping a Podman service and removing its
+// directory. A variable so a test can shorten it.
+var serviceStopTimeout = 10 * time.Second
+
+// stopService stops the Podman service whose directory is dir and removes
+// the directory, within serviceStopTimeout. It runs on a context of its own,
+// since the caller's may already be done (a start that failed because it
+// was canceled), and a bounded one, since the cleanup of a failed or
+// finished session must not hang on the login it rides. Its outcome is not
+// reported: a service it could not stop exits on its own when idle.
+func stopService(conn *remoteexec.Conn, dir string) {
+	ctx, cancel := context.WithTimeout(context.Background(), serviceStopTimeout)
+	defer cancel()
+	stopScript := `[ -f "$1/pid" ] && kill "$(cat "$1/pid")" 2>/dev/null; rm -rf "$1"`
+	_, _ = conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", stopScript, "sh", dir}))
 }
 
 // close stops the session's Podman service and removes its directory. A
@@ -203,10 +219,7 @@ func (c *stdioCarrier) close() {
 	if c.service == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	stopScript := `[ -f "$1/pid" ] && kill "$(cat "$1/pid")" 2>/dev/null; rm -rf "$1"`
-	_, _ = c.conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", stopScript, "sh", c.dir}))
+	stopService(c.conn, c.dir)
 	// Seen to exit after the kill, the service leaves the login reusable.
 	awaitExit(c.service, nil)
 	_ = c.service.Close()

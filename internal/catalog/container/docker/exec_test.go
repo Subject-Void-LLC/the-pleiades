@@ -103,6 +103,9 @@ func newDockerDevice(t *testing.T, mux *http.ServeMux) inventory.InventoryItem {
 	if err != nil {
 		t.Fatalf("LocalUser: %v", err)
 	}
+	// This engine is reached through this machine's own socket, which only
+	// the command line may use; these tests stand where it does.
+	containerengine.AllowLocalCarrier()
 	return &dockerDevice{
 		Stub:   &inventorytest.Stub{StubName: "host1", Caps: []capability.Name{capability.NameContainerEngine, capability.NameDocker, capability.NameEngineLocal}},
 		socket: capability.SocketAddress(sockPath),

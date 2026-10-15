@@ -161,7 +161,7 @@ func main() {
 	// client-go's own log, which a Kubernetes task's client writes, through
 	// the same masking: it logs nothing at the verbosity it runs at, and
 	// whatever it ever logs is redacted (pkg/kubeapi.LogTo).
-	kubeapi.LogTo(redact.Shared().Writer(os.Stderr))
+	kubeapi.LogTo(redact.Shared().Writer(os.Stderr), redact.Shared().Literals())
 	logger.Info("starting runner", "version", buildinfo.Version())
 
 	// The mesh URL, checked at startup: after the masking logger above and

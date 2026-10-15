@@ -87,8 +87,8 @@ func shellDoc() collection.Doc {
 		},
 		Returns: []collection.ReturnField{
 			{Name: statRC, Type: "int", Returned: "always", Description: "The command's exit status, which for a pipeline is the last command's. Zero when it succeeded, and 0 for a run that creates or removes skipped."},
-			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed."},
-			{Name: statStderr, Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed."},
+			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
+			{Name: statStderr, Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
 			{Name: statCmd, Type: "string", Returned: "always", Description: "The command line sent to the device, empty for a skipped run."},
 			{Name: statSkipped, Type: "bool", Returned: "always", Description: "True when creates or removes short-circuited this task, so no command ran."},
 			{Name: "msg", Type: "string", Returned: "on skip", Description: "Why the task was skipped."},

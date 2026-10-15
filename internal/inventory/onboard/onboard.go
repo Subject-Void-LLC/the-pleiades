@@ -40,10 +40,13 @@ var (
 // wire.Secret* keys, or nil when none is stored.
 type SecretsFunc func(ctx context.Context, device inventory.InventoryItem) (map[string]string, error)
 
-// KubernetesLookup finds the credential for a cluster's API server where
-// the per-device store holds none (the Controller's credential store,
-// resolve.KubernetesSecrets): nil when there is none.
-type KubernetesLookup func(ctx context.Context, apiServer string) (map[string]string, error)
+// KubernetesLookup finds a credential that may be lent to a cluster the
+// per-device store holds none for (the Controller's credential store,
+// resolve.BorrowedKubernetesSecrets): nil when there is none. It is handed
+// the whole device, since whether a credential may be lent depends on more
+// than the API server: the device's organization, route and pinned
+// authority.
+type KubernetesLookup func(ctx context.Context, cluster inventory.InventoryItem) (map[string]string, error)
 
 // WithKubernetesFallback is primary, except that a Kubernetes cluster for
 // which primary has no credential is given the one lookup finds for its
@@ -55,11 +58,10 @@ func WithKubernetesFallback(primary SecretsFunc, lookup KubernetesLookup) Secret
 		if err != nil || secrets != nil {
 			return secrets, err
 		}
-		cluster, ok := device.(capability.KubernetesCapable)
-		if !ok {
+		if _, ok := device.(capability.KubernetesCapable); !ok {
 			return nil, nil
 		}
-		return lookup(ctx, cluster.KubeAPIServer())
+		return lookup(ctx, device)
 	}
 }
 

@@ -1,5 +1,142 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-14: Phase 0 of the Tier A plan done, seven contract changes listed
+
+*Superseded on 2026-10-15: the owner asked for edge cases and pro/con on the seven listed contract changes, then the choices built, and the gencatalog race fixed; Phase 0 was pushed first.*
+
+### Status as it was
+
+**2026-10-14. Branch `feature/tier-a-collections`, local, not pushed**, cut from `chore/pr-check-receipt`'s tip
+(itself unpushed, off PR #55). The owner's goal is a pasted Tier A plan: **Phase 0**, a verification sweep of the
+git/forge, container-engine and Kubernetes code against a standard (device model, reversibility, check mode,
+secrets, injection, output, context, plan coverage, docs and counts), fixing every gap as its own commit, then
+**stop for the owner's reaction**; **Phase 1** (gate.*, build.*, db.pg.*, scan.*, ai.*, edge.* and small methods)
+starts only after that, with a design note in docs/ shown first. **Phase 0 is done and Phase 1 has not started.**
+Rules from that goal on top of the usual ones: no push or PR unless asked; never edit coverage-floor.json,
+gosec-waivers.json or flaky-packages.json to make a failure disappear; never write the owner's application's name
+anywhere (its paths and namespace included).
+
+#### Phase 0, what the sweep found
+
+- **Git and forges: nothing exists.** No `git.*`/`scm.*` method or client. Part XIX (120a to 120k) plans it; it was
+  written this session (`.SPECIFICATION/IMPLEMENTATION.md`, gitignored).
+- **Kubernetes: the foundation, no methods.** `pkg/kubeapi`, the cluster device, credentials, import and onboarding
+  exist; no `k8s.*` method (119g/119h, all open).
+- **Container engine: four methods.** `container.docker.exec` met the standard; `run`, `stop` and `remove` had real
+  defects, now fixed.
+
+#### Commits this session (on `25296e33`)
+
+`eff5b82d` option injection in the docker CLI methods (an image of `--privileged` ran a privileged container);
+`921047c8` a failed start removes what it created, undo pinned to docker's own id; `43f7ad70` bounded, escaped
+docker output (`remoteexec.RunWithStdinBounded`, `remoteexec.Excerpt`); `a1c248f7` the CLI methods act only on the
+pinned engine; `26c89fe2` registry accounts masked on both tiers (`sdk.SecretRegistrar`); `93dc18e3` a release gate
+planting docker run's secret; `42ec10bf` bounded Podman cleanup, tests off the local daemon; `cab66aef` a lent
+Kubernetes credential stays inside its organization (security finding, the owner chose to fix); `ca204d1f` a
+refused server address is never echoed; `a0d6c4fb` Kubernetes guards and tests; `f5512ff5` a token as a project
+URL's user is a credential, withheld (security finding, pulled forward from 120a); `a7b36716` README and start-here
+counts, tested; `85c12698` FAILURE_PATTERNS 450 to 462, LESSONS 275 to 277; `e6029671` the k3s fixture waits on its
+mapped port; `180f6e85` a line-keyed gosec waiver moved with its code (same finding, reason extended); `a710f808`
+coverage of the new failure paths. Each fix's test was watched failing on the old code.
+
+#### Gates
+
+- `make ci-remote`: passed at `180f6e85` (first run failed only on the moved waiver).
+- `make pr-check`: passed at `a710f808` (31 container-free, 13 container packages; 42 measured, none below floor);
+  receipt `.git/pleiades-pr-check.json`. The first run failed coverage only, fixed by `a710f808`. This handoff's
+  commit sits after the receipt, so a push needs `make pr-check` again.
+- Live, on this machine: real Docker 29.8, the DinD and Podman fixtures, k3s (both minors), the CLI release gates
+  and the Walk-tier exec; all pass, one k3s port race fixed in the fixture. GitHub, GitLab and Bitbucket were not
+  reached (nothing exists to test).
+
+#### Listed for the owner, not fixed (contract changes)
+
+1. Refuse `engine_local` on a Runner (CLI-only until 119l).
+2. Per-method default timeouts for the docker methods (a long pull could start failing).
+3. A cap on every SSH method's output (`remoteexec.Conn.Run` is still unbounded; only the docker methods use the
+   bounded form).
+4. `container.docker.run` defaults of no network, read-only mounts and digest pinning (planned for 119e's
+   `container.run` instead).
+5. `container.docker.run` leaves a stopped container stopped (its documented contract; 119e's `container.run` starts it).
+6. Kubernetes session clients get per-response bounds with 119g's first method (a shared total would end watches).
+7. A cluster token is pattern-masked in client-go's log, not registered as a literal.
+8. `kubeapi.bound` and `containerengine.truncate` could move onto `remoteexec.Excerpt`.
+9. The Ansible path's `K8S_AUTH_API_KEY` environment variable is a deliberate AWX-parity exception, masked.
+
+#### Next
+
+1. The owner's reaction to the sweep table. Then Phase 1: write the `gate.*` design note in docs/ (method list,
+   capabilities, check and reversibility table, failure modes) and show it before building.
+2. The missing families (119e, 119f, 119g, 119h; Part XIX) are the owner's to schedule. Dogfooding this repo's own
+   git flow (branch, commit, push, PR, checks, merge) needs 120a, 120c and 120f with only the GitHub adapter;
+   `pleiades adhoc ... exec.command cmd="git ..."` works today on a host with git, with that host's own
+   credentials and no check or undo, and MCP adds a caller, not methods.
+3. Carried: require PR checks on `main`; branch cleanup; PR #55 and `chore/pr-check-receipt` still waiting on merge.
+
+#### Files changed
+
+`internal/catalog/container/docker/`, `pkg/containerengine/`, `pkg/remoteexec/{bounded,excerpt,conn}.go`,
+`pkg/sdk/secrets.go`, `internal/engine/{runbook_context,collection_action}.go`, `internal/adapters/native/`,
+`internal/credstore/resolve/`, `internal/inventory/{ent_device_organization.go,onboard/}`, `internal/dispatch/`,
+`internal/api/` (kubeconfig import, projects), `internal/apispec/`, `pkg/kubeapi/`, `internal/project/`,
+`internal/ui/resources/projects/`, `internal/archtest/kubernetes_test.go`, `internal/testsupport/k3s*.go`,
+`cmd/controller/kubernetes_borrow*.go`, `cmd/pleiades/` (two tests), `tools/gendocs/statuscounts_test.go`,
+`docs/`, `README.md`, `changelog/` (9 fragments), `gosec-waivers.json` (one line moved), the records files.
+
+## Previous session, 2026-10-14: PR #55 green, the pr-check receipt branch waiting on its merge
+
+*Superseded later on 2026-10-14: a verification sweep of the container, Kubernetes and git code (Phase 0 of the owner's Tier A plan) on `feature/tier-a-collections`, cut from `chore/pr-check-receipt`'s tip.*
+
+### Status as it was
+
+**2026-10-14. Pull request #55** (`feature/Part-XVIII-119c-Kubernetes`, 119c) is open against `main`; #54 merged
+as `d3b43532`. Rules unchanged: the gate is GitHub Actions; before every push run `make pr-check` (LESSONS 271)
+under `~/.local/bin/capped` (3 GB or more, since `govulncheck` peaks at 2.73 GB) with `GOMAXPROCS=4 GOFLAGS=-p=1
+PR_CHECK_PARALLELISM=2`; one PR at a time; method-as-key runbooks; no AI credit anywhere; never touch
+`/mnt/c/Users/raymo/coupon_clipper` or the owner's live application namespace.
+
+#### PR #55
+
+Commits: `d5011ea7` (119c), `faadf816` (klog direct in `go.mod`), `0d2b11aa` (each package's floor covered),
+`2a18f24a` (the hardening below), `d0da3f84` (`pkg/awscloud` back over its floor). Run 38636093862 on `0d2b11aa`:
+`ci` on all three systems and `containers` (1) to (4) green; `fast` red (k3s, 446 and 447); `fast-macos` red
+(`pkg/tftpxfer`, below); `coverage` skipped behind `fast`.
+
+- **k3s fixture** (`internal/testsupport/k3s.go`): its readiness exec raced k3s's cgroup v2 evacuation, so every
+  controller enable failed with EBUSY and kubelet died (FAILURE_PATTERNS 446, reproduced with `--cpus=0.05`). The
+  wait now reads "Starting k3s" first; a failed start leads with k3s's `failed to enable controller` lines.
+- **Container-list guard** (`tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`,
+  `containerscan_test.go`): follows each test's calls through the module instead of reading direct imports (447).
+  `pkg/kubeapi` is now in `DOCKER_DEPENDENT_PACKAGES`; `internal/engine` and `internal/forge/playbook` stay in the
+  fast tier through `oneShotContainerPackages` (one-shot `docker run`, kept on macOS).
+- **`make pr-check`** (Makefile, `tools/prscope`, `coverage-check -scoped`, `pr-check-vet`). Its first full run
+  found `pkg/awscloud` at 94.9% against 95.8% (the EKS code's untested branches), fixed in `d0da3f84`.
+
+#### Next
+
+1. **PR #55 is green** (run 38651908450: every required check, `coverage` included; only the advisory `fast-macos`
+   failed, on 448). The user merges it. Then tick 119c's Release Gate in `.SPECIFICATION/IMPLEMENTATION.md`.
+2. **Local branch `chore/pr-check-receipt`** (off #55's tip, not pushed): `7ec64ce4` makes the pre-push hook require
+   a `make pr-check` receipt for a branch (proven with a real `git push --dry-run`, refused); `a6e3ec11` makes
+   `pkg/tftpxfer`'s test server print what it saw on failure (448); `7f8ae603` names the repeats (428 of 303, 445 of
+   427, 447 of 239, lesson 273 of 114), records 448 and 449, adds lesson 274. After #55 merges: rebase onto
+   `origin/main`, run `make pr-check` (clean tree, cap at least 3 GB), push, open its PR.
+3. `fast-macos` (advisory): `pkg/tftpxfer` failed twice running (FAILURE_PATTERNS 448), cause unknown; the next
+   failure prints the server's side. Do not change the client before that evidence says why.
+4. Only when the user says: 119e, 119f, 119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
+5. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (the user's settings);
+   `pkg/containerengine` has no floor (53.7% in CI); `internal/archtest` and `internal/ent/migrate/gen` are in
+   `DOCKER_DEPENDENT_PACKAGES` though neither starts a container; `pkg/kubeapi` (80.5%) and
+   `internal/inventory/devices/kubernetes` (90.5%) have no floors yet.
+
+#### Files changed this round
+
+`internal/testsupport/k3s{,_test}.go`, `tools/internal/flakegate/{repeatgate,containerscan}_test.go` and
+`testdata/containerscan/`, `tools/prscope/`, `tools/coverage-check/`, `Makefile`, `coverage-floor.json`,
+`pkg/awscloud/{eks,instance_internal}_test.go`, `CLAUDE.md`, `changelog/pr-check.added.md`, FAILURE_PATTERNS 446
+and 447, LESSONS 271 to 273; on `chore/pr-check-receipt`: `tools/gatereceipt/`, `.githooks/pre-push`,
+`CONTRIBUTING.md`, `pkg/tftpxfer/tftpxfer_test.go`, FAILURE_PATTERNS 448 and 449, LESSONS 274.
+
 ## Previous session, 2026-10-14: PR #54 under review, 119c committed locally
 
 *Superseded later on 2026-10-14: #54 merged (`d3b43532`); 119c was rebased onto `main` and opened as pull request

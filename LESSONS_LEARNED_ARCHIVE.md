@@ -5521,6 +5521,13 @@ container package in the fast tier (FAILURE_PATTERNS 427, 445, 446, 447). 270's 
 would have missed the last two; each of the four was catchable here in minutes by running CI's own targets on the
 branch's own packages. The owner's words after the fourth: "HARDEN IT so this stops happening EVERY SINGLE ... PR".
 
+**Enforced, 2026-10-14.** Written first as a rule to remember, which is how 110, 203 and 270 were written, and each
+of those was followed narrowly or not at all (FAILURE_PATTERNS 449 is 270 followed in the shape of the last
+failure). LESSONS 173 already said why: a rule stated in prose is not in force until something can fail when it is
+skipped. So a pass of `make pr-check` writes a receipt for the commit it checked (`.git/pleiades-pr-check.json`, a
+file of its own), and `.githooks/pre-push` refuses a branch whose tip no pr-check or whole-suite receipt covers,
+unless the tip is already on the remote's main. `git push --no-verify` still skips it, deliberately.
+
 ## 272. Wait for a container's own startup to finish before acting inside it
 
 **Rule.** A fixture's readiness check reads the container (its log, a port) until the program inside reports that
@@ -5539,3 +5546,102 @@ A known miss written beside the list as a hand-maintained exception is a guard t
 
 **Why.** FAILURE_PATTERNS 447: the guard read direct imports, the Makefile already listed two packages by hand
 because of it, and the third such package went to CI unlisted and failed there.
+
+**Repeat.** This restates 114, which this repository already had: a guard written after an incident is written against
+its literal and ends up narrower than its rule. Writing it again as new is the failure 274 names. What it adds to 114
+is the second half: a known miss written down beside a guard as a hand-kept exception is that guard's defect.
+
+## 274. Before writing a failure pattern or a lesson, search the archive for its class; a repeat names what it repeats
+
+**Rule.** Search both archives for the class of what happened, by symptom and by cause, before writing an entry.
+When it has happened before, the title says "(a repeat of N)", and the entry says why N's fix did not hold; a
+lesson that restates an older one says so instead of standing as new.
+
+**Why.** On 2026-10-14 six failure patterns were written in a day and two were repeats nobody named: 428 is 303 (whose
+lesson, vet for every operating system, was not followed) and 447 is 239 (whose guard read the literal, which 114 had
+warned about), and lesson 273 restated 114 almost word for word. An index read before debugging would have found
+each; recording them as new hid that the earlier fixes had not held, which is the one thing a repeat says. Asked "do
+we see a trend?", the answer was in the records and not in their titles.
+
+
+## 275. A test that cuts a connection at its Nth step tests whatever is Nth; adding a step moves every such test
+
+**Rule.** When a test fails a named step by budget (the Nth session, the Nth request), adding or removing a step
+before it silently re-aims the test at a neighbor, and it usually still passes. Treat a change in the sequence as
+a change to every budgeted test: re-aim each so it fails the step its name says, and give the new step its own.
+
+**Why.** FAILURE_PATTERNS 460: adding `docker info` as the docker methods' first command left three budgeted tests
+green while failing the step before the one their names said, and only one went red.
+
+## 276. A lookup that lends a stored secret takes every fact deciding where it goes from the store's side
+
+**Rule.** When a record with no secret of its own borrows one from a store (by matching an address, a host, a
+name), the organization, the authority it is verified against and the route it travels are decided by what the
+secret's owner wrote, never by the record: the record's writer is somebody else, and each of those facts is a
+way to send the secret to them. Refuse when the record's facts cannot be squared with the store's.
+
+**Why.** FAILURE_PATTERNS 456: a cluster record naming another organization's API server borrowed that
+organization's token, verified against the record's own authority and carried through the record's route.
+
+## 277. A secret check asks where the protocol accepts a credential, not where the parser files one
+
+**Rule.** Before writing "this value carries no secret", list the positions the receiving protocol accepts a
+credential in, and check each; a parser's field names are one program's opinion. HTTP takes a token as the user
+name, and an scp-like git URL's parser files a password inside the user.
+
+**Why.** FAILURE_PATTERNS 458: `HasEmbeddedSecret` checked `endpoint.Password`, so `https://<token>@host` and
+`git:password@host:path` passed and were stored in plain text and returned by the API.
+
+## 278. Before ruling a shared resource irremovable, ask the tool for a way to present what is not on disk
+
+**Rule.** "This test has to write into the shared tree" is a claim about the tool, and a tolerance written into
+one reader of the tree protects no reader added later. Check the tool for a virtual input first: the go command's
+`-overlay` builds and tests a package that exists only in a JSON map, `internal/` imports included, with the
+module untouched. Prove a test no longer writes somewhere by making that place read-only and running it, which
+turns a race that reproduces one run in three into a failure on every run of the old code.
+
+**Why.** FAILURE_PATTERNS 463, a repeat of 53 and 55: LESSONS 91 judged the writes irremovable and made
+`internal/archtest`'s `go list` tolerate them; flakegate's later scan did not, and failed on a package the
+gencatalog test had just removed.
+
+## 279. Bound a long-lived client per answer, not with one total, and leave streams to the code that opens them
+
+**Rule.** A total byte budget fits a call that ends (discovery reads what the server serves, once). A session that
+lives a whole task would be cut off by it partway through a long watch or log, for having been useful. Bound each
+answer on its own, refuse one declaring more than the bound before reading it, and pass through what is a stream
+by protocol (a watch, a followed log, an upgraded connection), whose bound only its opener knows.
+
+**Why.** Decision 6 of the Phase 0 contract list (2026-10-15, `4cbcf6f7`): the sweep found Kubernetes session
+clients unbounded, and the discovery budget, reused as is, would have ended every watch 119g's methods open.
+
+## 280. A by-value mask may forget only a value one holder had alone
+
+**Rule.** Register a secret with the log masker where a library first holds it, not where a caller happens to
+use it, and forget it only when its sole holder replaces it (a minted token rotated, which has expired anyway).
+Never forget a static credential at the end of one use: two sessions may hold the same one, and the set is not
+reference-counted, so forgetting it for one unmasks it for the other.
+
+**Why.** Decision 7 (2026-10-15, `be8a50f5`): cluster tokens were masked in client-go's log by shape only. A
+bare token passed; registering each minted EKS token without forgetting its predecessor would have grown the
+10,000-value set by one per refresh for a long session.
+
+## 281. A refusal added at a shared seam changes every caller: run each caller's package before committing it
+
+**Rule.** When a change makes a widely called function refuse something it used to allow, list its callers by
+reference (gopls `go_symbol_references`, or the seam's exported entry points) and run each caller's package,
+live tests included, before the commit; and before adding a process-wide switch, look for one that already
+records the same fact, and read that one instead.
+
+**Why.** FAILURE_PATTERNS 464: the engine port's new local-carrier refusal broke onboarding's live test, which
+only `make pr-check` ran; onboarding already had a switch for the same fact.
+
+## 282. When a guard guesses from a name, refuse by what the value is, and run the step that would catch a wrong guess before the push
+
+**Rule.** A heuristic input (every constant whose name contains `Image`) admits a new non-image each time someone
+names a value that way; patching the shape that failed leaves the next shape open. Refuse values by what they are
+(an image ID is a content address no registry serves), and move the step that checks the guess's output against
+the real world (does a registry serve it) into the local pre-push gate, in its cheapest form (a manifest lookup
+rather than a pull).
+
+**Why.** FAILURE_PATTERNS 465, a repeat of 416: a uid:gid pair, then a fake image ID, each reached CI's pull step
+because only CI ran it.

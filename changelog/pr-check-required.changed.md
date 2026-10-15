@@ -1,0 +1,1 @@
+With hooks enabled, pushing a branch now needs a passing `make pr-check` for its tip (or `make push-gate` or `make ci`), unless the tip is already on `main`; `make pr-check` writes the receipt the hook reads.

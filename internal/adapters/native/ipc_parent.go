@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -232,15 +233,21 @@ func childRequest(desc collection.Descriptor, mode collection.Mode, params map[s
 	}
 }
 
-// registrySecretValues is the registry credential's password as a value to
-// mask, or nothing. It joins the machine credential's values wherever the
-// Runner masks a task's output, since a method's error can echo it as
-// readily.
+// registrySecretValues is the registry credential's password, and the
+// X-Registry-Auth value a method builds from it, as values to mask, or
+// nothing. They join the machine credential's values wherever the Runner
+// masks a task's output, since a method's error can echo either as readily,
+// and the header carries the password encoded, where the password alone
+// would not be found.
 func registrySecretValues(reg *wire.RegistryCredential) []string {
 	if reg == nil || reg.Password == "" {
 		return nil
 	}
-	return []string{reg.Password}
+	values := []string{reg.Password}
+	if header, err := containerengine.EncodeRegistryAuth(reg.Username, reg.Password, wire.RegistryHost(reg.Host)); err == nil {
+		values = append(values, header)
+	}
+	return values
 }
 
 // childAnswer is what a child's decoded response means for a call of the

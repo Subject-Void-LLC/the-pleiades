@@ -4,47 +4,80 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-14. Pull request #55** (`feature/Part-XVIII-119c-Kubernetes`, 119c) is open against `main`; #54 merged
-as `d3b43532`. Rules unchanged: the gate is GitHub Actions; before every push run `make pr-check` (LESSONS 271)
-under `~/.local/bin/capped` (3 GB or more, since `govulncheck` peaks at 2.73 GB) with `GOMAXPROCS=4 GOFLAGS=-p=1
-PR_CHECK_PARALLELISM=2`; one PR at a time; method-as-key runbooks; no AI credit anywhere; never touch
-`/mnt/c/Users/raymo/coupon_clipper` or the live `groceries` namespace.
+**2026-10-15. Branch `feature/tier-a-collections`.** `origin` holds Phase 0 up to `a710f808` (pushed 2026-10-14, at
+the owner's request); everything after it is local. The owner's goal is a pasted Tier A plan: **Phase 0**, a
+verification sweep of the git/forge, container-engine and Kubernetes code, then **stop for the owner's reaction**;
+**Phase 1** (gate.*, build.*, db.pg.*, scan.*, ai.*, edge.* and small methods) starts only after that, with a
+design note in docs/ shown first. **Phase 0 is done, its seven listed contract changes are decided and built, and
+Phase 1 has not started.** Rules from that goal on top of the usual ones: no push or PR unless asked; never edit
+coverage-floor.json, gosec-waivers.json or flaky-packages.json to make a failure disappear; never write the
+owner's application's name anywhere (its paths and namespace included).
 
-### PR #55
+### The seven contract changes (the owner asked for edge cases and pro/con, then the choice built)
 
-Commits: `d5011ea7` (119c), `faadf816` (klog direct in `go.mod`), `0d2b11aa` (each package's floor covered),
-`2a18f24a` (the hardening below), `d0da3f84` (`pkg/awscloud` back over its floor). Run 38636093862 on `0d2b11aa`:
-`ci` on all three systems and `containers` (1) to (4) green; `fast` red (k3s, 446 and 447); `fast-macos` red
-(`pkg/tftpxfer`, below); `coverage` skipped behind `fast`.
+Each decided by the owner's rule (the secure option with the most functionality), each its own commit with its
+test watched failing on the old code:
 
-- **k3s fixture** (`internal/testsupport/k3s.go`): its readiness exec raced k3s's cgroup v2 evacuation, so every
-  controller enable failed with EBUSY and kubelet died (FAILURE_PATTERNS 446, reproduced with `--cpus=0.05`). The
-  wait now reads "Starting k3s" first; a failed start leads with k3s's `failed to enable controller` lines.
-- **Container-list guard** (`tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`,
-  `containerscan_test.go`): follows each test's calls through the module instead of reading direct imports (447).
-  `pkg/kubeapi` is now in `DOCKER_DEPENDENT_PACKAGES`; `internal/engine` and `internal/forge/playbook` stay in the
-  fast tier through `oneShotContainerPackages` (one-shot `docker run`, kept on macOS).
-- **`make pr-check`** (Makefile, `tools/prscope`, `coverage-check -scoped`, `pr-check-vet`). Its first full run
-  found `pkg/awscloud` at 94.9% against 95.8% (the EKS code's untested branches), fixed in `d0da3f84`.
+1. `0e1d51db` `engine_local` is refused unless the process is the CLI (`containerengine.AllowLocalCarrier`, called
+   only by `cmd/pleiades`): a Runner reaching its own host's socket would act on whatever engine the Runner's
+   machine runs. `882a637c` made it the one switch for that fact (onboarding had its own, and `make pr-check`
+   caught the two disagreeing in a live onboarding test; FAILURE_PATTERNS 464).
+2. `16c6a6f5` every docker CLI call has a deadline (30 s queries, 2 min start, 90 s stop, 60 s remove), and a pull
+   its own (`pull_timeout`, default 900 s); a deadline's error says the call may or may not have happened.
+3. `f6a29649` (breaking) every SSH command's output is bounded by default (`remoteexec.DefaultOutputLimit`,
+   64 MiB per stream); past it the command fails, never truncates silently.
+4. `1b6a3a88` (breaking) `container.docker.run` joins no network unless `network:` names one (ports with none are
+   refused), mounts read-only unless a volume says `rw`, and runs the image ID it resolved (pulling when absent),
+   keeping the asked reference as a label. `8e5675c1` split `docker.go` first.
+5. `c421317e` (breaking) `run` starts a stopped container (a paused or dead one is refused, naming the fix), and
+   `stop` now records an undo (`run` with `start: true`).
+6. `4cbcf6f7` a Kubernetes session bounds each answer at 64 MiB, a watch, a followed log and an upgraded
+   connection excepted (a total like discovery's would end long watches).
+7. `be8a50f5` a cluster's token, client key, the AWS key an EKS token is minted from, and each minted token are
+   masked by value in client-go's log on all three tiers (`kubeapi.LogTo(w, redact.Shared().Literals())`); a
+   rotated minted token is forgotten, a static one never is.
+
+Plus `0bef18a4`: the gencatalog race. Five tests wrote generated packages into the module tree (a repeat of
+FAILURE_PATTERNS 53 and 55); they now build through `go -overlay` (`internal/testsupport/gooverlay`), proven by
+running them with the tree read-only.
+
+### Gates
+
+- Phase 0 (`a710f808`): `make ci-remote` and `make pr-check` passed; pushed.
+- This round: `make ci-remote` passed at `0bef18a4` (129 s; its first run failed gosec on the new helper's two
+  G204s, fixed in that commit as described there). `make pr-check`'s first run (at `f47b2b22`, 1707 s) failed
+  `TestKubernetesOnboard_NodesAndRoutes` in isolation, fixed by `882a637c`; its rerun is on the commit carrying
+  this handoff, with the result in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
+  `-race` on its own, the live k3s session tests and the real-Docker check test included.
+
+### Pull request #56
+
+Opened 2026-10-15 at `4e73ba28` (33 commits, including `chore/pr-check-receipt`'s four). `containers (2)` failed
+before any test: CI's pull step asked Docker Hub for a fake image ID a docker test names (FAILURE_PATTERNS 465, a
+repeat of 416). Fixed by `0a364b4b` (the scanner refuses image IDs) and `89f7ad2a` (`make pr-check` asks a registry
+for every image CI will pull). The other checks had passed or were still running when it failed.
+
+### Still listed, not built
+
+- `kubeapi.bound` and `containerengine.truncate` could move onto `remoteexec.Excerpt`.
+- The Ansible path's `K8S_AUTH_API_KEY` environment variable is a deliberate AWX-parity exception, masked.
+- A minted EKS token's last value stays in the masker for the process's life (bounded by sessions, not refreshes).
+- `go vet` does not see generated packages in the forge and scaffold release gates (it needs a real directory).
 
 ### Next
 
-1. Push `2a18f24a` and `d0da3f84` to #55 once `make pr-check` passes on them, and watch the run to green; the user
-   merges. Then tick 119c's Release Gate in `.SPECIFICATION/IMPLEMENTATION.md`.
-2. `fast-macos` (advisory): `pkg/tftpxfer`'s `TestLongestAcceptedFilenamesCrossARealServerWhole/largest_blocksize/
-   a_space` failed once after 59.8 s (`read udp [::]:...: i/o timeout`) in the strict repeat. Not reproduced on
-   Linux (40 runs of all 18 subtests); one lost datagram is retried at every step in pin/tftp v3.2.0, so six
-   unanswered attempts points at a stalled server, cause unknown. The test's 5-second context bounds nothing
-   (tftpxfer checks it only before a transfer, as documented).
-3. Only when the user says: 119e, 119f, 119g, 119h, 119l, 119m; then 119d, 26, 119k; then 119i, 119j.
-4. Open offers: the `winrm` CI diagnostic run; CodeQL and secret scanning (the user's settings);
-   `pkg/containerengine` has no floor (53.7% in CI); `internal/archtest` and `internal/ent/migrate/gen` are in
-   `DOCKER_DEPENDENT_PACKAGES` though neither starts a container.
-5. `pkg/kubeapi` (80.5%) and `internal/inventory/devices/kubernetes` (90.5%) have no floors yet; record them.
+1. The owner's reaction to the sweep and the seven decisions; a push of the commits after `a710f808` needs their
+   word and a fresh `make pr-check` receipt. Then Phase 1: write the `gate.*` design note in docs/ and show it
+   before building.
+2. The missing families (119e, 119f, 119g, 119h; Part XIX) are the owner's to schedule.
+3. Carried: require PR checks on `main`; branch cleanup; PR #55 and `chore/pr-check-receipt` still waiting on merge.
 
-### Files changed this round
+### Files changed
 
-`internal/testsupport/k3s{,_test}.go`, `tools/internal/flakegate/{repeatgate,containerscan}_test.go` and
-`testdata/containerscan/`, `tools/prscope/`, `tools/coverage-check/`, `Makefile`, `coverage-floor.json`,
-`pkg/awscloud/{eks,instance_internal}_test.go`, `CLAUDE.md`, `changelog/pr-check.added.md`, FAILURE_PATTERNS 446
-and 447, LESSONS 271 to 273.
+`pkg/containerengine/local_policy*.go`, `pkg/containerengine/session.go`, `internal/catalog/container/docker/`
+(split into `engine.go`, `validate.go`, `runcreate.go`, `image.go`, `start.go`, `deadlines.go`, with tests),
+`pkg/remoteexec/{conn,bounded}.go`, `pkg/kubeapi/{bounded,session,logging,config,device}.go` and tests,
+`cmd/{pleiades,runner,controller}/main.go`, `cmd/pleiades/{kubeapi_logging,container_docker_run_release_gate,e2e}_test.go`,
+`internal/testsupport/gooverlay/`, `internal/archtest/testonly_test.go`, the forge and scaffold release gates,
+`tools/gencatalog/main_test.go`, `internal/forge/catalogdata`, `docs/` (reference regenerated, docs/10),
+`changelog/` (7 fragments), the records files.

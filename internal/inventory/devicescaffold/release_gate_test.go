@@ -3,18 +3,20 @@ package devicescaffold_test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // repoRoot locates the module root from this test file's own package
 // directory (internal/inventory/devicescaffold), so the release gate can
-// write real, temporary sibling packages under internal/inventory/devices/
-// and internal/inventory/ and invoke the real go toolchain against them.
+// build generated packages under internal/inventory/devices/ and
+// internal/inventory/ with the real go toolchain, as members of this
+// module.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
@@ -31,7 +33,8 @@ func repoRoot(t *testing.T) string {
 // (record.RegisterType, not the retired ItemFactory.Register the
 // checklist's own text still names -- see IMPLEMENTATION.md's Phase 33
 // correction note). This runs as a real subprocess against the actual go
-// toolchain and the real repository tree, matching this project's RULE 0
+// toolchain, with the generated packages members of this module, matching
+// this project's RULE 0
 // ("representative or nothing"): an in-process check would only prove the
 // template renders, not that the generated package genuinely compiles,
 // links, and registers against this module.
@@ -54,22 +57,16 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	vendorDir := filepath.Join(root, "internal", "inventory", "devices", vendor)
-	if err := os.MkdirAll(vendorDir, 0o755); err != nil { // #nosec G301 -- test-only, removed by t.Cleanup below
-		t.Fatalf("MkdirAll(%s): %v", vendorDir, err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(vendorDir) })
-
+	// Generated into a stand-in for the module, never the module itself,
+	// which every other test may be reading (gooverlay).
+	tree := gooverlay.New(t, root)
 	for _, f := range files {
-		full := filepath.Join(root, f.Path)
-		if err := os.WriteFile(full, f.Content, 0o644); err != nil { // #nosec G306 -- test-only, removed by t.Cleanup above
-			t.Fatalf("WriteFile(%s): %v", full, err)
-		}
+		tree.Write(t, f.Path, f.Content)
 	}
 
 	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + vendor
-	runGo(t, root, "build", pkgImportPath)
-	runGo(t, root, "test", pkgImportPath)
+	tree.Build(t, pkgImportPath)
+	tree.Test(t, pkgImportPath)
 
 	// Prove end-to-end registration and resolution: a temporary harness
 	// package blank-imports the generated package (the same composition-
@@ -77,11 +74,6 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 	// describes as the one thing standing between a generated type and
 	// the stock binary) and resolves it through the real factory.
 	harnessName := "devicescaffoldharness" + vendor
-	harnessDir := filepath.Join(root, "internal", "inventory", harnessName)
-	if err := os.MkdirAll(harnessDir, 0o755); err != nil { // #nosec G301 -- test-only, removed by t.Cleanup below
-		t.Fatalf("MkdirAll(%s): %v", harnessDir, err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(harnessDir) })
 
 	harnessSrc := fmt.Sprintf(`package %s
 
@@ -108,21 +100,10 @@ func TestResolvesEndToEnd(t *testing.T) {
 }
 `, harnessName, pkgImportPath, typeKey)
 
-	harnessFile := filepath.Join(harnessDir, "harness_test.go")
-	if err := os.WriteFile(harnessFile, []byte(harnessSrc), 0o644); err != nil { // #nosec G306 -- test-only, removed by t.Cleanup above
-		t.Fatalf("WriteFile(%s): %v", harnessFile, err)
-	}
+	tree.Write(t, "internal/inventory/"+harnessName+"/harness_test.go", []byte(harnessSrc))
 
 	harnessImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/" + harnessName
-	runGo(t, root, "test", "-run", "TestResolvesEndToEnd", "-v", harnessImportPath)
-}
-
-func runGo(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("go", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go %v failed: %v\n%s", args, err, out)
+	if out := tree.Test(t, harnessImportPath, "-test.run", "TestResolvesEndToEnd"); !strings.Contains(out, "--- PASS: TestResolvesEndToEnd") {
+		t.Fatalf("the harness did not resolve the generated type:\n%s", out)
 	}
 }

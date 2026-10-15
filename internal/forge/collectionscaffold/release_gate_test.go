@@ -3,18 +3,18 @@ package collectionscaffold_test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // repoRoot locates the module root from this test file's own package
 // directory (internal/forge/collectionscaffold), so the release gate can
-// write a real, temporary package under internal/catalog/ and invoke the
-// real go toolchain against it.
+// build a generated package under internal/catalog/ with the real go
+// toolchain, as a member of this module.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
@@ -33,8 +33,8 @@ func repoRoot(t *testing.T) string {
 // registered name, so running the generated package's own `go test` is
 // already the end-to-end proof that init()'s collection.MustRegister ran
 // without panicking. This runs as a real subprocess against the actual go
-// toolchain and the real repository tree, matching this project's RULE 0
-// ("representative or nothing").
+// toolchain, with the generated package a member of this module, matching
+// this project's RULE 0 ("representative or nothing").
 func TestGenerate_ReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping release gate test in -short mode")
@@ -53,40 +53,14 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	pkgDir := filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("relgate%d", os.Getpid()))
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil { // #nosec G301 -- test-only, removed by t.Cleanup below
-		t.Fatalf("MkdirAll(%s): %v", pkgDir, err)
-	}
-	// Scoped to this test's own process-unique directory, never the
-	// shared internal/catalog/test parent. That parent is not this
-	// test's to delete: tools/gencatalog's own end-to-end test and
-	// cmd/pleiades's forge end-to-end test both write sibling packages
-	// under it, `go test ./...` runs those packages in parallel with
-	// this one, and removing the parent would delete a sibling's
-	// generated package out from under the `go build` that is compiling
-	// it. tools/gencatalog's own cleanup already carries a comment
-	// warning about exactly this; this call site was the one that still
-	// did it.
-	t.Cleanup(func() { _ = os.RemoveAll(pkgDir) })
-
+	// Generated into a stand-in for the module, never the module itself,
+	// which every other test may be reading (gooverlay).
+	tree := gooverlay.New(t, root)
 	for _, f := range files {
-		full := filepath.Join(root, f.Path)
-		if err := os.WriteFile(full, f.Content, 0o644); err != nil { // #nosec G306 -- test-only, removed by t.Cleanup above
-			t.Fatalf("WriteFile(%s): %v", full, err)
-		}
+		tree.Write(t, f.Path, f.Content)
 	}
 
 	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("relgate%d", os.Getpid())
-	runGo(t, root, "build", pkgImportPath)
-	runGo(t, root, "test", "-v", pkgImportPath)
-}
-
-func runGo(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("go", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go %v failed: %v\n%s", args, err, out)
-	}
+	tree.Build(t, pkgImportPath)
+	tree.Test(t, pkgImportPath)
 }

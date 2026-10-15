@@ -8,13 +8,26 @@
 // checks, not a local run: the repository is public, so hosted runners cost
 // nothing, a pull request's checks finish in about half an hour against an
 // hour and a half locally, and the local gate repeatedly exhausted the
-// memory of the machine it ran on. So a branch is pushed with no receipt,
-// because pushing it is how its pull request gets checked, and main, which
-// those pull requests land on, is refused here and by the repository's
-// ruleset alike. A receipt is still what lets through a ref no pull request
-// gates: a tag outside the remote's main, or a ref nobody planned for.
-// routeRef holds that division; everything below is the receipt, which is
-// unchanged.
+// memory of the machine it ran on. main, which those pull requests land on,
+// is refused here and by the repository's ruleset alike. A receipt from the
+// whole suite is still what lets through a ref no pull request gates: a tag
+// outside the remote's main, or a ref nobody planned for. routeRef holds
+// that division.
+//
+// # A branch needs make pr-check
+//
+// Until 2026-10-14 a branch was pushed with no receipt at all, on the
+// reasoning that its pull request's checks were its gate. They are, and
+// they still decide what merges; but pull requests #54 and #55 then went red
+// in CI again and again on checks a local run makes in minutes, because
+// what ran before a push had stopped matching what Actions runs, and every
+// written rule to run something first was followed narrowly or not at all.
+// So a branch now needs a receipt from `make pr-check`, which runs what a
+// pull request's required jobs run for the packages the branch changes, or
+// from the whole suite, which covers more. It lives in a file of its own
+// (prCheckReceiptName), so a pass of a branch's own packages can never stand
+// in for the whole suite a tag needs. A branch whose tip is already on the
+// remote's main sends nothing new and needs neither.
 //
 // # Why the receipt exists
 //
@@ -112,6 +125,11 @@ import (
 // what THIS machine ran.
 const receiptName = "pleiades-gate.json"
 
+// prCheckReceiptName is `make pr-check`'s receipt, beside receiptName and
+// apart from it: a pass of a branch's own packages says nothing about the
+// rest of the tree, so it must never be read where the whole suite's is.
+const prCheckReceiptName = "pleiades-pr-check.json"
+
 // MaxReceiptAge bounds how long a pass counts for.
 //
 // One day, and the number is govulncheck's rather than a guess about
@@ -145,6 +163,33 @@ const MaxClockSkew = 5 * time.Minute
 var gateTargets = map[string]string{
 	"ci":        "strict",
 	"push-gate": "tolerant",
+	"pr-check":  "the branch's own packages through CI's tiers, tolerant like push-gate",
+}
+
+// receiptKind is one kind of local pass a ref can need: the file under .git
+// its receipt lives in, the gates that write it, and the command a refusal
+// tells a developer to run.
+type receiptKind struct {
+	file    string
+	targets []string
+	command string
+}
+
+// wholeSuite is the receipt `make ci` and `make push-gate` write, which a
+// tag off main and a ref nobody planned for need, and which also covers a
+// branch.
+var wholeSuite = receiptKind{file: receiptName, targets: []string{"ci", "push-gate"}, command: "`make push-gate` (or `make ci`)"}
+
+// branchCheck is the receipt `make pr-check` writes, which a branch needs
+// when no whole-suite receipt covers it.
+var branchCheck = receiptKind{file: prCheckReceiptName, targets: []string{"pr-check"}, command: "`make pr-check`"}
+
+// kindWritten is the receipt kind target writes.
+func kindWritten(target string) receiptKind {
+	if target == "pr-check" {
+		return branchCheck
+	}
+	return wholeSuite
 }
 
 // Receipt is what one passing gate run leaves behind.
@@ -190,16 +235,18 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Usage: gatereceipt <command> [flags]
 
   write  --target <name> --started-at <sha> --started-clean <yes|no>
-         record that the gate passed. Run it through `+"`make ci`"+` or
-         `+"`make push-gate`"+`, which capture where the gate started; a
-         receipt naming HEAD as it is when the gate FINISHES would cover a
-         commit made while it ran.
+         record that the gate passed. Run it through `+"`make ci`"+`,
+         `+"`make push-gate`"+` or `+"`make pr-check`"+`, which capture where the
+         gate started; a receipt naming HEAD as it is when the gate FINISHES
+         would cover a commit made while it ran. pr-check's receipt is kept
+         apart from the other two's.
 
   verify --push-stdin [--remote <name>]
          read git's pre-push lines from standard input and answer for every
-         ref being pushed: a branch passes (its pull request's checks gate
-         it), main is refused (it changes only through a pull request), a tag
-         inside <name>'s main passes, and anything else needs a receipt.
+         ref being pushed: a branch needs a pr-check receipt (or the whole
+         suite's) unless its tip is on <name>'s main, main is refused (it
+         changes only through a pull request), a tag inside <name>'s main
+         passes, and anything else needs the whole suite's receipt.
          This is what .githooks/pre-push runs.
 
   verify --commit <sha>
@@ -214,7 +261,7 @@ tree means the gate ran against something else.
 // the commit that is now checked out.
 func runWrite(args []string) error {
 	fs := flag.NewFlagSet("write", flag.ContinueOnError)
-	target := fs.String("target", "", "which gate ran: ci or push-gate")
+	target := fs.String("target", "", "which gate ran: ci, push-gate or pr-check")
 	startedAt := fs.String("started-at", "", "the commit HEAD named when the gate STARTED, captured by the Makefile")
 	startedClean := fs.String("started-clean", "", "yes if the working tree had no uncommitted changes when the gate started")
 	if err := fs.Parse(args); err != nil {
@@ -232,7 +279,7 @@ func runWrite(args []string) error {
 		// is the one fact this command cannot observe, and a default would
 		// be a guess in the permissive direction.
 		return errors.New("gatereceipt write: --started-at <sha> and --started-clean <yes|no> are required, and name where the gate started rather than where it ended.\n" +
-			"Run the gate through `make ci` or `make push-gate`, which capture both before the first check instead of after the last")
+			"Run the gate through `make ci`, `make push-gate` or `make pr-check`, which capture both before the first check instead of after the last")
 	}
 
 	head, err := headCommit()
@@ -273,7 +320,7 @@ func runWrite(args []string) error {
 	if err != nil {
 		return fmt.Errorf("gatereceipt write: encoding the receipt: %w", err)
 	}
-	path := filepath.Join(dir, receiptName)
+	path := filepath.Join(dir, kindWritten(*target).file)
 	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
 		return fmt.Errorf("gatereceipt write: %w", err)
 	}
@@ -342,41 +389,70 @@ func runVerify(args []string) error {
 	// Every ref is answered before anything is returned. A push of several
 	// refs that stopped at the first refusal would be fixed one twenty
 	// minute gate run at a time.
-	var needReceipt []pushRef
+	var needSuite, needBranch []pushRef
 	var reasons []string
 	for _, ref := range refs {
 		line, needs, err := routeRef(ref, *remote)
 		switch {
 		case err != nil:
 			reasons = append(reasons, err.Error())
-		case needs:
-			needReceipt = append(needReceipt, ref)
-		default:
+		case needs == nil:
 			fmt.Println(line)
+		case needs.file == branchCheck.file:
+			needBranch = append(needBranch, ref)
+		default:
+			needSuite = append(needSuite, ref)
 		}
 	}
 
-	// The receipt is read only when some ref still needs one, so a push of
-	// branches alone never asks for a gate that no longer guards it.
-	if len(needReceipt) > 0 {
-		receipt, err := loadReceipt(needReceipt)
-		if err != nil {
-			reasons = append(reasons, err.Error())
-		} else {
-			for _, ref := range needReceipt {
-				accepted, err := checkRef(receipt, ref)
-				if err != nil {
-					reasons = append(reasons, err.Error())
-					continue
-				}
-				fmt.Println(accepted)
-			}
+	// A receipt is read only when some ref still needs it, so a push that
+	// needs none never asks for a gate.
+	if len(needSuite) > 0 {
+		reasons = append(reasons, checkAgainst(wholeSuite, needSuite)...)
+	}
+	// A branch passes on the whole suite's receipt too, which checks more;
+	// a refusal names pr-check, the one a branch is expected to have.
+	for _, ref := range needBranch {
+		if accepted, ok := acceptedBy(wholeSuite, ref); ok {
+			fmt.Println(accepted)
+			continue
 		}
+		reasons = append(reasons, checkAgainst(branchCheck, []pushRef{ref})...)
 	}
 	if len(reasons) > 0 {
 		return errors.New(strings.Join(reasons, "\n\n"))
 	}
 	return nil
+}
+
+// checkAgainst decides refs against kind's receipt, printing each accepted
+// ref and returning the reason for each refused one.
+func checkAgainst(kind receiptKind, refs []pushRef) []string {
+	receipt, err := loadReceipt(refs, kind)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var reasons []string
+	for _, ref := range refs {
+		accepted, err := checkRef(receipt, ref, kind)
+		if err != nil {
+			reasons = append(reasons, err.Error())
+			continue
+		}
+		fmt.Println(accepted)
+	}
+	return reasons
+}
+
+// acceptedBy is the line to print when kind's receipt lets ref through,
+// and false when there is none or it does not cover ref.
+func acceptedBy(kind receiptKind, ref pushRef) (string, bool) {
+	receipt, err := loadReceipt([]pushRef{ref}, kind)
+	if err != nil {
+		return "", false
+	}
+	accepted, err := checkRef(receipt, ref, kind)
+	return accepted, err == nil
 }
 
 // defaultBranch is the one branch a pull request's checks do not gate on
@@ -385,8 +461,8 @@ const defaultBranch = "refs/heads/main"
 
 // routeRef decides which gate applies to one ref, by where it lands on the
 // remote. It answers with the line to print when the ref needs nothing
-// more, with needsReceipt when only a local gate's receipt can let it
-// through, or with a refusal.
+// more, with the kind of receipt that can let it through, or with a
+// refusal.
 //
 // Since 2026-10-13 the gate is the repository's GitHub Actions checks, not a
 // local run (see the package comment), which divides refs four ways:
@@ -395,8 +471,11 @@ const defaultBranch = "refs/heads/main"
 //     whose checks are the gate, and the repository's ruleset refuses a
 //     direct push on the server as well, so asking for an hour-long local
 //     gate first would only spend the hour before the same refusal.
-//   - any other branch passes. Pushing it is how its pull request gets
-//     checked, and nothing reaches main without those checks passing.
+//   - any other branch needs a `make pr-check` receipt for its tip (or the
+//     whole suite's), since 2026-10-14: its pull request's checks still
+//     decide what merges, and pr-check is what keeps them from discovering
+//     what this machine could have found first. A branch whose tip is
+//     already on the remote's main sends nothing new and passes.
 //   - a tag passes when it points into the remote's main, because every
 //     commit there arrived through a checked pull request, and main is never
 //     rewound (the ruleset refuses that too), so a commit once on it stays
@@ -404,23 +483,27 @@ const defaultBranch = "refs/heads/main"
 //     a receipt.
 //   - anything else (notes, a hand-written refspec, `verify --commit`)
 //     still needs a receipt: a ref nobody planned for fails closed.
-func routeRef(ref pushRef, remote string) (line string, needsReceipt bool, err error) {
+func routeRef(ref pushRef, remote string) (line string, needs *receiptKind, err error) {
 	switch {
 	case ref.dest == defaultBranch:
-		return "", false, fmt.Errorf("%s would update main directly, at %s.\n"+
+		return "", nil, fmt.Errorf("%s would update main directly, at %s.\n"+
 			"main changes only through a pull request, whose checks are the gate, and the repository's ruleset refuses a direct push as well.\n"+
 			"Push a branch and open a pull request instead",
 			describeOne(ref), short(ref.local))
 	case strings.HasPrefix(ref.dest, "refs/heads/"):
-		return fmt.Sprintf("pre-push: %s is a branch, so the checks on its pull request are its gate", ref.dest), false, nil
+		if tip, onMain := onRemoteMain(ref.local, remote); onMain {
+			return fmt.Sprintf("pre-push: %s points into %s's main (at %s), so it sends nothing a pull request has not checked",
+				ref.dest, remote, short(tip)), nil, nil
+		}
+		return "", &branchCheck, nil
 	case strings.HasPrefix(ref.dest, "refs/tags/"):
 		if tip, onMain := onRemoteMain(ref.local, remote); onMain {
 			return fmt.Sprintf("pre-push: %s points into %s's main (at %s), which changes only through checked pull requests",
-				ref.dest, remote, short(tip)), false, nil
+				ref.dest, remote, short(tip)), nil, nil
 		}
-		return "", true, nil
+		return "", &wholeSuite, nil
 	default:
-		return "", true, nil
+		return "", &wholeSuite, nil
 	}
 }
 
@@ -535,15 +618,20 @@ func readPushRefs(r io.Reader) ([]pushRef, error) {
 //
 // Each refusal names the push it is refusing, because a developer reads
 // this while looking at a `git push` they expected to work.
-func loadReceipt(refs []pushRef) (Receipt, error) {
+func loadReceipt(refs []pushRef, kind receiptKind) (Receipt, error) {
 	sending := describe(refs)
 	dir, err := gitDir()
 	if err != nil {
 		return Receipt{}, err
 	}
-	path := filepath.Join(dir, receiptName)
+	path := filepath.Join(dir, kind.file)
 
 	body, err := os.ReadFile(path) // #nosec G304 -- path is .git/<constant>, derived from git itself
+	if errors.Is(err, os.ErrNotExist) && kind.file == branchCheck.file {
+		return Receipt{}, fmt.Errorf("no pr-check receipt: nothing on this machine has run `make pr-check` for %s, so its pull request's checks would be the first to look.\n"+
+			"Run `make pr-check` with it checked out, then push again",
+			sending)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return Receipt{}, fmt.Errorf("no gate receipt: nothing on this machine has verified %s, and no pull request's checks cover it.\n"+
 			"Run `make push-gate` (or `make ci`), then push again. A tag needs neither once its commit is on the remote's main: merge it through a pull request, fetch, then push the tag",
@@ -557,36 +645,43 @@ func loadReceipt(refs []pushRef) (Receipt, error) {
 	if err := json.Unmarshal(body, &r); err != nil {
 		// A receipt nobody can read is not a pass. Say which file, so the
 		// fix is obvious rather than mysterious.
-		return Receipt{}, fmt.Errorf("the gate receipt at %s is unreadable (%v), so it proves nothing.\nRun `make push-gate`, then push again", path, err)
+		return Receipt{}, fmt.Errorf("the gate receipt at %s is unreadable (%v), so it proves nothing.\nRun %s, then push again", path, err, kind.command)
 	}
 	if !isObjectName(r.Commit) {
-		return Receipt{}, fmt.Errorf("the gate receipt at %s names %q, which is not a commit, so it says nothing about anything.\nRun `make push-gate`, then push again", path, r.Commit)
+		return Receipt{}, fmt.Errorf("the gate receipt at %s names %q, which is not a commit, so it says nothing about anything.\nRun %s, then push again", path, r.Commit, kind.command)
 	}
 	if r.Target == "" {
-		return Receipt{}, fmt.Errorf("the gate receipt at %s does not say which gate ran, so a tolerant pass cannot be told from a strict one.\nRun `make push-gate`, then push again", path)
+		return Receipt{}, fmt.Errorf("the gate receipt at %s does not say which gate ran, so a tolerant pass cannot be told from a strict one.\nRun %s, then push again", path, kind.command)
 	}
 	if _, known := gateTargets[r.Target]; !known {
-		return Receipt{}, fmt.Errorf("the gate receipt at %s names %q, which is not a gate this repository has (%s), so it cannot say what the pass means.\nRun `make push-gate`, then push again",
-			path, r.Target, strings.Join(knownTargets(), " or "))
+		return Receipt{}, fmt.Errorf("the gate receipt at %s names %q, which is not a gate this repository has (%s), so it cannot say what the pass means.\nRun %s, then push again",
+			path, r.Target, strings.Join(knownTargets(), " or "), kind.command)
+	}
+	if !contains(kind.targets, r.Target) {
+		// A receipt in the wrong file is refused rather than read: a
+		// branch's pass copied over the whole suite's would let a tag
+		// through on a check of a few packages.
+		return Receipt{}, fmt.Errorf("the gate receipt at %s names %q, which does not write that file (only %s does), so it cannot vouch for what that file guards.\nRun %s, then push again",
+			path, r.Target, strings.Join(kind.targets, " or "), kind.command)
 	}
 	if r.WrittenAt.IsZero() {
-		return Receipt{}, fmt.Errorf("the gate receipt at %s does not say when it was written, so the age bound govulncheck needs cannot be applied to it.\nRun `make push-gate`, then push again", path)
+		return Receipt{}, fmt.Errorf("the gate receipt at %s does not say when it was written, so the age bound govulncheck needs cannot be applied to it.\nRun %s, then push again", path, kind.command)
 	}
 	if ahead := time.Until(r.WrittenAt); ahead > MaxClockSkew {
 		// Its own refusal because it is its own cause. An age is a
 		// subtraction, and a receipt dated ahead of the clock produces a
 		// negative one, which is below every bound and so would have been
 		// accepted forever.
-		return Receipt{}, fmt.Errorf("the gate receipt for %s is dated %s in the future, so either this machine's clock moved or the file was edited, and an age bound cannot be applied to it.\nRun `make push-gate`, then push again",
-			short(r.Commit), ahead.Round(time.Second))
+		return Receipt{}, fmt.Errorf("the gate receipt for %s is dated %s in the future, so either this machine's clock moved or the file was edited, and an age bound cannot be applied to it.\nRun %s, then push again",
+			short(r.Commit), ahead.Round(time.Second), kind.command)
 	}
 	if age := time.Since(r.WrittenAt); age > MaxReceiptAge {
 		// Named separately from a commit mismatch, because the fix is the
 		// same command for a completely different reason and a reader who
 		// conflates them will not understand why a commit that passed is
 		// being refused.
-		return Receipt{}, fmt.Errorf("the gate receipt for %s is %s old, past the %s bound.\nEverything a gate checks is fixed by the commit except govulncheck, which reads a live advisory database, so an old pass no longer answers that one question.\nRun `make push-gate`, then push again",
-			short(r.Commit), age.Round(time.Minute), MaxReceiptAge)
+		return Receipt{}, fmt.Errorf("the gate receipt for %s is %s old, past the %s bound.\nEverything a gate checks is fixed by the commit except govulncheck, which reads a live advisory database, so an old pass no longer answers that one question.\nRun %s, then push again",
+			short(r.Commit), age.Round(time.Minute), MaxReceiptAge, kind.command)
 	}
 	return r, nil
 }
@@ -609,7 +704,7 @@ func loadReceipt(refs []pushRef) (Receipt, error) {
 //     ref BACKWARDS would leave the remote pointing at a tree no gate
 //     looked at, which is a different act from shipping history that is
 //     going anyway.
-func checkRef(receipt Receipt, ref pushRef) (string, error) {
+func checkRef(receipt Receipt, ref pushRef, kind receiptKind) (string, error) {
 	where := "this push"
 	if ref.name != "" {
 		where = ref.name
@@ -638,16 +733,16 @@ func checkRef(receipt Receipt, ref pushRef) (string, error) {
 	if !contained {
 		return "", fmt.Errorf("the gate receipt is for %s, but %s is being pushed at %s.\n"+
 			"Those are different commits and %s is not part of %s's history, so nothing on this machine has examined it.\n"+
-			"Run `make push-gate` (or `make ci`) with %s checked out, then push again",
-			short(receipt.Commit), where, short(commit), short(commit), short(receipt.Commit), short(commit))
+			"Run %s with %s checked out, then push again",
+			short(receipt.Commit), where, short(commit), short(commit), short(receipt.Commit), kind.command, short(commit))
 	}
 
 	forwards, why := movesForwards(ref)
 	if !forwards {
 		return "", fmt.Errorf("%s is being pushed at %s, which is part of the gated commit %s but %s.\n"+
 			"A ref moved back to an older commit leaves the remote pointing at a tree no gate examined, which is not the same as sending history that travels with a gated tip.\n"+
-			"Check out %s, run `make push-gate` there, then push again",
-			where, short(commit), short(receipt.Commit), why, short(commit))
+			"Check out %s, run %s there, then push again",
+			where, short(commit), short(receipt.Commit), why, short(commit), kind.command)
 	}
 	return fmt.Sprintf("pre-push: %s at %s is inside %s, which passed %s (%s) here %s ago",
 		where, short(commit), short(receipt.Commit), receipt.Target, meaning, age), nil
@@ -754,7 +849,17 @@ func describe(refs []pushRef) string {
 // knownTargets lists the gates a receipt may name, in a fixed order so a
 // refusal reads the same way twice.
 func knownTargets() []string {
-	return []string{"ci", "push-gate"}
+	return []string{"ci", "push-gate", "pr-check"}
+}
+
+// contains reports whether list holds s.
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // warnIfHooksDisabled says so when this clone will not check the receipt

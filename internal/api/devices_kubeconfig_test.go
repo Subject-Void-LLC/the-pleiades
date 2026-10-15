@@ -29,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
@@ -43,6 +44,9 @@ type importFixture struct {
 	store  credstore.Store
 	org    int
 	router *chi.Mux
+	// client is the fixture's database, for a test that needs a second
+	// organization.
+	client *ent.Client
 }
 
 // failingCreate is a repository whose Create fails as a name taken
@@ -65,7 +69,7 @@ func newImportFixture(t *testing.T, failCreate bool) *importFixture {
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(svc))
 	org := client.Organization.Create().SetName("platform").SaveX(context.Background())
 
-	f := &importFixture{store: credstore.NewEntStore(client, render.New()), org: org.ID}
+	f := &importFixture{store: credstore.NewEntStore(client, render.New()), org: org.ID, client: client}
 	f.repo = inventory.NewEntRepository(client, inventory.NewItemFactory())
 	repo := f.repo
 	if failCreate {

@@ -45,6 +45,29 @@ func TestRegistryHostOf(t *testing.T) {
 
 const sixtyFourHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+// TestValidImage admits the references an engine accepts and refuses every
+// hostile value a command line would read as an option or a shell would
+// act on.
+func TestValidImage(t *testing.T) {
+	for _, ok := range []string{
+		"alpine", "nginx:1.27", "library/alpine:3.20", "ghcr.io/org/app:1", "localhost:5000/app",
+		"registry.example.com:5000/a/b@sha256:" + sixtyFourHex, "alpine@sha256:" + sixtyFourHex,
+	} {
+		if err := ValidImage(ok); err != nil {
+			t.Errorf("ValidImage(%q) = %v, want it accepted", ok, err)
+		}
+	}
+	for _, bad := range []string{
+		"", "-", "--privileged", "-v=/:/host", "--network=host", "-it",
+		"alpine;id", "alpine && id", "$(id)", "`id`", "alpine id", "alpine\nid", "Alpine",
+		"alpine:", "@sha256:" + sixtyFourHex, "alpine\x00",
+	} {
+		if err := ValidImage(bad); err == nil {
+			t.Errorf("ValidImage(%q) accepted a hostile reference", bad)
+		}
+	}
+}
+
 // TestRegistryAuth encodes the account for the image's own registry and
 // nothing for any other.
 func TestRegistryAuth(t *testing.T) {
@@ -113,4 +136,33 @@ func FuzzRegistryAuth(f *testing.F) {
 			t.Fatalf("decoded %q/%q, encoded %q/%q", auth.Username, auth.Password, user, password)
 		}
 	})
+}
+
+// registrarRC answers for one registry and keeps what is registered as a
+// secret (sdk.SecretRegistrar).
+type registrarRC struct {
+	regRC
+	registered *[]string
+}
+
+func (r registrarRC) RegisterSecret(values ...string) {
+	*r.registered = append(*r.registered, values...)
+}
+
+// TestRegistryAuth_RegistersTheHeaderItBuilds: the header carries the
+// password encoded, which a masking set holding the password alone would not
+// find, so RegistryAuth registers the value it returns.
+func TestRegistryAuth_RegistersTheHeaderItBuilds(t *testing.T) {
+	var registered []string
+	rc := registrarRC{regRC: regRC{cred: &wire.RegistryCredential{Host: "ghcr.io", Username: "u", Password: "p"}}, registered: &registered}
+	header, err := RegistryAuth(rc, "ghcr.io/org/app:1")
+	if err != nil || header == "" {
+		t.Fatalf("RegistryAuth = %q, %v", header, err)
+	}
+	if len(registered) != 1 || registered[0] != header {
+		t.Fatalf("registered = %v, want the header %q", registered, header)
+	}
+	if again, err := EncodeRegistryAuth("u", "p", "ghcr.io"); err != nil || again != header {
+		t.Errorf("EncodeRegistryAuth = %q, %v; want the same value RegistryAuth built", again, err)
+	}
 }

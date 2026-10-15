@@ -303,9 +303,18 @@ story, per `.AGENTS/AGENTS.md`.
 268. **Work on another commit in a detached worktree and push HEAD to the branch; never switch branches in an auxiliary worktree (2026-10-14).**
 269. **When a failure happens only where nobody can log in, make the fixture say why, and take the variable out of its path (2026-10-14).**
 270. **Before pushing, run make ci-remote and measure every touched package against its floor, with a margin (2026-10-14).**
-271. **Before every push to a pull request, run make pr-check: CI's own tiers on the branch's own packages (2026-10-14).**
+271. **Before every push to a pull request, run make pr-check: CI's own tiers on the branch's own packages; the pre-push hook now requires its receipt for a branch (2026-10-14).**
 272. **Wait for a container's own startup to finish before acting inside it (2026-10-14).**
-273. **A guard over a hand-kept list reads the property the list stands for, not a proxy for it (2026-10-14).**
+273. **A repeat of 114: a guard over a hand-kept list reads the property the list stands for, not a proxy for it, and a known miss written beside it is its defect (2026-10-14).**
+274. **Before writing a failure pattern or a lesson, search the archive for its class; a repeat names what it repeats and why that fix did not hold (2026-10-14).**
+275. **A test that cuts a connection at its Nth step tests whatever is Nth: when a step is added or removed, re-aim every budgeted test at the step its name says, and give the new step its own (2026-10-14).**
+276. **A lookup that lends a stored secret takes the organization, the authority and the route from the secret's owner, never from the borrowing record, whose writer is somebody else (2026-10-14).**
+277. **A secret check asks where the receiving protocol accepts a credential, not where a parser files one: HTTP takes a token as the user name (2026-10-14).**
+278. **Before ruling a shared resource irremovable, ask the tool for a way to present what is not on disk (go's `-overlay`), and prove a test no longer writes somewhere by making it read-only (2026-10-15).**
+279. **Bound a long-lived client per answer, not with one total, and leave streams to the code that opens them (2026-10-15).**
+280. **A by-value mask may forget only a value one holder had alone; a static credential two sessions may share is never forgotten (2026-10-15).**
+281. **A refusal added at a shared seam changes every caller: run each caller's package before committing, and read an existing switch for the same fact rather than adding a second (2026-10-15).**
+282. **When a guard guesses from a name, refuse by what the value is, and run the step that would catch a wrong guess (here, does a registry serve it) in the local pre-push gate (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

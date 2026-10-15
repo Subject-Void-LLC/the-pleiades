@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -418,13 +418,15 @@ func TestWriteCatalogBuiltins_DedupesAndSorts(t *testing.T) {
 // generation path (buildPleiadesBinary + runPleiades +
 // newCollectionArgs/newDeviceArgs) really drives the real built pleiades
 // binary, not a stand-in: it generates one synthetic collection and one
-// synthetic device into the real repository tree (unique per-process
-// names, cleaned up via t.Cleanup, mirroring
-// cmd/pleiades/e2e_test.go's TestCLI_ForgeNewCollection_EndToEnd /
-// TestCLI_ForgeNewDevice_EndToEnd), then go build/tests the result. This
-// is Phase 34's own dogfood requirement applied to gencatalog itself: a
-// unit test calling collectionscaffold.Generate directly would prove the
-// library works, not gencatalog's own CLI-driving code.
+// synthetic device into a repository directory laid out like this one,
+// then go build/tests the result as members of this module. This is Phase
+// 34's own dogfood requirement applied to gencatalog itself: a unit test
+// calling collectionscaffold.Generate directly would prove the library
+// works, not gencatalog's own CLI-driving code.
+//
+// The directory is a gooverlay.Tree, never the module itself: generating
+// into the module raced every test reading it (flakegate's container scan
+// failed on a package this test had just removed).
 func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping release gate test in -short mode")
@@ -453,14 +455,7 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 		Capabilities: []capability.Name{capability.NameSSHTransport},
 	}
 
-	t.Cleanup(func() {
-		// Scoped to this test's own suffix directory, never the shared
-		// internal/catalog/test parent: cmd/pleiades's forge end-to-end
-		// test writes a sibling under the same parent, and removing the
-		// parent would delete it mid-build under a parallel run.
-		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test", suffix))
-		_ = os.RemoveAll(filepath.Join(root, "internal", "inventory", "devices", suffix))
-	})
+	tree := gooverlay.New(t, root)
 
 	if err := validateCatalogEntries([]collectionscaffold.Config{collectionCfg}, []devicescaffold.Config{deviceCfg}, nil); err != nil {
 		t.Fatalf("validateCatalogEntries: %v", err)
@@ -471,7 +466,7 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	collections := []collectionscaffold.Config{collectionCfg}
 	devices := []devicescaffold.Config{deviceCfg}
 
-	written, err := generateEntries(binPath, root, collections, devices, nil)
+	written, err := generateEntries(binPath, tree.Dir, collections, devices, nil)
 	if err != nil {
 		t.Fatalf("generateEntries: %v", err)
 	}
@@ -485,7 +480,7 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	// file. It must write nothing and report that it wrote nothing: a
 	// count of zero here is the whole difference between "already done"
 	// and "silently did nothing," and the reason the number is printed.
-	again, err := generateEntries(binPath, root, collections, devices, nil)
+	again, err := generateEntries(binPath, tree.Dir, collections, devices, nil)
 	if err != nil {
 		t.Fatalf("generateEntries over an already generated tree: %v", err)
 	}
@@ -496,12 +491,7 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	collectionImport := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + suffix
 	deviceImport := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + suffix
 	for _, pkg := range []string{collectionImport, deviceImport} {
-		for _, subcmd := range []string{"build", "test"} {
-			cmd := exec.Command("go", subcmd, pkg)
-			cmd.Dir = root
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("go %s %s failed: %v\n%s", subcmd, pkg, err, out)
-			}
-		}
+		tree.Build(t, pkg)
+		tree.Test(t, pkg)
 	}
 }

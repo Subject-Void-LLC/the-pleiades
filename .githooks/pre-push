@@ -2,14 +2,17 @@
 #
 # pre-push: check that what this push sends is gated.
 #
-# Since 2026-10-13 the gate is this repository's GitHub Actions checks, so a
-# branch needs nothing here: pushing it is how its pull request gets checked.
-# main is refused, because it changes only by merging a pull request (the
-# repository's ruleset refuses a direct push as well), and a tag passes when
-# its commit is already on the remote's main. Only what no pull request
-# gates, a tag anywhere else or a ref nobody planned for, still needs the
-# local gate's receipt described below. git passes the remote's name as
-# this hook's first argument, which is how a tag is checked against it.
+# Since 2026-10-13 the gate is this repository's GitHub Actions checks. Since
+# 2026-10-14 a branch needs a receipt from `make pr-check` for its tip (or
+# the whole suite's), unless its tip is already on the remote's main: its
+# pull request's checks still decide what merges, and pr-check runs what
+# they run for the branch's own packages first. main is refused, because it
+# changes only by merging a pull request (the repository's ruleset refuses a
+# direct push as well), and a tag passes when its commit is already on the
+# remote's main. What no pull request gates, a tag anywhere else or a ref
+# nobody planned for, still needs the whole suite's receipt described below.
+# git passes the remote's name as this hook's first argument, which is how a
+# branch or tag is checked against it.
 #
 # It does NOT run the gate. That is the whole point, and the reason is
 # mechanical rather than a preference. Git opens its connection to the

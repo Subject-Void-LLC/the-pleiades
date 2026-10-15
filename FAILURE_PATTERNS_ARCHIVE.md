@@ -11594,6 +11594,12 @@ server over SSH, but sat in `probe_linux.go`, so it compiled only into Linux bui
 
 **Lesson.** A file name can decide a build silently; a portable file never ends in an OS or architecture.
 
+**Repeat.** This is 303 again (2026-09-23): a file constrained to Linux left a symbol undefined on macOS and Windows.
+303's lesson was to vet for every operating system CI builds before calling a change verified, and on PR #54 that
+was not done, so the fix lived in a sentence and the failure came back. What holds it now is mechanical: the
+archtest against file-name constraints (this entry's fix), and `make pr-check-vet` inside `make pr-check`, whose
+receipt the pre-push hook requires for a branch (LESSONS 271).
+
 ## 429. A refused SSH host key was retried three times and opened the address's circuit
 
 **Symptom.** Onboarding a cluster through a bastion whose key `known_hosts` did not hold reported "retry:
@@ -11820,6 +11826,9 @@ floor and `make ci-remote` verified locally before the next push.
 
 **Lesson.** See LESSONS 270.
 
+**Repeat.** In kind, this is 427 eight hours earlier: a push whose checks had not been run here, each failure first
+seen in CI. LESSONS 270 answered it with a procedure, which 449 then shows being followed narrowly the same day.
+
 ## 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
 
 **Symptom.** PR #55's `fast` job failed three `pkg/kubeapi` tests with `starting the k3s fixture ...: container
@@ -11865,3 +11874,301 @@ two stay in the fast tier through `oneShotContainerPackages`, each with its reas
 testcontainers-go fixture.
 
 **Lesson.** See LESSONS 273.
+
+**Repeat.** This is 239 again. 239's guard was the fix for a container package missing from the list, and it read the
+import that had just failed, which is exactly what LESSONS 114 had warned about months before: a guard written after
+an incident is written against its literal. The Makefile's comment then recorded the miss as two hand-listed
+exceptions instead of a defect in the guard, so the third package of that shape went to CI unlisted.
+
+## 448. pkg/tftpxfer's Get timed out on macOS twice running, and the cause is still unknown
+
+**Symptom.** `fast-macos` failed on PR #55's runs 38636093862 and 38651908450, both times in
+`TestLongestAcceptedFilenamesCrossARealServerWhole` during the strict `test-repeat`, in different subtests
+(`largest_blocksize/a_space`, then `smallest_blocksize/exactly_the_limit,_nested`): the Put succeeded, then the Get
+failed after about 61 seconds with `read udp [::]:<port>: i/o timeout`. The first of three repeats failed and the
+other two passed in milliseconds. Every earlier `fast-macos` run passed, including #55's first.
+
+**Ruled out.** This branch changes nothing `pkg/tftpxfer` depends on (its dependency set intersected with
+`tools/prscope`'s list is empty, and no module it uses moved), and all three runs used runner image 20260828.587. One
+lost datagram is not enough: pin/tftp v3.2.0 retransmits at every step, so 61 seconds is six unanswered attempts.
+Not reproduced on Linux: 40 runs of all 18 subtests under `-race` passed.
+
+**Root cause.** Unknown. One hypothesis, unproven: pin/tftp's client listens on the dual-stack wildcard `[::]`, the
+server answers from a socket bound to `127.0.0.1`, and XNU's search for a free port for an IPv6 socket skips IPv4
+sockets (`in6_pcblookup_local` continues past any pcb without `INP_IPV6`), so the client could be handed a port an
+IPv4 socket on `127.0.0.1` holds, which then receives the replies. XNU's netns reservation may already prevent that,
+and the source does not settle it.
+
+**Fix.** None yet, deliberately. The test server now records every transfer it finished (client address and port,
+options, datagrams sent and acknowledged, duration, outcome) and prints them when a test fails, proven with a
+deliberate failure, so the next occurrence says whether the server answered the client's port or never saw the
+request. `fast-macos` is advisory, so this does not block a merge.
+
+**Lesson.** See LESSONS 269: when a failure happens only where nobody can log in, make the fixture say why.
+
+## 449. A touched package CI could not floor-check was left out of the pre-push measurement
+
+**Symptom.** `make pr-check`'s first full run found `pkg/awscloud` at 94.9% against its 95.8% floor. 119c had added
+`eks.go` with two untested error branches, and the measurement taken before pushing `0d2b11aa` had not included the
+package.
+
+**Root cause.** LESSONS 270 says to measure every touched package; the measurement covered the packages CI's
+coverage job had named. CI runs without LocalStack, so it reports `pkg/awscloud` as unchecked rather than failed,
+and a list copied from CI's failures can never contain it. The rule was followed narrowly, in the shape of the last
+failure, which is 445's pattern repeating within the day.
+
+**Fix.** A nil context is now tested (reachable) and the Windows platform branch of `instanceFrom` is covered as a
+pure unit test, since the signer's error cannot happen with this SDK; 131 of 136 statements, 96.3%. The procedure is
+now a target: `make pr-check` measures every package the branch changes itself (`tools/prscope`), and its receipt is
+required for a branch push.
+
+**Lesson.** See LESSONS 271.
+
+
+## 450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
+
+**Symptom.** A verification sweep of the container methods (2026-10-14) found `container.docker.run`, `stop` and
+`remove` building `docker run -d --name NAME ... IMAGE CMD` with every value quoted and none checked, and no `--`
+before the operands. `image: --privileged` with `command: [alpine, sh]` created a privileged container; a name of
+`--help` made `docker inspect` exit 0, read as "exists".
+
+**Root cause.** Quoting stops a shell, not option parsing (LESSONS 137). 148 fixed the one `cd` in
+`internal/catalog/exec`'s command line and 137 stated the rule, but the sweep that followed looked at shell
+commands, and these methods build an argv for `remoteexec.QuoteCommand`, which reads as already safe.
+
+**Fix.** `eff5b82d`: names through `containerengine.ValidName`, images through the new `containerengine.ValidImage`
+(the distribution reference grammar), restart policies against docker's set, ports and volumes refused with a
+leading `-` or a control character, all before connecting; every flag in its equals form and `--` before the
+image and the name. Hostile-value table tests fail on the old code.
+
+**Lesson.** A repeat of 148: its fix covered the instance, and the rule's sweep searched by the instance's shape
+(a shell string) rather than by what the code does (put a caller's value where a program reads options).
+
+## 451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
+
+**Symptom.** `queryContainer` treated every non-zero `docker inspect` exit as "no such container". Docker 29.8
+exits 1 for a missing container ("No such container") and also for a daemon it cannot reach ("failed to connect to
+the docker API"), measured 2026-10-14. With the daemon unreachable, `run` went on to `docker run`, and `stop` and
+`remove` reported success for a container they never saw.
+
+**Root cause.** LESSONS 138's second half, "I could not look" collapsed into "it is not there", in a module 138
+never reached.
+
+**Fix.** `eff5b82d`: only docker's own "No such container" (or "No such object") is absence; anything else is an
+error naming the exit and the bounded text.
+
+**Lesson.** A predicate that can fail to evaluate has three answers, and the message is the only place docker
+gives the third.
+
+## 452. The engine drops a failed task's undo, so a docker run that created a container and failed to start it left it unrecoverable
+
+**Symptom.** `docker run -d` creates a container before starting it. A start that failed (a host port already
+taken) left it "created" under the name, and the method returned the error. A second inspect failing after a
+successful run did the same. The engine keeps a method's stats only when it succeeds (`collection_action.go`), so
+no undo was journaled, and the next `container.docker.run` found the name, reported no change, and never started
+it. An inspect that failed after the create also recorded an empty id, which disables the remove's guard.
+
+**Root cause.** The method assumed an inverse recorded before returning an error would survive.
+
+**Fix.** `921047c8`: a failed run removes the container it left "created", by id, never one docker said was
+already in use and never one in another state, and says so; the undo is pinned to the id `docker run -d` printed,
+validated as 64 hex digits, and a failed read back after a successful create is a warning, not a failure.
+
+**Lesson.** Whatever a method records is dropped with its failure: a change it cannot undo by returning success
+must be undone, or completed, before it returns the error.
+
+## 453. The docker CLI methods buffered whatever the device wrote and copied all of stderr into their errors (a repeat of 431)
+
+**Symptom.** `remoteexec.Conn.Run` buffers a command's output without limit, and `runDockerCmd` quoted all of
+stderr, control characters included, into the error.
+
+**Root cause.** LESSONS 266 (from 431) bounds and escapes remote text at the port it comes through; 431's fix was
+the Kubernetes port, and the SSH output port was not swept for the same class.
+
+**Fix.** `43f7ad70`: `remoteexec.RunWithStdinBounded` cuts a command off past its bound, taints the connection and
+fails with `ErrOutputTooLarge`; `remoteexec.Excerpt` bounds and escapes text as `pkg/kubeapi` does; the docker
+methods use 1 MiB per stream and 512 bytes of escaped failure text. Every other SSH method still uses the
+unbounded `Run`, listed for the owner as a contract change.
+
+**Lesson.** A repeat of 431: the rule names every port remote text comes through, and the fix covered one.
+
+## 454. The docker CLI methods skipped the engine identity pin container.docker.exec checks
+
+**Symptom.** `container.docker.exec` compared the engine it reached with the identity onboarding pinned; `run`,
+`stop` and `remove` ran whatever engine the login's own docker configuration pointed at (`DOCKER_HOST`, a context).
+
+**Root cause.** The sibling-guard class (LESSONS 244, FAILURE_PATTERNS 352): one path of two carried the guard.
+
+**Fix.** `a1c248f7`: each asks `docker info --format={{.ID}}` and refuses an engine that is not the pinned one, and a
+device with no pin, naming `pleiades onboard`.
+
+**Lesson.** When a guard lands on one method of a family, the family is the unit to check.
+
+## 455. A registry account a method obtained was never masked on the command line, and its encoded header nowhere (a repeat of 394)
+
+**Symptom.** The Crawl tier masked what `InjectSecrets` handed a method; a registry account a method asked for
+(`sdk.RegistryCredentials`) was not in that set, and the Runner masked the password but not the `X-Registry-Auth`
+value, which carries it base64-encoded.
+
+**Root cause.** 394 fixed the credential a method is handed at the start; a secret obtained during the run had no
+way into the mask (LESSONS 29: the check belongs at the call site that adds the value).
+
+**Fix.** `26c89fe2`: `sdk.SecretRegistrar`; the engine's context registers the password it answers with,
+`containerengine.RegistryAuth` registers the header, and the executor masks both on failure and on success; the
+Runner computes the header with `containerengine.EncodeRegistryAuth`.
+
+**Lesson.** A repeat of 394 for secrets that arrive after the run starts: every way a secret reaches a method is a
+way into the mask.
+
+## 456. Controller onboarding lent any organization's Kubernetes credential to a record naming its address, under the record's authority and route
+
+**Symptom.** A cluster with no credential of its own onboarded with the one stored Kubernetes credential whose host
+matched its `api_server`, searched across every organization; the record's pinned authority won over the
+credential's, and its route carried the connection. Whoever could write and onboard a device could read another
+organization's cluster facts, and with their own authority and a hop they controlled could receive its token.
+Reasoned from the code, not reproduced; the template-bound native path had the same authority rule.
+
+**Root cause.** The facts that decide where a lent secret goes (organization, authority, route) were read from the
+record, whose writer is not the secret's owner. Devices also carried no organization in practice (the import
+created them without one).
+
+**Fix.** `cab66aef`: `resolve.BorrowedKubernetesSecrets` lends only within the cluster's organization and refuses a
+cluster in none, behind a route, or pinning another authority; the import puts the cluster in its credential's
+organization (`AssignDeviceOrganization`, which never moves a device between organizations); a template's
+credential is checked only against its own authority, the record's being dropped from the dispatch.
+
+**Lesson.** See LESSONS 276.
+
+## 457. A refused server address was quoted, password included, into the import API's response
+
+**Symptom.** `kubeapi.checkServer` quoted the address in every refusal but one and wrapped `net/url`'s parse error,
+which repeats the raw address, so `http://user:pass@host`, an unparsable address with a password, or a token in a
+query came back in `POST /inventory/kubeconfig-imports`' 422 and the CLI's message.
+
+**Root cause.** The class of 298 and LESSONS 266: a refusal that quotes the input it refused.
+
+**Fix.** `ca204d1f`: the user name is refused first, a parse failure gives only the parser's reason, and no other
+refusal quotes the address.
+
+**Lesson.** A validator's error quotes what it judged; when the input can carry a secret, it names the problem
+instead.
+
+## 458. HasEmbeddedSecret checked only a URL's password, so a token in the user position passed
+
+**Symptom.** `https://<token>@github.com/org/repo.git` passed the project write check, was stored in the plain
+`scm_url` column and returned by the API and the web UI; git sends the user as Basic auth and a forge accepts a
+token there. go-git also reads an scp-like `git:password@host:path` userinfo whole, so its password arrived in the
+user and passed too (probed 2026-10-14).
+
+**Root cause.** The check asked where the parser files a password, not where the protocol accepts a credential.
+
+**Fix.** `f5512ff5`: any password, any user over http or https, and a colon in an ssh user count; stored rows keep
+syncing with a warning, and the API and UI show them through `RedactedSourceURL`.
+
+**Lesson.** See LESSONS 277.
+
+## 459. The README and start-here counts drifted 22 methods behind the registry with nothing to notice
+
+**Symptom.** Both said 82 registered, 79 implemented, 16 namespaces and 70 checkable; the registry had 104, 101,
+17 and 91, and the start-here page's per-namespace list had no `virt`.
+
+**Root cause.** Prose counts with no test (LESSONS 99: anchor one side outside the implementation).
+
+**Fix.** `a7b36716`: corrected, and `TestStatusCounts_MatchTheRegistry` reads every count both documents state.
+
+**Lesson.** A number a document states about the code is a claim the build can check.
+
+## 460. Session-budgeted tests kept passing after a new first command, now testing the step before the one they name
+
+**Symptom.** The docker tests cut the SSH connection at the Nth session to fail a named step
+(`TestRun_ConnectionDiesRunning` at session 1). Adding `docker info` as the first command moved every cut one step
+earlier; three tests still passed, now failing the step before the one their names say, and one failed.
+
+**Root cause.** A test indexed by a count tests whatever step that count lands on.
+
+**Fix.** `a1c248f7`: each budget moved by one, and a test of its own for the new step.
+
+**Lesson.** See LESSONS 275.
+
+## 461. The local engine probe's unit tests read the developer's real Docker socket first
+
+**Symptom.** `probeLocalEngines` tried `/var/run/docker.sock` and `/run/podman/podman.sock` before the test's own
+sockets, so its tests read this machine's daemon whenever one ran, and asserted loosely enough to pass either way.
+
+**Root cause.** A system path as a constant in code a unit test drives (LESSONS 148's shape).
+
+**Fix.** `42ec10bf`: the local system sockets are a variable the tests point at absent paths, and the tests assert
+the rootless engine they served is the one found.
+
+**Lesson.** A test that passes on any machine's state is not testing the state it set up.
+
+## 462. A failed Podman start's cleanup ran on an unbounded context while close() bounded the same script
+
+**Symptom.** Two cleanups ran one stop script; `close()` held it to ten seconds, the failed-start path to
+`context.Background()` with no deadline.
+
+**Root cause.** The sibling-guard class again (LESSONS 244).
+
+**Fix.** `42ec10bf`: one `stopService` with one bound, tested with a hanging `rm` on the harness shell's PATH.
+
+**Lesson.** Two copies of a cleanup drift; one helper cannot.
+
+## 463. Generated packages written into the module tree failed a new reader of it (a repeat of 53 and 55)
+
+**Symptom.** `make devtools` failed `tools/internal/flakegate`'s `TestRepeatGate` with "open
+../../../internal/catalog/test/gencatalogtest26309/check.go: no such file or directory": its container scan walked
+the module while `tools/gencatalog`'s dogfood test, in a parallel package, removed the collection it had generated
+there. Passed alone, every time.
+
+**Root cause.** Five tests wrote generated source into the module tree: `tools/gencatalog`'s dogfood test,
+`cmd/pleiades`'s two forge end-to-end tests, and the collection and device scaffold release gates. The filter
+scaffold's gate added files to `pkg/filters` itself, so every package importing it that another test built
+meanwhile compiled them. Why 53 and 55 did not hold: 53 was left unfixed as disproportionate, 55 fixed only the
+deletion of the shared parent, and LESSONS 91 had each *reader* tolerate the writes (`go list -e`) on the premise
+that the writes could not be removed, because a throwaway module cannot import `internal/`. The premise was wrong,
+and a tolerance added to one reader protects no reader written later; flakegate's scan was one.
+
+**Fix.** `0bef18a4`: `internal/testsupport/gooverlay` keeps generated files in a temporary tree laid out like the
+module's and hands them to the go command with `-overlay`, so they build and test as members of the module,
+internal imports included, while nothing in the module changes. All five tests use it. Proof: with every directory
+under `internal/catalog`, `internal/inventory` and `pkg/filters` read-only, all five pass, and the old gencatalog
+test fails with "mkdir internal/catalog/test: permission denied". Given up: `go vet` on the generated packages,
+which runs in a directory that exists only in the overlay.
+
+**Lesson.** See LESSONS 278.
+
+## 464. A second switch for one fact let onboarding grant a reach the engine port then refused (the sibling-guard class, LESSONS 244)
+
+**Symptom.** `make pr-check` failed `TestKubernetesOnboard_NodesAndRoutes` after `0e1d51db`: "the node engine host
+"engine": onboard.nodes: device engine is reached through this machine's own engine socket (engine_local), which
+only the pleiades command line may use". Onboarding's coverage fell from its 91.9% floor to 85.5% with it.
+
+**Root cause.** `0e1d51db` gave `pkg/containerengine` a process-wide switch for "this process is the command line"
+(`AllowLocalCarrier`) beside the one onboarding already had for the same fact (`onboard.AllowLocalEngine`). The CLI
+set both; the test, standing in for the CLI, set only onboarding's, so it onboarded an engine and then could not
+search it. Two switches for one fact is LESSONS 244's sibling guard in another shape, and nothing held them
+together. It got past the commit because only the edited packages were run, not the packages of every caller of
+the seam the refusal sits in.
+
+**Fix.** `882a637c`: one switch. Onboarding reads `containerengine.LocalCarrierAllowed`, and
+`onboard.AllowLocalEngine` is gone; `TestLocalEngine_IsTheEnginePortsOneSwitch` fails when onboarding keeps its own.
+
+**Lesson.** See LESSONS 281.
+
+## 465. CI's pull step asked Docker Hub for a fake image ID a test had named (a repeat of 416)
+
+**Symptom.** Pull request #56's `containers (2)` job failed before any test ran: "pull access denied for sha256,
+repository does not exist", three times, for `sha256:9f2c0e6a...`.
+
+**Root cause.** `tools/testimages` keeps the value of any constant whose name contains `Image`, and
+`internal/catalog/container/docker`'s tests name a fake image ID `fakeImageID`; an image ID has `name:tag`'s shape
+(a repository called `sha256`, a 64-character tag). Why 416's fix did not hold: it refused one shape a non-image
+can take (a name with no letter, after a uid:gid pair) and left the class open, a guess from a variable's name; and
+the step that would have caught either, the pull, ran only in CI, so `make pr-check` passed both times.
+
+**Fix.** `0a364b4b`: an image ID (`sha256:<64 hex>`, `sha512:<128 hex>`) is refused by the scanner, since no
+registry serves one under any name. `89f7ad2a`: `make pr-check` runs `tools/testimages -served` over every container
+package, asking a registry for the manifest of each image this machine's engine lacks, so the next shape the guess
+admits fails before a push. With the scanner's fix reverted, that step names the fake ID on the real list.
+
+**Lesson.** See LESSONS 282.

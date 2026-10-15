@@ -71,10 +71,26 @@ var ambientEntryPoints = map[string]bool{
 	"RecommendedConfigPathEnvVar":                  true,
 }
 
+// ambientQualifiedEntryPoints are ambient entry points whose bare names are
+// too common to match alone (an atomic counter's Load), so they are matched
+// with the package name they are called through: reading a kubeconfig file
+// or the home directory it sits in.
+var ambientQualifiedEntryPoints = map[string]bool{
+	"clientcmd.Load":         true,
+	"clientcmd.LoadFromFile": true,
+	"homedir.HomeDir":        true,
+}
+
+// inClusterTokenPath is where a pod's ServiceAccount token is mounted; a
+// reference to it anywhere is a way to an ambient credential.
+const inClusterTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount"
+
 // TestNoAmbientKubernetesCredential reads every non-test file of the
 // Kubernetes port for a call or reference to one of client-go's ambient
-// entry points, and every non-test file in the module for the KUBECONFIG
-// variable's name. A Collection must reach a cluster with the credential
+// entry points, every non-test file in the module for a call reading a
+// kubeconfig file or the home directory (ambientQualifiedEntryPoints), and
+// every non-test file in the module for the KUBECONFIG variable's name and
+// the in-cluster token's path. A Collection must reach a cluster with the credential
 // bound to it and nothing else (D5's edge case 6). The control: the port's
 // own files must be found and parsed.
 func TestNoAmbientKubernetesCredential(t *testing.T) {
@@ -98,9 +114,20 @@ func TestNoAmbientKubernetesCredential(t *testing.T) {
 						t.Errorf("%s uses %s, an ambient Kubernetes credential; a cluster is reached only with its bound credential",
 							fset.Position(n.Pos()), n.Sel.Name)
 					}
+					if pkgName, ok := n.X.(*ast.Ident); ok && ambientQualifiedEntryPoints[pkgName.Name+"."+n.Sel.Name] {
+						t.Errorf("%s uses %s.%s, a way to an ambient kubeconfig; a cluster is reached only with its bound credential",
+							fset.Position(n.Pos()), pkgName.Name, n.Sel.Name)
+					}
 				case *ast.BasicLit:
-					if n.Kind == token.STRING && strings.Trim(n.Value, "\"`") == "KUBECONFIG" {
+					if n.Kind != token.STRING {
+						break
+					}
+					value := strings.Trim(n.Value, "\"`")
+					if value == "KUBECONFIG" {
 						t.Errorf("%s names KUBECONFIG; nothing reads an ambient kubeconfig", fset.Position(n.Pos()))
+					}
+					if strings.HasPrefix(value, inClusterTokenPath) {
+						t.Errorf("%s names the in-cluster ServiceAccount token's path; nothing reads an ambient cluster credential", fset.Position(n.Pos()))
 					}
 				}
 				return true

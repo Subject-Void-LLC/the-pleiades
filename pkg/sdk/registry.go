@@ -6,7 +6,7 @@ package sdk
 // host its own image reference names, and gets nothing for any other, so a
 // runbook cannot send one registry's password to another host. On the Crawl
 // tier the answer comes from the project's credential store
-// (`pleiades add-credential --registry`); on the Walk tier from the
+// (`pleiades add-registry-credential`); on the Walk tier from the
 // template's one registry credential.
 type RegistryCredentials interface {
 	// RegistryCredential returns the username and password stored for

@@ -30,7 +30,7 @@ func (containerProber) Protocol() string { return "engine" }
 // probed over its SSH login; one with an engine_tls address over mutual
 // TLS, and both when it has both, which must then answer as the same
 // engine; one with neither is the machine running this process, probed
-// through its own sockets when AllowLocalEngine was called.
+// through its own sockets when containerengine.AllowLocalCarrier was called.
 func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
 	dev, ok := device.(capability.SSHTransportCapable)
 	if !ok {
