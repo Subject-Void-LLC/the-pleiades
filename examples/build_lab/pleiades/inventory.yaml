@@ -1,0 +1,17 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# build-box is a Linux server you reach over SSH that holds a checkout of your
+# project and runs Docker (for resolving image tags). Point host and port at it,
+# then:
+#   pleiades add-credential build-box --username <you> --password-stdin
+#   pleiades onboard build-box     # records its container engine
+# Credentials are never stored here or anywhere in this directory.
+hosts:
+  - id: build-box
+    name: build-box
+    type: linux_server
+    tags:
+      - build
+    properties:
+      host: 127.0.0.1
+      port: 2222

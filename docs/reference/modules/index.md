@@ -9,6 +9,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | Namespace | Methods | Implemented |
 | --- | --- | --- |
 | `archive` | 2 | 2 |
+| `build` | 3 | 3 |
 | `cloud` | 4 | 4 |
 | `container` | 4 | 4 |
 | `exec` | 3 | 3 |
@@ -26,7 +27,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **106** | **103** |
+| **total** | **109** | **106** |
 
 ## All methods
 
@@ -34,6 +35,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | --- | --- | --- |
 | [archive.create](archive/create.md) | implemented | Creates an archive (tar or tar.gz) from files on the target. |
 | [archive.extract](archive/extract.md) | implemented | Extracts an archive (tar or tar.gz) on the target. |
+| [build.digests.check](build/digests/check.md) | implemented | Lists every container image reference in a build's files that is not pinned by both tag and digest. |
+| [build.digests.refresh](build/digests/refresh.md) | implemented | Pins every container image reference in a build's files to the digest its tag names now. |
+| [build.lock.verify](build/lock/verify.md) | implemented | Checks that a lockfile covers its manifest, carries an integrity hash for every entry, and draws only from allowed sources. |
 | [cloud.aws.ec2.create](cloud/aws/ec2/create.md) | implemented | Launches an EC2 instance via the AWS API. |
 | [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | implemented | Terminates an EC2 instance via the AWS API. |
 | [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | implemented | Creates an S3 bucket via the AWS API. |

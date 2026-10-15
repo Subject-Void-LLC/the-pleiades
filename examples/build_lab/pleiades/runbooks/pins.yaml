@@ -1,0 +1,12 @@
+id: build-pins
+hosts: build-box
+tasks:
+  - name: Check every image is pinned by tag and digest
+    build.digests.check:
+      files:
+        - /srv/app/Dockerfile
+        - /srv/app/compose.yaml
+
+  - name: Check the lockfile covers package.json and draws only from npm
+    build.lock.verify:
+      lockfile: /srv/app/package-lock.json
