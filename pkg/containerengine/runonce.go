@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
@@ -54,10 +57,54 @@ type RunOnceOptions struct {
 	Labels map[string]string
 	// Timeout bounds the run; the container is killed past it.
 	Timeout time.Duration
+	// Mounts are host paths bound into the container, every one
+	// read-only: a one-shot container is never handed a writable host path,
+	// so whatever it runs can read what it is given and change none of it.
+	Mounts []ReadOnlyMount
+	// Env sets the container's environment, each NAME=value. Never a
+	// secret: an engine shows a container's environment to anyone who can
+	// inspect it.
+	Env []string
 	// Output receives what the container writes to standard output and
 	// standard error, in the order the engine sent it. A bounded writer
 	// (gate.Tail) keeps a chatty command in constant memory.
 	Output io.Writer
+}
+
+// ReadOnlyMount binds Source, a path on the engine's host, at Target in
+// the container, read-only.
+type ReadOnlyMount struct {
+	Source, Target string
+}
+
+// envName is an environment variable's name.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// checkMounts refuses a mount whose paths are not absolute and clean, or
+// whose target would cover the container's own root.
+func checkMounts(mounts []ReadOnlyMount) error {
+	for _, m := range mounts {
+		for _, p := range []string{m.Source, m.Target} {
+			if !path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\x00\r\n,") {
+				return fmt.Errorf("containerengine: mount path %q is not absolute and clean", p)
+			}
+		}
+		if m.Target == "/" {
+			return errors.New("containerengine: a mount cannot cover the container's root")
+		}
+	}
+	return nil
+}
+
+// checkEnv refuses an entry that is not NAME=value.
+func checkEnv(env []string) error {
+	for _, e := range env {
+		name, _, found := strings.Cut(e, "=")
+		if !found || !envName.MatchString(name) || strings.ContainsAny(e, "\x00") {
+			return fmt.Errorf("containerengine: environment entry %q is not NAME=value", e)
+		}
+	}
+	return nil
 }
 
 // RunOnceResult is how a one-shot container ended.
@@ -91,6 +138,12 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 			return res, err
 		}
 	}
+	if err := checkMounts(opts.Mounts); err != nil {
+		return res, err
+	}
+	if err := checkEnv(opts.Env); err != nil {
+		return res, err
+	}
 	output := opts.Output
 	if output == nil {
 		output = io.Discard
@@ -114,10 +167,14 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	if !opts.Writable {
 		hostConfig.Tmpfs = map[string]string{"/tmp": runOnceTmpfs}
 	}
+	for _, m := range opts.Mounts {
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: true})
+	}
 	created, err := s.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:        opts.Image,
 			Cmd:          opts.Cmd,
+			Env:          opts.Env,
 			Labels:       opts.Labels,
 			AttachStdout: true,
 			AttachStderr: true,

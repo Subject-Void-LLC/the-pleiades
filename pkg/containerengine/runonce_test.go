@@ -155,6 +155,32 @@ func TestRunOnce_ANamedNetworkAndAWritableRoot(t *testing.T) {
 	}
 }
 
+// TestRunOnce_MountsAreReadOnlyAndEnvIsPassed: every mount reaches the
+// engine as a read-only bind, and the environment as given.
+func TestRunOnce_MountsAreReadOnlyAndEnvIsPassed(t *testing.T) {
+	e := &runEngine{imagePresent: true}
+	opts := RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute,
+		Mounts: []ReadOnlyMount{{Source: "/srv/app", Target: "/src"}, {Source: "/var/lib/osv", Target: "/db"}},
+		Env:    []string{"OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db"}}
+	if _, err := runSession(t, e).RunOnce(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := e.create["HostConfig"].(map[string]any)
+	mounts, _ := host["Mounts"].([]any)
+	if len(mounts) != 2 {
+		t.Fatalf("mounts = %v", host["Mounts"])
+	}
+	for _, raw := range mounts {
+		m := raw.(map[string]any)
+		if m["Type"] != "bind" || m["ReadOnly"] != true {
+			t.Errorf("mount %v is not a read-only bind", m)
+		}
+	}
+	if env, _ := e.create["Env"].([]any); len(env) != 1 || env[0] != "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db" {
+		t.Errorf("env = %v", e.create["Env"])
+	}
+}
+
 // TestRunOnce_AnAbsentImageIsPulledOnlyWhenAsked refuses it without pull,
 // creating nothing, and pulls it with.
 func TestRunOnce_AnAbsentImageIsPulledOnlyWhenAsked(t *testing.T) {
@@ -197,10 +223,15 @@ func TestRunOnce_RefusesBeforeContact(t *testing.T) {
 	e := &runEngine{imagePresent: true}
 	s := runSession(t, e)
 	for name, opts := range map[string]RunOnceOptions{
-		"an image by tag": {Image: "alpine:3.20", Cmd: []string{"true"}, Timeout: time.Minute},
-		"no command":      {Image: runImage, Timeout: time.Minute},
-		"no timeout":      {Image: runImage, Cmd: []string{"true"}},
-		"a network":       {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Network: "--privileged"},
+		"an image by tag":  {Image: "alpine:3.20", Cmd: []string{"true"}, Timeout: time.Minute},
+		"no command":       {Image: runImage, Timeout: time.Minute},
+		"no timeout":       {Image: runImage, Cmd: []string{"true"}},
+		"a network":        {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Network: "--privileged"},
+		"a relative mount": {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "srv", Target: "/src"}}},
+		"a mount over /":   {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "/srv", Target: "/"}}},
+		"an unclean mount": {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "/srv/../etc", Target: "/src"}}},
+		"a bad env name":   {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Env: []string{"1X=y"}},
+		"env with no =":    {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Env: []string{"NAME"}},
 	} {
 		if _, err := s.RunOnce(context.Background(), opts); err == nil {
 			t.Errorf("%s was run", name)
