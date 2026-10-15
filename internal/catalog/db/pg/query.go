@@ -102,7 +102,7 @@ func parseQuery(params map[string]any) (queryRequest, error) {
 	if raw, ok := params[paramArgs]; ok && raw != nil {
 		list, ok := raw.([]any)
 		if !ok {
-			return r, fmt.Errorf("%s is a list of values for $1, $2, ...", paramArgs)
+			return r, fmt.Errorf("%s is a list of values, the first for $1", paramArgs)
 		}
 		r.args = list
 	}
