@@ -56,6 +56,9 @@ type runbookContext struct {
 	// ai, when set, is the run's project for the ai methods
 	// (sdk.AIProject); nil answers sdk.ErrNoAIProject.
 	ai *aiProject
+	// reviews asks the person at the terminal about a held result; nil
+	// keeps it pending (sdk.Reviewer).
+	reviews *reviewDesk
 
 	// registered is every secret the method obtained while it ran
 	// (sdk.SecretRegistrar): a registry password this context answered with,
@@ -74,6 +77,7 @@ var (
 	_ sdk.RegistryCredentials = (*runbookContext)(nil)
 	_ sdk.DatabaseConnections = (*runbookContext)(nil)
 	_ sdk.AIProject           = (*runbookContext)(nil)
+	_ sdk.Reviewer            = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.

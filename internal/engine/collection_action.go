@@ -51,6 +51,9 @@ type collectionActionExecutor struct {
 	// ai, set by WithAIProject, is the project the ai methods read
 	// prompts and keys from and write usage into (sdk.AIProject).
 	ai *aiProject
+	// reviews, set by WithReviewPrompter, asks the person at the terminal
+	// to decide a held result (sdk.Reviewer); nil keeps every one pending.
+	reviews *reviewDesk
 
 	// seed, set by WithLoginSeeder, resolves the login a method whose
 	// manifest sets SeedsLogin gives to the machine it creates.

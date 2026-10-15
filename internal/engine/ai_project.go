@@ -302,6 +302,6 @@ func (e *collectionActionExecutor) lendAIProject(rc sdk.RunbookContext) {
 		return
 	}
 	if c, ok := rc.(*runbookContext); ok {
-		c.ai = e.ai
+		c.ai, c.reviews = e.ai, e.reviews
 	}
 }
