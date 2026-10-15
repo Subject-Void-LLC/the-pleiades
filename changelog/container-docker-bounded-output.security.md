@@ -1,0 +1,1 @@
+`container.docker.run`, `stop` and `remove` hold each docker command's output to 1 MiB per stream and fail past it, rather than buffering whatever the device writes, and docker's own failure text reaches an error cut to 512 bytes with terminal control characters escaped. `pkg/remoteexec` gains `RunWithStdinBounded` and `Excerpt` for any method that needs the same.

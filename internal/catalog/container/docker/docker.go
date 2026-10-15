@@ -104,7 +104,7 @@ func (s containerState) Map() map[string]any {
 // The name follows "--", so a value that begins with "-" can never be read
 // as an option; checkName refuses one before this runs anyway.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}}", "--", name}))
+	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}}", "--", name}), nil, dockerOutputLimit)
 	if err != nil {
 		return containerState{}, err
 	}
@@ -125,6 +125,17 @@ func noSuchContainer(result remoteexec.Result) bool {
 	text := strings.ToLower(result.Stderr)
 	return strings.Contains(text, "no such container") || strings.Contains(text, "no such object")
 }
+
+// dockerOutputLimit bounds what one docker command may write to each of
+// standard output and standard error. None of the commands here prints more
+// than a container id, an inspect line or a pull's progress, so a command
+// that writes more is cut off and fails rather than growing the memory of
+// the process running the task.
+const dockerOutputLimit = 1 << 20
+
+// maxFailureDetail bounds how much of a failed command's own text an error
+// quotes.
+const maxFailureDetail = 512
 
 // restartPolicyPattern is every restart policy docker run accepts: no,
 // always, unless-stopped, and on-failure with an optional retry count.
@@ -288,7 +299,7 @@ func runDockerCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) err
 // which is why nothing secret may be in it.
 func runDockerCmdWithStdin(ctx context.Context, conn *remoteexec.Conn, argv []string, stdin string) (string, error) {
 	command := remoteexec.QuoteCommand(argv)
-	result, err := conn.RunWithStdin(ctx, command, strings.NewReader(stdin))
+	result, err := conn.RunWithStdinBounded(ctx, command, strings.NewReader(stdin), dockerOutputLimit)
 	if err != nil {
 		return "", err
 	}
@@ -346,14 +357,16 @@ func cleanupFailedRun(ctx context.Context, conn *remoteexec.Conn, name string, r
 }
 
 // failureDetail picks the stream an operator should read after a
-// non-zero exit. Mirrors internal/catalog/fs's own copy; docker almost
-// always explains itself on stderr.
+// non-zero exit, cut to maxFailureDetail bytes with anything a terminal acts
+// on escaped (remoteexec.Excerpt), since it is the device's own text and it
+// reaches an error, a log and a terminal. docker almost always explains
+// itself on stderr.
 func failureDetail(result remoteexec.Result) string {
 	if detail := strings.TrimSpace(result.Stderr); detail != "" {
-		return detail
+		return remoteexec.Excerpt(detail, maxFailureDetail)
 	}
 	if detail := strings.TrimSpace(result.Stdout); detail != "" {
-		return detail
+		return remoteexec.Excerpt(detail, maxFailureDetail)
 	}
 	return "no output"
 }

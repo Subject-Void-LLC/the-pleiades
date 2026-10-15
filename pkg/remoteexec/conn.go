@@ -1,12 +1,12 @@
 package remoteexec
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -101,6 +101,13 @@ func (c *Conn) Run(ctx context.Context, command string) (Result, error) {
 // nil stdin means the remote command sees an immediately-closed standard
 // input, which is what Run passes.
 func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader) (Result, error) {
+	return c.run(ctx, command, stdin, 0)
+}
+
+// run is RunWithStdin and RunWithStdinBounded's one body. A limit above zero
+// holds each of standard output and standard error to that many bytes
+// (bounded.go); zero holds neither, which is RunWithStdin's contract.
+func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit int) (Result, error) {
 	if err := c.usable(); err != nil {
 		return Result{}, err
 	}
@@ -120,10 +127,15 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 
 	// Stdout and Stderr go into SEPARATE buffers, never CombinedOutput:
 	// a caller that needs to tell an error message apart from real output
-	// cannot un-merge them afterward.
-	var stdout, stderr bytes.Buffer
-	session.Stdout = &stdout
-	session.Stderr = &stderr
+	// cannot un-merge them afterward. Past a limit, either buffer closes the
+	// session so the remote stops writing (cappedBuffer).
+	var exceeded atomic.Bool
+	var cut sync.Once
+	cutSession := func() { cut.Do(func() { _ = session.Close() }) }
+	stdout := &cappedBuffer{limit: limit, exceeded: &exceeded, cut: cutSession}
+	stderr := &cappedBuffer{limit: limit, exceeded: &exceeded, cut: cutSession}
+	session.Stdout = stdout
+	session.Stderr = stderr
 
 	if stdin != nil {
 		// Copied through an explicit pipe rather than assigned to
@@ -180,7 +192,15 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 
 	runErr := session.Run(command)
 
-	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
+	// A command cut off for writing past its bound has an unknown outcome on
+	// the remote side, like any other cut-off command, and its output was
+	// not kept whole, so it is an error and never a truncated Result.
+	if exceeded.Load() {
+		c.taint()
+		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w (%d bytes on one stream)", c.addr, ErrOutputTooLarge, limit)
+	}
+
+	result := Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String()}
 
 	var exitErr *ssh.ExitError
 	switch {

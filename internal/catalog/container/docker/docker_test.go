@@ -83,6 +83,9 @@ type containerFixture struct {
 	// runStdout, when set, replaces the container id a successful docker run
 	// prints.
 	runStdout *string
+	// runFlood makes a failing docker run write more than the method's
+	// output bound to standard error.
+	runFlood bool
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -165,6 +168,11 @@ case "$1" in
       if [ -n "$FAKE_RUN_LEFTOVER" ]; then
         printf '%s' "$FAKE_RUN_LEFTOVER" > "$FAKE_RECORD.leftover"
       fi
+      if [ "$FAKE_RUN_FLOOD" = "1" ]; then
+        # More than the method's bound on one stream.
+        head -c 1100000 /dev/zero | tr '\0' x >&2
+        exit "$exit_code"
+      fi
       message="${FAKE_RUN_FAIL_MESSAGE:-fake failure}"
       case "$FAKE_RUN_FAIL_STREAM" in
         stdout) printf '%s\n' "$message" ;;
@@ -226,6 +234,7 @@ esac
 	t.Setenv("FAKE_INSPECT_UNREACHABLE", boolEnv(fixture.inspectUnreachable))
 	t.Setenv("FAKE_RUN_LEFTOVER", fixture.runLeftover)
 	t.Setenv("FAKE_RUN_FAIL_MESSAGE", fixture.runFailMessage)
+	t.Setenv("FAKE_RUN_FLOOD", boolEnv(fixture.runFlood))
 	if fixture.runStdout != nil {
 		t.Setenv("FAKE_RUN_STDOUT", *fixture.runStdout)
 	}

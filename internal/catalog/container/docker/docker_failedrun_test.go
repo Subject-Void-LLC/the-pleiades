@@ -84,3 +84,30 @@ func TestRun_ARunThatPrintsNoIDIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestRun_OutputPastTheBoundIsCutOff: a docker that writes without end is cut
+// off at the method's bound and the run fails, rather than its output growing
+// the memory of the process running the task.
+func TestRun_OutputPastTheBoundIsCutOff(t *testing.T) {
+	h := newHarness(t, containerFixture{runExit: 1, runFlood: true})
+	if err := runWeb(t, h); err == nil || !strings.Contains(err.Error(), "passed its bound") {
+		t.Fatalf("err = %v, want the output bound named", err)
+	}
+}
+
+// TestRun_FailureDetailIsBoundedAndEscaped: docker's own failure text reaches
+// the error escaped and cut, so a device cannot write terminal control
+// sequences through it or make an error of any size.
+func TestRun_FailureDetailIsBoundedAndEscaped(t *testing.T) {
+	h := newHarness(t, containerFixture{runExit: 1, runFailMessage: "bad \x1b[31m" + strings.Repeat("y", 4000)})
+	err := runWeb(t, h)
+	if err == nil {
+		t.Fatal("a failed run was reported as a success")
+	}
+	if strings.Contains(err.Error(), "\x1b") || !strings.Contains(err.Error(), `\u001b[31m`) {
+		t.Errorf("err = %q, want the escape sequence escaped", err)
+	}
+	if !strings.Contains(err.Error(), "more bytes)") || len(err.Error()) > 1500 {
+		t.Errorf("err is %d bytes, want docker's text cut", len(err.Error()))
+	}
+}
