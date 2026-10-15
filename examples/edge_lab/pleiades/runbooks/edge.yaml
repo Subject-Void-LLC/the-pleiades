@@ -1,0 +1,29 @@
+id: edge-check
+name: The tunnel is up, the admin site admits only staff, and www points at the load balancers
+hosts: prod-cf
+tasks:
+  - name: The tunnel is healthy on two connectors
+    edge.tunnel:
+      tunnel: prod
+      min_connectors: 2
+
+  - name: Only staff reach the admin site
+    edge.access:
+      app: admin.example.com
+      expect:
+        issuer: https://example.cloudflareaccess.com
+        policies:
+          - name: staff
+            decision: allow
+            include:
+              - email_domain: {domain: example.com}
+      exact_policies: true
+
+  - name: www points at the load balancers, proxied
+    edge.dns:
+      zone: example.com
+      name: www.example.com
+      type: A
+      expect:
+        content: [192.0.2.10, 192.0.2.11]
+        proxied: true

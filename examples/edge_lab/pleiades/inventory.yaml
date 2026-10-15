@@ -1,0 +1,17 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# prod-cf is a Cloudflare account. Put its account id below, store an API
+# token that can read its tunnels, Access applications and DNS, then
+# onboard it, which reads the account and changes nothing:
+#   pleiades add-credential prod-cf --token-stdin < token
+#   pleiades onboard prod-cf
+# The token is never stored here or anywhere in this directory.
+hosts:
+  - id: prod-cf
+    name: prod-cf
+    type: cloudflare_account
+    tags:
+      - edge
+    properties:
+      account_id: "00000000000000000000000000000000"
+      api_base: https://api.cloudflare.com/client/v4
