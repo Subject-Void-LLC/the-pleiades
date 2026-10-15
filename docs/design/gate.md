@@ -1,6 +1,6 @@
 # Design note: the `gate` collection
 
-Status: proposed, not built. `gate.run` runs a project's own checks on a device and returns one typed
+Status: built (gate.run and gate.list, 2026-10-15). `gate.run` runs a project's own checks on a device and returns one typed
 result per check; `gate.list` shows how the checks are classified without running anything.
 
 ## Methods
@@ -81,8 +81,14 @@ anything a terminal would act on escaped and the run's secrets masked, as every 
 | `dir` checks | `CommandExecCapable` | ssh |
 | `image` checks | `ContainerEngineCapable` | the engine port (socket, stdio or TLS, as onboarding found) |
 
+Both methods require `CommandExecCapable`, since the manifest is read over SSH, so the device is one that runs
+commands: a `linux_server` (onboarding records its container engine, when it runs one) or a generic SSH device. A
+`container_host` is an engine reached over SSH, not a host that runs a project's commands, and cannot run either.
 A manifest is validated against the device before anything runs, so a manifest with an `image` check on a device
-with no engine is refused whole rather than failing that one check.
+with no engine is refused whole rather than failing that one check. The device's `timeout` command must take `-k`
+and a duration (coreutils, or BusyBox 1.30 or later); `gate.run` tries it in that form before running anything.
+An image check may require only what is tested from the device (`tcp`, `engine`); its commands, environment,
+files and operating system are the image's.
 
 ## Check and Reversibility
 
@@ -137,4 +143,5 @@ added to `pkg/containerengine`, the one place a container is reached.
 | The SSH session drops mid-check | That check FAILs naming the transport; the rest still run on a fresh session if the device answers. |
 | The engine refuses or the image is absent and not pullable | That check FAILs naming the engine's answer. |
 | The task is canceled | Running checks are stopped; FAIL for those, SKIP ("canceled") for the rest. |
+| The run fails | The engine keeps a task's returns only when it succeeds, so the task's error carries each failing check's reason and its last 15 lines, then the skips, bounded at 16 KiB. |
 | Output past the tail | Earlier lines dropped, counted in the result ("… 1,204 earlier lines left out"). |

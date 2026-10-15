@@ -1,0 +1,35 @@
+# A gate manifest: copy it into your project on build-box as /srv/app/gates.yaml
+# and change the commands to your project's own.
+version: 1
+kinds:
+  - name: browser
+    description: needs a headless browser
+defaults:
+  timeout: 20m        # every check has a timeout; this is the default one
+  parallelism: 2      # checks run one at a time unless raised
+checks:
+  - name: unit
+    kind: pure
+    command: [make, test]
+    requires:
+      commands: [make]
+  - name: lint
+    kind: pure
+    shell: make lint
+    timeout: 5m
+  - name: migrations
+    kind: db
+    heavy: true       # at most one heavy check runs at a time
+    serial: true      # and this one runs with nothing else
+    image: docker.io/library/postgres:16@sha256:REPLACE_WITH_THE_DIGEST_YOU_REVIEWED
+    shell: ./scripts/check-migrations.sh
+    requires:
+      engine: true
+  - name: integration
+    kind: network
+    shell: make integration
+    requires:
+      tcp: ["db.internal:5432"]   # skipped, saying why, when the device cannot reach it
+  - name: ui
+    kind: browser
+    shell: npm test

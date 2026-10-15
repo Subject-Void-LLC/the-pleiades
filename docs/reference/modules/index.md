@@ -16,6 +16,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `file` | 11 | 10 |
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
+| `gate` | 2 | 2 |
 | `http` | 1 | 1 |
 | `identity` | 6 | 6 |
 | `net` | 14 | 12 |
@@ -25,7 +26,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **104** | **101** |
+| **total** | **106** | **103** |
 
 ## All methods
 
@@ -61,6 +62,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [fw.firewalld.allow](fw/firewalld/allow.md) | implemented | Opens a port or service in firewalld. |
 | [fw.firewalld.deny](fw/firewalld/deny.md) | implemented | Closes a port or service in firewalld. |
 | [fw.firewalld.reload](fw/firewalld/reload.md) | implemented | Reloads firewalld to apply pending rule changes. |
+| [gate.list](gate/list.md) | implemented | Validates a project's gate manifest on the device and lists how each check is classified, running nothing. |
+| [gate.run](gate/run.md) | implemented | Runs a project's gate manifest of named checks on the device and reports PASS, FAIL or SKIP for each. |
 | [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
 | [identity.group.create](identity/group/create.md) | implemented | Makes sure a POSIX group exists on the target. |
 | [identity.group.modify](identity/group/modify.md) | implemented | Changes the gid of an existing POSIX group on the target. |

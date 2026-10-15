@@ -20,6 +20,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file/line"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fs"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fw/firewalld"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/gate"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/group"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/user"
