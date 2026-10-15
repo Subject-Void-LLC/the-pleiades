@@ -90,6 +90,10 @@ type containerState struct {
 	// Map (and so of a diff): it names which container this is, which is
 	// what container.docker.remove's id guard compares, not a state.
 	id string
+	// image is the image the container was created from, as its
+	// configuration names it (an image ID, for one this catalog ran). Not
+	// part of Map either; container.docker.stop's undo names it.
+	image string
 }
 
 func (s containerState) Map() map[string]any {
@@ -113,7 +117,7 @@ func (s containerState) Map() map[string]any {
 // The name follows "--", so a value that begins with "-" can never be read
 // as an option; checkName refuses one before this runs anyway.
 func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (containerState, error) {
-	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}}", "--", name}), nil, dockerOutputLimit)
+	result, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"docker", "inspect", "--type=container", "--format={{.Id}} {{.State.Status}} {{.Config.Image}}", "--", name}), nil, dockerOutputLimit)
 	if err != nil {
 		return containerState{}, err
 	}
@@ -123,8 +127,14 @@ func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (co
 		}
 		return containerState{}, fmt.Errorf("docker inspect could not read container %s (exit %d): %s", name, result.ExitCode, failureDetail(result))
 	}
-	id, status, _ := strings.Cut(strings.TrimSpace(result.Stdout), " ")
-	return containerState{exists: true, status: status, id: id}, nil
+	fields := strings.Fields(result.Stdout)
+	state := containerState{exists: true}
+	for i, f := range []*string{&state.id, &state.status, &state.image} {
+		if i < len(fields) {
+			*f = fields[i]
+		}
+	}
+	return state, nil
 }
 
 // noSuchContainer reports whether a failed docker inspect said the container

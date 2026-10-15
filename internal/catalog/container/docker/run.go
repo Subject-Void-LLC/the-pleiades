@@ -26,11 +26,13 @@ func init() {
 				Reversible: true,
 				Notes: "A run that created an absent container emits a container.docker.remove naming it, with " +
 					"force: true since a freshly started container is very likely still running. A run that " +
-					"found a container already present under that name emits nothing, the same as every other " +
-					"converged run in this catalog, even though this method does not compare that existing " +
-					"container's configuration against what was requested.",
+					"started an existing stopped container emits a container.docker.stop naming it by id. A run " +
+					"that found the container already running emits nothing, the same as every other converged " +
+					"run in this catalog, even though this method does not compare that existing container's " +
+					"configuration against what was requested.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: "container.docker.remove", Record: []string{"name", "force", "id"}},
+					{FQCN: "container.docker.stop", Record: []string{"name", "id"}},
 				},
 			},
 			Doc: runDoc(),
@@ -46,9 +48,8 @@ func runDoc() collection.Doc {
 		Description: "Makes sure a container named name exists, creating and starting one from image if no container " +
 			"by that name exists. This is a narrow slice of community.docker.docker_container: idempotency " +
 			"here is existence of the NAME only, not a comparison of the running container's configuration " +
-			"against what this task asked for. A container already present under name is left exactly as it " +
-			"is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method " +
-			"never recreates. Always runs detached (-d), since this platform has no interactive session to " +
+			"against what this task asked for. " + "A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead." +
+			" Always runs detached (-d), since this platform has no interactive session to " +
 			"attach one to." +
 			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
 			" Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
@@ -58,6 +59,7 @@ func runDoc() collection.Doc {
 			{Name: paramCommand, Type: "list", Description: "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."},
 			{Name: paramPorts, Type: "list", Description: "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."},
 			{Name: paramVolumes, Type: "list", Description: "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."},
+			{Name: paramStart, Type: "bool", Default: "true", Description: "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."},
 			{Name: paramNetwork, Type: "string", Default: networkDefault, Description: "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."},
 			{Name: paramEnv, Type: "dict", Description: "Environment variables to set in the container, as a map of name to value."},
 			{Name: paramRestartPolicy, Type: "string", Description: "The restart policy (docker run's own --restart value, e.g. unless-stopped)."},
@@ -122,6 +124,10 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if network == "" {
 		network = networkDefault
 	}
+	start, err := sdk.BoolParamOr(params, paramStart, true)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramStart, err)
+	}
 	if err := checkName(name); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -153,8 +159,15 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	startIt, err := startNeeded(name, before, start)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	if mode == collection.ModeCheck {
+		if startIt {
+			return predictState(rc, fqcn, name, before, true, containerState{exists: true, status: "running"}.Map())
+		}
 		// A new container's status is left out: one whose command exits at
 		// once is exited by the time a real run reads it back.
 		return predictState(rc, fqcn, name, before, !before.exists, map[string]any{"exists": true})
@@ -162,8 +175,27 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 
 	changed := false
 	after := before
-	var createdID string
+	var undo *sdk.Inverse
+	if startIt {
+		if err := startContainer(ctx, conn, before); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		changed = true
+		undo = &sdk.Inverse{
+			FQCN: "container.docker.stop",
+			// The id pins the undo to the container this task started.
+			Params:      map[string]any{paramName: name, paramID: before.id},
+			Description: fmt.Sprintf("Stop %s again, which this task found stopped and started.", name),
+		}
+		if after, err = queryContainer(ctx, conn, name); err != nil {
+			after = containerState{exists: true, id: before.id, image: before.image}
+			if err := sdk.RecordWarnings(rc, []string{fmt.Sprintf("started container %s but could not read it back, so its status is not reported: %v", name, err)}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+	}
 	if !before.exists {
+		var createdID string
 		imageID, _, err := resolveImage(ctx, conn, image)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -185,6 +217,14 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		if createdID, err = createdContainerID(out); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+		undo = &sdk.Inverse{
+			FQCN: "container.docker.remove",
+			// The id pins the undo to the container this task created: one
+			// run later under the same name is refused rather than removed.
+			Params: map[string]any{paramName: name, paramForce: true, paramID: createdID},
+			Description: fmt.Sprintf("Remove %s, which this task created. Its volumes' contents on the host "+
+				"are not touched by that removal, and are not restorable by this inverse either.", name),
+		}
 		if after, err = queryContainer(ctx, conn, name); err != nil {
 			after = containerState{exists: true, id: createdID}
 			if err := sdk.RecordWarnings(rc, []string{fmt.Sprintf("created container %s (%s) but could not read it back, so its status is not reported: %v", name, createdID, err)}); err != nil {
@@ -197,15 +237,8 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	if changed {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN: "container.docker.remove",
-			// The id pins the undo to the container this task created: one
-			// run later under the same name is refused rather than removed.
-			Params: map[string]any{paramName: name, paramForce: true, paramID: createdID},
-			Description: fmt.Sprintf("Remove %s, which this task created. Its volumes' contents on the host "+
-				"are not touched by that removal, and are not restorable by this inverse either.", name),
-		}); err != nil {
+	if undo != nil {
+		if err := sdk.RecordInverse(rc, *undo); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}

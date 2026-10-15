@@ -6,7 +6,7 @@ status: beta
 
 Runs a Docker container on the target.
 
-Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.
+Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.
 
 ## Attributes
 
@@ -28,6 +28,7 @@ Makes sure a container named name exists, creating and starting one from image i
 | `command` | `list` | no | - | The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command. |
 | `ports` | `list` | no | - | Port mappings, each "host:container" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one. |
 | `volumes` | `list` | no | - | Volume mappings, each "host:container" or "host:container:options" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in "/srv/data:/data:rw". |
+| `start` | `bool` | no | `true` | Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again. |
 | `network` | `string` | no | `none` | The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports. |
 | `env` | `dict` | no | - | Environment variables to set in the container, as a map of name to value. |
 | `restart_policy` | `string` | no | - | The restart policy (docker run's own --restart value, e.g. unless-stopped). |
@@ -45,7 +46,7 @@ Makes sure a container named name exists, creating and starting one from image i
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.
+A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that started an existing stopped container emits a container.docker.stop naming it by id. A run that found the container already running emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

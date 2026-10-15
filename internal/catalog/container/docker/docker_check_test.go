@@ -185,6 +185,10 @@ func TestChecks_AgainstRealDocker(t *testing.T) {
 		t.Errorf("the container's environment is %s, want it to hold PLEIADES_CHECK as written", out)
 	}
 	step("container.docker.run", false)
+	// A stopped container: run starts it again, by its id, and the check
+	// predicted exactly that.
+	step("container.docker.stop", true)
+	step("container.docker.run", true)
 
 	// A running container without force: the check declines, and the real
 	// run fails, which is the answer the check could not give without

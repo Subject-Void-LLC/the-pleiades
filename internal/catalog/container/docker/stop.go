@@ -23,13 +23,13 @@ func init() {
 			// A check reads the container with docker inspect and changes nothing.
 			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
-				Reversible: false,
-				Notes: "This catalog declares no container.docker.start, and recording container.docker.run " +
-					"as this method's inverse would be dishonest: run's own idempotency means it would just " +
-					"no-op against the existing name rather than actually restart the container this stopped. " +
-					"The container's own state is still recorded under diff, so a rollback reaching this task " +
-					"can see it was running before and decide for itself, but this method emits no instruction " +
-					"because none would be true.",
+				Reversible: true,
+				Notes: "A stop that stopped a running container emits a container.docker.run naming it, from the " +
+					"image the container was created from, with start: true, since run starts an existing " +
+					"stopped container. A stop that found nothing running emits nothing.",
+				Inverses: []sdk.InverseSpec{
+					{FQCN: "container.docker.run", Record: []string{"name", "image", "start"}},
+				},
 			},
 			Doc: stopDoc(),
 		},
@@ -44,9 +44,11 @@ func stopDoc() collection.Doc {
 		Description: "Makes sure a container named name is not running, stopping it if it is. Container " +
 			"state is read from docker inspect before anything is sent, so a container already stopped, or " +
 			"absent entirely, reports no change and no command reaches the device." +
-			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches." +
+			" It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to stop."},
+			{Name: paramID, Type: "string", Description: "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -99,6 +101,11 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// The identity guard, as container.docker.remove's: a name can be
+	// reused, an id cannot. run's undo of a start sets it.
+	if want := sdk.StringParam(params, paramID); want != "" && before.exists && want != before.id {
+		return collection.Result{}, fmt.Errorf("%s: container %s is %s, not %s; nothing was stopped", fqcn, name, before.id, want)
+	}
 
 	changed := before.exists && before.status == "running"
 	if mode == collection.ModeCheck {
@@ -106,16 +113,38 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	after := before
 	if changed {
-		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", "--", name}); err != nil {
+		// Stopped by the id just inspected, so the container the guard and
+		// the undo name is the one stopped.
+		if !containerIDPattern.MatchString(before.id) {
+			return collection.Result{}, fmt.Errorf("%s: docker inspect gave no usable id to stop container %s by", fqcn, name)
+		}
+		if err := runDockerCmd(ctx, conn, []string{"docker", "stop", "--", before.id}); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+		// The engine drops a failed task's undo, so once the container is
+		// stopped, a failed read back is a warning and never a failure
+		// (FAILURE_PATTERNS 452).
 		if after, err = queryContainer(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			after = containerState{exists: true, id: before.id, image: before.image}
+			if err := sdk.RecordWarnings(rc, []string{fmt.Sprintf("stopped container %s but could not read it back, so its status is not reported: %v", name, err)}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 		}
 	}
 
 	if err := recordState(rc, name, before, after); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if changed {
+		// run starts a stopped container, so it is this stop's undo: the same
+		// name, from the image the container was created from, started.
+		if err := sdk.RecordInverse(rc, sdk.Inverse{
+			FQCN:        "container.docker.run",
+			Params:      map[string]any{paramName: name, paramImage: before.image, paramStart: true},
+			Description: fmt.Sprintf("Start %s again, which this task stopped.", name),
+		}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	return collection.Result{Changed: changed}, nil

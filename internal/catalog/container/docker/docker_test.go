@@ -121,6 +121,8 @@ type containerFixture struct {
 	imageID string
 	// pullNoop makes a docker pull succeed without the image arriving.
 	pullNoop bool
+	// startExit is the exit status a docker start ends with.
+	startExit int
 	// containerID, when set, replaces the id docker inspect reports.
 	containerID string
 }
@@ -215,7 +217,7 @@ case "$1" in
     done
     if [ "$FAKE_EXISTS" = "1" ]; then
       # Render --format as the real CLI does.
-      printf '%s\n' "$template" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/"
+      printf '%s\n' "$template" | sed -e "s/{{.Id}}/$FAKE_ID/" -e "s/{{.State.Status}}/$status/" -e "s/{{.Config.Image}}/${FAKE_CONTAINER_IMAGE:-nginx:1.27}/"
       exit 0
     fi
     printf 'Error response from daemon: No such container: %s\n' "$last" >&2
@@ -253,6 +255,18 @@ case "$1" in
       esac
     fi
     exit "$exit_code"
+    ;;
+  start)
+    printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
+    for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_RECORD"; done
+    printf -- '---\n' >> "$FAKE_RECORD"
+    if [ "$FAKE_START_EXIT" != "" ] && [ "$FAKE_START_EXIT" != "0" ]; then
+      printf 'Error response from daemon: driver failed programming external connectivity\n' >&2
+      exit "$FAKE_START_EXIT"
+    fi
+    # A started container reads back as running, as a created one does.
+    : > "$FAKE_RECORD.created"
+    exit 0
     ;;
   stop)
     printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
@@ -306,6 +320,7 @@ esac
 	}
 	t.Setenv("FAKE_IMAGE_FAILS", boolEnv(fixture.imageFails))
 	t.Setenv("FAKE_PULL_NOOP", boolEnv(fixture.pullNoop))
+	t.Setenv("FAKE_START_EXIT", strconv.Itoa(fixture.startExit))
 	t.Setenv("FAKE_PULL_EXIT", strconv.Itoa(fixture.pullExit))
 	if fixture.containerID != "" {
 		t.Setenv("FAKE_ID", fixture.containerID)
@@ -431,8 +446,8 @@ func TestRegistration(t *testing.T) {
 	if !lookup(t, "container.docker.run").Manifest.Reversibility.Reversible {
 		t.Error("container.docker.run: expected Reversible: true")
 	}
-	if lookup(t, "container.docker.stop").Manifest.Reversibility.Reversible {
-		t.Error("container.docker.stop: expected Reversible: false")
+	if !lookup(t, "container.docker.stop").Manifest.Reversibility.Reversible {
+		t.Error("container.docker.stop: expected Reversible: true, since run starts a stopped container")
 	}
 	if lookup(t, "container.docker.remove").Manifest.Reversibility.Reversible {
 		t.Error("container.docker.remove: expected Reversible: false")
@@ -762,8 +777,12 @@ func TestStop_RunningStops(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "docker stop -- web" {
-		t.Fatalf("invocations = %v", calls)
+	if len(calls) != 1 || calls[0] != "docker stop -- "+fakeContainerID {
+		t.Fatalf("invocations = %v, want the stop by the inspected id", calls)
+	}
+	fqcn, params, ok := inverseOf(h.rc)
+	if !ok || fqcn != "container.docker.run" || params["name"] != "web" || params["image"] != "nginx:1.27" || params["start"] != true {
+		t.Fatalf("inverse = %q, %v, ok=%v; want run starting it again from its image", fqcn, params, ok)
 	}
 }
 
@@ -815,10 +834,20 @@ func TestStop_ConnectionDiesStopping(t *testing.T) {
 	}
 }
 
+// TestStop_ConnectionDiesQueryingAfter: once the container is stopped, a
+// lost read back is a warning and never a failure, since the engine would
+// drop the undo of a stop that happened (FAILURE_PATTERNS 452).
 func TestStop_ConnectionDiesQueryingAfter(t *testing.T) {
 	h := newHarnessBudgeted(t, running, 3)
-	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
-		t.Fatal("expected a connection failure re-querying the container after stopping")
+	result, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"}))
+	if err != nil || !result.Changed {
+		t.Fatalf("Stop = %+v, %v; want the stop reported", result, err)
+	}
+	if warnings, _ := h.rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "could not read it back") {
+		t.Errorf("warnings = %v, want the failed read named", h.rc.stats[sdk.StatWarnings])
+	}
+	if fqcn, _, ok := inverseOf(h.rc); !ok || fqcn != "container.docker.run" {
+		t.Errorf("inverse = %q, ok=%v; want the undo kept", fqcn, ok)
 	}
 }
 

@@ -599,7 +599,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that found a container already present under that name emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
+      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that started an existing stopped container emits a container.docker.stop naming it by id. A run that found the container already running emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
       "inverses": [
         {
           "fqcn": "container.docker.remove",
@@ -608,13 +608,20 @@
             "force",
             "id"
           ]
+        },
+        {
+          "fqcn": "container.docker.stop",
+          "record": [
+            "name",
+            "id"
+          ]
         }
       ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Runs a Docker container on the target.",
-      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is left exactly as it is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
+      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs.",
       "params": [
         {
           "name": "name",
@@ -642,6 +649,12 @@
           "name": "volumes",
           "type": "list",
           "description": "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."
+        },
+        {
+          "name": "start",
+          "type": "bool",
+          "default": "true",
+          "description": "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."
         },
         {
           "name": "network",
@@ -713,19 +726,34 @@
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
-      "reversible": false,
-      "notes": "This catalog declares no container.docker.start, and recording container.docker.run as this method's inverse would be dishonest: run's own idempotency means it would just no-op against the existing name rather than actually restart the container this stopped. The container's own state is still recorded under diff, so a rollback reaching this task can see it was running before and decide for itself, but this method emits no instruction because none would be true."
+      "reversible": true,
+      "notes": "A stop that stopped a running container emits a container.docker.run naming it, from the image the container was created from, with start: true, since run starts an existing stopped container. A stop that found nothing running emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.docker.run",
+          "record": [
+            "name",
+            "image",
+            "start"
+          ]
+        }
+      ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Stops a running Docker container on the target.",
-      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
+      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo.",
       "params": [
         {
           "name": "name",
           "type": "string",
           "required": true,
           "description": "The container to stop."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."
         },
         {
           "name": "insecure_skip_host_key_verify",
