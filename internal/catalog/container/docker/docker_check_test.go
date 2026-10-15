@@ -118,9 +118,13 @@ func TestChecks_AgainstRealDocker(t *testing.T) {
 		t.Fatalf("starting the SSH harness: %v", err)
 	}
 	t.Cleanup(srv.Close)
+	engineID, err := exec.Command("docker", "info", "--format={{.ID}}").Output() // #nosec G204 -- fixed arguments
+	if err != nil {
+		t.Fatalf("reading this daemon's engine identity: %v", err)
+	}
 	device := &target{
 		Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameDocker}},
-		host: srv.Host, port: srv.Port,
+		host: srv.Host, port: srv.Port, engineID: strings.TrimSpace(string(engineID)),
 	}
 	suffix := make([]byte, 6)
 	if _, err := rand.Read(suffix); err != nil {

@@ -48,10 +48,26 @@ type target struct {
 	*inventorytest.Stub
 	host string
 	port int
+	// engineID is the Docker engine identity onboarding pinned for the
+	// device (capability.EngineReach).
+	engineID string
 }
 
 func (d *target) SSHHost() string { return d.host }
 func (d *target) SSHPort() int    { return d.port }
+
+// EngineID, EngineSocket, EngineCarriers and EngineLoginUser make target a
+// capability.EngineReach: only the pinned identity matters to these methods.
+func (d *target) EngineID(capability.EngineKind) capability.EngineID {
+	return capability.EngineID(d.engineID)
+}
+func (d *target) EngineSocket(capability.EngineKind) capability.SocketAddress { return "" }
+func (d *target) EngineCarriers(capability.EngineKind) []capability.Carrier   { return nil }
+func (d *target) EngineLoginUser() string                                     { return "" }
+
+// fakeEngineID is the Docker engine identity the fake docker info reports
+// and the harness's device pins.
+const fakeEngineID = "e62e8e92-0000-4d53-bc4d-f629ea371cdb"
 
 func noSSHDevice() inventory.InventoryItem {
 	return &inventorytest.Stub{StubName: "no-ssh", Caps: []capability.Name{capability.NameDocker}}
@@ -86,6 +102,9 @@ type containerFixture struct {
 	// runFlood makes a failing docker run write more than the method's
 	// output bound to standard error.
 	runFlood bool
+	// otherEngine makes docker info report an engine other than the one
+	// the device pins.
+	otherEngine bool
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -117,6 +136,10 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 
 	script := `#!/bin/sh
 case "$1" in
+  info)
+    printf '%s\n' "$FAKE_ENGINE_ID"
+    exit 0
+    ;;
   inspect)
     # A daemon the CLI cannot reach, worded as Docker 29 words it.
     if [ "$FAKE_INSPECT_UNREACHABLE" = "1" ]; then
@@ -225,6 +248,10 @@ esac
 	t.Setenv("FAKE_EXISTS", boolEnv(fixture.exists))
 	t.Setenv("FAKE_STATUS", fixture.status)
 	t.Setenv("FAKE_ID", fakeContainerID)
+	t.Setenv("FAKE_ENGINE_ID", fakeEngineID)
+	if fixture.otherEngine {
+		t.Setenv("FAKE_ENGINE_ID", "another-engine")
+	}
 	t.Setenv("FAKE_RUN_EXIT", strconv.Itoa(fixture.runExit))
 	t.Setenv("FAKE_RUN_FAIL_STREAM", fixture.runFailStream)
 	t.Setenv("FAKE_STOP_EXIT", strconv.Itoa(fixture.stopExit))
@@ -253,7 +280,7 @@ esac
 		rc: &ctxStub{secrets: srv.Secrets(), stats: map[string]any{}},
 		device: &target{
 			Stub: &inventorytest.Stub{StubName: "web1", Caps: []capability.Name{capability.NameDocker}},
-			host: srv.Host, port: srv.Port,
+			host: srv.Host, port: srv.Port, engineID: fakeEngineID,
 		},
 		record: record,
 	}
@@ -565,7 +592,7 @@ func TestRun_RunFailsSilently(t *testing.T) {
 }
 
 func TestRun_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 0)
+	h := newHarnessBudgeted(t, absent, 1)
 	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	})); err == nil {
@@ -574,7 +601,7 @@ func TestRun_ConnectionDiesQuerying(t *testing.T) {
 }
 
 func TestRun_ConnectionDiesRunning(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1)
+	h := newHarnessBudgeted(t, absent, 2)
 	if _, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	})); err == nil {
@@ -588,7 +615,7 @@ func TestRun_ConnectionDiesRunning(t *testing.T) {
 // that exists. It succeeds, says what it could not read, and keeps the undo
 // pinned to the id docker printed.
 func TestRun_ConnectionDiesQueryingAfter(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2)
+	h := newHarnessBudgeted(t, absent, 3)
 	result, err := dockermod.Run(context.Background(), h.rc, h.device, h.params(map[string]any{
 		"name": "web", "image": "nginx",
 	}))
@@ -700,21 +727,21 @@ func TestStop_Failure(t *testing.T) {
 }
 
 func TestStop_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 0)
+	h := newHarnessBudgeted(t, running, 1)
 	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure querying the container")
 	}
 }
 
 func TestStop_ConnectionDiesStopping(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 1)
+	h := newHarnessBudgeted(t, running, 2)
 	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure stopping the container")
 	}
 }
 
 func TestStop_ConnectionDiesQueryingAfter(t *testing.T) {
-	h := newHarnessBudgeted(t, running, 2)
+	h := newHarnessBudgeted(t, running, 3)
 	if _, err := dockermod.Stop(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure re-querying the container after stopping")
 	}
@@ -832,14 +859,14 @@ func TestRemove_FailsSilently(t *testing.T) {
 }
 
 func TestRemove_ConnectionDiesQuerying(t *testing.T) {
-	h := newHarnessBudgeted(t, stopped, 0)
+	h := newHarnessBudgeted(t, stopped, 1)
 	if _, err := dockermod.Remove(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure querying the container")
 	}
 }
 
 func TestRemove_ConnectionDiesRemoving(t *testing.T) {
-	h := newHarnessBudgeted(t, stopped, 1)
+	h := newHarnessBudgeted(t, stopped, 2)
 	if _, err := dockermod.Remove(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web"})); err == nil {
 		t.Fatal("expected a connection failure removing the container")
 	}

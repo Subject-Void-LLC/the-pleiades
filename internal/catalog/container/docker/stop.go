@@ -43,7 +43,8 @@ func stopDoc() collection.Doc {
 		Summary: "Stops a running Docker container on the target.",
 		Description: "Makes sure a container named name is not running, stopping it if it is. Container " +
 			"state is read from docker inspect before anything is sent, so a container already stopped, or " +
-			"absent entirely, reports no change and no command reaches the device.",
+			"absent entirely, reports no change and no command reaches the device." +
+			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container to stop."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -91,6 +92,9 @@ func stop(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	defer func() { _ = conn.Close() }()
 
+	if err := checkEngine(ctx, conn, device); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	before, err := queryContainer(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

@@ -43,13 +43,14 @@ func init() {
 func runDoc() collection.Doc {
 	return collection.Doc{
 		Summary: "Runs a Docker container on the target.",
-		Description: "Makes sure a container named name is running, starting one from image if no container " +
+		Description: "Makes sure a container named name exists, creating and starting one from image if no container " +
 			"by that name exists. This is a narrow slice of community.docker.docker_container: idempotency " +
 			"here is existence of the NAME only, not a comparison of the running container's configuration " +
 			"against what this task asked for. A container already present under name is left exactly as it " +
-			"is, regardless of whether its image, ports, volumes, env or restart policy match; this method " +
+			"is, stopped or running, regardless of whether its image, ports, volumes, env or restart policy match; this method " +
 			"never recreates. Always runs detached (-d), since this platform has no interactive session to " +
-			"attach one to.",
+			"attach one to." +
+			" It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The container name to create or leave alone."},
 			{Name: paramImage, Type: "string", Required: true, Description: "The image to run. Ignored when a container already exists under name."},
@@ -127,6 +128,9 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	}
 	defer func() { _ = conn.Close() }()
 
+	if err := checkEngine(ctx, conn, device); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	before, err := queryContainer(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
