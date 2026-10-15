@@ -12136,3 +12136,21 @@ test fails with "mkdir internal/catalog/test: permission denied". Given up: `go 
 which runs in a directory that exists only in the overlay.
 
 **Lesson.** See LESSONS 278.
+
+## 464. A second switch for one fact let onboarding grant a reach the engine port then refused (the sibling-guard class, LESSONS 244)
+
+**Symptom.** `make pr-check` failed `TestKubernetesOnboard_NodesAndRoutes` after `0e1d51db`: "the node engine host
+"engine": onboard.nodes: device engine is reached through this machine's own engine socket (engine_local), which
+only the pleiades command line may use". Onboarding's coverage fell from its 91.9% floor to 85.5% with it.
+
+**Root cause.** `0e1d51db` gave `pkg/containerengine` a process-wide switch for "this process is the command line"
+(`AllowLocalCarrier`) beside the one onboarding already had for the same fact (`onboard.AllowLocalEngine`). The CLI
+set both; the test, standing in for the CLI, set only onboarding's, so it onboarded an engine and then could not
+search it. Two switches for one fact is LESSONS 244's sibling guard in another shape, and nothing held them
+together. It got past the commit because only the edited packages were run, not the packages of every caller of
+the seam the refusal sits in.
+
+**Fix.** `882a637c`: one switch. Onboarding reads `containerengine.LocalCarrierAllowed`, and
+`onboard.AllowLocalEngine` is gone; `TestLocalEngine_IsTheEnginePortsOneSwitch` fails when onboarding keeps its own.
+
+**Lesson.** See LESSONS 281.

@@ -5624,3 +5624,13 @@ reference-counted, so forgetting it for one unmasks it for the other.
 **Why.** Decision 7 (2026-10-15, `be8a50f5`): cluster tokens were masked in client-go's log by shape only. A
 bare token passed; registering each minted EKS token without forgetting its predecessor would have grown the
 10,000-value set by one per refresh for a long session.
+
+## 281. A refusal added at a shared seam changes every caller: run each caller's package before committing it
+
+**Rule.** When a change makes a widely called function refuse something it used to allow, list its callers by
+reference (gopls `go_symbol_references`, or the seam's exported entry points) and run each caller's package,
+live tests included, before the commit; and before adding a process-wide switch, look for one that already
+records the same fact, and read that one instead.
+
+**Why.** FAILURE_PATTERNS 464: the engine port's new local-carrier refusal broke onboarding's live test, which
+only `make pr-check` ran; onboarding already had a switch for the same fact.

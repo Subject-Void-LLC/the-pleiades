@@ -313,6 +313,7 @@ story, per `.AGENTS/AGENTS.md`.
 278. **Before ruling a shared resource irremovable, ask the tool for a way to present what is not on disk (go's `-overlay`), and prove a test no longer writes somewhere by making it read-only (2026-10-15).**
 279. **Bound a long-lived client per answer, not with one total, and leave streams to the code that opens them (2026-10-15).**
 280. **A by-value mask may forget only a value one holder had alone; a static credential two sessions may share is never forgotten (2026-10-15).**
+281. **A refusal added at a shared seam changes every caller: run each caller's package before committing, and read an existing switch for the same fact rather than adding a second (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

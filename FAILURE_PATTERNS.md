@@ -466,6 +466,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 461. The local engine probe's unit tests read the developer's real Docker socket first
 462. A failed Podman start's cleanup ran on an unbounded context while close() bounded the same script
 463. Generated packages written into the module tree failed a new reader of it (a repeat of 53 and 55)
+464. A second switch for one fact let onboarding grant a reach the engine port then refused (the sibling-guard class, LESSONS 244)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

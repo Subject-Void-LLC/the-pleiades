@@ -20,7 +20,8 @@ test watched failing on the old code:
 
 1. `0e1d51db` `engine_local` is refused unless the process is the CLI (`containerengine.AllowLocalCarrier`, called
    only by `cmd/pleiades`): a Runner reaching its own host's socket would act on whatever engine the Runner's
-   machine runs.
+   machine runs. `882a637c` made it the one switch for that fact (onboarding had its own, and `make pr-check`
+   caught the two disagreeing in a live onboarding test; FAILURE_PATTERNS 464).
 2. `16c6a6f5` every docker CLI call has a deadline (30 s queries, 2 min start, 90 s stop, 60 s remove), and a pull
    its own (`pull_timeout`, default 900 s); a deadline's error says the call may or may not have happened.
 3. `f6a29649` (breaking) every SSH command's output is bounded by default (`remoteexec.DefaultOutputLimit`,
@@ -44,8 +45,9 @@ running them with the tree read-only.
 
 - Phase 0 (`a710f808`): `make ci-remote` and `make pr-check` passed; pushed.
 - This round: `make ci-remote` passed at `0bef18a4` (129 s; its first run failed gosec on the new helper's two
-  G204s, fixed in that commit as described there). `make pr-check` runs on the commit carrying this handoff; its
-  result is in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
+  G204s, fixed in that commit as described there). `make pr-check`'s first run (at `f47b2b22`, 1707 s) failed
+  `TestKubernetesOnboard_NodesAndRoutes` in isolation, fixed by `882a637c`; its rerun is on the commit carrying
+  this handoff, with the result in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
   `-race` on its own, the live k3s session tests and the real-Docker check test included.
 
 ### Still listed, not built
