@@ -12261,3 +12261,81 @@ be told apart, because the wait reported only its last dial.
 
 **Fix.** Diagnosis first: `8fb70883` makes a timed-out greeting wait report Docker's bindings for the port, the port
 it was dialing, and whether a socket inside listens on it (from `/proc/net/tcp`). The next occurrence names its cause.
+
+## 471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
+
+**Symptom.** 2026-10-15, on the db branch, in a loop of five `internal/catalog/db/pg` runs (and once earlier the same
+day): the throwaway Postgres container logged "database system is ready to accept connections" twice, and
+testcontainers' `ForListingPort` check then dialed `localhost:<mapped>` 1,098 times over 120 s without one
+connection ("get state: context deadline exceeded"). The other six runs passed in about 18 s.
+
+**Root cause.** Not yet known, and the same shape as 470 on another image. Postgres logs that line only once it is
+listening, so "no server inside" is ruled out for this occurrence; host forwarding and a wrong host port remain.
+470's fix was diagnosis rather than a cure, and it covers the openssh fixture's wait alone: the Postgres fixture
+waits through testcontainers' own port check, which reports only that its deadline passed, so this occurrence could
+not say which of the two it was.
+
+**Fix.** None yet. What 470's diagnosis does for the openssh wait (Docker's bindings for the port, the port dialed,
+whether a socket inside listens) belongs in the Postgres fixture's wait too, so the next occurrence names its cause.
+
+**Lesson.** A diagnosis added to one fixture's wait does not cover a fixture that waits another way: when a class
+recurs, find every wait that can fail the same way, not only the one that failed first.
+
+## 472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
+
+**Symptom.** The config release gate's second run of an unchanged runbook reported `file.yaml` changed and rewrote
+the file each time. The key held the value asked for, `size: 4  # raised for the sale`.
+
+**Root cause.** The method compared the key's value before and after as text, and `docedit.YAMLText` encoded the
+node with its comments, so `4 # raised for the sale` never equalled `4`. Every unit test set a key with no comment.
+
+**Fix.** `fix(docedit): a YAML value compares without its comments`: `YAMLText` writes a deep copy with every
+comment removed; the document itself keeps them. `TestYAMLText_IgnoresComments` holds it.
+
+**Lesson.** An idempotence check is only proved by running the same thing twice against the shape real files have.
+A comment is the commonest thing a hand-edited YAML file holds, and it was the one shape the tests left out.
+
+## 473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
+
+**Symptom.** `TestYAML_Refuses` expected `ParseYAML("a: 1\na: 2\n")` to fail, and it succeeded.
+
+**Root cause.** `go.yaml.in/yaml/v3` refuses a duplicate mapping key when decoding into a map or a struct, and
+does not when decoding into `yaml.Node`, which is what an edit that keeps comments has to use. A file holding a key
+twice reads as one value to one program and another value to the next, so an edit could set the copy nobody reads.
+
+**Fix.** `pkg/docedit`'s `depth` walk refuses a mapping holding a scalar key twice, naming its line, before any
+edit. The JSON half refuses the same in its own parser.
+
+**Lesson.** A library's refusal is a property of one decoding path, not of the library: when switching to the
+node or token API for fidelity, re-check every refusal the value API gave for free.
+
+## 474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
+
+**Symptom.** `FuzzAnthropicStream` failed with a bind error after a few seconds of fuzzing; `ss -s` then showed
+31,734 sockets in TIME_WAIT against a 28,000-port ephemeral range.
+
+**Root cause.** The fuzz body started an `httptest` server for each input. Every input cost a listening port and a
+closed connection in TIME_WAIT, so the machine ran out of ports long before the code under test did anything
+wrong.
+
+**Fix.** One server per fuzz process, answering with the current input over a reused connection; TIME_WAIT then
+held 4. Waited for the old TIME_WAIT sockets to drain before measuring again.
+
+**Lesson.** See LESSONS 285.
+
+## 475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
+
+**Symptom.** `make ci-remote` failed gosec on the ai branch: G703 at `ai_prompt.go`'s write of `<bundle>.sig`,
+and at the shared `readBounded` in `databaseconnection.go`, which had passed every earlier run.
+
+**Root cause.** `pleiades ai prompt sign <bundle>` read the path its argument named and wrote a signature beside it.
+The path was the operator's own, but nothing held it to the project, so a signature could be written beside any
+file the operator could name. The finding on `readBounded` was the same flow reaching an existing helper, which
+is why a file nobody had touched failed.
+
+**Fix.** `fix(cli): ai prompt sign signs only the project's own documents`: `sign` takes only a `.json` document
+inside the project (`--dir`), opened through an `os.Root`, and writes its signature through the same root. No
+waiver.
+
+**Lesson.** A new taint finding on an old helper points at its new caller: fix the flow at the caller, where the
+argument enters, rather than at the helper the analysis happened to report.

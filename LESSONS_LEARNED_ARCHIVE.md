@@ -5656,3 +5656,52 @@ missing, a result never recorded) is a real race that load only exposes, in CI o
 whose result had been acknowledged as meaningless because it arrived before its own dispatch's row. The owner's
 correction the same day: CI contends for resources too, so contention is never ruled in or out by which machine
 ran the test.
+
+## 284. Check a gate's result before committing: never chain a commit after a test with `;`
+
+**Rule.** Run a test or a fuzz on its own, read its exit status, and only then commit. A commit chained with `;`
+after a command runs whether that command passed or not.
+
+**Why.** 2026-10-15: `go test -fuzz ...; git add ... && git commit` ran the commit after the fuzz had failed with
+exit 1, and the commit carried the fuzzer's crash file. It was amended before any push. `&&` would have stopped it,
+but a separate step is better still, because it makes the result something read rather than something a shell
+operator decides.
+
+## 285. A fuzz harness allocates nothing per input that outlives the input: one server per fuzz process, not one per call
+
+**Rule.** Start any server, socket or file a fuzz target needs once per fuzz process, and feed each input through
+it. Before believing a bind or "too many open files" failure is the code's, look at `ss -s` and the open file count.
+
+**Why.** FAILURE_PATTERNS 474: a server per input left 31,734 sockets in TIME_WAIT and exhausted the ephemeral
+range, so the fuzz "crash" was the harness. Fuzzing runs millions of inputs, and anything per input that the OS
+reclaims slowly runs out long before the code under test is exercised.
+
+## 286. A human-in-the-loop gate is as strong as where its decision lives: tasks cannot write it, agents cannot make it, and it binds to what was shown
+
+**Rule.** When a run holds a result for a person, three things have to hold:
+- Keep the decision where no task can write: `sdk.AIProject` writes only `ai/usage` and `ai/bench`, and reviews
+  live in `ai/review`.
+- Refuse the decision without a terminal and under an agent (`internal/prompt.OpenPerson`).
+- Bind an approval to the digest of the bytes the person saw, so a changed answer is not approved by an old
+  decision.
+
+Where none of this is possible (a Runner with no reviewer), fail closed. Asking again must reuse the decision
+rather than ask, or bill, twice.
+
+**Why.** The ai collection's review thresholds (2026-10-15). The owner asked for human review on output
+criteria. The engine cannot yet pause a run, so a held answer fails the task, and the decision is applied by running
+again. The design is safe only because each of the three properties holds: without any one of them, an
+unattended run, an agent, or a later edit could release what a person never saw. On the Crawl tier the decision is
+a file in the project. This is a gate against unattended runs and agents, not against a process with the
+operator's own file access, and the docs say so.
+
+## 287. An example whose devices must be onboarded is proved by a gate that onboards them, never by a shipped discovery
+
+**Rule.** Do not ship a fabricated discovery to make an example validate. Prove the example with a release gate
+that onboards its devices against real servers, then validates it and runs it in check mode. Name that gate in
+the examples test's exemption, which must fail if the named test stops existing.
+
+**Why.** `ai_lab` and `edge_lab` (2026-10-15) target `ai_provider` and `cloudflare_account` devices, which start
+`discovered` and run nothing until onboarding proves them. A shipped discovery would claim a proof nobody made.
+The generic examples test could not satisfy the precondition, and the per-example gates can, which makes them the
+stronger check.

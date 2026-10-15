@@ -316,6 +316,10 @@ story, per `.AGENTS/AGENTS.md`.
 281. **A refusal added at a shared seam changes every caller: run each caller's package before committing, and read an existing switch for the same fact rather than adding a second (2026-10-15).**
 282. **When a guard guesses from a name, refuse by what the value is, and run the step that would catch a wrong guess (here, does a registry serve it) in the local pre-push gate (2026-10-15).**
 283. **"Passed alone" says a failure needed load, not that load is the defect: read a tolerated failure's own output before accepting contention (2026-10-15).**
+284. **Check a gate's result before committing: never chain a commit after a test with `;` (2026-10-15).**
+285. **A fuzz harness allocates nothing per input that outlives the input: one server per fuzz process, not one per call (2026-10-15).**
+286. **A human-in-the-loop gate is as strong as where its decision lives: tasks cannot write it, agents cannot make it, and it binds to what was shown (2026-10-15).**
+287. **An example whose devices must be onboarded is proved by a gate that onboards them, never by a shipped discovery (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

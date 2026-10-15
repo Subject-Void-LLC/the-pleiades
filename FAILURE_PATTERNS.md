@@ -473,6 +473,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
 469. The reaper test read the job's state on the first delivery to return, which was the one that did nothing
 470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (open)
+471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
+472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
+473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
+474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
+475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
