@@ -83,15 +83,39 @@ func TestReaper_EndToEnd_ReclaimsAndCompletesStaleJob(t *testing.T) {
 	defer cancel()
 	go reaper.Run(runCtx, func() bool { return true })
 
-	select {
-	case err := <-handlerDone:
-		if err != nil {
-			t.Fatalf("Worker.HandleJobRequested (reached via the reaper's republish) returned unexpected error: %v", err)
+	// Wait for the job to leave "fanning_out", not for the first handler
+	// to return. The reaper sweeps every 10 ms and republishes while the
+	// job is still stale, so on a loaded runner (macOS CI, 2026-10-15) a
+	// second delivery arrives before the first claims it, finds it claimed
+	// and returns at once, before the first has settled it; reading the
+	// state then saw "fanning_out". Reproduced every run with the claim
+	// and row writes slowed by a store wrapper.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if got, _, err := store.Get(ctx, job.JobID); err == nil && got.State != "fanning_out" {
+			break
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for the reaper's republish to reach the subscribed worker")
+		if time.Now().After(deadline) {
+			t.Fatal("the reaper's republish never moved the job out of fanning_out")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
+	// The delivery that settled the job returned nil. A losing one may not:
+	// its claim can fail on this test store's shared-cache SQLite ("table
+	// is locked"), where the Controller's WAL database waits instead, and a
+	// failed delivery is only redelivered. What must hold is below: one
+	// fan-out, one dispatch, one task.
+	// The settling handler reports just after the state changes, so its
+	// nil is waited for, not drained.
+	for handled := false; !handled; {
+		select {
+		case err := <-handlerDone:
+			handled = err == nil
+		case <-time.After(5 * time.Second):
+			t.Fatal("no delivery of the reaper's republish was handled without an error")
+		}
+	}
 
 	gotJob, tasks, err := store.Get(ctx, job.JobID)
 	if err != nil {
