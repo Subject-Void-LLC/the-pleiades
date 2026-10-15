@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -98,7 +99,12 @@ func runAIPromptSign(args []string) error {
 		return err
 	}
 	defer func() { _ = term.Restore() }()
-	raw, err := readBounded(file, promptsign.MaxDocumentBytes)
+	project, rel, err := projectFile(*dir, file)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = project.Close() }()
+	raw, err := readFromRoot(project, rel, promptsign.MaxDocumentBytes)
 	if err != nil {
 		return err
 	}
@@ -140,12 +146,54 @@ func runAIPromptSign(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(file+".sig", append(sig, '\n'), 0o644); err != nil { // #nosec G306 -- a signature is public
+	if err := project.WriteFile(rel+".sig", append(sig, '\n'), 0o644); err != nil { // #nosec G306 -- a signature is public
 		return err
 	}
 	fmt.Printf("wrote %s.sig\n", file)
 	warnUntrusted(*dir, key.Public().(ed25519.PublicKey), doc.Use)
 	return nil
+}
+
+// projectFile opens the project in dir as an os.Root and returns file's
+// path inside it, refusing a file outside the project or that is not a
+// .json document: what is signed is the project's own prompts, parameter
+// sets and routing tables, and nothing read or written here can leave it.
+func projectFile(dir, file string) (*os.Root, string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	absFile, err := filepath.Abs(file)
+	if err != nil {
+		return nil, "", err
+	}
+	rel, err := filepath.Rel(absDir, absFile)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !strings.HasSuffix(rel, ".json") {
+		return nil, "", fmt.Errorf("%s is not a .json document inside the project %s: sign the project's own bundles (--dir names the project)", file, dir)
+	}
+	root, err := os.OpenRoot(absDir)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
+// readFromRoot reads at most limit bytes of rel inside root, refusing a
+// larger file.
+func readFromRoot(root *os.Root, rel string, limit int64) ([]byte, error) {
+	f, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s is over %d bytes", rel, limit)
+	}
+	return data, nil
 }
 
 // readSigningKey reads a PKCS#8 Ed25519 private key, refusing a file
