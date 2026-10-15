@@ -78,6 +78,10 @@ const (
 
 	OpRegistryAuth Op = "registry.auth"
 
+	// OpDistributionInspect asks the registry, through the engine, what a
+	// reference names now: its descriptor's digest and platforms.
+	OpDistributionInspect Op = "distribution.inspect"
+
 	// Podman's own API, for what has no Docker-compatible form.
 	OpLibpodInfo Op = "libpod.info"
 )
@@ -159,6 +163,8 @@ var routes = map[Op][]route{
 	OpVolumePrune:   {r("POST", `/volumes/prune`)},
 
 	OpRegistryAuth: {r("POST", `/auth`)},
+
+	OpDistributionInspect: {r("GET", `/distribution/.+/json`)},
 
 	OpLibpodInfo: {r("GET", `/libpod/info`)},
 }
