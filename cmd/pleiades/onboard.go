@@ -55,12 +55,10 @@ func runOnboard(args []string) error {
 		return dial, err
 	})
 
-	// The process that onboards here is the process that runs this
-	// project's tasks, so a container host with no host (this machine) may
-	// be probed through this machine's own engine socket. The Controller
-	// never turns this on.
-	onboard.AllowLocalEngine()
-
+	// A container host with no host (this machine) is probed through this
+	// machine's own engine socket, which run allowed for every command
+	// (containerengine.AllowLocalCarrier): the process that onboards here is
+	// the process that runs this project's tasks.
 	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now, routes)
 	if *asJSON {
 		if err := printOnboardJSON(os.Stdout, res); err != nil {
