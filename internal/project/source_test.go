@@ -9,6 +9,7 @@
 package project_test
 
 import (
+	"context"
 	"errors"
 	"runtime"
 	"strings"
@@ -194,9 +195,10 @@ func TestAdmitsSource_ARefusalSaysWhatWouldAllowIt(t *testing.T) {
 	}
 }
 
-// TestHasEmbeddedSecret proves the rule is about a password and not about a
-// user, which is the distinction that decides whether the most common way of
-// writing an ssh remote is refused.
+// TestHasEmbeddedSecret proves the rule refuses any password, and a user only
+// over HTTP, where a forge takes a token in the user position: the
+// distinction that decides whether the most common way of writing an ssh
+// remote is refused.
 func TestHasEmbeddedSecret(t *testing.T) {
 	cases := []struct {
 		raw  string
@@ -204,6 +206,14 @@ func TestHasEmbeddedSecret(t *testing.T) {
 	}{
 		{"https://someone:ghp-TOKEN@git.invalid/private/repo.git", true},
 		{"https://x-access-token:secret@github.com/org/repo.git", true},
+
+		// A token in the user position over HTTP: what git sends as Basic auth
+		// and a forge accepts, refused since 2026-10-14.
+		{"https://ghp_0123456789abcdefTOKEN@github.com/org/repo.git", true},
+		{"http://glpat-TOKEN@gitlab.internal/group/repo.git", true},
+		{"ssh://git:password@github.com/org/repo.git", true},
+		// go-git reads an scp-like userinfo whole, password included.
+		{"git:password@github.com:org/repo.git", true},
 
 		// A user with no password: ordinary, and required for an ssh remote
 		// written the usual way.
@@ -218,5 +228,53 @@ func TestHasEmbeddedSecret(t *testing.T) {
 		if got := project.HasEmbeddedSecret(tc.raw); got != tc.want {
 			t.Errorf("HasEmbeddedSecret(%q) = %t, want %t", tc.raw, got, tc.want)
 		}
+	}
+}
+
+// TestRedactedSourceURL withholds a credential from a URL that carries one,
+// keeps every other URL as written, and produces a value the write rule
+// still refuses, so saving it back cannot quietly drop the credential.
+func TestRedactedSourceURL(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://ghp_TOKEN@github.com/org/repo.git":   "https://redacted@github.com/org/repo.git",
+		"https://someone:secret@git.invalid/repo.git": "https://redacted@git.invalid/repo.git",
+		"https://github.com/org/repo.git":             "https://github.com/org/repo.git",
+		"git@github.com:org/repo.git":                 "git@github.com:org/repo.git",
+		"ssh://git@github.com/org/repo.git":           "ssh://git@github.com/org/repo.git",
+		"git:secret@github.com:org/repo.git":          "(withheld: the URL carries a credential)",
+	} {
+		got := project.RedactedSourceURL(raw)
+		if got != want {
+			t.Errorf("RedactedSourceURL(%q) = %q, want %q", raw, got, want)
+		}
+		if strings.Contains(got, "TOKEN") || strings.Contains(got, "secret") {
+			t.Errorf("RedactedSourceURL(%q) = %q, which still carries the credential", raw, got)
+		}
+		// A redacted URL saved back is refused, never stored without its
+		// credential as if that were what the operator meant.
+		if project.HasEmbeddedSecret(raw) && strings.Contains(got, "://") && !project.HasEmbeddedSecret(got) {
+			t.Errorf("RedactedSourceURL(%q) = %q, which the write rule would accept", raw, got)
+		}
+	}
+}
+
+// TestSync_WarnsOfACredentialInTheURL: a row stored before the rule still
+// syncs, since refusing it would leave it unsyncable, and every sync says in
+// its own log that the URL carries a credential. Here the source is then
+// refused by the zero policy, which still warns first and fetches nothing.
+func TestSync_WarnsOfACredentialInTheURL(t *testing.T) {
+	syncer := project.NewGitSyncer(t.TempDir(), nil, project.SourcePolicy{})
+	var log strings.Builder
+	p := project.Project{ID: 1, OrganizationID: 1, Name: "old", SCMType: project.SCMGit,
+		SCMURL: "https://ghp_0123456789abcdefTOKEN@github.com/org/repo.git"}
+	result, err := syncer.Sync(context.Background(), p, &log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "carries a credential") {
+		t.Errorf("the sync log = %q, want the credential named", log.String())
+	}
+	if strings.Contains(log.String(), "TOKEN") || strings.Contains(result.Err, "TOKEN") {
+		t.Errorf("the sync repeated the token: log %q, error %q", log.String(), result.Err)
 	}
 }

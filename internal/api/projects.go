@@ -160,7 +160,7 @@ func toProjectDTO(p project.Project) projectDTO {
 		Description:  p.Description,
 		Organization: p.OrganizationID,
 		SCMType:      string(p.SCMType),
-		SCMURL:       p.SCMURL,
+		SCMURL:       project.RedactedSourceURL(p.SCMURL),
 		SCMBranch:    p.SCMBranch,
 		Credential:   p.CredentialID,
 		Revision:     p.Revision,

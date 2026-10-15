@@ -593,6 +593,13 @@ func TestStore_RefusesASourceTheDeploymentWillNotFetchFrom(t *testing.T) {
 	if !errors.Is(err, project.ErrSourceSecretInURL) {
 		t.Fatalf("Create with a password in the URL = %v, want ErrSourceSecretInURL", err)
 	}
+	// So is a token in the user position over HTTP, which a forge accepts.
+	if _, err := store.Create(ctx, project.Project{
+		Name: "token-as-user", SCMType: project.SCMGit,
+		SCMURL: "https://ghp_0123456789abcdefTOKEN@github.com/org/repo.git", OrganizationID: orgID,
+	}); !errors.Is(err, project.ErrSourceSecretInURL) {
+		t.Fatalf("Create with a token as the URL's user = %v, want ErrSourceSecretInURL", err)
+	}
 
 	// An edit is checked too, so a row cannot be repointed at a refused source
 	// after the fact.

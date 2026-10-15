@@ -107,6 +107,9 @@ func (s *GitSyncer) Sync(ctx context.Context, p Project, progress io.Writer) (Re
 	if !p.Syncable() {
 		return Result{}, ErrNotSyncable
 	}
+	if HasEmbeddedSecret(p.SCMURL) && progress != nil {
+		_, _ = fmt.Fprintln(progress, embeddedSecretWarning)
+	}
 
 	// Checked here as well as at the write, and this is the check that
 	// matters: a row can predate the rule, and after the fetch below started

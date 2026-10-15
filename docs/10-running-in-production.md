@@ -1465,11 +1465,16 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
 - `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
   is a repository on the Controller's own disk. Note that a URL with no scheme at
   all is a local path, so this also covers `/srv/repos/x` and `../x`.
-- A password in the URL (`https://user:token@host/repo`) is refused outright, with
-  no toggle. `scm_url` is an ordinary column while a credential is encrypted, so the
-  two are not equivalent places to put a secret. An existing project that already
-  carries one keeps syncing; it is refused the next time somebody saves that
-  project, which is the moment there is somewhere better to put it.
+- A credential in the URL is refused outright, with no toggle: a password on any
+  URL (`https://user:token@host/repo`), and over http or https a user name alone
+  (`https://<token>@host/repo`), since a forge accepts a token in the user position
+  too. An ssh URL's user (`git@host:org/repo`) is ordinary and allowed. `scm_url` is
+  an ordinary column while a credential is encrypted, so the two are not equivalent
+  places to put a secret. An existing project that already carries one keeps
+  syncing, with a warning in every sync's log; the API and the web UI show its URL
+  with the credential replaced by `redacted`, and it is refused the next time
+  somebody saves that project, which is the moment there is somewhere better to put
+  it.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A

@@ -149,7 +149,7 @@ func (r reader) List(ctx context.Context, q view.Query) (view.Page[project.Proje
 	if search := strings.ToLower(strings.TrimSpace(q.Search)); search != "" {
 		kept := found[:0]
 		for _, p := range found {
-			if strings.Contains(strings.ToLower(p.Name), search) || strings.Contains(strings.ToLower(p.SCMURL), search) {
+			if strings.Contains(strings.ToLower(p.Name), search) || strings.Contains(strings.ToLower(project.RedactedSourceURL(p.SCMURL)), search) {
 				kept = append(kept, p)
 			}
 		}
@@ -285,7 +285,7 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 						"description":  p.Description,
 						"organization": p.OrganizationName,
 						"scm_type":     string(p.SCMType),
-						"scm_url":      p.SCMURL,
+						"scm_url":      project.RedactedSourceURL(p.SCMURL),
 						"scm_branch":   p.SCMBranch,
 						"sync_status":  string(p.SyncStatus),
 						"revision":     p.ShortRevision(),
@@ -300,7 +300,7 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 					"description":  p.Description,
 					"organization": strconv.Itoa(p.OrganizationID),
 					"scm_type":     string(p.SCMType),
-					"scm_url":      p.SCMURL,
+					"scm_url":      project.RedactedSourceURL(p.SCMURL),
 					"scm_branch":   p.SCMBranch,
 					"credential":   credentialValue(p),
 				}
