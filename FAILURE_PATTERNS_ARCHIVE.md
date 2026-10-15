@@ -12172,3 +12172,59 @@ package, asking a registry for the manifest of each image this machine's engine 
 admits fails before a push. With the scanner's fix reverted, that step names the fake ID on the real list.
 
 **Lesson.** See LESSONS 282.
+
+## 466. A result that beat its dispatch's row was acknowledged as a message about nothing, and the job never finished
+
+**Symptom.** `make pr-check` tolerated `TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice` as contention:
+it failed under load and passed alone. Its own output said "job ... never completed; rb-walk-1 dispatched
+result=""": the rollback's check job had failed in two seconds, and its result never reached the job in two
+minutes. Eight runs under CPU load, with and without `-race`, and a whole-package run all passed.
+
+**Root cause.** The fan-out publishes a device's dispatch and only then writes its row
+(`internal/dispatch/worker_devices.go`), to stay crash-safe; `RecordResult` records only against a dispatched row,
+and the result consumer acknowledged any result without one as permanent, on a comment saying the row always came
+first. A Runner that answers before the row write (a check failing at once, a Controller slowed by load) lost its
+result for good, since every redelivery is the same message. Related to 222 (results discarded as duplicates), not
+a repeat: there the publish key collided, here the order of two writes did.
+
+**Fix.** `6eda98a8`: while a job is still fanning out and has no row for the device, `RecordResult` returns
+`ErrResultBeforeDispatch` and the consumer has the result redelivered; everything else stays permanent. Proved by a
+bus that answers each dispatch before `Publish` returns, through the real consumer and ent store, which lost the
+result on the old code. Writing the row first was rejected: a crash between the two would leave a dispatched row
+for a dispatch never sent.
+
+**Lesson.** See LESSONS 283.
+
+## 467. The rollback gate's check step asserted what the check left alone, never what it reported (the class of 54)
+
+**Symptom.** Found reading 466's log: a check of the rollback of "make a directory, copy a file into it" fails
+every time, `file.remove` refusing the directory as not empty, and the gate passed for weeks.
+
+**Root cause.** The gate asserted that the checked rollback changed nothing and journaled nothing, which a check
+that fails also satisfies. A check answers each task against the device as it is, so the copy inside is still
+there when the directory's undo is checked; its removal was only predicted.
+
+**Fix.** `de9d2360` pins what the check reports. Making it predict success is Phase 46a (a predicted-state ledger
+across a check), the owner's choice over answering such a call unchecked.
+
+**Lesson.** A test of a mode that must not act asserts the answer as well as the absence of action: a refusal
+also acts on nothing.
+
+## 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
+
+**Symptom.** Pull request #57's `fast` job tolerated `TestSubsystem_StderrIsCompleteAfterClose` as contention:
+`Stderr() after Close = ""`, then a pass alone.
+
+**Root cause.** The test opened a subsystem and closed it at once, so on a loaded runner it could close before the
+fake server's goroutine had written the diagnostic; nothing collects what a server writes after the client closes.
+Why 211 did not hold: it fixed the one test that failed that day (`StderrIsBoundedAndMarkedTruncated`) and not its
+twin, written the same way in the same file (LESSONS 244). And removing `Close`'s drain wait failed neither test, so
+the property this one is named for was never tested.
+
+**Fix.** `TestSubsystem_StderrIsCompleteAfterClose` waits for the server's write, not for the client to hold the
+bytes (which would leave `Close`'s wait unexercised), and sends its diagnostic after about 7 KB of other text, so it
+is still in the drain at `Close`. Removing the wait now fails 19 runs in 100; with it, 200 of 200 pass under
+`-race` with every core busy.
+
+**Lesson.** A fix for a test's race is a fix for every test in the file built the same way, and a test named for a
+mechanism must fail when the mechanism is removed.

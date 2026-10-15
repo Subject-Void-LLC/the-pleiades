@@ -5645,3 +5645,14 @@ rather than a pull).
 
 **Why.** FAILURE_PATTERNS 465, a repeat of 416: a uid:gid pair, then a fake image ID, each reached CI's pull step
 because only CI ran it.
+
+## 283. "Passed alone" says a failure needed load, not that load is the defect: read the tolerated output first
+
+**Rule.** When a gate tolerates a failure because it passed re-run alone, read the failure's own output before
+accepting "contention". A timeout in provisioning is contention-shaped; a state the code says cannot happen (a row
+missing, a result never recorded) is a real race that load only exposes, in CI or production as much as here.
+
+**Why.** FAILURE_PATTERNS 466: `pr-check` tolerated the rollback gate as contention, and its output showed a job
+whose result had been acknowledged as meaningless because it arrived before its own dispatch's row. The owner's
+correction the same day: CI contends for resources too, so contention is never ruled in or out by which machine
+ran the test.

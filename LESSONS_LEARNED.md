@@ -315,6 +315,7 @@ story, per `.AGENTS/AGENTS.md`.
 280. **A by-value mask may forget only a value one holder had alone; a static credential two sessions may share is never forgotten (2026-10-15).**
 281. **A refusal added at a shared seam changes every caller: run each caller's package before committing, and read an existing switch for the same fact rather than adding a second (2026-10-15).**
 282. **When a guard guesses from a name, refuse by what the value is, and run the step that would catch a wrong guess (here, does a registry serve it) in the local pre-push gate (2026-10-15).**
+283. **"Passed alone" says a failure needed load, not that load is the defect: read a tolerated failure's own output before accepting contention (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

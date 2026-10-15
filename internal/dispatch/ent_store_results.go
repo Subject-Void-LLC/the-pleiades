@@ -146,11 +146,26 @@ func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, 
 		return false, fmt.Errorf("failed to record result for device %s on job %s: %w", deviceID, jobID, err)
 	}
 	if affected == 0 {
-		// Either the device is not one this job dispatched to, or the job
-		// has no such task at all. Both are "there is nothing here to
-		// record", and both are permanent, so they share ErrJobNotFound
-		// and the consumer terminates the message rather than retrying it
-		// forever.
+		// The one case that is not permanent: the fan-out publishes a
+		// device's dispatch and only then writes its row, so a Runner that
+		// answers at once can be first. While the job is still fanning out
+		// and no row names the device, the row is about to exist.
+		if row.State == job.StateFanningOut {
+			written, err := s.client.JobTask.Query().
+				Where(jobtask.HasJobWith(job.IDEQ(row.ID)), jobtask.DeviceIDEQ(deviceID)).
+				Exist(ctx)
+			if err != nil {
+				return false, fmt.Errorf("failed to look for device %s's task on job %s: %w", deviceID, jobID, err)
+			}
+			if !written {
+				return false, fmt.Errorf("job %s has not recorded its dispatch to device %s yet: %w", jobID, deviceID, ErrResultBeforeDispatch)
+			}
+		}
+		// Otherwise either the device is not one this job dispatched to,
+		// or the job has no such task at all. Both are "there is nothing
+		// here to record", and both are permanent, so they share
+		// ErrJobNotFound and the consumer terminates the message rather
+		// than retrying it forever.
 		return false, fmt.Errorf("job %s has no dispatched task for device %s: %w", jobID, deviceID, ErrJobNotFound)
 	}
 

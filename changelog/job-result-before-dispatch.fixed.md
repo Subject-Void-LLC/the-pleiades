@@ -1,0 +1,1 @@
+A job could stay running forever when a Runner reported a device's result before the Controller had finished recording that device's dispatch, which a task that fails in its first second can do under load: the result was discarded as one for a device the job never dispatched to. Such a result is now redelivered until the dispatch is recorded, and lands.

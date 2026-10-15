@@ -209,6 +209,18 @@ func TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice(t *testing.T) {
 	if got := h.onDevice(t, footprint); got != "setting = new\nnew" {
 		t.Errorf("a checked rollback changed the device: %q", got)
 	}
+	// What the check reports, pinned rather than left unread: it fails at
+	// the directory's undo, because a check answers each task against the
+	// device as it is, and the copy inside is still there when the second
+	// undo asks, its removal only predicted. The real rollback below
+	// succeeds. Phase 46a (predicted state across a check) is to make this
+	// predict success, and this assertion is to change with it.
+	if _, tasks, err := store.Get(ctx, checkID); err != nil {
+		t.Fatal(err)
+	} else if len(tasks) != 1 || tasks[0].Result != dispatch.ResultFailed ||
+		!strings.Contains(tasks[0].ResultReason, "refusing to remove directory /tmp/walk-rb: it is not empty") {
+		t.Errorf("the checked rollback reported %s; want it failed on the directory's undo, refused as not empty", jobRows(store, checkID))
+	}
 
 	// The rollback.
 	rollbackID, err := dispatcher.Rollback(ctx, "release-gate", job.JobID, api.RollbackRequest{Mode: collection.ModeExecute, Leave: []string{"tasks[2]"}})
