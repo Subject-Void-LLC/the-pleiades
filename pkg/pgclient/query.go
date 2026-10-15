@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/lib/pq"
 )
 
 // ErrTooManyRows is returned when a query returns more rows than its
@@ -253,4 +255,17 @@ func (t *Table) CSV() string {
 		writeRow(r)
 	}
 	return b.String()
+}
+
+// UniqueViolation is the SQLSTATE of a duplicate key.
+const UniqueViolation = "23505"
+
+// ErrorCode is the SQLSTATE the server answered err with, or "" when err
+// is not the server's.
+func ErrorCode(err error) string {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code)
+	}
+	return ""
 }

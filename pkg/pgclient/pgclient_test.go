@@ -302,3 +302,24 @@ func selfSigned(t *testing.T, dir string) []byte {
 	}
 	return certPEM
 }
+
+// TestErrorCode reads the server's SQLSTATE from a real duplicate key,
+// and nothing from an error that is not the server's.
+func TestErrorCode(t *testing.T) {
+	srv := startServer(t, "")
+	s := open(t, srv.target(password, nil))
+	ctx := context.Background()
+	if _, err := s.Exec(ctx, "CREATE TABLE k (id int PRIMARY KEY)", nil, pgclient.Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Exec(ctx, "INSERT INTO k VALUES (1)", nil, pgclient.Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Exec(ctx, "INSERT INTO k VALUES (1)", nil, pgclient.Limits{})
+	if got := pgclient.ErrorCode(err); got != pgclient.UniqueViolation {
+		t.Errorf("ErrorCode(%v) = %q", err, got)
+	}
+	if got := pgclient.ErrorCode(errors.New("not the server's")); got != "" {
+		t.Errorf("ErrorCode of another error = %q", got)
+	}
+}
