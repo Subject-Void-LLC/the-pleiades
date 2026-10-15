@@ -57,6 +57,12 @@ before any test: CI's pull step asked Docker Hub for a fake image ID a docker te
 repeat of 416). Fixed by `0a364b4b` (the scanner refuses image IDs) and `89f7ad2a` (`make pr-check` asks a registry
 for every image CI will pull). The other checks had passed or were still running when it failed.
 
+The pr-check before that push tolerated two failures. The onboarding stress test's was a fixture timeout. The
+rollback gate's was a real race (FAILURE_PATTERNS 466): a result that beat its dispatch's row was dropped for
+good, fixed by `6eda98a8` (redelivered while the fan-out may still write the row). Reading it also showed the
+gate's check job always fails on its directory undo (467); the owner chose a predicted-state ledger, written as
+Phase 46a in the roadmap, and `de9d2360` pins today's answer until then.
+
 ### Still listed, not built
 
 - `kubeapi.bound` and `containerengine.truncate` could move onto `remoteexec.Excerpt`.
