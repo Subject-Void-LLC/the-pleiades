@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 
 	"k8s.io/client-go/discovery"
@@ -49,6 +50,9 @@ type budgetTransport struct {
 	next   http.RoundTripper
 	budget *budget
 	max    int64
+	// what names the answers the budget covers, for its error; discovery's
+	// when empty.
+	what string
 }
 
 func (t *budgetTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -66,7 +70,51 @@ func (t *budgetTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // exceeded is the error an answer past the budget ends in.
 func (t *budgetTransport) exceeded() error {
-	return fmt.Errorf("kubeapi: the server's discovery answers are larger than %d bytes", t.max)
+	what := t.what
+	if what == "" {
+		what = "the server's discovery answers are"
+	}
+	return fmt.Errorf("kubeapi: %s larger than %d bytes", what, t.max)
+}
+
+// maxSessionResponseBytes bounds one answer a session's clients read: a get,
+// a list, an apply's response, a log read without follow. A variable so a
+// test can watch it end an answer without making 64 MiB.
+var maxSessionResponseBytes int64 = 64 << 20
+
+// responseBoundTransport bounds each response body it carries to max bytes,
+// except a stream, which the method that opens it bounds (sessionStream).
+// Discovery's single total budget is the wrong shape here: a session lives
+// for a task, and a total would end a long watch after a fixed number of
+// bytes however healthy it was.
+type responseBoundTransport struct {
+	next http.RoundTripper
+	max  int64
+}
+
+func (t *responseBoundTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(r)
+	if err != nil || resp.Body == nil || sessionStream(r, resp) {
+		return resp, err
+	}
+	bound := &budgetTransport{budget: &budget{}, max: t.max, what: "one answer from the server is"}
+	bound.budget.left.Store(t.max)
+	if resp.ContentLength > t.max {
+		_ = resp.Body.Close()
+		return nil, bound.exceeded()
+	}
+	resp.Body = &budgetBody{body: resp.Body, t: bound}
+	return resp, nil
+}
+
+// sessionStream reports whether a response is a stream rather than one
+// answer: a watch (?watch=true, or the old /watch/ paths), a followed log
+// (?follow=true), or a connection upgraded for exec, attach or port-forward.
+func sessionStream(r *http.Request, resp *http.Response) bool {
+	q := r.URL.Query()
+	return q.Get("watch") == "true" || q.Get("watch") == "1" || q.Get("follow") == "true" ||
+		strings.Contains(r.URL.Path, "/watch/") || r.Header.Get("Upgrade") != "" ||
+		resp.StatusCode == http.StatusSwitchingProtocols
 }
 
 // budgetBody is a response body that ends in an error once its budget is
