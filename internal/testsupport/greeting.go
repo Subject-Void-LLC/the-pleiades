@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -67,7 +69,7 @@ func (g *greeting) WaitUntilReady(ctx context.Context, target wait.StrategyTarge
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("port %s sent no %s greeting within %v: %w", g.port, g.protocol, g.timeout, err)
+			return fmt.Errorf("port %s sent no %s greeting within %v: %w (%s)", g.port, g.protocol, g.timeout, err, g.evidence(target))
 		case <-time.After(greetingPoll):
 		}
 	}
@@ -106,4 +108,77 @@ func readGreeting(addr, prefix, protocol string, timeout time.Duration) error {
 		return fmt.Errorf("the server there opened with %q, not the %s greeting", strings.TrimSpace(line[:min(len(line), 40)]), protocol)
 	}
 	return nil
+}
+
+// evidenceTimeout bounds the look a timed-out wait takes at the container.
+const evidenceTimeout = 5 * time.Second
+
+// evidence says what a wait that timed out could not: where Docker says it
+// publishes the port, which host port the wait was dialing by then, and
+// whether anything inside the container listens on the port at all. A
+// refused mapped port has three different causes (no forwarding on the
+// host, the wrong host port, no server inside), and the dial alone cannot
+// tell them apart; this was missing when the openssh fixture's port was
+// refused for two minutes while its log said sshd was listening.
+func (g *greeting) evidence(target wait.StrategyTarget) string {
+	ctx, cancel := context.WithTimeout(context.Background(), evidenceTimeout)
+	defer cancel()
+	var parts []string
+	if insp, err := target.Inspect(ctx); err != nil {
+		parts = append(parts, "inspect failed: "+err.Error())
+	} else if insp.NetworkSettings == nil {
+		parts = append(parts, "Docker reports no network settings")
+	} else {
+		var bound []string
+		for p, bindings := range insp.NetworkSettings.Ports {
+			if p.String() != g.port {
+				continue
+			}
+			for _, b := range bindings {
+				bound = append(bound, net.JoinHostPort(b.HostIP.String(), b.HostPort))
+			}
+		}
+		parts = append(parts, fmt.Sprintf("Docker publishes it at [%s]", strings.Join(bound, " ")))
+	}
+	if mapped, err := target.MappedPort(ctx, g.port); err == nil {
+		parts = append(parts, "the mapped port is now "+mapped.Port())
+	}
+	parts = append(parts, insideListener(ctx, target, g.port))
+	return strings.Join(parts, "; ")
+}
+
+// insideListener reports whether a socket inside the container listens on
+// port, from /proc/net/tcp and tcp6, which every Linux container has and
+// which needs no tool beyond cat.
+func insideListener(ctx context.Context, target wait.StrategyTarget, port string) string {
+	number, _, _ := strings.Cut(port, "/")
+	want, err := strconv.Atoi(number)
+	if err != nil {
+		return "port " + port + " is not a number"
+	}
+	code, out, err := target.Exec(ctx, []string{"cat", "/proc/net/tcp", "/proc/net/tcp6"}, tcexec.Multiplexed())
+	if err != nil || code != 0 {
+		return fmt.Sprintf("could not read the container's sockets (exit %d, %v)", code, err)
+	}
+	raw, err := io.ReadAll(io.LimitReader(out, 1<<20))
+	if err != nil {
+		return "could not read the container's sockets: " + err.Error()
+	}
+	if listensOn(string(raw), want) {
+		return fmt.Sprintf("something inside listens on %d", want)
+	}
+	return fmt.Sprintf("nothing inside listens on %d", want)
+}
+
+// listensOn reports whether /proc/net/tcp-format text has a socket in the
+// LISTEN state (0A) on port.
+func listensOn(procNetTCP string, port int) bool {
+	suffix := fmt.Sprintf(":%04X", port)
+	for _, line := range strings.Split(procNetTCP, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 3 && strings.HasSuffix(fields[1], suffix) && fields[3] == "0A" {
+			return true
+		}
+	}
+	return false
 }

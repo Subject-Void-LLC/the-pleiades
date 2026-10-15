@@ -5,6 +5,8 @@ package testsupport
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -39,6 +42,16 @@ func (f fakeTarget) MappedPort(context.Context, string) (network.Port, error) {
 
 func (f fakeTarget) State(context.Context) (*container.State, error) {
 	return &container.State{Running: f.running, ExitCode: f.exit}, nil
+}
+
+// Inspect and Exec answer as a target with no container behind it would,
+// which is what a timed-out wait's evidence reports.
+func (f fakeTarget) Inspect(context.Context) (*container.InspectResponse, error) {
+	return nil, errors.New("no container to inspect")
+}
+
+func (f fakeTarget) Exec(context.Context, []string, ...tcexec.ProcessOption) (int, io.Reader, error) {
+	return 0, nil, errors.New("no container to exec in")
 }
 
 // TestForGreeting_KeepsTheAgreedBound proves the step reports
