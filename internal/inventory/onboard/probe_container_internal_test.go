@@ -140,6 +140,7 @@ func TestProbeLocalEngines(t *testing.T) {
 	AllowLocalEngine()
 	runtime := shortTempDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	awayFromThisMachine(t, runtime)
 	podmanSocket := filepath.Join(runtime, "podman", "podman.sock")
 	serveEngineSocket(t, filepath.Join(runtime, "docker.sock"), capability.EngineDocker, "rootless-docker")
 	serveEngineSocket(t, podmanSocket, capability.EnginePodman, "/home/me/.local/share/containers")
@@ -157,10 +158,10 @@ func TestProbeLocalEngines(t *testing.T) {
 			t.Errorf("no %s engine found", kind)
 			continue
 		}
-		// A system-wide socket on this machine is tried first, and is not
-		// rootless; the one under the runtime directory is.
-		if (e.socket == rootless) != e.rootless || !slices.Equal(e.carriers, []capability.Carrier{capability.CarrierLocal}) {
-			t.Errorf("%s at %s: rootless %v, carriers %v", kind, e.socket, e.rootless, e.carriers)
+		// With the system sockets pointed away from this machine, the engine
+		// found is the one under the runtime directory, and it is rootless.
+		if e.socket != rootless || !e.rootless || !slices.Equal(e.carriers, []capability.Carrier{capability.CarrierLocal}) {
+			t.Errorf("%s at %s: rootless %v, carriers %v; want %s, rootless", kind, e.socket, e.rootless, e.carriers, rootless)
 		}
 	}
 }
@@ -174,6 +175,7 @@ func TestContainerProbe_LocalHost(t *testing.T) {
 	AllowLocalEngine()
 	runtime := shortTempDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	awayFromThisMachine(t, runtime)
 	serveEngineSocket(t, filepath.Join(runtime, "podman", "podman.sock"), capability.EnginePodman, "/home/me/.local/share/containers")
 
 	got, err := containerProber{}.Probe(context.Background(), hostRecord(t, nil), nil)
@@ -279,5 +281,18 @@ func TestSSHEngineProbes_RefuseWhatCannotLogIn(t *testing.T) {
 		if _, err := p.Probe(context.Background(), device, password); err == nil {
 			t.Errorf("%s: a login to a closed port succeeded", name)
 		}
+	}
+}
+
+// awayFromThisMachine points the local system sockets at paths under dir
+// that nothing serves, so a test never reads this machine's own Docker or
+// Podman engine, whatever is running on it.
+func awayFromThisMachine(t *testing.T, dir string) {
+	t.Helper()
+	was := localSystemSockets
+	t.Cleanup(func() { localSystemSockets = was })
+	localSystemSockets = map[capability.EngineKind]string{
+		capability.EngineDocker: filepath.Join(dir, "absent-system-docker.sock"),
+		capability.EnginePodman: filepath.Join(dir, "absent-system-podman.sock"),
 	}
 }

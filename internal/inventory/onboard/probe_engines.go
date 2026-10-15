@@ -183,6 +183,16 @@ var localEngine atomic.Bool
 // machine, which is never the one a Runner runs a task on.
 func AllowLocalEngine() { localEngine.Store(true) }
 
+// localSystemSockets is where each engine's system (rootful) service listens
+// on the machine running pleiades, which probeLocalEngines tries before this
+// user's rootless ones. A variable so a test points it away from the
+// machine's own engines: a unit test must never read the developer's real
+// daemon.
+var localSystemSockets = map[capability.EngineKind]string{
+	capability.EngineDocker: rootfulDockerSocket,
+	capability.EnginePodman: "/run/podman/podman.sock",
+}
+
 // probeLocalEngines finds the engines this machine runs, through their
 // sockets: the system's, then this user's rootless ones.
 func probeLocalEngines(ctx context.Context) ([]engineFound, []string, error) {
@@ -194,14 +204,13 @@ func probeLocalEngines(ctx context.Context) ([]engineFound, []string, error) {
 	var tried []string
 	for _, kind := range capability.Engines() {
 		var candidates []string
+		candidates = append(candidates, localSystemSockets[kind])
 		switch kind {
 		case capability.EngineDocker:
-			candidates = append(candidates, rootfulDockerSocket)
 			if strings.HasPrefix(runtimeDir, "/") {
 				candidates = append(candidates, path.Join(runtimeDir, "docker.sock"))
 			}
 		case capability.EnginePodman:
-			candidates = append(candidates, "/run/podman/podman.sock")
 			if strings.HasPrefix(runtimeDir, "/") {
 				candidates = append(candidates, path.Join(runtimeDir, "podman", "podman.sock"))
 			}
