@@ -63,13 +63,28 @@ func TestRunWithStdinBounded_RefusesNoBound(t *testing.T) {
 	}
 }
 
-// TestRunWithStdin_StaysUnbounded: RunWithStdin's contract is unchanged by
-// sharing its body with the bounded form.
-func TestRunWithStdin_StaysUnbounded(t *testing.T) {
+// TestRunWithStdin_HoldsTheDefaultBound: Run and RunWithStdin hold every
+// command to the default bound, so a method that never chose one is still
+// refused output without end, and output within it comes back whole.
+func TestRunWithStdin_HoldsTheDefaultBound(t *testing.T) {
+	was := defaultOutputLimit
+	t.Cleanup(func() { defaultOutputLimit = was })
+	defaultOutputLimit = 1 << 20
 	flood := strings.Repeat("x", 3<<20)
-	result, err := connTo(t, func(string) (string, string, int) { return flood, "", 0 }).RunWithStdin(context.Background(), "x", nil)
-	if err != nil || len(result.Stdout) != len(flood) {
-		t.Fatalf("got %d bytes, err = %v; want %d", len(result.Stdout), err, len(flood))
+	for name, run := range map[string]func(*Conn) (Result, error){
+		"Run":          func(c *Conn) (Result, error) { return c.Run(context.Background(), "x") },
+		"RunWithStdin": func(c *Conn) (Result, error) { return c.RunWithStdin(context.Background(), "x", nil) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := run(connTo(t, func(string) (string, string, int) { return flood, "", 0 })); !errors.Is(err, ErrOutputTooLarge) {
+				t.Fatalf("err = %v, want ErrOutputTooLarge", err)
+			}
+			fits := strings.Repeat("y", 1<<19)
+			result, err := run(connTo(t, func(string) (string, string, int) { return fits, "", 0 }))
+			if err != nil || len(result.Stdout) != len(fits) {
+				t.Fatalf("got %d bytes, err = %v; want %d whole", len(result.Stdout), err, len(fits))
+			}
+		})
 	}
 }
 

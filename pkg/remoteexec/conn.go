@@ -95,6 +95,12 @@ func (c *Conn) Run(ctx context.Context, command string) (Result, error) {
 
 // RunWithStdin is Run with stdin piped to the remote command.
 //
+// Each of standard output and standard error is held to DefaultOutputLimit:
+// a command that writes more is cut off and the call fails with
+// ErrOutputTooLarge, never returning truncated output as if it were whole.
+// RunWithStdinBounded takes a tighter bound; a caller that needs more than
+// the default streams instead (Start).
+//
 // It is what lets a module write a file's contents to a device without
 // this package growing a file-transfer protocol of its own: the caller
 // runs a command that reads standard input and streams the bytes in. A
@@ -106,8 +112,11 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 
 // run is RunWithStdin and RunWithStdinBounded's one body. A limit above zero
 // holds each of standard output and standard error to that many bytes
-// (bounded.go); zero holds neither, which is RunWithStdin's contract.
+// (bounded.go); zero means the default bound, DefaultOutputLimit.
 func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit int) (Result, error) {
+	if limit <= 0 {
+		limit = defaultOutputLimit
+	}
 	if err := c.usable(); err != nil {
 		return Result{}, err
 	}

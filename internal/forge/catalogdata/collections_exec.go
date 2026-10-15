@@ -34,8 +34,8 @@ var execCollections = []collectionscaffold.Config{
 			},
 			Returns: []collection.ReturnField{
 				{Name: "rc", Type: "int", Returned: "always", Description: "The command's exit status. Zero when it succeeded, and 0 for a run that creates or removes skipped."},
-				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed."},
-				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed."},
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
+				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
 				{Name: "cmd", Type: "string", Returned: "always", Description: "The exact command line sent to the device, empty for a skipped run."},
 				{Name: "skipped", Type: "bool", Returned: "always", Description: "True when creates or removes short-circuited this task, so no command ran."},
 				{Name: "msg", Type: "string", Returned: "on skip", Description: "Why the task was skipped."},
@@ -76,8 +76,8 @@ var execCollections = []collectionscaffold.Config{
 			},
 			Returns: []collection.ReturnField{
 				{Name: "rc", Type: "int", Returned: "always", Description: "The command's exit status, which for a pipeline is the last command's. Zero when it succeeded, and 0 for a run that creates or removes skipped."},
-				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed."},
-				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed."},
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
+				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed. A command that writes more than 64 MiB to either stream fails the task rather than returning part of it."},
 				{Name: "cmd", Type: "string", Returned: "always", Description: "The command line sent to the device, empty for a skipped run."},
 				{Name: "skipped", Type: "bool", Returned: "always", Description: "True when creates or removes short-circuited this task, so no command ran."},
 				{Name: "msg", Type: "string", Returned: "on skip", Description: "Why the task was skipped."},
