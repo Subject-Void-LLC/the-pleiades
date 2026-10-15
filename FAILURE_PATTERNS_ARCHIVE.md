@@ -12209,3 +12209,22 @@ across a check), the owner's choice over answering such a call unchecked.
 
 **Lesson.** A test of a mode that must not act asserts the answer as well as the absence of action: a refusal
 also acts on nothing.
+
+## 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
+
+**Symptom.** Pull request #57's `fast` job tolerated `TestSubsystem_StderrIsCompleteAfterClose` as contention:
+`Stderr() after Close = ""`, then a pass alone.
+
+**Root cause.** The test opened a subsystem and closed it at once, so on a loaded runner it could close before the
+fake server's goroutine had written the diagnostic; nothing collects what a server writes after the client closes.
+Why 211 did not hold: it fixed the one test that failed that day (`StderrIsBoundedAndMarkedTruncated`) and not its
+twin, written the same way in the same file (LESSONS 244). And removing `Close`'s drain wait failed neither test, so
+the property this one is named for was never tested.
+
+**Fix.** `TestSubsystem_StderrIsCompleteAfterClose` waits for the server's write, not for the client to hold the
+bytes (which would leave `Close`'s wait unexercised), and sends its diagnostic after about 7 KB of other text, so it
+is still in the drain at `Close`. Removing the wait now fails 19 runs in 100; with it, 200 of 200 pass under
+`-race` with every core busy.
+
+**Lesson.** A fix for a test's race is a fix for every test in the file built the same way, and a test named for a
+mechanism must fail when the mechanism is removed.

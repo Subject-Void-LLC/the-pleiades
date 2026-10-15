@@ -50,14 +50,18 @@ running them with the tree read-only.
   this handoff, with the result in `.IGNORE/timings.md` and the session's report. Each decision's touched packages passed under
   `-race` on its own, the live k3s session tests and the real-Docker check test included.
 
-### Pull request #56
+### Pull requests #56 (merged) and #57
 
 Opened 2026-10-15 at `4e73ba28` (33 commits, including `chore/pr-check-receipt`'s four). `containers (2)` failed
 before any test: CI's pull step asked Docker Hub for a fake image ID a docker test names (FAILURE_PATTERNS 465, a
 repeat of 416). Fixed by `0a364b4b` (the scanner refuses image IDs) and `89f7ad2a` (`make pr-check` asks a registry
 for every image CI will pull). The other checks had passed or were still running when it failed.
 
-The pr-check before that push tolerated two failures. The onboarding stress test's was a fixture timeout. The
+#56 merged as `9f484e54` with every check green and no test re-run. The commits after it went to a new
+branch, `fix/result-before-dispatch`, as #57 (green). #57's `fast` job tolerated one failure, a repeat of 211's test
+race in its twin (FAILURE_PATTERNS 468), fixed on the same branch.
+
+The pr-check before #56's last push tolerated two failures. The onboarding stress test's was a fixture timeout. The
 rollback gate's was a real race (FAILURE_PATTERNS 466): a result that beat its dispatch's row was dropped for
 good, fixed by `6eda98a8` (redelivered while the fan-out may still write the row). Reading it also showed the
 gate's check job always fails on its directory undo (467); the owner chose a predicted-state ledger, written as
