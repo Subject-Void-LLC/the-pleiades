@@ -1,0 +1,19 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# db-host is a Linux server you reach over SSH that reaches your PostgreSQL:
+# the database server itself, or a host beside it with the PostgreSQL client
+# programs (pg_dump, pg_restore) installed. Point host and port at it, then:
+#   pleiades add-credential db-host --username <you> --password-stdin
+#   pleiades add-database-connection appdb --host 127.0.0.1 --user app \
+#     --sslmode disable --live app --password-stdin
+# The connection's host is the server as db-host sees it. Neither credential
+# is stored here or anywhere in this directory.
+hosts:
+  - id: db-host
+    name: db-host
+    type: linux_server
+    tags:
+      - database
+    properties:
+      host: 127.0.0.1
+      port: 2222

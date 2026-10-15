@@ -12,6 +12,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `build` | 3 | 3 |
 | `cloud` | 4 | 4 |
 | `container` | 4 | 4 |
+| `db` | 6 | 6 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
 | `file` | 11 | 10 |
@@ -27,7 +28,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **109** | **106** |
+| **total** | **115** | **112** |
 
 ## All methods
 
@@ -46,6 +47,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.docker.remove](container/docker/remove.md) | implemented | Removes a Docker container from the target. |
 | [container.docker.run](container/docker/run.md) | implemented | Runs a Docker container on the target. |
 | [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |
+| [db.pg.dump](db/pg/dump.md) | implemented | Dumps a database with the device's pg_dump into a new archive on the device. |
+| [db.pg.grants](db/pg/grants.md) | implemented | Compares the privileges granted to a role with a declared set, and fails naming each extra and each missing one. |
+| [db.pg.migrate](db/pg/migrate.md) | implemented | Applies a directory of numbered SQL files in order, each in its own transaction, recording each in a version table. |
+| [db.pg.query](db/pg/query.md) | implemented | Runs one SQL statement and returns its rows as CSV, read-only unless the task says otherwise. |
+| [db.pg.restore](db/pg/restore.md) | implemented | Restores an archive on the device into a database the task names, in one transaction, refusing a live one unless told why. |
+| [db.pg.rowcounts](db/pg/rowcounts.md) | implemented | Counts every table's rows exactly, and with compare fails naming each table whose counts differ from a second database's. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
 | [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM. |

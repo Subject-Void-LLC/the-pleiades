@@ -1,0 +1,10 @@
+id: db-migrate
+hosts: db-host
+tasks:
+  - name: Apply the application's migrations, additive only
+    db.pg.migrate:
+      connection: appdb
+      database: app
+      dir: /srv/app/migrations
+      role: app_owner
+      additive_only: true

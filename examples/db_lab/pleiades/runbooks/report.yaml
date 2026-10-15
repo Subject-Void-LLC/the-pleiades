@@ -1,0 +1,19 @@
+id: db-report
+hosts: db-host
+tasks:
+  - name: Orders in the last day
+    db.pg.query:
+      connection: reporting
+      database: app
+      sql: SELECT count(*) AS orders FROM orders WHERE created_at > now() - interval '1 day'
+    register: today
+
+  - name: The reporting role can read and nothing more
+    db.pg.grants:
+      connection: appdb
+      database: app
+      role: reporting
+      expect:
+        database: [CONNECT]
+        schemas: {public: [USAGE]}
+        tables: {"public.*": [SELECT]}

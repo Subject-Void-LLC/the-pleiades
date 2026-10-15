@@ -387,6 +387,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \

@@ -2175,6 +2175,49 @@ before the login is lent to the next task. Measured against a real Docker
 engine behind a real sshd: 50 devices running 10 tasks each, all at once,
 took 0.6 seconds over socket channels.
 
+### PostgreSQL databases
+
+The `db.pg` methods work on a database a device reaches: the database server itself, or a host beside it.
+Every connection is made from that device, through its SSH session, so the database sees the connection its
+own network and `pg_hba.conf` already allow, and one listening only on its host's loopback or socket is
+reachable at all. `db.pg.dump` and `db.pg.restore` run the device's `pg_dump` and `pg_restore`; the other
+methods speak the protocol from The Pleiades over the tunnel and need nothing installed on the device.
+
+**Connections by name.** A task names a connection (`connection: appdb`) and carries none of its host, login
+or password. On the Crawl tier, store one per server and login:
+
+```bash
+pleiades add-database-connection appdb --host db.internal --user app --ca-file db-ca.pem --live app --password-stdin
+```
+
+On the Walk tier, bind credentials of the managed `pleiades_postgres` type to the job template; unlike
+other kinds, a template may bind several, each with its own `name`. They reach the Runner on the dispatch
+with the same JetStream retention caveat as the machine credential, only a built-in method is handed one (an
+external Collection never is), and every password is masked wherever a task's output is.
+
+**Transport.** A connection to a host that is not loopback or a socket uses TLS, verified against its pinned
+CA (`--ca-file`) or the system's roots, with `--server-name` when the certificate names something else.
+Plaintext across a network takes `--insecure-transport` and is warned about on every run. The Pleiades
+negotiates TLS itself and reads nothing of the machine it runs on: no `.pgpass`, no `~/.postgresql`
+certificate, no `PG` variable. `pg_dump` and `pg_restore` receive the password on standard input, into
+`PGPASSWORD` for that one process, after every `PG` variable the device's login carries is cleared.
+
+**Live databases.** A database is live when its connection lists it (`--live`) or when it says so itself
+(`ALTER DATABASE app SET pleiades.live = on`). `db.pg.restore` refuses to overwrite one unless the task sets
+`allow_live` and a `live_reason`, which the result records.
+
+**Queries are confined by their role, not by read-only.** `db.pg.query` runs one prepared statement in a
+read-only transaction with statement and lock timeouts, but a superuser, or a member of
+`pg_execute_server_program`, `pg_read_server_files` or `pg_write_server_files`, can act outside the database
+from one, so such a login is refused unless the task sets `allow_privileged_role`. Give queries a role with
+only the privileges they need, and hold it there with `db.pg.grants`.
+
+**Migrations take no lock.** Concurrent `db.pg.migrate` runs against one database are serialized by the
+version table's primary key, as this platform's own migrations are: each file claims its version first, in
+its own transaction, and a second run waits on that claim and then reads the record. A file that cannot run
+in a transaction (`CREATE INDEX CONCURRENTLY`) has its claim recorded unfinished until it succeeds; a run that
+died midway leaves that row, and later runs name it rather than guess.
+
 ### Kubernetes clusters
 
 A `kubernetes_cluster` device is one cluster, reached through its API server.
