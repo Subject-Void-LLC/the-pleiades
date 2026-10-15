@@ -7376,6 +7376,131 @@
       ]
     }
   },
+  "file.json": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "POSIXFileSystemCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed an existing file emits a file.copy writing back the whole text it held, with its mode, owner and group; that text is withheld from the journal, so a rollback replays it only from the task's own rollback: list. A run that created the file emits a file.remove. A run that changed nothing emits nothing. The modification time is not restored.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        },
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or removes, the value at a key path in a JSON file on the device, keeping the rest of the file.",
+      "description": "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized. A key already holding the value is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The JSON file on the device, an absolute path."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
+        },
+        {
+          "name": "value",
+          "type": "any",
+          "description": "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present sets the value; absent removes the key, which is no change when it is not there."
+        },
+        {
+          "name": "create",
+          "type": "bool",
+          "default": "false",
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "returned": "always",
+          "description": "The key path, dotted."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the run created the file (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The key's value before and after, as the format writes it; empty where there is none. Masked as every diff is."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Move the service to another port",
+          "runbookYaml": "- name: Port\n  file.json:\n    path: /etc/app/config.json\n    key: server.port\n    value: 8443\n"
+        },
+        {
+          "name": "Drop a deprecated setting",
+          "runbookYaml": "- name: Remove the old flag\n  file.json:\n    path: /etc/app/config.json\n    key: [features, \"legacy.mode\"]\n    state: absent\n"
+        }
+      ],
+      "seeAlso": [
+        "file.yaml",
+        "file.line",
+        "file.copy"
+      ]
+    }
+  },
   "file.line.remove": {
     "supportedTransports": [
       "ssh"
@@ -7994,6 +8119,126 @@
         "file.remove",
         "file.permissions",
         "file.copy"
+      ]
+    }
+  },
+  "file.yaml": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "POSIXFileSystemCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed an existing file emits a file.copy writing back the whole text it held, with its mode, owner and group; that text is withheld from the journal, so a rollback replays it only from the task's own rollback: list. A run that created the file emits a file.remove. A run that changed nothing emits nothing. The modification time is not restored.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        },
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or removes, the value at a key path in a YAML file on the device, keeping its comments and the rest of the file.",
+      "description": "Reads the file (at most 4 MiB of UTF-8, one document; refused when it holds a duplicate key) and sets the value at the key path, or removes it with state absent, keeping comments and key order, and a replaced value's own comments. The rest of the document is written back in go.yaml.in/yaml/v3's style at the indent the file used, so quoting and spacing may be normalized; it is not a byte-for-byte edit. A path through an alias is refused, since one edit would change every place the alias is used. A key already holding the value is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The YAML file on the device, an absolute path."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
+        },
+        {
+          "name": "value",
+          "type": "any",
+          "description": "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present sets the value; absent removes the key, which is no change when it is not there."
+        },
+        {
+          "name": "create",
+          "type": "bool",
+          "default": "false",
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "returned": "always",
+          "description": "The key path, dotted."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the run created the file (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The key's value before and after, as the format writes it; empty where there is none. Masked as every diff is."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Raise the replica count",
+          "runbookYaml": "- name: Replicas\n  file.yaml:\n    path: /srv/app/values.yaml\n    key: web.replicas\n    value: 3\n"
+        }
+      ],
+      "seeAlso": [
+        "file.json",
+        "file.line"
       ]
     }
   },
@@ -8644,6 +8889,136 @@
       "seeAlso": [
         "gate.list",
         "exec.command"
+      ]
+    }
+  },
+  "http.check": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It sends a GET or a HEAD, which HTTP defines as safe, and changes nothing a later task could undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks that a URL answers with the expected status, and optionally body, without ever returning or logging the body.",
+      "description": "Sends a GET (or a HEAD) to the URL, following at most max_redirects redirects and refusing one from https to http, since the check would then vouch for a page anyone on the path could have served. It fails when the status is not one of status_code, or when the body does not contain body_contains or match body_matches (RE2). The body is read, at most 4 MiB, only to match it: what is returned is the status, the final URL and each redirect (scheme, host and path, never a query or fragment, which can carry a token), the time taken, and the body's size and SHA-256, and a failure names the same. A URL carrying a user name or password is refused. Certificates are verified unless validate_certs is false, which is per task and loud. It only reads, so a check of it is the task itself, and it runs once with no target device.",
+      "params": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "The http or https URL to request."
+        },
+        {
+          "name": "status_code",
+          "type": "int or list of int",
+          "default": "200",
+          "description": "The status, or statuses, that pass."
+        },
+        {
+          "name": "body_contains",
+          "type": "string",
+          "description": "Text the body must contain."
+        },
+        {
+          "name": "body_matches",
+          "type": "string",
+          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."
+        },
+        {
+          "name": "method",
+          "type": "string",
+          "default": "GET",
+          "choices": [
+            "GET",
+            "HEAD"
+          ],
+          "description": "GET, or HEAD for the status alone."
+        },
+        {
+          "name": "max_redirects",
+          "type": "int",
+          "default": "5",
+          "description": "How many redirects to follow, 0 to 10."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "30",
+          "description": "Seconds the whole check may take, redirects included."
+        },
+        {
+          "name": "validate_certs",
+          "type": "bool",
+          "default": "true",
+          "description": "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "status",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "The final answer's status."
+        },
+        {
+          "name": "final_url",
+          "type": "string",
+          "returned": "when the server answered",
+          "description": "The URL that answered last, without query or fragment."
+        },
+        {
+          "name": "redirects",
+          "type": "list of string",
+          "returned": "when the server answered",
+          "description": "Each redirect followed, in order, without query or fragment."
+        },
+        {
+          "name": "elapsed_ms",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "How long the check took, in milliseconds."
+        },
+        {
+          "name": "body_bytes",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "How many bytes of body were read, at most 4 MiB."
+        },
+        {
+          "name": "body_sha256",
+          "type": "string",
+          "returned": "when the server answered",
+          "description": "The SHA-256 of the bytes read, in hex."
+        },
+        {
+          "name": "body_over_limit",
+          "type": "bool",
+          "returned": "when the server answered",
+          "description": "Whether the body was longer than 4 MiB."
+        },
+        {
+          "name": "matched",
+          "type": "bool",
+          "returned": "with body_contains or body_matches",
+          "description": "Whether the body matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "The release answers healthy",
+          "runbookYaml": "- name: Health\n  http.check:\n    url: https://app.example.com/healthz\n    body_contains: \"\\\"status\\\":\\\"ok\\\"\"\n"
+        }
+      ],
+      "seeAlso": [
+        "http.request",
+        "wait.port"
       ]
     }
   },
@@ -14647,6 +15022,181 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova"
+      ]
+    }
+  },
+  "win.schtask": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A task this run registered is removed by its undo. A task it changed or removed is registered again from the XML definition it had, read before the change; that XML is withheld from the journal, so a rollback replays it only from the task's own rollback: list. The task's run history is not restored.",
+      "inverses": [
+        {
+          "fqcn": "win.schtask",
+          "record": [
+            "name",
+            "state"
+          ],
+          "withhold": [
+            "xml"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Registers, updates or removes a Windows scheduled task over WinRM, or reports one as it is.",
+      "description": "Reads the task first (Get-ScheduledTask, its XML definition and its last and next run), then: with state present, registers it with one action, one trigger and its principal when it is missing or differs in any of them, its description or whether it is enabled, and is no change when it matches; with absent, removes it; with query, only reports it. The script is a constant and every value reaches it as JSON on standard input, so a value can never be PowerShell syntax; every name is held to a strict pattern first. run_as SYSTEM, LOCAL SERVICE or NETWORK SERVICE runs as that service account; another account runs with S4U logon, so no password is stored with the task, and the task cannot reach the network as that user. A task this run registered undoes to its removal; one it changed or removed undoes to registering its earlier XML definition, withheld from the journal (xml, which also registers a task from a definition you give). A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The task's path: \\Folder\\Name, or Name in the root folder."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent",
+            "query"
+          ],
+          "description": "present registers or updates it; absent removes it; query only reports it."
+        },
+        {
+          "name": "execute",
+          "type": "string",
+          "description": "The program the task runs. Required with state present, unless xml is given."
+        },
+        {
+          "name": "arguments",
+          "type": "string",
+          "description": "Its arguments, as one string."
+        },
+        {
+          "name": "working_directory",
+          "type": "string",
+          "description": "The directory it starts in."
+        },
+        {
+          "name": "trigger",
+          "type": "string",
+          "choices": [
+            "at_startup",
+            "at_logon",
+            "daily",
+            "once"
+          ],
+          "description": "When it runs: at_startup, at_logon, daily (at, HH:MM, the device's local time) or once (at, an RFC 3339 time). Required with state present."
+        },
+        {
+          "name": "at",
+          "type": "string",
+          "description": "The time of a daily or once trigger."
+        },
+        {
+          "name": "run_as",
+          "type": "string",
+          "default": "SYSTEM",
+          "description": "The account it runs as: SYSTEM, LOCAL SERVICE, NETWORK SERVICE, or an account (DOMAIN\\name or name) run with S4U logon and no stored password."
+        },
+        {
+          "name": "run_level",
+          "type": "string",
+          "default": "limited",
+          "choices": [
+            "limited",
+            "highest"
+          ],
+          "description": "Whether it runs with the account's highest privileges."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "default": "true",
+          "description": "Whether the task is enabled."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "description": "The task's description."
+        },
+        {
+          "name": "xml",
+          "type": "string",
+          "description": "A whole task definition, as Export-ScheduledTask writes it, registered as given with state present; what this method's own undo uses."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The task's full path."
+        },
+        {
+          "name": "existed",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the task existed before."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "Its state before (Ready, Running, Disabled), empty when it did not exist."
+        },
+        {
+          "name": "last_run_time",
+          "type": "string",
+          "returned": "always",
+          "description": "When it last ran."
+        },
+        {
+          "name": "last_task_result",
+          "type": "string",
+          "returned": "always",
+          "description": "Its last result code."
+        },
+        {
+          "name": "next_run_time",
+          "type": "string",
+          "returned": "always",
+          "description": "When it runs next."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How it differed from what was asked, empty when it matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A nightly cleanup",
+          "runbookYaml": "- name: Cleanup\n  win.schtask:\n    name: \\Pleiades\\Cleanup\n    execute: C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\n    arguments: -NoProfile -File C:\\ops\\cleanup.ps1\n    trigger: daily\n    at: \"02:30\"\n"
+        },
+        {
+          "name": "Is the backup task healthy",
+          "runbookYaml": "- name: Backup task\n  win.schtask:\n    name: \\Pleiades\\Backup\n    state: query\n  register: backup\n"
+        }
+      ],
+      "seeAlso": [
+        "exec.winrm.shell",
+        "svc.windows.start"
       ]
     }
   }
