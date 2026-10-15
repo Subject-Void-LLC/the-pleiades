@@ -17,8 +17,9 @@ var (
 	// and results print, so nothing a terminal or a shell acts on.
 	namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 	// commandNamePattern is a required command: a bare name or a path,
-	// nothing a shell would expand.
-	commandNamePattern = regexp.MustCompile(`^[A-Za-z0-9._+/-]{1,255}$`)
+	// nothing a shell would expand, and nothing starting with '-' that a
+	// shell builtin would read as an option.
+	commandNamePattern = regexp.MustCompile(`^[A-Za-z0-9._+/][A-Za-z0-9._+/-]{0,254}$`)
 	// envNamePattern is a required environment variable's name.
 	envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	// pinnedImagePattern is an image named by digest, with or without a tag.
@@ -128,6 +129,9 @@ func (m *Manifest) validateCheck(c Check, kinds map[string]bool) error {
 		case slices.Contains(reservedExit, code):
 			return fmt.Errorf("skip_exit %d: that is how a check that ran out of time ends, so it cannot mean skipped", code)
 		}
+	}
+	if c.Image != "" && (len(c.Requires.Commands) > 0 || len(c.Requires.Env) > 0 || len(c.Requires.Files) > 0 || c.Requires.OS != "") {
+		return errors.New("requires.commands, env, files and os describe the device a dir check runs on; an image check brings its own (it may require tcp and engine)")
 	}
 	return checkRequires(c.Requires)
 }
