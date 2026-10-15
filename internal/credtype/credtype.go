@@ -110,6 +110,9 @@ const (
 
 	// KindRegistry is a container registry credential.
 	KindRegistry Kind = "registry"
+
+	// KindDatabase is a named database connection (pleiades_postgres).
+	KindDatabase Kind = "database"
 )
 
 // validKinds is the closed vocabulary, as a set.
@@ -117,6 +120,7 @@ var validKinds = map[Kind]bool{
 	KindSSH: true, KindVault: true, KindNet: true, KindSCM: true,
 	KindCloud: true, KindToken: true, KindInsights: true, KindExternal: true,
 	KindKubernetes: true, KindGalaxy: true, KindCryptography: true, KindRegistry: true,
+	KindDatabase: true,
 }
 
 // Kinds returns the closed kind vocabulary, sorted. It exists so a form or

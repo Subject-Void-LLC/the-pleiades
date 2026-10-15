@@ -1,0 +1,23 @@
+{
+  "name": "PostgreSQL Connection",
+  "namespace": "pleiades_postgres",
+  "kind": "database",
+  "managed": true,
+  "description": "A named PostgreSQL connection a db.pg task refers to by name. It is given only to the method whose task names it, never to a device or an environment. The host is the server as the device a task runs on sees it.",
+  "inputs": {
+    "fields": [
+      {"id": "name", "label": "Connection name", "type": "string", "help_text": "What a task calls this connection (connection: appdb). Several connections may be bound to one template, each with its own name."},
+      {"id": "host", "label": "Host", "type": "string", "help_text": "The server as the device a task runs on sees it: a name, an address, or its Unix socket directory."},
+      {"id": "port", "label": "Port", "type": "string", "default": "5432"},
+      {"id": "username", "label": "Username", "type": "string"},
+      {"id": "password", "label": "Password", "type": "string", "secret": true, "help_text": "Leave empty for peer or trust authentication."},
+      {"id": "sslmode", "label": "TLS", "type": "string", "choices": ["verify-full", "disable"], "default": "verify-full", "help_text": "verify-full checks the server's certificate against the pinned CA or the system's roots; disable is for a local server (loopback or a socket)."},
+      {"id": "ca_pem", "label": "CA certificate", "type": "string", "multiline": true, "help_text": "The PEM authority the server's certificate must chain to. Empty means the system's roots."},
+      {"id": "server_name", "label": "Server name", "type": "string", "help_text": "The name the certificate is checked against, when it is not the host."},
+      {"id": "insecure_transport", "label": "Allow plaintext across a network", "type": "boolean", "help_text": "Allows TLS disable to a server that is not local. The password and every row then cross that network in the clear, and every run warns."},
+      {"id": "live", "label": "Live databases", "type": "string", "help_text": "Comma-separated databases on this server a restore refuses unless the task overrides it and says why."}
+    ],
+    "required": ["name", "host", "username"]
+  },
+  "injectors": {}
+}

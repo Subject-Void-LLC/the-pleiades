@@ -337,6 +337,9 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 			// holds the redacted projection, and vault_id may itself be a
 			// secret field.
 			VaultIdentifier: credtype.VaultIdentifierOf(kind, row.Inputs),
+			// The name a task gives a database connection, which several
+			// on one definition must not share.
+			DatabaseName: credtype.DatabaseNameOf(kind, row.Inputs),
 			// Also read from the real values, and for the same reason: whether
 			// a cryptography credential is a client-certificate identity or a
 			// signing key is a fact about what it holds, and the certificate

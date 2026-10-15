@@ -67,6 +67,9 @@ type ChildRequest struct {
 	// the Runner for its own built-in methods, never for an external
 	// program.
 	Registry *RegistryCredential `json:"registry,omitempty"`
+	// Databases are the dispatch's named database connections, set, like
+	// Registry, only for the Runner's own built-in methods.
+	Databases []DatabaseConnection `json:"databases,omitempty"`
 
 	// DeviceType and DeviceProperties are DispatchPayload's, handed on so
 	// the child rebuilds the same device the Runner did.

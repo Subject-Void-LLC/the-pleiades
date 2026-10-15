@@ -195,6 +195,11 @@ func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
 	if reg, ok := art.Registry(); ok {
 		payload.Registry = reg
 	}
+	// Database connections travel the same way, each reached by the name a
+	// task gives it (wire.DatabaseConnection).
+	if dbs := art.Databases(); len(dbs) > 0 {
+		payload.Databases = dbs
+	}
 	if k, ok := art.Kubernetes(); ok {
 		applyKubernetes(payload, k, art.SecretValues())
 	}

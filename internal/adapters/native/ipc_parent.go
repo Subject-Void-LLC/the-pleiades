@@ -132,6 +132,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	}
 
 	secrets := append(redact.MapValues(payload.Secrets), registrySecretValues(payload.Registry)...)
+	secrets = append(secrets, databaseSecretValues(payload.Databases)...)
 
 	// A pipe, not a second exec.Cmd-managed stream: ExtraFiles hands the
 	// child a raw, unmanaged file descriptor (fd 3), so this package is
@@ -228,9 +229,23 @@ func childRequest(desc collection.Descriptor, mode collection.Mode, params map[s
 		Capabilities:     payload.Capabilities,
 		Secrets:          payload.Secrets,
 		Registry:         payload.Registry,
+		Databases:        payload.Databases,
 		DeviceType:       payload.DeviceType,
 		DeviceProperties: payload.DeviceProperties,
 	}
+}
+
+// databaseSecretValues is each database connection's password, as values
+// to mask, joining the machine credential's wherever the Runner masks a
+// task's output: a server's error can quote the login it refused.
+func databaseSecretValues(dbs []wire.DatabaseConnection) []string {
+	var values []string
+	for _, db := range dbs {
+		if db.Password != "" {
+			values = append(values, db.Password)
+		}
+	}
+	return values
 }
 
 // registrySecretValues is the registry credential's password, and the

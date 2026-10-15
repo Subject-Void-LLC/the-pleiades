@@ -90,6 +90,7 @@ func (c Credential) Bound() Bound {
 		CredentialName:  c.Name,
 		Kind:            c.Type.Kind,
 		VaultIdentifier: VaultIdentifierOf(c.Type.Kind, c.Inputs),
+		DatabaseName:    DatabaseNameOf(c.Type.Kind, c.Inputs),
 	}
 }
 
