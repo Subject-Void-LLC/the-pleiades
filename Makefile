@@ -620,6 +620,12 @@ ci-containers:
 # strictly three times as test-repeat does; and the floors of exactly the
 # packages it measured (coverage-check -scoped). The container-list guard
 # and the architecture rules always run, since they read the whole tree.
+# So does the one CI-only step a local run can make without pulling: every
+# image CI's containers jobs will pull must be one a registry serves
+# (tools/testimages -served asks for the manifest of each image this
+# machine lacks), since twice a value the image scan mistook for an image
+# reached CI's pull step first (FAILURE_PATTERNS 416, 465). With no Docker
+# daemon it says that check did not run.
 #
 # It exists because pull requests #54 and #55 went red in CI again and
 # again on checks a local run could have made in minutes (coverage floors,
@@ -660,6 +666,11 @@ pr-check: ci-remote pr-check-vet
 	fi; \
 	if [ -n "$$mine_docker" ]; then \
 		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
+	fi; \
+	if docker info >/dev/null 2>&1; then \
+		go run ./tools/testimages -served $$docker >/dev/null || status=1; \
+	else \
+		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
 	fi; \
 	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \

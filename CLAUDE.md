@@ -356,7 +356,9 @@ touches them.
 macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
 through the same `testgate` passes, the container-free ones three times strictly as
 `test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
-measured; the container-list guard and `internal/archtest` always run. It exists because
+measured; the container-list guard and `internal/archtest` always run, and so does
+`tools/testimages -served`, which asks a registry for the manifest of each image CI's containers
+jobs will pull and this machine lacks (FAILURE_PATTERNS 465). It exists because
 pull requests #54 and #55 kept failing CI on checks a local run makes in minutes (LESSONS
 271), and it is enforced rather than remembered: a pass writes a receipt for the commit it
 checked (`.git/pleiades-pr-check.json`, apart from the whole suite's), and `.githooks/pre-push`
