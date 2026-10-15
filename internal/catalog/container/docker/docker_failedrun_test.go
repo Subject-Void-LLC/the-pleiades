@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+
 	dockermod "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 )
 
@@ -109,5 +111,30 @@ func TestRun_FailureDetailIsBoundedAndEscaped(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "more bytes)") || len(err.Error()) > 1500 {
 		t.Errorf("err is %d bytes, want docker's text cut", len(err.Error()))
+	}
+}
+
+// TestRun_ALeftoverWithNoUsableIDIsNamedAndLeft: the id docker inspect gives
+// is text from the device that would become a command's operand, so a
+// leftover whose id is not a full container id is named and left, never
+// removed by it.
+func TestRun_ALeftoverWithNoUsableIDIsNamedAndLeft(t *testing.T) {
+	h := newHarness(t, containerFixture{runExit: 125, runLeftover: "created", containerID: "$(id)"})
+	if err := runWeb(t, h); err == nil || !strings.Contains(err.Error(), "gave no usable id") {
+		t.Fatalf("err = %v, want the unusable id named", err)
+	}
+	if calls := h.invocations(t); len(calls) != 1 {
+		t.Fatalf("invocations = %v, want the run alone", calls)
+	}
+}
+
+// TestRun_AWarningThatCannotBeRecordedFailsTheTask: when the read back after a
+// create fails, the warning saying so is the only record of it, so failing to
+// record it fails the task rather than reporting a clean run.
+func TestRun_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
+	h := newHarnessBudgeted(t, absent, 3)
+	h.rc.failOnKey = sdk.StatWarnings
+	if err := runWeb(t, h); err == nil || !strings.Contains(err.Error(), "warnings") {
+		t.Fatalf("err = %v, want the failed warning surfaced", err)
 	}
 }

@@ -105,6 +105,10 @@ type containerFixture struct {
 	// otherEngine makes docker info report an engine other than the one
 	// the device pins.
 	otherEngine bool
+	// infoFails makes docker info itself fail.
+	infoFails bool
+	// containerID, when set, replaces the id docker inspect reports.
+	containerID string
 }
 
 // fakeContainerID is the full id the fake docker inspect reports for any
@@ -137,6 +141,10 @@ func newHarnessBudgeted(t *testing.T, fixture containerFixture, budget int) *har
 	script := `#!/bin/sh
 case "$1" in
   info)
+    if [ "$FAKE_INFO_FAILS" = "1" ]; then
+      printf 'permission denied while trying to connect to the docker API\n' >&2
+      exit 1
+    fi
     printf '%s\n' "$FAKE_ENGINE_ID"
     exit 0
     ;;
@@ -249,6 +257,10 @@ esac
 	t.Setenv("FAKE_STATUS", fixture.status)
 	t.Setenv("FAKE_ID", fakeContainerID)
 	t.Setenv("FAKE_ENGINE_ID", fakeEngineID)
+	t.Setenv("FAKE_INFO_FAILS", boolEnv(fixture.infoFails))
+	if fixture.containerID != "" {
+		t.Setenv("FAKE_ID", fixture.containerID)
+	}
 	if fixture.otherEngine {
 		t.Setenv("FAKE_ENGINE_ID", "another-engine")
 	}

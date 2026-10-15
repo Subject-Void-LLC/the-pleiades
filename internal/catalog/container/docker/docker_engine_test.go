@@ -69,3 +69,21 @@ func TestMethods_ConnectionDiesReadingTheEngine(t *testing.T) {
 		})
 	}
 }
+
+// TestMethods_ADockerInfoThatFailsIsAFailure: an engine whose identity cannot
+// be read is not assumed to be the pinned one; the task fails, naming docker
+// info's own answer, before anything is inspected.
+func TestMethods_ADockerInfoThatFailsIsAFailure(t *testing.T) {
+	for label, m := range allMethods() {
+		t.Run(label, func(t *testing.T) {
+			h := newHarness(t, containerFixture{exists: true, status: "running", infoFails: true})
+			_, err := m(context.Background(), h.rc, h.device, h.params(map[string]any{"name": "web", "image": "nginx:1.27"}))
+			if err == nil || !strings.Contains(err.Error(), "could not read the engine's identity") || !strings.Contains(err.Error(), "permission denied") {
+				t.Fatalf("err = %v, want docker info's failure named", err)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Fatalf("a method acted without its engine's identity: %v", calls)
+			}
+		})
+	}
+}
