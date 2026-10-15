@@ -403,6 +403,10 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// A method reaching an address of its own (a Kubernetes API server)
 		// goes through the device's route of SSH hops, as SSH tasks do.
 		engine.WithDeviceRoutes(inventoryRepo, credentials),
+		// The ai methods read prompt bundles and trusted keys from the
+		// project, write usage under its ai directory, and reach the
+		// providers a routing table names.
+		engine.WithAIProject(opts.dir, inventoryRepo, credentials),
 	)
 
 	executor := engine.NewExecutor(

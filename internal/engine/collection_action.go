@@ -48,6 +48,9 @@ type collectionActionExecutor struct {
 	// connections open between its tasks when persist admits the device.
 	pool    *remoteexec.Pool
 	persist PersistFunc
+	// ai, set by WithAIProject, is the project the ai methods read
+	// prompts and keys from and write usage into (sdk.AIProject).
+	ai *aiProject
 
 	// seed, set by WithLoginSeeder, resolves the login a method whose
 	// manifest sets SeedsLogin gives to the machine it creates.
@@ -274,6 +277,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	}
 
 	e.lendPool(ctx, rc, device)
+	e.lendAIProject(rc)
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
 	// A secret the method obtained while it ran (a registry password, a
