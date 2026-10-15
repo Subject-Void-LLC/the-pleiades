@@ -35,16 +35,7 @@ func setParam(params map[string]any) ([]setEdit, error) {
 		e.file, _ = m["file"].(string)
 		e.from, _ = m["from"].(string)
 		e.to, _ = m["to"].(string)
-		switch line := m["line"].(type) {
-		case int:
-			e.line = line
-		case int64:
-			e.line = int(line)
-		case float64:
-			e.line = int(line)
-		case uint64:
-			e.line = int(line)
-		}
+		e.line = lineNumber(m["line"])
 		if err := checkPath(paramSet, e.file); err != nil {
 			return nil, err
 		}
@@ -87,4 +78,34 @@ func setChanges(files []*file, sets []setEdit) ([]change, error) {
 		}
 	}
 	return changes, nil
+}
+
+// maxLine bounds a line number: a file is read whole only up to
+// imagepin.MaxFileBytes, so no line in one is past that many plus one.
+const maxLine = imagepin.MaxFileBytes + 1
+
+// lineNumber is v as a line number from 1 to maxLine, or 0 for anything
+// else (a type that is not a number, a fraction, or a value out of range),
+// which the caller refuses. Each kind is compared before it is converted,
+// so no conversion can wrap.
+func lineNumber(v any) int {
+	switch n := v.(type) {
+	case int:
+		if n >= 1 && n <= maxLine {
+			return n
+		}
+	case int64:
+		if n >= 1 && n <= maxLine {
+			return int(n)
+		}
+	case uint64:
+		if n >= 1 && n <= maxLine {
+			return int(n)
+		}
+	case float64:
+		if n >= 1 && n <= maxLine && n == float64(int(n)) {
+			return int(n)
+		}
+	}
+	return 0
 }

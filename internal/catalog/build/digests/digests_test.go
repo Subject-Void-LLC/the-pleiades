@@ -261,3 +261,24 @@ func TestRefresh_SetRewritesExactlyAndRefusesAMismatch(t *testing.T) {
 		t.Fatal("a set writing a hostile reference was accepted")
 	}
 }
+
+// TestRefresh_SetRefusesALineNoFileHas: a set entry's line must be a whole
+// number from 1 to the last line a file this reads could have, in any of
+// the forms a runbook's YAML or a journal's JSON gives it.
+func TestRefresh_SetRefusesALineNoFileHas(t *testing.T) {
+	h := newHarness(t, nil)
+	file := h.write(t, "Dockerfile", "FROM alpine:3.20\n", 0o644)
+	for _, line := range []any{0, -1, int64(-5), uint64(1) << 40, 1.5, float64(1 << 30), "1", nil} {
+		set := []any{map[string]any{"file": file, "line": line, "from": "alpine:3.20", "to": "alpine:3.20@" + digest("55")}}
+		_, err := digests.Refresh(context.Background(), h.rc, h.device, params(map[string]any{"files": paths(file), "set": set}))
+		if err == nil || !strings.Contains(err.Error(), "needs file, a line from 1") {
+			t.Errorf("line %#v = %v", line, err)
+		}
+	}
+	for _, line := range []any{1, int64(1), uint64(1), 1.0} {
+		set := []any{map[string]any{"file": file, "line": line, "from": "alpine:3.20", "to": "alpine:3.20"}}
+		if _, err := digests.Refresh(context.Background(), h.rc, h.device, params(map[string]any{"files": paths(file), "set": set})); err != nil {
+			t.Errorf("line %#v = %v", line, err)
+		}
+	}
+}
