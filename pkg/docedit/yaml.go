@@ -271,14 +271,27 @@ func (d *YAMLDoc) Delete(path []Segment) (bool, error) {
 	return false, nil
 }
 
-// YAMLText is a node written on its own, for a diff.
+// YAMLText is a node's value written on its own, without its comments,
+// for a comparison and a diff: two values differing only in a comment are
+// the same value.
 func YAMLText(n *yaml.Node) string {
 	if n == nil {
 		return ""
 	}
-	out, err := yaml.Marshal(n)
+	out, err := yaml.Marshal(uncommented(n))
 	if err != nil {
 		return "(unprintable: " + strconv.Quote(err.Error()) + ")"
 	}
 	return string(bytes.TrimSpace(out))
+}
+
+// uncommented is a deep copy of n with every comment removed.
+func uncommented(n *yaml.Node) *yaml.Node {
+	c := *n
+	c.HeadComment, c.LineComment, c.FootComment = "", "", ""
+	c.Content = make([]*yaml.Node, len(n.Content))
+	for i, child := range n.Content {
+		c.Content[i] = uncommented(child)
+	}
+	return &c
 }

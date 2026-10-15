@@ -142,3 +142,17 @@ func TestYAML_Refuses(t *testing.T) {
 		t.Error("a duplicate key was accepted")
 	}
 }
+
+// TestYAMLText_IgnoresComments: a value and the same value with a comment
+// read the same, so setting a commented key to its own value is no change.
+func TestYAMLText_IgnoresComments(t *testing.T) {
+	d, err := ParseYAML([]byte("a: 4  # kept\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, _, _ := d.Get(mustPath(t, "a"))
+	n, _ := ValueNode(4)
+	if YAMLText(old) != YAMLText(n) || old.LineComment == "" {
+		t.Errorf("%q != %q, or the comment was lost from the document", YAMLText(old), YAMLText(n))
+	}
+}
