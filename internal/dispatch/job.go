@@ -575,7 +575,9 @@ type JobStore interface {
 	// A result for a device this job never dispatched to, or for an
 	// unknown job, returns ErrJobNotFound: both mean the same thing to the
 	// consumer, which is that there is nothing here to record and
-	// retrying will not change that.
+	// retrying will not change that. A result for a device the job is
+	// still fanning out to and has not yet written a row for returns
+	// ErrResultBeforeDispatch instead, which redelivery does change.
 	//
 	// unchecked is how many tasks a check could not check on the device
 	// (zero for a real run), stored with the result.
@@ -715,6 +717,15 @@ const (
 // ErrJobNotFound) rather than comparing errors directly, since every real
 // implementation wraps this rather than returning it bare.
 var ErrJobNotFound = errors.New("job not found")
+
+// ErrResultBeforeDispatch is returned by RecordResult for a result that
+// arrived while its job's fan-out is still going and before the fan-out
+// wrote the device's row. The fan-out publishes a device's dispatch and
+// then writes its row (worker_devices.go), so a Runner that answers at
+// once, a check failing in its first second under load, can report first.
+// Unlike ErrJobNotFound it is not permanent: the row is about to exist,
+// and the result lands on redelivery.
+var ErrResultBeforeDispatch = errors.New("result arrived before its dispatch was recorded")
 
 // ErrFenced is returned by RecordTask, Complete, and Fail when jobID names
 // a real job but the fence value the caller presented no longer matches

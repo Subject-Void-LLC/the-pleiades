@@ -115,12 +115,15 @@ func (c *ResultConsumer) Subscribe(ctx context.Context, bus event.Bus) error {
 //
 // A result naming a job or device this Controller has no dispatched task
 // for is also acknowledged, and this is the case worth being careful
-// about. It looks like a transient miss and is not: the fan-out writes
-// every task row before the dispatch that produces a result can be
-// executed, so by the time any result exists its row already does. What it
-// really means is a job deleted underneath a run, or a stale message from
-// beyond the stream's retention window. Retrying would block every other
-// job's results behind it.
+// about. Once a job's fan-out has finished, every row it will ever write
+// exists, so a result with no row means a job deleted underneath a run, or
+// a stale message from beyond the stream's retention window, and retrying
+// would block every other job's results behind it. While the fan-out is
+// still going it means something else: the fan-out publishes a device's
+// dispatch and then writes its row, so a Runner that answers at once can
+// report first. That result is redelivered (ErrResultBeforeDispatch), and
+// lands once the row exists. This comment used to say the row always came
+// first, and a result acknowledged on that belief was lost for good.
 //
 // A store failure IS retried, because a database being briefly
 // unavailable is exactly what redelivery exists for.
@@ -161,6 +164,14 @@ func (c *ResultConsumer) Handle(evt event.Event) error {
 
 	complete, err := c.store.RecordResult(ctx, payload.JobID, payload.DeviceID, result, payload.Reason, payload.Unchecked)
 	switch {
+	case errors.Is(err, ErrResultBeforeDispatch):
+		// Redelivered, never acknowledged: acknowledging it lost the result
+		// for good, since every later delivery of it is the same message,
+		// and left the job running with a device that never reports.
+		c.logger.Info("a job result arrived before its dispatch was recorded; it will be redelivered",
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID))
+		return err
 	case errors.Is(err, ErrJobNotFound):
 		c.logger.Warn("dropping a job result for a job or device this controller has no dispatched task for",
 			slog.String("job_id", payload.JobID),

@@ -272,7 +272,10 @@ func TestEntJobStore_CompleteRunning_WillNotReviveACanceledJob(t *testing.T) {
 // A skipped device never executed, so a result naming one is a message
 // about something that did not happen. Accepting it would also corrupt the
 // count of outstanding devices, since a skipped task carrying a result
-// would satisfy a condition it was never meant to be part of.
+// would satisfy a condition it was never meant to be part of. A device the
+// job has no row for is the same once the fan-out has settled; before
+// that, its row may still be coming (ErrResultBeforeDispatch, tested in
+// result_race_test.go).
 func TestEntJobStore_RecordResult_RefusesADeviceTheJobNeverDispatchedTo(t *testing.T) {
 	ctx := t.Context()
 	store, _ := newTestStore(t)
@@ -290,6 +293,14 @@ func TestEntJobStore_RecordResult_RefusesADeviceTheJobNeverDispatchedTo(t *testi
 		Outcome: dispatch.OutcomeSkipped, Reason: "quarantined",
 	}); err != nil {
 		t.Fatalf("RecordTask: %v", err)
+	}
+	if err := store.RecordTask(ctx, job.JobID, fence, dispatch.JobTask{
+		DeviceID: "dev-ran", DeviceName: "router-ran", Outcome: dispatch.OutcomeDispatched,
+	}); err != nil {
+		t.Fatalf("RecordTask: %v", err)
+	}
+	if err := store.SettleRunning(ctx, job.JobID, fence, 1, 1, 0); err != nil {
+		t.Fatalf("SettleRunning: %v", err)
 	}
 
 	for _, deviceID := range []string{"dev-skipped", "dev-never-seen"} {
