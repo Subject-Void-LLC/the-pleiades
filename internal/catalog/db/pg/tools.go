@@ -37,11 +37,14 @@ type toolRun struct {
 
 // script is the shell the device runs. Every PG* variable the login
 // carries is cleared first, so its own PGSERVICE or PGHOST cannot redirect
-// the run; the password is read from the first line of standard input into
-// PGPASSWORD, exported to the tool alone and never on a command line; a
-// pinned CA, the rest of standard input, is written into a private
-// directory removed however the run ends; and the tool runs under
-// timeout -k so a hung one is killed on the device.
+// the run. A private directory is made (in memory, under XDG_RUNTIME_DIR,
+// where the host keeps one per user) and its removal set however the run
+// ends; only then is the password file's line read from standard input
+// and written into it, by the shell's own printf, so the password is never
+// on a command line or in any process's environment: the tools find it
+// through PGPASSFILE, as PostgreSQL recommends over PGPASSWORD. A pinned
+// CA, the rest of standard input, is written beside it. The tool runs
+// under timeout -k, so a hung one is killed on the device.
 func (t toolRun) script() (string, error) {
 	q := remoteexec.QuoteArg
 	if err := toolsCanReach(t.conn); err != nil {
@@ -54,14 +57,15 @@ func (t toolRun) script() (string, error) {
 	lines := []string{
 		"set -e",
 		`for v in $(env | sed -n 's/^\(PG[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done`,
-		`IFS= read -r PGPASSWORD || true`,
-		"export PGPASSWORD",
 		"umask 077",
-		`d=$(mktemp -d)`,
+		`d=$(mktemp -d "${XDG_RUNTIME_DIR:-/nonexistent}/pleiades-pg.XXXXXX" 2>/dev/null) || d=$(mktemp -d)`,
 		`trap 'rm -rf "$d"` + cleanupClause(t.cleanup) + `' EXIT`,
+		`IFS= read -r line || true`,
+		`printf '%s\n' "$line" > "$d/pgpass"`,
+		`line=`,
 		"export PGHOST=" + q(host) + " PGPORT=" + strconv.Itoa(t.conn.EffectivePort()) + " PGUSER=" + q(t.conn.User) +
 			" PGDATABASE=" + q(t.database) + " PGSSLMODE=" + q(t.conn.EffectiveSSLMode()) +
-			" PGAPPNAME=" + applicationName + " PGPASSFILE=/dev/null PGCONNECT_TIMEOUT=30",
+			" PGAPPNAME=" + applicationName + ` PGPASSFILE="$d/pgpass" PGCONNECT_TIMEOUT=30`,
 	}
 	if hostaddr != "" {
 		lines = append(lines, "export PGHOSTADDR="+q(hostaddr))
@@ -86,9 +90,10 @@ func (t toolRun) script() (string, error) {
 // the host they dial (dialed as hostaddr, checked as host).
 func toolsCanReach(conn wire.DatabaseConnection) error {
 	if strings.ContainsAny(conn.Password, "\n\x00") {
-		// The shell reads the password as the first line of standard
-		// input, so a line break would cut it there and hand its rest to
-		// the pinned CA's file, and the environment cannot hold a NUL.
+		// The shell reads the password file's line as the first line of
+		// standard input, so a line break would cut it there and hand its
+		// rest to the pinned CA's file, and a shell variable cannot hold a
+		// NUL.
 		return fmt.Errorf("connection %s: its password holds a line break or a NUL, which pg_dump and pg_restore cannot be given; the in-process methods (query, migrate, grants, rowcounts) can use it", conn.Name)
 	}
 	if conn.ServerName != "" && net.ParseIP(conn.Host) == nil {
@@ -112,8 +117,9 @@ func cleanupClause(cleanup string) string {
 	return "; " + strings.ReplaceAll(cleanup, "'", `'\''`)
 }
 
-// stdin is what the script reads: the password's line, then any pinned CA.
-func (t toolRun) stdin() string { return t.conn.Password + "\n" + t.conn.CAPEM }
+// stdin is what the script reads: the password file's line, then any
+// pinned CA.
+func (t toolRun) stdin() string { return pgpassLine(t.conn) + "\n" + t.conn.CAPEM }
 
 // run runs the tool, naming a timeout and the tool's own last words on
 // failure.
@@ -179,4 +185,17 @@ func requireTimeout(ctx context.Context, ssh *remoteexec.Conn) error {
 // ones exported beside it.
 func conninfoDatabase(name string) string {
 	return "dbname='" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(name) + "'"
+}
+
+// pgpassLine is the password file's one line for conn: any host, port and
+// database, its own user, with ":" and "\" escaped as libpq reads them,
+// the form internal/backup writes for the Controller's own tools. It is
+// "" when conn has no password, which leaves the file without a match, so
+// the tool asks the server for none.
+func pgpassLine(conn wire.DatabaseConnection) string {
+	if conn.Password == "" {
+		return ""
+	}
+	escape := strings.NewReplacer(`\`, `\\`, `:`, `\:`)
+	return "*:*:*:" + escape.Replace(conn.User) + ":" + escape.Replace(conn.Password)
 }

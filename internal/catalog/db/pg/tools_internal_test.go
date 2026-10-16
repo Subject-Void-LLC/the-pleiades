@@ -11,9 +11,12 @@ import (
 
 // TestToolRun_ThePasswordTravelsOnStdinOnly: the script the device runs
 // (which its shell holds as an argument, visible in the process list)
-// carries no password and no CA, clears the login's PG variables before
-// reading the password, and reads it from standard input, whose first
-// line it is; a CA follows it there.
+// carries no password and no CA, clears the login's PG variables, makes
+// its private directory and the trap that removes it, and only then reads
+// the password file's line from standard input and writes it there with
+// the shell's own printf. The tools find it through PGPASSFILE, as
+// PostgreSQL recommends over PGPASSWORD, so no process's environment
+// holds the password. A CA follows the line on standard input.
 func TestToolRun_ThePasswordTravelsOnStdinOnly(t *testing.T) {
 	const secret = "pw-sentinel-9QzT"
 	run := toolRun{
@@ -28,16 +31,21 @@ func TestToolRun_ThePasswordTravelsOnStdinOnly(t *testing.T) {
 		t.Fatalf("the script carries the password or the CA:\n%s", script)
 	}
 	clear := strings.Index(script, "unset")
-	read := strings.Index(script, "read -r PGPASSWORD")
-	if clear < 0 || read < 0 || clear > read {
-		t.Errorf("the login's PG variables are not cleared before the password is read:\n%s", script)
+	trap := strings.Index(script, "trap ")
+	read := strings.Index(script, "IFS= read -r line")
+	write := strings.Index(script, `printf '%s\n' "$line" > "$d/pgpass"`)
+	if clear < 0 || trap < 0 || read < 0 || write < 0 || !(clear < trap && trap < read && read < write) {
+		t.Errorf("the PG variables are not cleared, then the directory's removal set, before the password is read and written:\n%s", script)
 	}
-	for _, want := range []string{"PGHOST='db.internal'", "PGHOSTADDR='10.0.0.5'", "PGPORT=6432", "PGSSLMODE='verify-full'", `PGSSLROOTCERT="$d/ca.pem"`, "PGPASSFILE=/dev/null", "timeout -k 10s 3600s "} {
+	if strings.Contains(script, "PGPASSWORD") {
+		t.Errorf("the script puts the password in an environment:\n%s", script)
+	}
+	for _, want := range []string{"PGHOST='db.internal'", "PGHOSTADDR='10.0.0.5'", "PGPORT=6432", "PGSSLMODE='verify-full'", `PGSSLROOTCERT="$d/ca.pem"`, `PGPASSFILE="$d/pgpass"`, "umask 077", "timeout -k 10s 3600s "} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the script lacks %q:\n%s", want, script)
 		}
 	}
-	if stdin := run.stdin(); !strings.HasPrefix(stdin, secret+"\n-----BEGIN CERTIFICATE-----") {
+	if stdin := run.stdin(); !strings.HasPrefix(stdin, "*:*:*:app:"+secret+"\n-----BEGIN CERTIFICATE-----") {
 		t.Errorf("stdin = %q", stdin)
 	}
 	run.conn.Host = "db.example"
@@ -96,6 +104,23 @@ func TestConninfoDatabase_IsOnlyEverAName(t *testing.T) {
 	} {
 		if got := conninfoDatabase(name); got != want {
 			t.Errorf("conninfoDatabase(%q) = %s, want %s", name, got, want)
+		}
+	}
+}
+
+// TestPgpassLine: the password file's line matches any host, port and
+// database for the connection's own user, with ":" and "\" escaped as
+// libpq reads them; no password leaves the file empty, which libpq reads
+// as no match, so the tool asks the server for none.
+func TestPgpassLine(t *testing.T) {
+	for _, tc := range []struct{ user, password, want string }{
+		{"app", "pw", `*:*:*:app:pw`},
+		{"app", `a:b\c`, `*:*:*:app:a\:b\\c`},
+		{`we:ird`, "pw", `*:*:*:we\:ird:pw`},
+		{"app", "", ""},
+	} {
+		if got := pgpassLine(wire.DatabaseConnection{User: tc.user, Password: tc.password}); got != tc.want {
+			t.Errorf("pgpassLine(%q, %q) = %s, want %s", tc.user, tc.password, got, tc.want)
 		}
 	}
 }

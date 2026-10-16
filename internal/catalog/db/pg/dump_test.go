@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -149,6 +150,57 @@ func TestDump_AFailedReadBackKeepsTheUndo(t *testing.T) {
 	}
 	if warnings, _ := rc.stats["warnings"].([]string); !strings.Contains(strings.Join(warnings, "\n"), "reading back its size and SHA-256 failed: the session dropped") {
 		t.Errorf("warnings = %v", rc.stats["warnings"])
+	}
+}
+
+// TestDump_ThePasswordReachesPgDumpAsAFileOnly: pg_dump finds the password
+// in a password file (PGPASSFILE), as PostgreSQL recommends over
+// PGPASSWORD: no variable of its environment holds it, the file is a
+// regular one no other account can read, it is gone once the run ends,
+// and a password holding ":" and "\" still logs in, escaped as libpq
+// reads the file. A wrapper ahead of the real pg_dump on the device's
+// PATH records what pg_dump was started with.
+func TestDump_ThePasswordReachesPgDumpAsAFileOnly(t *testing.T) {
+	h, dir := dumpRestoreFixture(t)
+	const secret = `odd:pass\word-sentinel`
+	h.sql(t, "app", "CREATE ROLE odd LOGIN SUPERUSER PASSWORD '"+strings.ReplaceAll(secret, "'", "''")+"'")
+	h.connect("odd", "odd", secret)
+
+	real, err := exec.LookPath("pg_dump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrappers, seen := t.TempDir(), t.TempDir()
+	wrapper := "#!/bin/sh\n" +
+		"if [ -n \"$PGPASSFILE\" ]; then\n" +
+		"  env > " + remoteexec.QuoteArg(filepath.Join(seen, "env")) + "\n" +
+		"  printf '%s\\n' \"$PGPASSFILE\" > " + remoteexec.QuoteArg(filepath.Join(seen, "path")) + "\n" +
+		"  ls -l \"$PGPASSFILE\" > " + remoteexec.QuoteArg(filepath.Join(seen, "mode")) + "\n" +
+		"fi\n" +
+		"exec " + remoteexec.QuoteArg(real) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(wrappers, "pg_dump"), []byte(wrapper), 0o700); err != nil { // #nosec G306 -- a test's own wrapper, run by its owner
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrappers+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	dest := filepath.Join(dir, "odd.dump")
+	if _, err := pg.Dump(context.Background(), h.fresh(), h.device, params(map[string]any{"connection": "odd", "database": "app", "dest": dest})); err != nil {
+		t.Fatalf("a dump as a login whose password holds : and \\: %v", err)
+	}
+	env, err := os.ReadFile(filepath.Join(seen, "env")) // #nosec G304 -- this test's own directory
+	if err != nil {
+		t.Fatalf("the wrapper did not run as pg_dump: %v", err)
+	}
+	if strings.Contains(string(env), "sentinel") || strings.Contains(string(env), "PGPASSWORD") {
+		t.Errorf("pg_dump's environment holds the password:\n%s", env)
+	}
+	mode, _ := os.ReadFile(filepath.Join(seen, "mode")) // #nosec G304 -- this test's own directory
+	if !strings.HasPrefix(string(mode), "-rw-------") {
+		t.Errorf("the password file is not a regular file only its owner reads: %s", mode)
+	}
+	path, _ := os.ReadFile(filepath.Join(seen, "path")) // #nosec G304 -- this test's own directory
+	if _, err := os.Stat(strings.TrimSpace(string(path))); !os.IsNotExist(err) {
+		t.Errorf("the password file outlived the run: %s, %v", path, err)
 	}
 }
 

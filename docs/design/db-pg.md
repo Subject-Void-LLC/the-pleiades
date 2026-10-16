@@ -26,9 +26,12 @@ its host's loopback or Unix socket is reachable at all.
   when the connection's host is a directory (`direct-streamlocal`, `DialUnix`). Nothing runs on the device, no
   client is installed there, and the password never leaves the process.
 - `dump` and `restore` run the device's own `pg_dump` and `pg_restore`, since a logical dump is theirs to make.
-  The password reaches them on standard input, read by the shell into `PGPASSWORD` and exported to that one
-  process: never in a command line, never in a file. Every other `PG*` variable is cleared first, so the
-  login's own `PGSERVICE` or `PGHOST` cannot redirect the run.
+  The password reaches the device on standard input and is written by the shell's built-in `printf` into a
+  password file (`PGPASSFILE`, mode 0600) in a private directory, in memory where the host keeps one per
+  user, removed however the run ends: PostgreSQL's own recommendation over `PGPASSWORD`, decided 2026-10-16.
+  It is never in a command line or any process's environment; the device's login user and root can read
+  the file while the run lasts (see `docs/10-running-in-production.md`). Every other `PG*` variable is
+  cleared first, so the login's own `PGSERVICE` or `PGHOST` cannot redirect the run.
 - `migrate` reads its files from the device over the same SSH session (`remotefile.ReadText`), bounded.
 
 The protocol client is `github.com/lib/pq`, already this module's PostgreSQL driver, confined to a new

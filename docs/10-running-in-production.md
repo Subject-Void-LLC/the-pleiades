@@ -2199,8 +2199,19 @@ external Collection never is), and every password is masked wherever a task's ou
 CA (`--ca-file`) or the system's roots, with `--server-name` when the certificate names something else.
 Plaintext across a network takes `--insecure-transport` and is warned about on every run. The Pleiades
 negotiates TLS itself and reads nothing of the machine it runs on: no `.pgpass`, no `~/.postgresql`
-certificate, no `PG` variable. `pg_dump` and `pg_restore` receive the password on standard input, into
-`PGPASSWORD` for that one process, after every `PG` variable the device's login carries is cleared.
+certificate, no `PG` variable. `pg_dump` and `pg_restore` find the password in a password file, as
+PostgreSQL's own documentation recommends over `PGPASSWORD`: it reaches the device on standard input, and
+the shell's built-in `printf` writes it to a file of mode 0600 in a private directory (in memory, under
+`XDG_RUNTIME_DIR`, where the host keeps one per user), named by `PGPASSFILE` and removed however the run
+ends, after every `PG` variable the device's login carries is cleared.
+
+**What the device can see.** The password is never on a command line and never in a process's environment,
+so it is not inherited by the commands the run starts and not written by a crash into a core dump with the
+environment. It is a file for the length of the run, and the device's login user and root can read it while
+it exists, exactly as they could read an environment (on Linux, `/proc/<pid>/environ` is readable by the
+same user); no other account can. That is the decision, recorded 2026-10-16: the login that runs the tool is
+trusted with the password the tool uses. A run killed with `SIGKILL` skips the removal and leaves the
+directory behind until the cancellation work on the roadmap stops the tool and cleans up itself.
 
 **Live databases.** A database is live when its connection lists it (`--live`) or when it says so itself
 (`ALTER DATABASE app SET pleiades.live = on`). `db.pg.restore` refuses to overwrite one unless the task sets
