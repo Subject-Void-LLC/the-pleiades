@@ -5767,3 +5767,15 @@ line contains.
 The ssh command hit my tool's timeout, its `kill` never ran, and the owner found Activity Monitor full of `yes`.
 The first cleanup attempt then used `pkill -f` with a pattern in its own command line and killed itself. The
 reproduction that worked used eight copies of the real test binary instead, bounded and trapped.
+
+## 293. A platform limit a test meets is measured on that platform and the test sized to it; neither skipped there nor blamed on the product
+
+**Rule.** When a test fails on one platform only, find the platform limit it meets by measuring there (vary the
+load, read the kernel's counters), then size the test from that limit read at run time. Do not skip the platform,
+which hides the code there, and do not change the product for a limit only the test's own fake server meets.
+
+**Why.** 2026-10-16. `make mac-check` ran `pkg/remoteexec` on the owner's Mac for the first time and the 300-session
+hop stress test failed every run while CI's macOS runner passed it. A first guess (one and a half times the
+backlog) passed under `-race` and failed in the strict repeat without it; only measuring both modes, alone and
+with the package, found the cap that holds: the listener's backlog itself (FAILURE_PATTERNS 501).
+
