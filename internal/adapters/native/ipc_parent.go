@@ -131,8 +131,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
 	}
 
-	secrets := append(redact.MapValues(payload.Secrets), registrySecretValues(payload.Registry)...)
-	secrets = append(secrets, databaseSecretValues(payload.Databases)...)
+	secrets := childSecretValues(payload)
 
 	// A pipe, not a second exec.Cmd-managed stream: ExtraFiles hands the
 	// child a raw, unmanaged file descriptor (fd 3), so this package is
@@ -233,6 +232,18 @@ func childRequest(desc collection.Descriptor, mode collection.Mode, params map[s
 		DeviceType:       payload.DeviceType,
 		DeviceProperties: payload.DeviceProperties,
 	}
+}
+
+// childSecretValues is every secret childRequest hands a child for
+// payload, as values to mask out of whatever that child sends back: the
+// machine credential's, the registry account's and each database
+// connection's. The one-shot child, the session child and the dispatch's
+// own summary all mask with it, so a secret added to the request cannot
+// be masked on one path and missed on another.
+func childSecretValues(payload wire.DispatchPayload) []string {
+	secrets := redact.MapValues(payload.Secrets)
+	secrets = append(secrets, registrySecretValues(payload.Registry)...)
+	return append(secrets, databaseSecretValues(payload.Databases)...)
 }
 
 // databaseSecretValues is each database connection's password, as values

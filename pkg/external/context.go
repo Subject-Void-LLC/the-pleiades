@@ -123,7 +123,9 @@ func (c *RunbookContext) Zero() {
 }
 
 // DatabaseConnection implements sdk.DatabaseConnections. The Runner masks
-// every bound connection's password, so the child registers none.
+// every bound connection's password out of whatever its child sends back,
+// a one-shot child's and a session child's alike, so the child registers
+// none.
 func (c *RunbookContext) DatabaseConnection(name string) (wire.DatabaseConnection, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

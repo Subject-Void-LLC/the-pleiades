@@ -1,7 +1,7 @@
 // Tests for the session's failure edges, driven by stand-in child
 // programs whose misbehavior is deterministic: one that has already
-// exited when a request is sent, and one that never answers and ignores
-// SIGTERM.
+// exited when a request is sent, one that never answers and ignores
+// SIGTERM, and one that echoes the passwords its payload carries.
 package native
 
 import (
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // standInChild writes body as an executable shell script and returns its
@@ -76,5 +77,40 @@ func TestSession_ChildIgnoringTermIsKilled(t *testing.T) {
 	}
 	if out := logged.String(); !strings.Contains(out, "stand-in-out") || !strings.Contains(out, "stand-in-err") {
 		t.Errorf("the child's output was not logged: %q", out)
+	}
+}
+
+// TestSession_MasksEverySecretThePayloadCarries: what a session child
+// writes is logged masked with every secret its payload hands it, as a
+// one-shot child's is: a database connection's password and a registry
+// account's, not only the machine credential's.
+func TestSession_MasksEverySecretThePayloadCarries(t *testing.T) {
+	const dbPassword, regPassword = "dbsentinel-session-4Kp9", "regsentinel-session-7Hq2"
+	var logged bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	payload := sessionDevice(nil).Payload()
+	payload.Databases = []wire.DatabaseConnection{{Name: "appdb", Host: "db", User: "app", Password: dbPassword}}
+	payload.Registry = &wire.RegistryCredential{Host: "ghcr.io", Username: "deployer", Password: regPassword}
+	// The stand-in echoes both passwords, as a method's error or a
+	// driver's debug line could, then exits when its input closes.
+	script := standInChild(t, "echo db="+dbPassword+"\necho reg="+regPassword+" >&2\ncat >/dev/null")
+	s := (&ipcCollectionExecutor{exePath: script, logger: logger}).newSession(payload)
+
+	s.mu.Lock()
+	_, err := s.start()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	out := logged.String()
+	if !strings.Contains(out, "db=") || !strings.Contains(out, "reg=") {
+		t.Fatalf("the child's output was not logged: %q", out)
+	}
+	for _, secret := range []string{dbPassword, regPassword} {
+		if strings.Contains(out, secret) {
+			t.Errorf("the session logged %q unmasked: %q", secret, out)
+		}
 	}
 }

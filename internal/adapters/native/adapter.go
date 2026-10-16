@@ -329,15 +329,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// Plus every value a bound credential injected, which a task's output
 	// can echo back exactly as readily as one the Controller attached to
 	// Secrets.
-	injectedValues := injectedSecretValues(payload.Injected)
-	secrets := make([]string, 0, len(result.Secrets)+len(payload.Secrets)+len(injectedValues))
-	secrets = append(secrets, result.Secrets...)
-	for _, v := range payload.Secrets {
-		secrets = append(secrets, v)
-	}
-	secrets = append(secrets, injectedValues...)
-	secrets = append(secrets, registrySecretValues(payload.Registry)...)
-	secrets = append(secrets, databaseSecretValues(payload.Databases)...)
+	secrets := append([]string{}, result.Secrets...)
+	secrets = append(secrets, childSecretValues(payload)...)
+	secrets = append(secrets, injectedSecretValues(payload.Injected)...)
 
 	// Each warning a task recorded (sdk.StatWarnings) reaches the job log
 	// once per dispatch, masked, before the completion that summarizes it.
