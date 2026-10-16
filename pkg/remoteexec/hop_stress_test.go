@@ -10,19 +10,21 @@ import (
 )
 
 // TestConnect_HopChain_StressManyConcurrentSessions opens and tears down
-// several hundred concurrent two-hop chained sessions against the real
-// mechanism (real TCP, real SSH handshakes, real direct-tcpip
+// up to three hundred concurrent two-hop chained sessions against the
+// real mechanism (real TCP, real SSH handshakes, real direct-tcpip
 // forwarding), all sharing one Runner and therefore one circuit breaker
 // per address, under -race. This is the concurrency-safety proof
 // Phase 72's own Fuzz/Stress Test item asks for: nothing here should
 // race, deadlock, or leave a connection unclosed under real concurrent
-// load.
+// load. It opens no more at once than one listener on this platform can
+// hold (listenQueue), since macOS resets the connections past that, which
+// is the kernel's limit and not the Runner's.
 func TestConnect_HopChain_StressManyConcurrentSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")
 	}
 
-	const sessions = 300
+	sessions := min(300, listenQueue())
 
 	bastionAddr, bastionKey := startFakeSSHListener(t, func(cmd string) (string, string, int) {
 		return "bastion should never run a command directly", "", 1
