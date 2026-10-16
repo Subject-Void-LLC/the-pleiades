@@ -53,9 +53,13 @@ type QueryOptions struct {
 	MaxBytes int
 }
 
-// Query runs one statement and returns its rows. The statement is
-// prepared, which the server refuses for more than one statement, so
-// "SELECT 1; DELETE FROM t" is an error and not a read then a write.
+// Query runs a statement and returns its rows. The statement is prepared,
+// which the server refuses for more than one statement, so
+// "SELECT 1; DELETE FROM t" is an error and not a read then a write. Text
+// that starts with COPY (after any comments) is the exception: the driver
+// sends it unprepared, as a simple query, and the server runs every
+// statement in it. A caller that must hold text to one statement splits
+// it first (pkg/sqllint) and refuses more, as db.pg's query does.
 func (s *Session) Query(ctx context.Context, o QueryOptions) (*Table, error) {
 	if o.MaxRows < 1 || o.MaxBytes < 1 {
 		return nil, errors.New("pgclient: a query needs a row and a byte bound")
@@ -86,9 +90,11 @@ func (s *Session) Query(ctx context.Context, o QueryOptions) (*Table, error) {
 	return table, nil
 }
 
-// Exec runs one statement that returns no rows, in a transaction it
+// Exec runs a statement that returns no rows, in a transaction it
 // commits, and reports how many rows it changed. The statement is
-// prepared, as Query's is, so it is exactly one statement.
+// prepared, as Query's is, so the server refuses more than one, with the
+// same exception: text starting with COPY is sent as a simple query, every
+// statement in it run.
 func (s *Session) Exec(ctx context.Context, sqlText string, args []any, limits Limits) (int64, error) {
 	tx, err := s.begin(ctx, false, false, limits)
 	if err != nil {

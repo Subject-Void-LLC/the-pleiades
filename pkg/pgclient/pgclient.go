@@ -47,9 +47,12 @@ import (
 
 // Target is one database and how to reach it.
 type Target struct {
-	// Host is the server's name as the dialing side sees it. It is the
-	// name a certificate is checked against unless TLS sets ServerName,
-	// and otherwise only names the server in messages.
+	// Host is the server's name as the dialing side sees it. It names the
+	// server in messages and to the driver, and nothing more. Dial decides
+	// where the stream goes, and a certificate is checked against TLS's
+	// ServerName, which the caller sets: Host is never copied into it, and
+	// Go refuses a handshake with neither a ServerName nor
+	// InsecureSkipVerify.
 	Host string
 	// Port is the server's port, for messages and the driver.
 	Port int
