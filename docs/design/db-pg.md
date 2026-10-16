@@ -10,7 +10,7 @@ restore a copy, move its schema forward, and prove two databases or a role's pri
 | `db.pg.query` | Runs one SQL statement and returns its rows as CSV, with the column names and a row count. Read-only unless `write: true`: the statement runs in a read-only transaction with a statement timeout and a lock timeout, and more rows than `max_rows` fail the task rather than being cut. | target, required |
 | `db.pg.dump` | Runs the device's `pg_dump` (custom format) into a new file on the device, and returns its size and SHA-256. | target, required |
 | `db.pg.restore` | Runs the device's `pg_restore` from an archive on the device into a database the task names, in one transaction. A database marked live is refused unless the task overrides it and says why; a database that already holds tables is refused unless `clean: true`. | target, required |
-| `db.pg.migrate` | Applies a directory of numbered `.sql` files on the device in order, each in its own transaction, recording each in a version table, as a named role. With `additive_only`, a file that drops, truncates, deletes, renames or retypes anything is refused before any file runs. | target, required |
+| `db.pg.migrate` | Applies a directory of numbered `.sql` files on the device in order, each in its own transaction, recording each in a version table, as a named role. With `additive_only`, a file that drops, truncates, deletes, renames or retypes anything, or runs what the lint cannot read (a `DO` block, `CALL`, `EXECUTE`, a query on its own), is refused before any file runs unless it says why. | target, required |
 | `db.pg.grants` | Compares the privileges a role holds in a database (database, schemas, tables, sequences, functions, columns, memberships and ownership) with a declared set, and fails naming each extra and each missing one. | target, required |
 | `db.pg.rowcounts` | Counts every table's rows in a database and, with `compare`, in a second one (on the same or another connection), each from one consistent snapshot, and fails naming each table whose counts differ or that only one side has. | target, required |
 
@@ -131,7 +131,12 @@ result records and the run warns about.
 - **The additive-only lint is a lexer, not a regex.** It reads comments, quoted identifiers, standard and escape
   strings and dollar quoting, so `DROP` inside a string or a comment is not a statement. `UPDATE` is allowed
   (a backfill is additive); a file that must be destructive says so with `-- pleiades: destructive: <reason>`,
-  which the result records. The lexer is fuzzed.
+  which the result records. It fails closed: a `DO` block, `CALL`, `EXECUTE`, `COPY` to or from a program, and a
+  query on its own (`SELECT f()` does whatever `f` does) are refused as unreadable, a statement that runs another
+  (`WITH`, `PREPARE`, `EXPLAIN`, `COPY` of a query) is judged by the one it runs, and a harmless one is waived by
+  the file with a reason rather than allowed by a looser rule. It does not see into a function or trigger an
+  `INSERT`, `UPDATE` or `CREATE` sets off. It also lexes as `standard_conforming_strings = on` reads, which
+  `pkg/pgclient` pins at connect and `migrate` checks before each file. The lexer is fuzzed.
 - **`grants` compares grants made to the role, not everything it can do.** Privileges reached through `PUBLIC` or
   another role's membership are that grant's to answer for; ownership is listed as its own entry and is extra
   unless declared, and an owned object lacks no privilege, since an owner holds everything on it. A column grant is reported, never folded into its table.
