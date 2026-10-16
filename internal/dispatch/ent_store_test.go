@@ -1,14 +1,14 @@
 package dispatch_test
 
 import (
+	"context"
 	"errors"
-	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	// Aliased entjob: this file's existing tests already name their local
 	// *dispatch.Job variable "job", so importing internal/ent/job under its
@@ -18,22 +18,36 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// newTestStore spins up a real in-memory SQLite database and returns a
-// JobStore over it. Per AGENTS.md's RULE 0, these tests exercise the
-// actual ent write path, the exact conditional-update idiom production
-// code runs, never a mock ent client standing in for it.
-//
-// Each test gets its own database name so shared-cache SQLite does not
-// leak rows between tests, mirroring internal/inventory/ent_save_test.go's
-// own newTestRepo.
+// newTestStore returns a JobStore over openTestDB's database. Per
+// AGENTS.md's RULE 0, these tests exercise the actual ent write path, the
+// exact conditional-update idiom production code runs, never a mock ent
+// client standing in for it.
 func newTestStore(t testing.TB) (dispatch.JobStore, *ent.Client) {
 	t.Helper()
-
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())
-	client := enttest.Open(t, "sqlite3", dsn)
-	t.Cleanup(func() { _ = client.Close() })
-
+	client := openTestDB(t)
 	return dispatch.NewEntJobStore(client), client
+}
+
+// openTestDB opens a real SQLite database exactly as the Controller opens
+// its own: ent.OpenDatabase on a file (WAL, a busy timeout, every
+// versioned migration applied), in tb's own directory, so no two tests
+// share one.
+//
+// It was an in-memory shared-cache database, which is not that
+// configuration. Shared cache answers two connections writing one table
+// with SQLITE_LOCKED ("database table is locked") at once, where WAL with
+// a busy timeout waits, so on a loaded runner the reaper's end-to-end test
+// failed both its claim and its settle in a way the Controller's database
+// does not: reproduced on a Mac, 6 failures in 200 runs of 8 copies at
+// once, every one "database table is locked: jobs".
+func openTestDB(tb testing.TB) *ent.Client {
+	tb.Helper()
+	client, err := ent.OpenDatabase(context.Background(), ent.Config{DSN: "sqlite://" + filepath.Join(tb.TempDir(), "state.db")})
+	if err != nil {
+		tb.Fatalf("opening the test database: %v", err)
+	}
+	tb.Cleanup(func() { _ = client.Close() })
+	return client
 }
 
 func TestEntJobStore_CreateAndGet(t *testing.T) {
