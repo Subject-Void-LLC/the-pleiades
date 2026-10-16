@@ -64,7 +64,7 @@ func saveUndo(ctx context.Context, conn *remoteexec.Conn, changes []change) (str
 		return "", "", err
 	}
 	quoted := remoteexec.QuoteArg(dir)
-	res, err := conn.Run(ctx, "umask 077 && mkdir -p -- "+quoted+" && chmod 700 -- "+quoted+
+	res, err := conn.Run(ctx, "umask 077 && mkdir -p -- "+quoted+" && chmod -- 700 "+quoted+
 		" && { find "+quoted+" -type f -name '*.json' -mtime +"+fmt.Sprint(undoRetentionDays)+" -exec rm -f -- {} + 2>/dev/null || true; }")
 	if err != nil {
 		return "", "", fmt.Errorf("preparing %s for the undo record: %w", dir, err)
