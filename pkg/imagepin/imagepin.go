@@ -131,15 +131,22 @@ func Extract(kind Kind, content []byte) ([]Ref, error) {
 	if len(content) > MaxFileBytes {
 		return nil, fmt.Errorf("the file is %d bytes, over the %d this reads", len(content), MaxFileBytes)
 	}
+	var refs []Ref
+	var err error
 	switch kind {
 	case KindDockerfile:
-		return extractDockerfile(content)
+		refs, err = extractDockerfile(content)
 	case KindCompose:
-		return extractCompose(content)
+		refs, err = extractCompose(content)
 	case KindKubernetes:
-		return extractKubernetes(content)
+		refs, err = extractKubernetes(content)
+	default:
+		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
-	return nil, fmt.Errorf("unknown kind %q", kind)
+	if err != nil {
+		return nil, err
+	}
+	return distinct(refs), nil
 }
 
 // Edit replaces one reference's text.
@@ -171,7 +178,44 @@ func Rewrite(content []byte, edits []Edit) ([]byte, error) {
 	return append(out, content[at:]...), nil
 }
 
-// lineOf is the 1-based line byte offset at falls on.
-func lineOf(content []byte, at int) int {
-	return strings.Count(string(content[:at]), "\n") + 1
+// lineIndex is the offset of every newline in a file, in order, so the
+// line a byte offset falls on is a binary search rather than a count from
+// the file's start, which once per reference made a file of many
+// references cost its size times their number.
+type lineIndex []int
+
+// newLineIndex indexes content's newlines.
+func newLineIndex(content []byte) lineIndex {
+	var x lineIndex
+	for i, b := range content {
+		if b == '\n' {
+			x = append(x, i)
+		}
+	}
+	return x
+}
+
+// line is the 1-based line byte offset at falls on.
+func (x lineIndex) line(at int) int {
+	return sort.SearchInts(x, at) + 1
+}
+
+// distinct keeps the first reference of each located byte range. One
+// place in a file can be reached more than once (an ARG two FROMs use, an
+// anchor two services merge), and it is one reference to pin: two edits
+// of it would overlap.
+func distinct(refs []Ref) []Ref {
+	seen := map[[2]int]bool{}
+	out := refs[:0]
+	for _, r := range refs {
+		if r.End > r.Start {
+			key := [2]int{r.Start, r.End}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, r)
+	}
+	return out
 }

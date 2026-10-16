@@ -26,23 +26,37 @@ type argDefault struct {
 // ${NAME}.
 var variableOnly = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
 
-// heredocStart matches a BuildKit here-document opener (<<EOF, <<-EOF,
-// <<"EOF", <<'EOF') and captures its terminator and whether tabs are
-// stripped.
-var heredocStart = regexp.MustCompile(`<<(-?)["']?([A-Za-z_][A-Za-z0-9_]*)["']?`)
+// heredocWord is BuildKit's own test for a here-document opener: a whole
+// word that starts with "<<" (after an optional file descriptor), an
+// optional "-" that strips leading tabs, and the terminator, which may be
+// quoted. Only RUN, COPY and ADD take one (heredocInstructions). A "<<"
+// anywhere else in a word (an arithmetic shift, a quoted string) opens
+// nothing, and reading one as an opener would hide every line after it.
+var heredocWord = regexp.MustCompile(`^\d*<<(-?)([^<]+)$`)
+
+// heredocInstructions are the instructions BuildKit reads heredocs in.
+var heredocInstructions = map[string]bool{"RUN": true, "COPY": true, "ADD": true}
 
 // dockerfileParser holds what a walk of one Dockerfile has seen.
+//
+// ARGs have two scopes, as in a build: those before the first FROM are
+// global, and only a FROM reads them; an ARG inside a stage belongs to
+// that stage, which is what COPY --from and RUN --mount read, and a bare
+// ARG there imports the global value into the stage without changing it.
 type dockerfileParser struct {
 	content []byte
+	lines   lineIndex
 	stages  map[string]bool
-	args    map[string]argDefault
+	global  map[string]argDefault
+	stage   map[string]argDefault
+	inStage bool
 	refs    []Ref
 }
 
 // extractDockerfile walks content's instructions: continuations joined,
 // comments and here-document bodies skipped.
 func extractDockerfile(content []byte) ([]Ref, error) {
-	p := &dockerfileParser{content: content, stages: map[string]bool{}, args: map[string]argDefault{}}
+	p := &dockerfileParser{content: content, lines: newLineIndex(content), stages: map[string]bool{}, global: map[string]argDefault{}, stage: map[string]argDefault{}}
 	escape := byte('\\')
 	lines := splitLines(content)
 	directives := true
@@ -90,10 +104,12 @@ func extractDockerfile(content []byte) ([]Ref, error) {
 			continue
 		}
 		if len(instruction) > 0 {
-			for _, t := range instruction {
-				if m := heredocStart.FindStringSubmatch(t.text); m != nil {
-					heredocs = append(heredocs, m[2])
-					stripTabs = m[1] == "-"
+			if heredocInstructions[strings.ToUpper(instruction[0].text)] {
+				for _, t := range instruction[1:] {
+					if m := heredocWord.FindStringSubmatch(t.text); m != nil {
+						heredocs = append(heredocs, unquote(m[2]))
+						stripTabs = m[1] == "-"
+					}
 				}
 			}
 			if err := p.instruction(instruction); err != nil {
@@ -108,6 +124,14 @@ func extractDockerfile(content []byte) ([]Ref, error) {
 		}
 	}
 	return p.refs, nil
+}
+
+// unquote strips one pair of matching quotes from a heredoc terminator.
+func unquote(word string) string {
+	if len(word) >= 2 && (word[0] == '"' || word[0] == '\'') && word[len(word)-1] == word[0] {
+		return word[1 : len(word)-1]
+	}
+	return word
 }
 
 // directive reads a parser directive line (# name=value), which only
@@ -132,14 +156,14 @@ func (p *dockerfileParser) instruction(tokens []token) error {
 			p.arg(t)
 		}
 	case "FROM":
-		return p.from(tokens[1:])
+		return p.from(tokens[0], tokens[1:])
 	case "COPY", "ADD":
 		for _, t := range tokens[1:] {
 			if !strings.HasPrefix(t.text, "--") {
 				break
 			}
 			if value, ok := strings.CutPrefix(t.text, "--from="); ok {
-				p.image(token{text: value, start: t.end - len(value), end: t.end}, "COPY --from")
+				p.image(token{text: value, start: t.end - len(value), end: t.end}, "COPY --from", p.stage)
 			}
 		}
 	case "RUN":
@@ -152,7 +176,7 @@ func (p *dockerfileParser) instruction(tokens []token) error {
 				for _, field := range strings.Split(spec, ",") {
 					if value, ok := strings.CutPrefix(field, "from="); ok {
 						start := offset + len("from=")
-						p.image(token{text: value, start: start, end: start + len(value)}, "RUN --mount")
+						p.image(token{text: value, start: start, end: start + len(value)}, "RUN --mount", p.stage)
 					}
 					offset += len(field) + 1
 				}
@@ -162,7 +186,9 @@ func (p *dockerfileParser) instruction(tokens []token) error {
 	return nil
 }
 
-// arg records an ARG NAME or ARG NAME=default.
+// arg records an ARG NAME or ARG NAME=default in its scope: global before
+// the first FROM, the current stage's after it, where a bare ARG NAME
+// imports the global value.
 func (p *dockerfileParser) arg(t token) {
 	name, value, hasDefault := strings.Cut(t.text, "=")
 	d := argDefault{}
@@ -174,19 +200,28 @@ func (p *dockerfileParser) arg(t token) {
 		}
 		d = argDefault{value: value, start: start, end: end, set: value != ""}
 	}
-	p.args[name] = d
+	switch {
+	case !p.inStage:
+		p.global[name] = d
+	case !hasDefault:
+		p.stage[name] = p.global[name]
+	default:
+		p.stage[name] = d
+	}
 }
 
-// from handles FROM [--flags] image [AS name].
-func (p *dockerfileParser) from(tokens []token) error {
+// from handles FROM [--flags] image [AS name]; keyword is the FROM
+// itself, which names the line when nothing follows it.
+func (p *dockerfileParser) from(keyword token, tokens []token) error {
 	i := 0
 	for i < len(tokens) && strings.HasPrefix(tokens[i].text, "--") {
 		i++
 	}
 	if i >= len(tokens) {
-		return fmt.Errorf("line %d: FROM names no image", lineOf(p.content, tokens[0].start))
+		return fmt.Errorf("line %d: FROM names no image", p.lines.line(keyword.start))
 	}
-	p.image(tokens[i], "FROM")
+	p.image(tokens[i], "FROM", p.global)
+	p.inStage, p.stage = true, map[string]argDefault{}
 	if i+2 < len(tokens) && strings.EqualFold(tokens[i+1].text, "AS") {
 		p.stages[strings.ToLower(tokens[i+2].text)] = true
 	}
@@ -195,8 +230,8 @@ func (p *dockerfileParser) from(tokens []token) error {
 
 // image records the reference t names, unless it names a build stage, a
 // stage by number, or scratch; a reference made of one variable is read
-// from that ARG's default.
-func (p *dockerfileParser) image(t token, where string) {
+// from that ARG's default in args, the scope the instruction reads.
+func (p *dockerfileParser) image(t token, where string, args map[string]argDefault) {
 	lower := strings.ToLower(t.text)
 	if p.stages[lower] || lower == "scratch" {
 		return
@@ -206,19 +241,19 @@ func (p *dockerfileParser) image(t token, where string) {
 	}
 	if m := variableOnly.FindStringSubmatch(t.text); m != nil {
 		name := m[1] + m[2]
-		d, declared := p.args[name]
+		d, declared := args[name]
 		if !declared || !d.set {
-			p.refs = append(p.refs, Ref{Line: lineOf(p.content, t.start), Start: t.start, End: t.end, Text: t.text, Where: where,
+			p.refs = append(p.refs, Ref{Line: p.lines.line(t.start), Start: t.start, End: t.end, Text: t.text, Where: where,
 				Unresolvable: fmt.Sprintf("it is the build argument %s, which has no default in this file", name)})
 			return
 		}
 		if p.stages[strings.ToLower(d.value)] || strings.EqualFold(d.value, "scratch") {
 			return
 		}
-		p.refs = append(p.refs, Ref{Line: lineOf(p.content, d.start), Start: d.start, End: d.end, Text: d.value, Where: "ARG " + name})
+		p.refs = append(p.refs, Ref{Line: p.lines.line(d.start), Start: d.start, End: d.end, Text: d.value, Where: "ARG " + name})
 		return
 	}
-	r := Ref{Line: lineOf(p.content, t.start), Start: t.start, End: t.end, Text: t.text, Where: where}
+	r := Ref{Line: p.lines.line(t.start), Start: t.start, End: t.end, Text: t.text, Where: where}
 	if strings.Contains(t.text, "$") {
 		r.Unresolvable = "part of it is a build argument, so the reference is only known when the image is built"
 	}

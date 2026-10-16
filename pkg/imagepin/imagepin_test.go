@@ -51,6 +51,9 @@ func TestExtractDockerfile(t *testing.T) {
 			}
 		})
 	}
+	if _, err := Extract(KindDockerfile, []byte("FROM a:1\nFROM")); err == nil || !strings.Contains(err.Error(), "line 2: FROM names no image") {
+		t.Errorf("a bare FROM, found panicking by FuzzExtract: %v", err)
+	}
 	if _, err := Extract(KindDockerfile, []byte("FROM --platform=linux/amd64\n")); err == nil {
 		t.Error("a FROM naming no image was accepted")
 	}
@@ -172,14 +175,20 @@ func TestRewrite(t *testing.T) {
 // FuzzExtract: any file of any kind either is refused or yields
 // references whose located ranges hold exactly their text.
 func FuzzExtract(f *testing.F) {
-	f.Add("FROM alpine:3.20 AS a\nCOPY --from=a /x /x\n", "dockerfile")
-	f.Add("services: {web: {image: 'a:1'}}\n", "compose")
-	f.Add("apiVersion: v1\nkind: Pod\nspec: {containers: [{image: a:1}]}\n", "kubernetes")
-	f.Fuzz(func(t *testing.T, content, kind string) {
-		refs, err := Extract(Kind(kind), []byte(content))
+	kinds := []Kind{KindDockerfile, KindCompose, KindKubernetes}
+	f.Add("FROM alpine:3.20 AS a\nCOPY --from=a /x /x\n", uint8(0))
+	f.Add("ARG B=a:1\nFROM ${B}\nFROM $B\nRUN <<EOF\nFROM x:1\nEOF\n", uint8(0))
+	f.Add("services: {web: {image: 'a:1'}}\n", uint8(1))
+	f.Add("x: &b {image: &i a:1}\nservices: {web: {<<: *b}, api: {image: *i}}\n", uint8(1))
+	f.Add("apiVersion: v1\nkind: Pod\nspec: {containers: [{image: a:1}]}\n", uint8(2))
+	f.Fuzz(func(t *testing.T, content string, which uint8) {
+		// The kind is one of the three real ones: a fuzzed kind string
+		// would almost always stop at "unknown kind" and test nothing.
+		refs, err := Extract(kinds[int(which)%len(kinds)], []byte(content))
 		if err != nil {
 			return
 		}
+		var edits []Edit
 		for _, r := range refs {
 			if r.Unresolvable != "" {
 				continue
@@ -187,6 +196,13 @@ func FuzzExtract(f *testing.F) {
 			if r.Start < 0 || r.End > len(content) || r.Start > r.End || content[r.Start:r.End] != r.Text {
 				t.Fatalf("ref %+v does not hold its text in %q", r, content)
 			}
+			edits = append(edits, Edit{r, r.Text})
+		}
+		// Every located reference is one edit, none overlapping, and
+		// writing each back as it is changes nothing.
+		out, err := Rewrite([]byte(content), edits)
+		if err != nil || string(out) != content {
+			t.Fatalf("rewriting %d references as they were: %v, changed: %v", len(edits), err, string(out) != content)
 		}
 	})
 }
