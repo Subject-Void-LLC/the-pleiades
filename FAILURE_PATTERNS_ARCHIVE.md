@@ -12509,3 +12509,138 @@ container shards start the reaper image ahead of the tests.
 **Lesson.** A tolerated failure in a step no test code reaches is still worth a line: it is the only way a recurrence
 will be recognised as one.
 
+## 484. A Cargo.toml nested a megabyte deep ended the process: go-toml recurses with no limit (a repeat of 62) (fixed)
+
+**Symptom.** Found 2026-10-16 by the pre-PR failure-pattern check of the build branch, then reproduced: go-toml v2.2.4
+fed `a=` and one million `[` died with "goroutine stack exceeds 1000000000-byte limit", which no recover catches. A
+Cargo file on a device could end `pleiades run`, or the Runner's task child.
+
+**Root cause.** 62's class in a dependency: a recursive parser whose depth is the input's nesting, with no bound.
+62's fix bounded this repository's own recursion; nothing checked a new parser's.
+
+**Fix.** `pkg/lockcheck.checkTOMLNesting` counts array and inline-table nesting the way TOML's grammar reads it
+(comments and all four string kinds skipped) and refuses past 100 before go-toml reads the file. yaml/v3 and
+encoding/json were checked the same way and stop at 10000 themselves.
+
+**Lesson.** A new parser of device data gets the nesting test before it is trusted: a megabyte of the opening
+bracket.
+
+## 485. Lockfile readers matched keys regardless of case, so a "Resolved" replaced the source npm fetches from (a repeat of 325) (fixed)
+
+**Symptom.** Found by the same check: `encoding/json` matches a key to a struct field regardless of case, and go-toml
+falls back to the same, so `"Resolved"` after `"resolved"` hid a source off the allowed list, `"Link"` skipped an
+entry npm installs, and a Cargo `SOURCE` replaced `source`. Six cases, each watched failing.
+
+**Root cause.** 325's class: Go's decoders are case-insensitive, and the readers of record (npm, Cargo) are not.
+325's fix was for runbooks; the lockfile readers were written after it.
+
+**Fix.** npm's lockfile, entries and manifest decode by exact key through a raw map; Cargo's files decode into maps,
+whose keys go-toml keeps as written.
+
+**Lesson.** Decoding data another program reads into a Go struct inherits encoding/json's case folding; read by
+exact key whenever a mismatch would be a security answer.
+
+## 486. The build-file reader saw less than a build does: heredocs at any "<<", one ARG scope, merge keys and aliases unfollowed, duplicate keys kept (a repeat of 473 and 332) (fixed)
+
+**Symptom.** Found by the same check, each a test watched failing: `RUN echo $((1<<X))` hid every later FROM; a
+stage `ARG BASE=pinned` changed what a later `FROM ${BASE}` read while Docker reads the global ARG; a Compose image
+from `<<: *base` was never seen; yaml/v3 kept both values of a duplicated `image`. `build.digests.check` could pass
+a file whose build pulls an image it never saw. One ARG used by two FROMs also made a refresh fail "edits overlap".
+
+**Root cause.** 473's and 332's class: a reader of a format that is a subset of what the real consumer (BuildKit,
+Compose) reads, so the check and the build disagree.
+
+**Fix.** BuildKit's own heredoc test, two ARG scopes, merge keys and aliases followed, duplicate keys refused, one
+reference per byte range. `docs/design/build.md` states each.
+
+**Lesson.** A checker is only as strict as the difference between what it reads and what the build reads; write
+the consumer's rules down and test each against the consumer's behavior.
+
+## 487. A failed refresh dropped the undo record that the files it could not put back needed (a repeat of 452) (fixed)
+
+**Symptom.** Found by the same check: `build.digests.refresh` dropped its undo record after any failed write, even
+when it reported files it could not put back, which were then changed with nothing able to restore them.
+
+**Root cause.** 452's class: an undo discarded on the failure path, where it matters most.
+
+**Fix.** The record is dropped only when every file is what it was; otherwise the error names it and the replay.
+A replay skips a line that already holds what it would write (a file the failed run never reached). Proven with a
+test-only hook that fails the put-back between two writes.
+
+**Lesson.** On a failure path, ask what can still restore the state; never drop it until the answer is nothing.
+
+## 488. containerengine's "set engine:" advice named a parameter no method declared, so validate refused it (a repeat of 270 and 324) (fixed)
+
+**Symptom.** Found by the same check: on a device running Docker and Podman, `containerengine.Open` asks for
+`engine:`, and `ParamsRule` refused the task for an undeclared parameter, saying the method "would ignore it",
+which it would not. `gate.run`, merged in #59, and both `build.digests` methods could not run on such a device.
+
+**Root cause.** 270's and 324's classes together: advice naming a key, and a validator refusing keys a method does
+not declare, with nothing tying the two.
+
+**Fix.** A shared fragment, `container_engine`, declares `engine`; the three methods name it; ParamsRule's test
+passes it to each.
+
+**Lesson.** A refusal that tells a user to set a parameter needs a test that sets it through the whole path,
+validation included.
+
+## 489. Fuzz targets fuzzed their selector string, so almost every input stopped at "unknown" and a panic went unfound (a repeat of 35) (fixed)
+
+**Symptom.** Found by the same check: `FuzzExtract` and `FuzzVerify` took the kind or format as a fuzzed string, so
+mutations nearly always returned "unknown kind" first. Fixed to pick a real kind by index, `FuzzExtract` found in
+seconds a panic a bare final `FROM` caused, which predated the change.
+
+**Root cause.** 35's class in a quieter form: the target calls the code, but its input distribution almost never
+reaches it.
+
+**Fix.** Both targets pick a registered kind or format by index, and FuzzExtract also checks that writing every
+reference back as it was changes nothing. The crashing input is kept under testdata/fuzz.
+
+**Lesson.** Fuzz the data, not the switch that chooses the code path.
+
+## 490. A line count from the file's start for every reference made a 1 MiB Compose file take 53 s (a repeat of 48) (fixed)
+
+**Symptom.** Found by the same check and measured: 40,000 references in one 1 MiB file took 53 s per read, and a
+refresh reads up to 200 files.
+
+**Root cause.** 48's class: per-item work proportional to the whole input.
+
+**Fix.** A line index built once per file; 67 ms. `BenchmarkExtract_ManyReferences`, run against both.
+
+**Lesson.** A helper that takes the whole input and an offset is quadratic when called per item; index once.
+
+## 491. The release gate's checked refresh asserted only what it left alone (a repeat of 467) (fixed)
+
+**Symptom.** Found by the same check: the gate's check step passed with `CheckRefresh` returning "changed" and
+doing nothing.
+
+**Root cause.** 467's class, written again after it.
+
+**Fix.** The step now asserts both predicted changes, from tag to served digest, marked predicted; watched failing
+on that mutation.
+
+**Lesson.** As 467's.
+
+## 492. ReadText's output bound also held standard error, so an unreadable file was reported as too large (fixed)
+
+**Symptom.** A new coverage test of `remotefile.ReadText` on a mode-000 file got "is over the 64 bytes this reads":
+cat's "Permission denied" message tripped the bound.
+
+**Root cause.** `RunWithStdinBounded` holds each stream to the limit, and ReadText read every ErrOutputTooLarge as the
+file being large.
+
+**Fix.** ReadText refuses a file over the bound by Stat's size before reading, gives the read room for cat's
+message, and calls output past the bound a file that grew while read.
+
+**Lesson.** When a bound covers more than one stream, the error that trips it does not say which.
+
+## 493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
+
+**Symptom.** A doc comment naming TOML's multi-line literal delimiter came out of `gofmt -w` as `(”')`.
+
+**Root cause.** Go doc comment formatting rewrites a pair of single quotes (and a pair of backquotes) into
+typographic quotes.
+
+**Fix.** The comment names the delimiter in words. A grep for non-ASCII bytes in the package found nothing else.
+
+**Lesson.** In a Go doc comment, never write two single quotes in a row; say it in words or put it in code.

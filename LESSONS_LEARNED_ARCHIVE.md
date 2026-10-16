@@ -5741,3 +5741,17 @@ put testcontainers-go into every external author's go.sum. A local `make pr-chec
 because both caches held the platform-only modules an offline tidy needed; only the macOS runner's did not, and the
 failure read like a cache problem rather than the dependency change it was.
 
+## 291. The failure-pattern check is a read of the code against each class; a passing pr-check says nothing about them
+
+**Rule.** For the pre-PR check (LESSONS 289), open the archive entry of every class that could apply and read the
+branch's code for it, as an adversary would: which input makes this reader disagree with the real consumer, which
+failure path drops what restores the state, which advice cannot be followed. A delegated reader's report is a list
+of claims; prove each with a test on the old code before fixing it, and fix it with that test.
+
+**Why.** 2026-10-16, the build branch. `make pr-check` failed only on one coverage floor. The failure-pattern read,
+done by a delegated agent and verified one claim at a time, found nine repeats of recorded classes in code written
+after their fixes (FAILURE_PATTERNS 484 to 491): a parser that could end the process, lockfile readers a case change
+fooled, a Dockerfile and YAML reader that saw less than the build, an undo dropped when it was needed, advice
+validation refused (in `gate.run`, already merged), fuzz targets that rarely reached the code, a quadratic line count
+and a gate step that asserted nothing. Every one passed the gates, because gates run the tests the author wrote.
+
