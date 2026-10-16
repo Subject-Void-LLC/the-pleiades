@@ -127,18 +127,6 @@ func alterDestructive(s Statement) string {
 	return ""
 }
 
-// object names what a DROP drops, from the words after it.
-func object(w []string) string {
-	for _, word := range w {
-		switch word {
-		case "IF", "EXISTS", "CONCURRENTLY":
-			continue
-		}
-		return "a " + strings.ToLower(word)
-	}
-	return "something"
-}
-
 // words is t's bare words.
 func words(t []Token) []string {
 	var out []string
