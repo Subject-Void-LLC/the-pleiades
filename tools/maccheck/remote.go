@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -34,6 +35,11 @@ const device = "mac"
 // the part worth reading.
 const exitMarker = "maccheck-exit="
 
+// sshOptions are every ssh call's: never prompt, give up on a connection
+// in ten seconds, and end one the Mac stops answering (asleep, or off the
+// network) after a minute rather than wait on it forever.
+var sshOptions = []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"}
+
 // probeTimeout bounds the liveness probe of the Mac's SSH port; a variable
 // so a test can probe an address that never answers without waiting.
 var probeTimeout = 5 * time.Second
@@ -54,8 +60,8 @@ type remoteRunner interface {
 
 // pleiadesRemote is the real Mac end.
 type pleiadesRemote struct {
-	// project is the private Pleiades project's directory, under .git so
-	// it is this clone's and is never committed.
+	// project is the private Pleiades project's directory, under this
+	// worktree's git directory so it is never committed and never shared.
 	project string
 }
 
@@ -68,7 +74,7 @@ type sshTarget struct {
 
 // resolve runs ssh -G on mac.
 func resolve(mac string) (sshTarget, error) {
-	out, err := exec.Command("ssh", "-G", mac).Output() // #nosec G204 -- the developer's own configured Mac
+	out, err := exec.Command("ssh", "-G", "--", mac).Output() // #nosec G204 -- the developer's own configured Mac
 	if err != nil {
 		return sshTarget{}, fmt.Errorf("ssh cannot resolve %q: %v", mac, err)
 	}
@@ -143,7 +149,7 @@ tar -x -C "$base/%[3]s"`, checkoutDir, keptCheckouts, sha)
 		return err
 	}
 	var stderr bytes.Buffer
-	send := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", mac, "/bin/sh", "-c", shellQuote(unpack)) // #nosec G204 -- the developer's own configured Mac
+	send := exec.Command("ssh", slices.Concat(sshOptions, []string{"--", mac, "/bin/sh", "-c", shellQuote(unpack)})...) // #nosec G204 -- the developer's own configured Mac
 	send.Stdin = tar
 	send.Stderr = &stderr
 	if err := archive.Start(); err != nil {

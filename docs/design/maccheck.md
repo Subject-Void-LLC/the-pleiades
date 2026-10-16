@@ -14,13 +14,17 @@ argument-order class on Linux; the rest needs a Mac.
 
 1. **The Mac** is `PLEIADES_MAC` in `tests/mac/.env` (gitignored, so never committed and never in the tree sent to
    the Mac; `tests/mac/.env.example` shows it): anything `ssh` accepts (`user@host`, `user@ip`, or a `Host` alias
-   from `~/.ssh/config`). The same variable in the environment overrides the file, and `-mac` overrides both for
-   one run. Deleting the file stops testing on a Mac.
+   from `~/.ssh/config`). A linked worktree with no file of its own reads the main worktree's, so one file serves
+   every worktree of a clone. The same variable in the environment overrides the file, and `-mac` overrides both
+   for one run. Deleting the file stops testing on a Mac. A target beginning with `-` (which ssh would read as an
+   option) or holding a space or control character is refused before anything runs, and so is a `-commit`
+   beginning with `-`.
 2. **Liveness first.** `ssh -G` resolves the target as ssh would, and a TCP connection to its SSH port must open
    within five seconds. A Mac that is asleep, off the network or not listening is named at once, with what to
    check and how to change the Mac or stop using one.
-3. **The Mac is a Pleiades device.** A private project under `.git/pleiades-maccheck` (this clone's, never
-   committed) holds it as a `generic_ssh` device with the first of ssh's identity files as its credential, made
+3. **The Mac is a Pleiades device.** A private project in the worktree's own git directory
+   (`.git/pleiades-maccheck`, or `.git/worktrees/<name>/pleiades-maccheck` in a linked worktree, never committed,
+   so two worktrees running at once never share a project or a binary) holds it as a `generic_ssh` device with the first of ssh's identity files as its credential, made
    with this branch's own `pleiades` (`init`, `add-host`, `add-credential`, `onboard`) and remade whenever the
    target changes. `net.ssh.ping` confirms Pleiades reaches it, and `exec.command` that it is a Mac with `go` and
    `caffeinate` on its PATH.
@@ -51,6 +55,8 @@ Each is something a Pleiades user doing the same would meet. None is built here.
 |---|---|
 | No Mac named | `make mac-check` refuses, saying how to name one; `pr-check` says macOS was not checked and carries on. |
 | The SSH port does not answer in five seconds | Refused before anything else, naming the address, what to check, and how to change or remove the setting. |
-| Pleiades cannot log in or the host key is unknown | Refused, with `ssh <mac> true` to accept the key, and the same instructions. |
+| The Mac refuses this machine's key | Refused by a plain `ssh` login before Pleiades is involved, with the `ssh-copy-id` command that adds the key. |
+| The host key is unknown or changed | Refused the same way, with `ssh <mac> true` to accept the key, and the same instructions. |
+| The Mac stops answering partway | maccheck's own ssh calls (the login check and sending the tree) send a keepalive every 15 seconds and give up after four unanswered. The test run goes through Pleiades, which has no such bound yet (the timeout gap above). |
 | Not a Mac, or no `go` or `caffeinate` | Refused, naming which. |
 | The tests fail | Exit 1, with the Mac's output. |

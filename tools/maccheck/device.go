@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -204,7 +205,7 @@ func argvYAML(argv ...string) string {
 // Pleiades onboarding that would meet it next.
 func loginCheck(mac string, t sshTarget) error {
 	var stderr bytes.Buffer
-	cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", mac, "true") // #nosec G204 -- the developer's own configured Mac
+	cmd := exec.Command("ssh", slices.Concat(sshOptions, []string{"--", mac, "true"})...) // #nosec G204 -- the developer's own configured Mac
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return loginFailure(mac, firstKey(t), stderr.String(), err)

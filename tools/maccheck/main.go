@@ -12,7 +12,9 @@
 // else, maccheck probes the Mac's SSH port; then net.ssh.ping and
 // exec.command check Pleiades reaches it and that it is a Mac with go and
 // caffeinate. Each failure stops it with what to do, including how to
-// point it at another Mac or stop using one. The committed tree (never the
+// point it at another Mac or stop using one. A linked worktree with no
+// tests/mac/.env of its own reads the clone's main worktree's, so one file
+// serves every worktree. The committed tree (never the
 // working tree) is unpacked into a directory of its own on the Mac, and
 // the packages run there through tools/testgate as pr-check runs them,
 // under caffeinate so the Mac does not sleep partway.
@@ -33,6 +35,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // envKey names the Mac, in the environment or in envFile.
@@ -44,9 +47,16 @@ const envKey = "PLEIADES_MAC"
 const envFile = "tests/mac/.env"
 
 // changeOrRemove is what every refusal ends with: how to point maccheck at
-// another Mac, and how to stop using one.
-const changeOrRemove = `  To test on another Mac:   set ` + envKey + ` in ` + envFile + ` (user@host, user@ip, or an ~/.ssh/config alias)
-  To stop testing on a Mac: delete ` + envFile
+// another Mac, and how to stop using one. file is the settings file that
+// named the Mac, or "" when the environment or -mac did.
+func changeOrRemove(file string) string {
+	if file == "" {
+		return "  To test on another Mac:   name it with -mac or " + envKey + " (user@host, user@ip, or an ~/.ssh/config alias)\n" +
+			"  To stop testing on a Mac: unset " + envKey + ", and delete " + envFile + " if one names a Mac"
+	}
+	return "  To test on another Mac:   set " + envKey + " in " + file + " (user@host, user@ip, or an ~/.ssh/config alias)\n" +
+		"  To stop testing on a Mac: delete " + file
+}
 
 // importPath is what a package argument must look like, since each is
 // written into the command the Mac runs.
@@ -55,7 +65,7 @@ var importPath = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 func main() {
 	project, err := privateProject()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "maccheck: finding this clone's git directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "maccheck: finding this worktree's git directory: %v\n", err)
 		os.Exit(2)
 	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, pleiadesRemote{project: project}))
@@ -81,10 +91,15 @@ func run(args []string, stdout, stderr io.Writer, remote remoteRunner) int {
 		}
 	}
 
-	mac := *target
+	if strings.HasPrefix(*commit, "-") {
+		fmt.Fprintf(stderr, "maccheck: %q is not a commit: it begins with \"-\", which git reads as an option\n", *commit)
+		return 2
+	}
+
+	mac, file := *target, ""
 	if mac == "" {
 		var err error
-		if mac, err = configured(); err != nil {
+		if mac, file, err = configured(); err != nil {
 			fmt.Fprintf(stderr, "maccheck: %v\n", err)
 			return 2
 		}
@@ -97,22 +112,26 @@ func run(args []string, stdout, stderr io.Writer, remote remoteRunner) int {
 		fmt.Fprintf(stderr, "maccheck: no Mac is configured. Name one, then run this again:\n  cp %[1]s.example %[1]s, and set %[2]s in it to user@host, user@ip, or an ~/.ssh/config alias\n", envFile, envKey)
 		return 2
 	}
+	if err := checkTarget(mac); err != nil {
+		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove(file))
+		return 2
+	}
 	if len(packages) == 0 {
 		fmt.Fprintln(stdout, "maccheck: the branch changes no container-free package, so nothing runs on the Mac")
 		return 0
 	}
-
-	if err := remote.Reachable(mac); err != nil {
-		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove)
-		return 2
-	}
-	if err := remote.Ready(mac); err != nil {
-		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove)
-		return 2
-	}
 	sha, dirty, err := resolveCommit(*commit)
 	if err != nil {
 		fmt.Fprintf(stderr, "maccheck: %v\n", err)
+		return 2
+	}
+
+	if err := remote.Reachable(mac); err != nil {
+		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove(file))
+		return 2
+	}
+	if err := remote.Ready(mac); err != nil {
+		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove(file))
 		return 2
 	}
 	if dirty {
@@ -125,7 +144,7 @@ func run(args []string, stdout, stderr io.Writer, remote remoteRunner) int {
 	}
 	passed, err := remote.Test(mac, sha, testScript(sha, *parallel, packages), stdout, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "maccheck: running the tests on %s: %v\n%s\n", mac, err, changeOrRemove)
+		fmt.Fprintf(stderr, "maccheck: running the tests on %s: %v\n%s\n", mac, err, changeOrRemove(file))
 		return 2
 	}
 	if !passed {
@@ -151,6 +170,19 @@ export PATH="$PATH:%[1]s"
 cd "$HOME/%[2]s/%[3]s" || { echo "%[4]s2"; exit 0; }
 caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full %[5]s %[6]s && go run ./tools/testgate -repeat 3 -strict %[5]s %[6]s'
 echo "%[4]s$?"`, macPath, checkoutDir, sha, exitMarker, p, pkgs)
+}
+
+// checkTarget refuses a Mac target that ssh would read as an option, or
+// that cannot name one host: one beginning with "-", or holding a space or
+// a control character (a trailing comment on its line of envFile, say).
+func checkTarget(mac string) error {
+	if strings.HasPrefix(mac, "-") {
+		return fmt.Errorf("%q is not an ssh target: it begins with \"-\", which ssh reads as an option", mac)
+	}
+	if strings.IndexFunc(mac, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return fmt.Errorf("%q is not an ssh target: it holds a space or a control character", mac)
+	}
+	return nil
 }
 
 // short is a commit's first twelve hex digits.

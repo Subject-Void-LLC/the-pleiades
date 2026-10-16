@@ -38,29 +38,65 @@ func firstOf(values ...string) string {
 	return ""
 }
 
-// configured is the Mac: envKey from the environment, else from envFile at
-// the repository's top level, else "" when neither names one.
-func configured() (string, error) {
+// configured is the Mac and the settings file that named it: envKey from
+// the environment (file ""), else from the first envFile that exists (see
+// envFiles), else "" when none names one.
+func configured() (mac, file string, err error) {
 	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
-		return v, nil
+		return v, "", nil
 	}
-	top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	files, err := envFiles()
 	if err != nil {
-		return "", fmt.Errorf("finding the repository's top level: %v", err)
+		return "", "", err
 	}
-	path := filepath.Join(strings.TrimSpace(string(top)), envFile)
-	data, err := os.ReadFile(path) // #nosec G304 -- this repository's own settings file
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+	for _, path := range files {
+		data, err := os.ReadFile(path) // #nosec G304 -- this repository's own settings file
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", "", err
+		}
+		settings, err := parseEnv(data)
+		if err != nil {
+			return "", "", fmt.Errorf("%s: %v", path, err)
+		}
+		return settings[envKey], path, nil
 	}
+	return "", "", nil
+}
+
+// envFiles is where envFile may be, in order: this worktree's top level,
+// then, in a linked worktree, the clone's main worktree's, so one file
+// names the Mac for every worktree of a clone.
+func envFiles() ([]string, error) {
+	top, err := gitPath("--show-toplevel")
+	if err != nil {
+		return nil, fmt.Errorf("finding the repository's top level: %v", err)
+	}
+	files := []string{filepath.Join(top, envFile)}
+	common, err := gitPath("--git-common-dir")
+	if err != nil {
+		return nil, fmt.Errorf("finding the clone's git directory: %v", err)
+	}
+	if main := filepath.Dir(common); filepath.Base(common) == ".git" && main != top {
+		files = append(files, filepath.Join(main, envFile))
+	}
+	return files, nil
+}
+
+// gitPath is the path git rev-parse prints for flag, absolute and with
+// symbolic links resolved, so two spellings of one directory compare equal.
+func gitPath(flag string) (string, error) {
+	out, err := exec.Command("git", "rev-parse", flag).Output() // #nosec G204 -- a fixed rev-parse flag
 	if err != nil {
 		return "", err
 	}
-	settings, err := parseEnv(data)
+	abs, err := filepath.Abs(strings.TrimSpace(string(out)))
 	if err != nil {
-		return "", fmt.Errorf("%s: %v", envFile, err)
+		return "", err
 	}
-	return settings[envKey], nil
+	return filepath.EvalSymlinks(abs)
 }
 
 // parseEnv reads KEY=VALUE lines, skipping blank lines and # comments, with
@@ -90,13 +126,10 @@ func parseEnv(data []byte) (map[string]string, error) {
 }
 
 // privateProject is the private Pleiades project's directory, under this
-// clone's git directory.
+// worktree's own git directory, so two worktrees running at once never
+// build over each other's binary or share a project.
 func privateProject() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--git-common-dir").Output()
-	if err != nil {
-		return "", err
-	}
-	dir, err := filepath.Abs(strings.TrimSpace(string(out)))
+	dir, err := gitPath("--absolute-git-dir")
 	if err != nil {
 		return "", err
 	}
