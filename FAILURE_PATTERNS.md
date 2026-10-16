@@ -480,6 +480,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
 476. The gate tests ran gate.run's own timeout command on the host, and macOS has none that takes -k (a repeat of 420) (fixed)
 477. A release gate's fake server read its data while the test wrote it, with no lock (a repeat of 6 and 33) (fixed)
+478. The gate's TCP precondition test made its closed endpoint by releasing a port (a repeat of 123, 177 and 183) (fixed)
+479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
+480. The test SSH server's forward dialed with no bound, and Close waited for it (a repeat of 339 and 444) (fixed)
+481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

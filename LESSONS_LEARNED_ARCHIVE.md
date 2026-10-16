@@ -5705,3 +5705,25 @@ the examples test's exemption, which must fail if the named test stops existing.
 `discovered` and run nothing until onboarding proves them. A shipped discovery would claim a proof nobody made.
 The generic examples test could not satisfy the precondition, and the per-example gates can, which makes them the
 stronger check.
+
+## 288. Never edit a worktree a gate is running in; work elsewhere until it ends
+
+**Rule.** While `make pr-check`, `ci-remote` or any gate runs in a worktree, change nothing in it: no edit, no
+commit, no branch switch. Work in another worktree, or wait.
+
+**Why.** 2026-10-15: every check of a `pr-check` on the gate branch passed, and no receipt was written, because I had
+edited files in that checkout while it ran. Twenty minutes went for nothing, and the push waited for a second run.
+A gate that read part of an edited tree has proved nothing about any commit, which is why the receipt is refused.
+
+## 289. Before a pull request, check its whole diff against FAILURE_PATTERNS; pr-check sees only what a Linux run can
+
+**Rule.** Before opening a pull request or pushing to one, read every title in `FAILURE_PATTERNS.md`, open each
+entry whose class could apply to the branch's whole diff (origin/main..branch), and check the diff for it. Fix what
+matches, and list the classes checked in the PR body.
+
+**Why.** 2026-10-15, PR #59. `make pr-check` passed, and CI's `fast-macos` failed on 420's class (476). The owner
+then asked that every PR be checked against the failure patterns first. That check, on the same branch, found three
+more repeats before any of them failed anywhere: a released port (478, of 123), a timing ceiling (479, of 211 and
+422), and a fixture Close with no bound (480, of 339 and 444). Each class had been recorded and fixed where it was
+found, and each came back in code written after its fix. A recorded class only stays fixed if new code is checked
+for it.

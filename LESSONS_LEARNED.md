@@ -320,6 +320,8 @@ story, per `.AGENTS/AGENTS.md`.
 285. **A fuzz harness allocates nothing per input that outlives the input: one server per fuzz process, not one per call (2026-10-15).**
 286. **A human-in-the-loop gate is as strong as where its decision lives: tasks cannot write it, agents cannot make it, and it binds to what was shown (2026-10-15).**
 287. **An example whose devices must be onboarded is proved by a gate that onboards them, never by a shipped discovery (2026-10-15).**
+288. **Never edit a worktree a gate is running in; work elsewhere until it ends (2026-10-15).**
+289. **Before a pull request, check its whole diff against FAILURE_PATTERNS; pr-check sees only what a Linux run can (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

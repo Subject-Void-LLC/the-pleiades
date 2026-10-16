@@ -12377,3 +12377,68 @@ The gate test makes its changes through `Mutate`. Both packages pass under `-rac
 
 **Lesson.** A fake server in a test is shared state like any other: when a test changes it while the server answers,
 the change goes through the server's lock. This is 6's and 33's lesson in a test fixture that was written after them.
+
+## 478. The gate's TCP precondition test made its closed endpoint by releasing a port (a repeat of 123, 177 and 183) (fixed)
+
+**Symptom.** None yet: found on 2026-10-15 by checking PR #59's whole diff against this index before pushing, at
+the owner's request. `TestRun_ATCPPreconditionIsTestedFromTheDevice` opened a listener on `127.0.0.1:0`, read its
+address, closed it, and asserted a check requiring that address skips.
+
+**Root cause.** The construction 123 named: a released port can be taken by any process, here most plausibly by the
+test SSH server's own forwards or a parallel package's listener, and then the "closed" endpoint answers.
+
+**Why 123's fix did not hold.** 123, 177 and 183 each fixed the sites they found, and 183's sweep found eight of
+ten. Nothing stops new code from writing the construction again, and this test was written after all three.
+
+**Fix.** `192.0.2.1:9` (TEST-NET-1, RFC 5737, never routed), with the probe's budget shortened to two seconds for
+this test through a test-only setter (`gate.SetProbeTimeout`, in `export_test.go`). Port 0, 123's other remedy, is
+refused by the manifest's own validation, which requires a port from 1 to 65535.
+
+**Lesson.** See LESSONS 289: a class recorded here recurs in code written after its fix unless something checks
+new code for it. The pre-PR check against this index is that something.
+
+## 479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
+
+**Symptom.** None yet: found by the same pre-PR check. `TestRun_ParallelismRunsChecksTogether` asserted that two
+`sleep 1` checks with `parallelism: 2` finished in under two seconds.
+
+**Root cause.** A ceiling on wall-clock time, which a contended runner stretches: each check also opens SSH
+sessions, captures a process ID and preflights `timeout`, so under `-race` on two cores the margin is not a
+property of the code.
+
+**Fix.** Concurrency is proved by a rendezvous: each check touches its own mark and waits, up to 30 s, for the
+other's, so both pass only when both run at once, however slowly. The serial run keeps its lower bound (at least
+two seconds), which slowness can only lengthen.
+
+**Lesson.** A lower bound on time is safe under load; an upper bound is a contention test. Prove "together" by
+something only togetherness produces.
+
+## 480. The test SSH server's forward dialed with no bound, and Close waited for it (a repeat of 339 and 444) (fixed)
+
+**Symptom.** After 478's fix, the TCP precondition test took 134 s against a two-second probe budget. The product
+returned at two seconds; the test's cleanup did not.
+
+**Root cause.** `remoteexectest`'s `serveDirectTCPIP` called `net.Dial` with no deadline, and `Server.Close` waits for
+every channel's goroutine, so a forward to an address that drops packets held Close for the kernel's connect
+timeout. 339 and 444 were the same fixture holding Close on work with no end; their fixes bounded other paths.
+
+**Fix.** The forward dials with a context that ends when its SSH connection ends, as a real sshd abandons a pending
+connect. The test now takes two seconds; `pkg/remoteexec` and `internal/transport/ssh` pass under `-race`.
+
+**Lesson.** Anything a fixture's Close waits for needs an end of its own: a dial, a read, a copy.
+
+## 481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (open)
+
+**Symptom.** 2026-10-15, `make pr-check` on the gate branch: `TestCLI_PackageAndAccountMethodsReachARealDevice`'s
+container logged "Server listening on 0.0.0.0 port 22" and testcontainers' `ForListeningPort` dialed
+`localhost:<mapped>` 1,665 times over 3 m 15 s without a connection. It passed when re-run alone, and the gate
+tolerated it.
+
+**Root cause.** Unknown, as for 470 and 471: the third image showing the shape (openssh, Postgres, now a Debian
+sshd), each logging that its server listens while the host's mapped port never connects. 470's diagnosis covers the
+openssh fixture's own wait only; this one waits through testcontainers' check, which reports only its deadline.
+
+**Fix.** None yet. The next step stays 471's: give every fixture's wait the bindings-and-socket report 470 built.
+
+**Lesson.** Three images, one shape: the cause is below the images, in the host's port forwarding under load, and
+a report from inside the wait is how it will be found.
