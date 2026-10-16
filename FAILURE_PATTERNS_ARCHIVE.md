@@ -12394,8 +12394,24 @@ ten. Nothing stops new code from writing the construction again, and this test w
 this test through a test-only setter (`gate.SetProbeTimeout`, in `export_test.go`). Port 0, 123's other remedy, is
 refused by the manifest's own validation, which requires a port from 1 to 65535.
 
+The same check then found a second site in PR #59's diff, `remoteexec`'s forward-refusal test, which needs an
+endpoint that refuses rather than one that never answers. It takes `refusing.Addr` (`internal/testsupport/refusing`),
+a new helper: a loopback port bound by a socket that never listens, held until the test ends, so no other socket can
+take it and a dial to it is refused. Linux answers that dial with a reset. XNU does not: on the macOS CI runner the
+helper's own probe dial got "i/o timeout", so a refusal test there would have waited out its timeout. The helper
+dials its address once and skips (`needs refusing-port`) unless the dial is refused, which is what macOS then did,
+and the Linux CI jobs that set `PLEIADES_TEST_REQUIRE` require `refusing-port`. Its first home, `internal/testsupport`
+itself, was a defect of its own: 482.
+
+**Guard.** The follow-up branch `test/released-port-guard` adds `internal/archtest`'s
+`TestNoReleasedPortIsUsedAsAnAddress`, which parses every Go file and refuses a listener's address used after an
+explicit `Close` or returned from a function that closes it by `defer`. On its first run it found eight more sites,
+all moved onto `refusing.Addr`/`refusing.Port` there, and two helpers (`freeTCPPort` in the leader election release
+gate and in `tests/e2e`) allowed by name with their reasons: each hands the port to a subprocess that must bind it
+itself, so it cannot be held, and a taken port fails that subprocess loudly at startup.
+
 **Lesson.** See LESSONS 289: a class recorded here recurs in code written after its fix unless something checks
-new code for it. The pre-PR check against this index is that something.
+new code for it. The pre-PR check against this index is that something, and for this class the guard now is too.
 
 ## 479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
 
@@ -12442,3 +12458,29 @@ openssh fixture's own wait only; this one waits through testcontainers' check, w
 
 **Lesson.** Three images, one shape: the cause is below the images, in the host's port forwarding under load, and
 a report from inside the wait is how it will be found.
+
+## 482. A test of a package pkg/external reaches imported internal/testsupport, putting testcontainers-go into every external author's go.sum (fixed)
+
+**Symptom.** 2026-10-15, PR #59 at `5d4dc00c`: `fast-macos` failed `internal/forge/externalscaffold`'s
+`TestGenerate_ReleaseGate` with "the README's step "go mod tidy" failed offline", on
+`github.com/power-devops/perfstat: module lookup disabled by GOPROXY=off`, reached through
+`pkg/external imports pkg/remoteexec tested by pkg/remoteexec.test imports internal/testsupport imports
+testcontainers-go`. `fast` on Linux and a local `make pr-check` passed the same commit.
+
+**Root cause.** 478's fix gave `pkg/remoteexec`'s forward test `testsupport.RefusingAddr`. `go mod tidy` loads the
+tests of every package a program reaches, in other modules too, and the scaffolded external Collection reaches
+`pkg/remoteexec` through `pkg/external`, so its tidy now loaded `internal/testsupport`, which imports
+testcontainers-go. Every external Collection author's go.sum would have gained that whole module graph. The release
+gate tidies offline, so it failed wherever the module cache lacked one of the graph's platform-only modules: the macOS
+runner's cache did, the Linux runner's and this machine's held them all.
+
+**Fix.** `Require`'s implementation moved to `internal/testsupport/need`, which imports only the standard library,
+with `testsupport.Require` and `RequireEnv` delegating to it; the helper moved to `internal/testsupport/refusing`,
+built on `need`. Reproduced before fixing by setting perfstat aside from the local module cache: the release gate
+failed on the old import with the macOS error and passed on the fix. `internal/archtest`'s
+`TestExternalSDKTestsStayLight` now refuses a test, of any package of this module that `pkg/external` reaches, that
+imports anything reaching testcontainers-go; watched failing on a blank `internal/testsupport` import in that test.
+
+**Lesson.** See LESSONS 290: a test import in a package another module consumes is part of that module's graph, and
+a run on a warm module cache proves nothing about it.
+

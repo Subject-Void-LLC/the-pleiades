@@ -322,6 +322,7 @@ story, per `.AGENTS/AGENTS.md`.
 287. **An example whose devices must be onboarded is proved by a gate that onboards them, never by a shipped discovery (2026-10-15).**
 288. **Never edit a worktree a gate is running in; work elsewhere until it ends (2026-10-15).**
 289. **Before a pull request, check its whole diff against FAILURE_PATTERNS; pr-check sees only what a Linux run can (2026-10-15).**
+290. **A test import in a package other modules consume is part of their module graph; a warm cache proves nothing about it (2026-10-15).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

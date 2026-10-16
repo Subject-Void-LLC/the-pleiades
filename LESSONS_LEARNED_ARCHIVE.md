@@ -5727,3 +5727,17 @@ more repeats before any of them failed anywhere: a released port (478, of 123), 
 422), and a fixture Close with no bound (480, of 339 and 444). Each class had been recorded and fixed where it was
 found, and each came back in code written after its fix. A recorded class only stays fixed if new code is checked
 for it.
+
+## 290. A test import in a package other modules consume is part of their module graph; a warm cache proves nothing about it
+
+**Rule.** Before a test of a `pkg/` package imports something new, ask whether another module reaches that package
+(an external Collection reaches everything `pkg/external` does), because that module's `go mod tidy` loads the test
+and its whole import graph. Keep such tests on the standard library and the light leaves
+(`internal/testsupport/need`, `.../refusing`); `internal/archtest`'s `TestExternalSDKTestsStayLight` enforces it for
+testcontainers-go. A run that passes on a module cache already holding every module is not evidence either way.
+
+**Why.** 2026-10-15, PR #59 (FAILURE_PATTERNS 482). Moving one test onto a shared helper in `internal/testsupport`
+put testcontainers-go into every external author's go.sum. A local `make pr-check` and the Linux `fast` job passed,
+because both caches held the platform-only modules an offline tidy needed; only the macOS runner's did not, and the
+failure read like a cache problem rather than the dependency change it was.
+
