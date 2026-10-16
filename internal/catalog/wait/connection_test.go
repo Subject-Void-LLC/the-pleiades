@@ -6,13 +6,13 @@ package wait_test
 
 import (
 	"context"
-	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -21,8 +21,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// deadPort returns a local TCP port nothing listens on: one a listener
-// held and gave back.
+// deadPort returns a local TCP port that refuses every connection while
+// the test runs (internal/testsupport/refusing).
 //
 // It also gives the calling test its own remoteexec memo, discarded when
 // the test ends. Every dial at the dead port is a failure the shared
@@ -34,13 +34,7 @@ import (
 func deadPort(t *testing.T) int {
 	t.Helper()
 	t.Cleanup(remoteexec.SnapshotForTest())
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return port
+	return refusing.Port(t)
 }
 
 // lateTarget is an SSH device that is not up for its first few tries:

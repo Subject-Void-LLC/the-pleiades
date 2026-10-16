@@ -13,6 +13,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 )
 
 // procNetTCP is /proc/net/tcp text: sshd listening on 2222 (08AE), and a
@@ -66,12 +68,7 @@ func (e evidenceTarget) Exec(context.Context, []string, ...tcexec.ProcessOption)
 // every connection times out naming Docker's bindings, the port it dialed,
 // and whether a server listens inside, for each of the two answers.
 func TestForGreeting_ATimeoutSaysWhatItFoundInside(t *testing.T) {
-	refusing, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := refusing.Addr().String()
-	_ = refusing.Close()
+	addr := refusing.Addr(t)
 	_, hostPort, _ := net.SplitHostPort(addr)
 
 	for name, tc := range map[string]struct {

@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -97,9 +98,7 @@ func TestGRPCProbe_NotServingIsRefused(t *testing.T) {
 
 // TestGRPCProbe_NothingListeningProvesNothing: a closed port is an error.
 func TestGRPCProbe_NothingListeningProvesNothing(t *testing.T) {
-	lis, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := lis.Addr().String()
-	_ = lis.Close()
+	addr := refusing.Addr(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := (grpcProber{}).Probe(ctx, grpcDevice(t, addr, true), nil); err == nil {

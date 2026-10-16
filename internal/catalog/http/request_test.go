@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -474,11 +475,11 @@ func TestRequest_TimesOut(t *testing.T) {
 }
 
 // TestRequest_ConnectionFailureIsReported covers the branch where nothing
-// answered at all, using an address that really has nothing listening.
+// answered at all, using an address that really has nothing listening: a
+// port held for the test and never listened on, where a closed server's
+// port could be taken by another test's server before the request.
 func TestRequest_ConnectionFailureIsReported(t *testing.T) {
-	server := httptest.NewServer(nethttp.HandlerFunc(requestOK))
-	address := server.URL
-	server.Close()
+	address := "http://" + refusing.Addr(t)
 
 	rc := newRequestContext()
 	_, err := requestRun(rc, map[string]any{"url": address})

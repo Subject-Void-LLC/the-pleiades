@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,6 +26,16 @@ func TestAddr_RefusesAndHoldsThePort(t *testing.T) {
 	if l, err := net.Listen("tcp", addr); err == nil {
 		_ = l.Close()
 		t.Fatalf("a listener took %s while the test held it", addr)
+	}
+}
+
+// TestPort_IsTheAddrsPort: the port alone, dialed on 127.0.0.1, is
+// refused the same way.
+func TestPort_IsTheAddrsPort(t *testing.T) {
+	port := Port(t)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if _, err := net.DialTimeout("tcp", addr, refusalWait); !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("dialing %s: %v, want connection refused", addr, err)
 	}
 }
 

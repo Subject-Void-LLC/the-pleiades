@@ -26,6 +26,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 )
 
@@ -369,19 +370,12 @@ func TestRunHealthcheck_RefusesAnUnreadableCertificate(t *testing.T) {
 // window and the crashed-listener case. Docker runs this probe from the
 // moment the container starts, which can be before the server has bound.
 func TestRunHealthcheck_ExitsNonZeroWhenNothingIsListening(t *testing.T) {
-	// A port that is genuinely free, obtained by binding one and releasing
-	// it, rather than a number guessed to be unused. Guessing is how this
+	// A port this test holds and never listens on, rather than a number
+	// guessed to be unused or one bound and given back: a guess is how this
 	// test would pass for the wrong reason on a machine where something
-	// happens to answer.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a free port: %v", err)
-	}
-	addr := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatalf("releasing the reserved port: %v", err)
-	}
-	t.Setenv("LISTEN_ADDR", addr)
+	// happens to answer, and a given-back port is anyone's by the time the
+	// healthcheck dials it.
+	t.Setenv("LISTEN_ADDR", refusing.Addr(t))
 	// A valid transport decision, so this test fails for the reason it
 	// names (nothing is listening) rather than for a missing one.
 	t.Setenv("PLEIADES_TLS_TERMINATED_UPSTREAM", "1")

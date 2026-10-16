@@ -1,0 +1,42 @@
+// The gate TCP precondition test as it stood at commit b4cbe9cd, where a
+// released port reached CI (FAILURE_PATTERNS 478, a repeat of 123). Kept so
+// TestReleasedPorts_CatchesTheGateTest needs no git history; a .txt so the
+// build and the guard's own walk never read it as code.
+package gate_test
+
+// TestRun_ATCPPreconditionIsTestedFromTheDevice: a listening endpoint
+// lets the check run, a closed one skips it.
+func TestRun_ATCPPreconditionIsTestedFromTheDevice(t *testing.T) {
+	h := newHarness(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAddr := closed.Addr().String()
+	_ = closed.Close()
+	manifest := h.manifest(t, fmt.Sprintf("version: 1\ndefaults: {timeout: 30s}\nchecks:\n  - {name: up, kind: network, shell: \"true\", requires: {tcp: [%q]}}\n  - {name: down, kind: network, shell: \"true\", requires: {tcp: [%q]}}\n", ln.Addr().String(), closedAddr))
+	if _, err := gate.Run(context.Background(), h.rc, h.device, params(manifest, nil)); err != nil {
+		t.Fatal(err)
+	}
+	got := resultsByName(t, h.rc)
+	if got["up"]["status"] != "PASS" {
+		t.Errorf("up = %v", got["up"])
+	}
+	if r, _ := got["down"]["reason"].(string); got["down"]["status"] != "SKIP" || !strings.Contains(r, "needs tcp "+closedAddr) {
+		t.Errorf("down = %v", got["down"])
+	}
+}

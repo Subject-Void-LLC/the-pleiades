@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 )
 
 // newSyncProject scaffolds a project with a stored credential, the state a
@@ -334,14 +335,12 @@ func TestRunInventorySync_ReportsQuarantinedDevices(t *testing.T) {
 func TestRunInventorySync_FailsOnUnreachableEndpoint(t *testing.T) {
 	dir := newSyncProject(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	srv.Close() // closed immediately: nothing is listening
-
+	// A port held for the test and never listened on: a server started and
+	// closed gives its port back, and another test's server may be
+	// answering there by the time the sync dials it.
 	err := runInventorySync([]string{
 		"--plugin", "catalyst_center",
-		"--endpoint", srv.URL,
+		"--endpoint", "http://" + refusing.Addr(t),
 		"--dir", dir,
 	})
 	if err == nil {
