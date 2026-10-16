@@ -8,9 +8,11 @@ package gate_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -51,6 +53,12 @@ type harness struct {
 // newHarness starts the SSH server and a project directory.
 func newHarness(t *testing.T, caps ...capability.Name) *harness {
 	t.Helper()
+	// The check runs on this machine's own shell, so it needs a timeout
+	// command that takes -k and a duration (coreutils, or BusyBox 1.30 or
+	// later), which gate.run refuses to run without. macOS has none, so the
+	// tests that need one skip there with that reason; the Linux release gate
+	// proves the behavior.
+	testsupport.Require(t, "timeout", hostTimeoutOK(), "this host's timeout command takes no -k (macOS has none; gate.run refuses such a device)")
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -101,4 +109,10 @@ func resultsByName(t *testing.T, rc *stubContext) map[string]map[string]any {
 		byName[m["name"].(string)] = m
 	}
 	return byName
+}
+
+// hostTimeoutOK reports whether this machine's timeout takes -k and a
+// duration, the form gate.run's preflight runs.
+func hostTimeoutOK() bool {
+	return exec.Command("timeout", "-k", "1", "1", "true").Run() == nil
 }
