@@ -3,6 +3,7 @@
 package wire_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -29,5 +30,51 @@ func TestDatabaseConnection_Local(t *testing.T) {
 	}
 	if _, ok := wire.FindDatabaseConnection([]wire.DatabaseConnection{c}, "y"); ok {
 		t.Error("FindDatabaseConnection found y")
+	}
+}
+
+// TestDatabaseConnection_ValidatesTheHost: a name, an address, a bare
+// IPv6 literal (zoned or not) and a socket directory are hosts. A URL, a
+// login, a path that is not a socket directory, a port or a bracketed
+// address written into the host are refused, and the refusal never
+// repeats the host, since a URL or user:password@host carries a password
+// that would then be stored and shown as an ordinary input.
+func TestDatabaseConnection_ValidatesTheHost(t *testing.T) {
+	const secret = "pw-in-the-host"
+	for host, valid := range map[string]bool{
+		"db":                  true,
+		"db.internal":         true,
+		"10.0.0.5":            true,
+		"::1":                 true,
+		"2001:db8::5":         true,
+		"fe80::1%eth0":        true,
+		"/var/run/postgresql": true,
+
+		"postgres://app:" + secret + "@db/app": false,
+		"postgresql://db:5432/app":             false,
+		"app:" + secret + "@db":                false,
+		"app@db":                               false,
+		"/run/app:" + secret + "@db":           false,
+		"/tmp/x://y":                           false,
+		"db/app":                               false,
+		"db:5432":                              false,
+		"app:" + secret:                        false,
+		"[::1]":                                false,
+		"[::1]:5432":                           false,
+		"":                                     false,
+		"db " + secret:                         false,
+	} {
+		c := wire.DatabaseConnection{Name: "x", Host: host, User: "u"}
+		// A socket carries no TLS, so a socket directory is tried without it.
+		if strings.HasPrefix(host, "/") {
+			c.SSLMode = wire.SSLDisable
+		}
+		err := c.Validate()
+		if valid != (err == nil) {
+			t.Errorf("Validate(%q) = %v, want valid %v", host, err, valid)
+		}
+		if err != nil && strings.Contains(err.Error(), secret) {
+			t.Errorf("Validate(%q) repeats the password: %v", host, err)
+		}
 	}
 }

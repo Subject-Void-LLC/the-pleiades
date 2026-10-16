@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"path"
 	"regexp"
 	"strings"
@@ -111,8 +112,8 @@ func (c DatabaseConnection) Validate() error {
 	switch {
 	case !ValidDatabaseConnectionName(c.Name):
 		return fmt.Errorf("%q is not a connection name (a lowercase letter, then up to 62 lowercase letters, digits, - and _)", c.Name)
-	case c.Host == "" || strings.ContainsAny(c.Host, "\x00\r\n ,") || len(c.Host) > 1024:
-		return fmt.Errorf("connection %s: %q is not a host or a socket directory", c.Name, c.Host)
+	case hostProblem(c.Host) != "":
+		return fmt.Errorf("connection %s: %s", c.Name, hostProblem(c.Host))
 	case c.Port < 0 || c.Port > 65535:
 		return fmt.Errorf("connection %s: %d is not a port", c.Name, c.Port)
 	case c.User == "" || strings.ContainsAny(c.User, "\x00\r\n"):
@@ -150,6 +151,33 @@ func (c DatabaseConnection) Validate() error {
 		}
 	}
 	return nil
+}
+
+// hostProblem says why host cannot be a connection's host, or "" when it
+// can: a name, an address (an IPv6 one bare, with or without a zone), or
+// the absolute directory of a Unix socket. It never repeats the host: one
+// written as a URL or as user:password@host carries a password, which as
+// a host would be stored and shown as an ordinary input, never masked.
+func hostProblem(host string) string {
+	switch {
+	case host == "":
+		return "it needs a host or a socket directory"
+	case len(host) > 1024 || strings.ContainsAny(host, "\x00\r\n ,"):
+		return "its host is over 1024 bytes or holds a space, a comma or a line break, so it is not a host or a socket directory"
+	case strings.Contains(host, "@") || strings.Contains(host, "://"):
+		return "its host holds an @ or ://, as a URL or a login does; give the server's name or address alone, and the user and password in their own fields, where the password is kept secret"
+	case path.IsAbs(host):
+		// A socket directory, the one host that holds a slash.
+		return ""
+	case strings.Contains(host, "/"):
+		return "its host holds a /, which only a socket directory, given as an absolute path, may"
+	case strings.Contains(host, ":"):
+		// Only an IPv6 address holds a colon; a port has its own field.
+		if _, err := netip.ParseAddr(host); err != nil {
+			return "its host holds a : and is not an IPv6 address; give the port in its own field, and an IPv6 address bare, without brackets"
+		}
+	}
+	return ""
 }
 
 // IsLive reports whether the connection lists database as live.
