@@ -9,6 +9,7 @@ package digests
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -59,10 +60,18 @@ func pathList(params map[string]any, key string, required bool) ([]string, error
 	if len(list) > maxFiles {
 		return nil, fmt.Errorf("%s names %d files, over the %d one task reads", key, len(list), maxFiles)
 	}
+	seen := map[string]bool{}
 	for _, p := range list {
 		if err := checkPath(key, p); err != nil {
 			return nil, err
 		}
+		// A file named twice would be read twice, and its second write
+		// would refuse it as changed since it was read.
+		clean := path.Clean(p)
+		if seen[clean] {
+			return nil, fmt.Errorf("%s names %s twice", key, p)
+		}
+		seen[clean] = true
 	}
 	return list, nil
 }
@@ -76,13 +85,22 @@ func checkPath(key, p string) error {
 }
 
 // listed is lines for a failed task's error: at most maxListed of them,
-// the rest counted.
+// the rest counted, each cut to maxShown bytes and escaped, since a line
+// carries text read from the device (a reference, a package name).
 func listed(lines []string) string {
-	if len(lines) > maxListed {
-		lines = append(lines[:maxListed:maxListed], fmt.Sprintf("... and %d more", len(lines)-maxListed))
+	shown := make([]string, 0, min(len(lines), maxListed)+1)
+	for _, line := range lines[:min(len(lines), maxListed)] {
+		shown = append(shown, remoteexec.Excerpt(line, maxShown))
 	}
-	return "\n  " + strings.Join(lines, "\n  ")
+	if len(lines) > maxListed {
+		shown = append(shown, fmt.Sprintf("... and %d more", len(lines)-maxListed))
+	}
+	return "\n  " + strings.Join(shown, "\n  ")
 }
+
+// maxShown bounds one item of device text in an error or a stat. No image
+// reference is near it: a name is at most 255 bytes, a tag 128.
+const maxShown = 512
 
 // file is one file read for its references.
 type file struct {

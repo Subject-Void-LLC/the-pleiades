@@ -85,6 +85,11 @@ func saveUndo(ctx context.Context, conn *remoteexec.Conn, changes []change) (str
 	if err != nil {
 		return "", "", err
 	}
+	// loadUndo reads at most maxUndoBytes, so a larger record could be
+	// written and never replayed.
+	if len(data) > maxUndoBytes {
+		return "", "", fmt.Errorf("its undo record would be %d bytes, over the %d one is read back at; refresh fewer files in one task", len(data), maxUndoBytes)
+	}
 	record := dir + "/" + id + ".json"
 	if err := remotefile.Write(ctx, conn, record, data); err != nil {
 		return "", "", fmt.Errorf("writing the undo record: %w", err)

@@ -42,6 +42,12 @@ func setParam(params map[string]any) ([]setEdit, error) {
 		if e.line < 1 || e.from == "" {
 			return nil, fmt.Errorf("%s[%d] needs file, a line from 1, from and to", paramSet, i)
 		}
+		// Both ends must parse: the undo record writes from back, and its
+		// replay is held to the same rule, so a from that does not parse
+		// would make an undo that cannot run.
+		if _, err := imagepin.Parse(e.from); err != nil {
+			return nil, fmt.Errorf("%s[%d]: from: %w", paramSet, i, err)
+		}
 		if _, err := imagepin.Parse(e.to); err != nil {
 			return nil, fmt.Errorf("%s[%d]: to: %w", paramSet, i, err)
 		}
@@ -65,10 +71,20 @@ func setChanges(files []*file, sets []setEdit) ([]change, error) {
 		}
 		found := false
 		for _, ref := range f.refs {
-			if ref.Line == s.line && ref.Text == s.from && ref.Unresolvable == "" {
+			if ref.Line != s.line || ref.Unresolvable != "" {
+				continue
+			}
+			if ref.Text == s.from {
 				if s.from != s.to {
 					changes = append(changes, change{file: f, ref: ref, from: s.from, to: s.to})
 				}
+				found = true
+				break
+			}
+			// A line that already holds to needs nothing: a set run twice,
+			// or an undo record kept by a run that failed before it wrote
+			// this file.
+			if ref.Text == s.to {
 				found = true
 				break
 			}

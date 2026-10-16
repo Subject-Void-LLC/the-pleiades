@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/lockcheck"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -44,13 +45,22 @@ func checkPath(key, p string) error {
 }
 
 // listed is lines for a failed task's error: at most maxListed of them,
-// the rest counted.
+// the rest counted, each cut to maxShown bytes and escaped, since a line
+// carries text read from the device (a reference, a package name).
 func listed(lines []string) string {
-	if len(lines) > maxListed {
-		lines = append(lines[:maxListed:maxListed], fmt.Sprintf("... and %d more", len(lines)-maxListed))
+	shown := make([]string, 0, min(len(lines), maxListed)+1)
+	for _, line := range lines[:min(len(lines), maxListed)] {
+		shown = append(shown, remoteexec.Excerpt(line, maxShown))
 	}
-	return "\n  " + strings.Join(lines, "\n  ")
+	if len(lines) > maxListed {
+		shown = append(shown, fmt.Sprintf("... and %d more", len(lines)-maxListed))
+	}
+	return "\n  " + strings.Join(shown, "\n  ")
 }
+
+// maxShown bounds one item of device text in an error or a stat. No image
+// reference is near it: a name is at most 255 bytes, a tag 128.
+const maxShown = 512
 
 func init() {
 	collection.MustRegister(collection.Descriptor{
@@ -120,7 +130,7 @@ func Verify(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	entries := make([]any, len(findings))
 	lines := make([]string, len(findings))
 	for i, f := range findings {
-		entries[i] = map[string]any{"package": f.Package, "problem": f.Problem}
+		entries[i] = map[string]any{"package": remoteexec.Excerpt(f.Package, maxShown), "problem": remoteexec.Excerpt(f.Problem, maxShown)}
 		lines[i] = f.Package + ": " + f.Problem
 	}
 	if err := rc.SetStat(statFindings, entries); err != nil {

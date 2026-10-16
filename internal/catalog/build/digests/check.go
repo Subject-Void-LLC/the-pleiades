@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/imagepin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -67,7 +68,7 @@ func CheckDigests(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	var offenders []string
 	for _, f := range files {
 		for _, ref := range f.refs {
-			entry := map[string]any{"file": f.path, "line": ref.Line, "reference": ref.Text, "where": ref.Where, "pinned": false, "problem": ""}
+			entry := map[string]any{"file": f.path, "line": ref.Line, "reference": remoteexec.Excerpt(ref.Text, maxShown), "where": ref.Where, "pinned": false, "problem": ""}
 			problem := ""
 			pin, perr := imagepin.Parse(ref.Text)
 			switch {
@@ -91,7 +92,7 @@ func CheckDigests(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 				}
 			}
 			if problem != "" {
-				entry["problem"] = problem
+				entry["problem"] = remoteexec.Excerpt(problem, maxShown)
 				offenders = append(offenders, fmt.Sprintf("%s:%d %s: %s", f.path, ref.Line, ref.Text, problem))
 			}
 			entries = append(entries, entry)

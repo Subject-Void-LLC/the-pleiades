@@ -111,22 +111,30 @@ func refresh(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: nothing was written: %w", fqcnRefresh, err)
 	}
-	inPlace, err := writeChanges(ctx, conn, changes)
+	inPlace, notRestored, err := writeChanges(ctx, conn, changes)
 	if err != nil {
-		dropUndo(ctx, conn, record)
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcnRefresh, err)
+		// The record is the only way back for a file the failed run
+		// changed and could not put back, so it is dropped only when
+		// every file is what it was.
+		if len(notRestored) == 0 {
+			dropUndo(ctx, conn, record)
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcnRefresh, err)
+		}
+		return collection.Result{}, fmt.Errorf("%s: %w; %s", fqcnRefresh, err, keptUndo(id))
 	}
+	// Past here every file is written, so a failure to record the run
+	// still names the record that writes them back.
 	if len(inPlace) > 0 {
 		warnings := make([]string, len(inPlace))
 		for i, p := range inPlace {
 			warnings[i] = p + " was written in place rather than replaced, since a new file could not be given its owner and group by this login; a reader at that instant could have seen it part written"
 		}
 		if err := sdk.RecordWarnings(rc, warnings); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcnRefresh, err)
+			return collection.Result{}, fmt.Errorf("%s: %w; the files were written, and %s", fqcnRefresh, err, keptUndo(id))
 		}
 	}
 	if err := recordUndo(rc, id, len(changes)); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcnRefresh, err)
+		return collection.Result{}, fmt.Errorf("%s: %w; the files were written, and %s", fqcnRefresh, err, keptUndo(id))
 	}
 	if replayed != "" {
 		dropUndo(ctx, conn, replayed)
@@ -168,10 +176,17 @@ func resolvedChanges(ctx context.Context, rc sdk.RunbookContext, device inventor
 	return changes, nil
 }
 
+// keptUndo says how to write back what a refresh changed from its record
+// on the device, kept because nothing else can.
+func keptUndo(id string) string {
+	return fmt.Sprintf("undo record %s on the device still holds what they held: build.digests.refresh with %s: %s writes them back", id, paramUndo, id)
+}
+
 // writeChanges rewrites each file once, refusing one edited since it was
 // read, and keeping its mode and owner. A failure puts back every file
-// already rewritten, since a failed task's undo is not journaled.
-func writeChanges(ctx context.Context, conn *remoteexec.Conn, changes []change) ([]string, error) {
+// already rewritten, since a failed task's undo is not journaled, and
+// returns the paths it could not put back.
+func writeChanges(ctx context.Context, conn *remoteexec.Conn, changes []change) ([]string, []string, error) {
 	byFile := map[*file][]imagepin.Edit{}
 	var order []*file
 	for _, c := range changes {
@@ -195,14 +210,23 @@ func writeChanges(ctx context.Context, conn *remoteexec.Conn, changes []change) 
 			written = append(written, f)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w%s", err, putBack(ctx, conn, written))
+			said, failed := putBack(ctx, conn, written)
+			return nil, failed, fmt.Errorf("%w%s", err, said)
 		}
 		if r.InPlace {
 			inPlace = append(inPlace, f.path)
 		}
+		if afterWrite != nil {
+			afterWrite(f.path)
+		}
 	}
-	return inPlace, nil
+	return inPlace, nil, nil
 }
+
+// afterWrite, when set, runs after each file is written. Only tests set
+// it (export_test.go): a put-back that fails must happen between two
+// writes, which nothing on a device can be timed to reach.
+var afterWrite func(path string)
 
 // replace writes content over f, only if f still holds what was read,
 // keeping its mode, owner and group (remotefile.Replace).
@@ -217,9 +241,9 @@ func replace(ctx context.Context, conn *remoteexec.Conn, f *file, content []byte
 	return remotefile.Replace(ctx, conn, f.path, content, f.info)
 }
 
-// putBack restores files already rewritten to what they held, saying
-// which could not be.
-func putBack(ctx context.Context, conn *remoteexec.Conn, written []*file) string {
+// putBack restores files already rewritten to what they held, saying so
+// and returning the paths it could not restore.
+func putBack(ctx context.Context, conn *remoteexec.Conn, written []*file) (string, []string) {
 	var failed []string
 	for _, f := range written {
 		if _, err := remotefile.Replace(ctx, conn, f.path, f.content, f.info); err != nil {
@@ -228,11 +252,11 @@ func putBack(ctx context.Context, conn *remoteexec.Conn, written []*file) string
 	}
 	switch {
 	case len(written) == 0:
-		return ""
+		return "", nil
 	case len(failed) > 0:
-		return fmt.Sprintf("; the files it had rewritten were put back, except %v", failed)
+		return fmt.Sprintf("; the files it had rewritten were put back, except %v", failed), failed
 	}
-	return "; the files it had rewritten were put back"
+	return "; the files it had rewritten were put back", nil
 }
 
 // recordUndo records the refresh that writes every changed reference back
