@@ -104,7 +104,7 @@ func pendingMigrations(files []migration, applied map[int64]appliedRow, req migr
 			}
 			continue
 		}
-		if req.target > 0 && m.version > req.target {
+		if req.hasTarget && m.version > req.target {
 			continue
 		}
 		if m.version < newest {
@@ -177,6 +177,9 @@ var errClaimed = errors.New("another run claimed this version")
 // unfinished, then its one statement runs, and the claim is marked
 // finished, or removed when the statement fails.
 func applyMigration(ctx context.Context, c *sql.Conn, req migrateRequest, m migration) error {
+	if err := requireStandardStrings(ctx, c); err != nil {
+		return err
+	}
 	start := time.Now()
 	tx, err := c.BeginTx(ctx, nil)
 	if err != nil {
@@ -212,6 +215,28 @@ func applyMigration(ctx context.Context, c *sql.Conn, req migrateRequest, m migr
 		return err
 	}
 	return tx.Commit()
+}
+
+// requireStandardStrings refuses to send a file unless the session reads
+// backslashes in '...' literally (standard_conforming_strings on), as
+// sqllint split and judged it. With it off, the server reads a backslash
+// before a quote as an escape, so it splits
+//
+//	INSERT INTO n VALUES ('it\''); DROP TABLE t; --');
+//
+// into an INSERT and a DROP where the lint saw one INSERT. The server
+// lexes a whole file before running any of it, so a file that turns the
+// setting off changes only the files after it, and this check, made
+// before each one, stops the run there.
+func requireStandardStrings(ctx context.Context, c *sql.Conn) error {
+	var v string
+	if err := c.QueryRowContext(ctx, "SHOW standard_conforming_strings").Scan(&v); err != nil {
+		return fmt.Errorf("reading standard_conforming_strings: %w", err)
+	}
+	if v != "on" {
+		return fmt.Errorf("standard_conforming_strings is %s for this session, so the server would read a backslash in a string literal differently from the check of these files; turn it on for the database and role, and remove any migration that turns it off", v)
+	}
+	return nil
 }
 
 // applyOutsideTransaction runs a claimed no-transaction file's one

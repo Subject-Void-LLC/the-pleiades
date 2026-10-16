@@ -112,6 +112,7 @@ func TestMigrate_RefusesBeforeAnythingRuns(t *testing.T) {
 		want  string
 	}{
 		"a misnamed file":        {map[string]string{"1_a.sql": "SELECT 1;", "2-b.sql": "SELECT 1;"}, nil, "2-b.sql is not named"},
+		"an upper-case .SQL":     {map[string]string{"1_a.sql": "SELECT 1;", "2_b.SQL": "SELECT 1;"}, nil, "2_b.SQL is not named"},
 		"a down migration":       {map[string]string{"1_a.sql": "SELECT 1;", "1_a.down.sql": "SELECT 1;"}, nil, "is a down migration"},
 		"a shared version":       {map[string]string{"1_a.sql": "SELECT 1;", "01_b.sql": "SELECT 1;"}, nil, "are both version 1"},
 		"its own commit":         {map[string]string{"1_a.sql": "CREATE TABLE a (id int);\nCOMMIT;"}, nil, "1_a.sql:2: it ends the transaction"},
@@ -133,6 +134,45 @@ func TestMigrate_RefusesBeforeAnythingRuns(t *testing.T) {
 				t.Fatal("a refused directory created the version table")
 			}
 		})
+	}
+}
+
+// TestMigrate_UpToZeroAppliesNothingPastIt: up_to is a version, and 0
+// is one, so it applies nothing above it rather than everything.
+func TestMigrate_UpToZeroAppliesNothingPastIt(t *testing.T) {
+	h := newHarness(t)
+	dir := writeMigrations(t, map[string]string{"0_base.sql": "CREATE TABLE base (id int);", "1_a.sql": "CREATE TABLE a (id int);"})
+	stats, err := migrate(h, false, map[string]any{"dir": dir, "up_to": 0})
+	if err != nil {
+		t.Fatalf("up_to 0: %v", err)
+	}
+	if applied := stats["applied"].([]any); len(applied) != 1 {
+		t.Errorf("up_to 0 applied %v, want version 0 alone", applied)
+	}
+	if got := h.value(t, "app", "SELECT to_regclass('public.a') IS NULL"); got != "true" {
+		t.Error("up_to 0 applied version 1")
+	}
+}
+
+// TestMigrate_RefusesASessionReadingBackslashesAsEscapes: with
+// standard_conforming_strings off, the server reads a backslash before a
+// quote as an escape, so the second file below is an INSERT and a DROP,
+// where the additive-only lint, which reads backslashes as the standard
+// says, saw one INSERT. A file that turned the setting off stops the run
+// before the next file is sent.
+func TestMigrate_RefusesASessionReadingBackslashesAsEscapes(t *testing.T) {
+	h := newHarness(t)
+	h.sql(t, "app", "CREATE TABLE n (t text)", "CREATE TABLE users (id int)")
+	dir := writeMigrations(t, map[string]string{
+		"1_off.sql":   "SET standard_conforming_strings = off;",
+		"2_sneak.sql": `INSERT INTO n VALUES ('it\''); DROP TABLE users; --');`,
+	})
+	_, err := migrate(h, false, map[string]any{"dir": dir, "additive_only": true})
+	if err == nil || !strings.Contains(err.Error(), "standard_conforming_strings is off") {
+		t.Errorf("migrate = %v, want the session refused", err)
+	}
+	if got := h.value(t, "app", "SELECT to_regclass('public.users') IS NOT NULL"); got != "true" {
+		t.Fatal("the hidden DROP ran")
 	}
 }
 

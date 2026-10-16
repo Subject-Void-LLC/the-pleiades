@@ -47,7 +47,7 @@ func readMigrations(ctx context.Context, ssh *remoteexec.Conn, dir string) ([]mi
 	if info.Kind != remotefile.KindDirectory {
 		return nil, fmt.Errorf("%s is not a directory on the device", dir)
 	}
-	res, err := ssh.RunWithStdinBounded(ctx, "find "+remoteexec.QuoteArg(dir)+" -mindepth 1 -maxdepth 1 -name '*.sql' -print0", nil, 1<<20)
+	res, err := ssh.RunWithStdinBounded(ctx, "find "+remoteexec.QuoteArg(dir)+" -mindepth 1 -maxdepth 1 -iname '*.sql' -print0", nil, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("listing %s: %w", dir, err)
 	}

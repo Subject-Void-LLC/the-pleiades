@@ -74,7 +74,9 @@ type migrateRequest struct {
 	limits                 pgclient.Limits
 	sql                    versionTableSQL
 	claimWait              time.Duration
-	target                 int64
+	// target is up_to, when hasTarget says it was given; 0 is a version.
+	target    int64
+	hasTarget bool
 }
 
 // parseMigrate reads a migrate task's parameters.
@@ -123,7 +125,7 @@ func parseMigrate(params map[string]any) (migrateRequest, error) {
 		if n < 0 {
 			return r, fmt.Errorf("%s is a version, from 0", paramUpTo)
 		}
-		r.target = int64(n)
+		r.target, r.hasTarget = int64(n), true
 	}
 	return r, nil
 }
@@ -207,6 +209,12 @@ func migrate(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	pendingEntries := make([]any, len(pending))
 	for i, m := range pending {
 		pendingEntries[i] = map[string]any{"version": m.version, "name": m.name}
+	}
+	if len(pending) > 0 {
+		// The session a check sees is the one the first file would meet.
+		if err := requireStandardStrings(ctx, c); err != nil {
+			return fail(err)
+		}
 	}
 	if mode == collection.ModeCheck {
 		if err := rc.SetStat(statPending, pendingEntries); err != nil {
