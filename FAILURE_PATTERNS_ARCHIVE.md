@@ -12644,3 +12644,24 @@ typographic quotes.
 **Fix.** The comment names the delimiter in words. A grep for non-ASCII bytes in the package found nothing else.
 
 **Lesson.** In a Go doc comment, never write two single quotes in a row; say it in words or put it in code.
+
+## 494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
+
+**Symptom.** 2026-10-16, PR #61's `fast-macos`: every build.digests.refresh test failed with "chmod: --: No such
+file or directory" while preparing the undo directory. Looking for the class, the same shape turned up in
+`pkg/scpxfer`'s put script on main since 2026-09-23: every SCP copy that sets a mode fails on a macOS or FreeBSD
+device. No CI job had run that one on BSD at all; its tests use Docker sshd, on Linux.
+
+**Root cause.** GNU getopt permutes arguments, so an option after an operand is still an option; BSD's stops at
+the first operand, so `--` after the mode is a file name. 420 and 476 were the same assumption (a Linux userland);
+neither the pre-PR check nor the delegated review saw it, since a Linux run accepts the command and a reading of
+the code finds nothing wrong with it unless it knows the BSD parse.
+
+**Fix.** `--` before the mode in both. And the class, not just the instances: the SSH test harness
+(`remoteexectest`) runs every command with `POSIXLY_CORRECT=1`, which makes GNU getopt stop at the first operand
+as BSD's does, so every Linux test of a command a device runs checks the BSD parse. Across the 40 packages that use
+the harness it failed exactly these two and nothing else.
+
+**Lesson.** A platform difference a Linux machine can be made to show is a harness setting, not a review
+checklist item. What it cannot show (a missing `timeout -k`, a different `stat`) still needs a real macOS run
+before the push, which a pull request's `fast-macos` is too late for.

@@ -496,6 +496,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 491. The release gate's checked refresh asserted only what it left alone (a repeat of 467) (fixed)
 492. ReadText's output bound also held standard error, so an unreadable file was reported as too large (fixed)
 493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
+494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
