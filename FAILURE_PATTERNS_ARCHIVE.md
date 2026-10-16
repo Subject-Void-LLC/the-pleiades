@@ -12484,3 +12484,23 @@ imports anything reaching testcontainers-go; watched failing on a blank `interna
 **Lesson.** See LESSONS 290: a test import in a package another module consumes is part of that module's graph, and
 a run on a warm module cache proves nothing about it.
 
+## 483. testcontainers' reaper container never became ready within its 60 s wait on a CI containers shard (open)
+
+**Symptom.** 2026-10-16, PR #59's `containers (3)` at `3dd1a48c`: `internal/runner`'s
+`TestDedupKeyRoundTripsThroughARealBucket` failed after 61 s with "starting a NATS broker: create container:
+reaper: from container "026843a5": wait for reaper 026843a5: context deadline exceeded". It passed when re-run
+alone, so the job tolerated it. The same run's `containers (1)` tolerated `TestGrandIntegration_EachKindReachesItsOwnAdapter`
+(a job still "running" past its budget), 61's named repeat offender.
+
+**Root cause.** Unknown. The failing step is testcontainers-go's own reaper (Ryuk), which each test binary starts
+once before its first container, and whose readiness wait is fixed at 60 s; the NATS container itself was never
+reached. Nothing in this repository's code runs before that wait, so the cause is the runner's Docker daemon at that
+moment, not the test.
+
+**Fix.** None yet. If it recurs, the evidence to collect is the daemon's state at the deadline (the reaper container's
+own log and `docker ps -a`), which testcontainers does not print; a repeat across runs would justify having the
+container shards start the reaper image ahead of the tests.
+
+**Lesson.** A tolerated failure in a step no test code reaches is still worth a line: it is the only way a recurrence
+will be recognised as one.
+
