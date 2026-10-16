@@ -158,28 +158,43 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}).run(ctx, ssh); err != nil {
 		return fail(err)
 	}
-	info, err := remotefile.Stat(ctx, ssh, dest)
-	if err != nil {
-		return fail(err)
-	}
-	sum, _, err := remotefile.Checksum(ctx, ssh, dest)
-	if err != nil {
-		return fail(err)
-	}
-	if err := rc.SetStat(statSize, info.Size); err != nil {
-		return collection.Result{}, err
-	}
-	if err := rc.SetStat(statSHA256, sum); err != nil {
-		return collection.Result{}, err
-	}
+	// The archive is under its name now. The engine drops whatever a
+	// failed task recorded, its undo included, so from here nothing fails
+	// the task: the undo is recorded first, and a read back that fails is
+	// a warning.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:        "file.remove",
 		Params:      map[string]any{"path": dest},
 		Description: "Remove the archive this task wrote.",
 	}); err != nil {
-		return fail(err)
+		return collection.Result{}, err
+	}
+	size, sum, err := readBack(ctx, ssh, dest)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("the archive was written to %s, but reading back its size and SHA-256 failed: %v", dest, err))
+		return collection.Result{Changed: true}, recordWarnings(rc, warnings)
+	}
+	if err := rc.SetStat(statSize, size); err != nil {
+		return collection.Result{}, err
+	}
+	if err := rc.SetStat(statSHA256, sum); err != nil {
+		return collection.Result{}, err
 	}
 	return collection.Result{Changed: true}, recordWarnings(rc, warnings)
+}
+
+// readBack is the written archive's size and SHA-256; a variable so a test
+// can make it fail after the archive is in place.
+var readBack = func(ctx context.Context, ssh *remoteexec.Conn, dest string) (int64, string, error) {
+	info, err := remotefile.Stat(ctx, ssh, dest)
+	if err != nil {
+		return 0, "", err
+	}
+	sum, _, err := remotefile.Checksum(ctx, ssh, dest)
+	if err != nil {
+		return 0, "", err
+	}
+	return info.Size, sum, nil
 }
 
 // destFree refuses a destination that exists, or whose directory does not.

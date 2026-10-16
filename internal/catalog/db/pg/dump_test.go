@@ -5,12 +5,14 @@ package pg_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // dumpRestoreFixture is a source database with two tables and a
@@ -104,6 +106,32 @@ func TestDumpRestoreRowcounts_TheLoop(t *testing.T) {
 	rc = h.fresh()
 	if _, err := pg.Rowcounts(ctx, rc, h.device, params(map[string]any{"connection": "admin", "database": "app", "schemas": []any{"public"}, "exclude": []any{"public.extra"}})); err != nil || len(rc.stats["tables"].([]any)) != 2 {
 		t.Errorf("rowcounts scoped to public without extra = %v, %v", rc.stats["tables"], err)
+	}
+}
+
+// TestDump_AFailedReadBackKeepsTheUndo: once the archive is under its
+// name, reading back its size and hash failing is a warning, not a
+// failure, since the engine drops a failed task's undo and the archive
+// would then be left with nothing able to remove it.
+func TestDump_AFailedReadBackKeepsTheUndo(t *testing.T) {
+	h, dir := dumpRestoreFixture(t)
+	t.Cleanup(pg.SetReadBackForTest(func(context.Context, *remoteexec.Conn, string) (int64, string, error) {
+		return 0, "", errors.New("the session dropped")
+	}))
+	dest := filepath.Join(dir, "app.dump")
+	rc := h.fresh()
+	if _, err := pg.Dump(context.Background(), rc, h.device, params(map[string]any{"connection": "admin", "database": "app", "dest": dest})); err != nil {
+		t.Fatalf("the dump failed with its archive written: %v", err)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("the archive: %v", err)
+	}
+	inverse, _ := rc.stats["inverse"].(map[string]any)
+	if inverse["fqcn"] != "file.remove" || inverse["params"].(map[string]any)["path"] != dest {
+		t.Errorf("the undo = %v", rc.stats["inverse"])
+	}
+	if warnings, _ := rc.stats["warnings"].([]string); !strings.Contains(strings.Join(warnings, "\n"), "reading back its size and SHA-256 failed: the session dropped") {
+		t.Errorf("warnings = %v", rc.stats["warnings"])
 	}
 }
 
