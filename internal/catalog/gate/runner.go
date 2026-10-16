@@ -31,7 +31,9 @@ const pidMarker = "pleiades-gate-pid "
 const killAfter = "10s"
 
 // probeTimeout bounds a check's precondition probe and a TCP precondition.
-const probeTimeout = 30 * time.Second
+// It is a variable so a test can shorten it (export_test.go); nothing else
+// assigns it.
+var probeTimeout = 30 * time.Second
 
 // stopTimeout bounds stopping a check on the device after its run ended.
 const stopTimeout = 20 * time.Second

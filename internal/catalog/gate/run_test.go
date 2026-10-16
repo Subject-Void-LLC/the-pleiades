@@ -204,19 +204,31 @@ func TestRun_KeepsABoundedEscapedTail(t *testing.T) {
 // one second with parallelism 2, and about two without it.
 func TestRun_ParallelismRunsChecksTogether(t *testing.T) {
 	h := newHarness(t)
-	manifest := h.manifest(t, "version: 1\ndefaults: {timeout: 30s}\nchecks:\n  - {name: a, kind: pure, shell: \"sleep 1\"}\n  - {name: b, kind: pure, shell: \"sleep 1\"}\n")
-	timed := func(extra map[string]any) time.Duration {
-		start := time.Now()
-		if _, err := gate.Run(context.Background(), h.rc, h.device, params(manifest, extra)); err != nil {
-			t.Fatal(err)
-		}
-		return time.Since(start)
+	serial := h.manifest(t, "version: 1\ndefaults: {timeout: 30s}\nchecks:\n  - {name: a, kind: pure, shell: \"sleep 1\"}\n  - {name: b, kind: pure, shell: \"sleep 1\"}\n")
+	start := time.Now()
+	if _, err := gate.Run(context.Background(), h.rc, h.device, params(serial, nil)); err != nil {
+		t.Fatal(err)
 	}
-	if serial := timed(nil); serial < 2*time.Second {
-		t.Errorf("two 1s checks took %v by default, want them one after the other", serial)
+	// A lower bound only: a slow machine makes it longer, never shorter.
+	if took := time.Since(start); took < 2*time.Second {
+		t.Errorf("two 1s checks took %v by default, want them one after the other", took)
 	}
-	if parallel := timed(map[string]any{"parallelism": 2}); parallel >= 2*time.Second {
-		t.Errorf("two 1s checks took %v with parallelism 2, want them together", parallel)
+
+	// Together is proved by a rendezvous, not a clock, which a busy runner
+	// would stretch (FAILURE_PATTERNS 211, 422): each check marks that it
+	// started and waits for the other's mark, so both pass only when both
+	// run at once, however slowly.
+	dir := t.TempDir()
+	meet := func(mine, theirs string) string {
+		return fmt.Sprintf("touch %s/%s; i=0; while [ ! -e %s/%s ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done; [ -e %s/%s ]", dir, mine, dir, theirs, dir, theirs)
+	}
+	together := h.manifest(t, fmt.Sprintf("version: 1\ndefaults: {timeout: 60s}\nchecks:\n  - {name: a, kind: pure, shell: %q}\n  - {name: b, kind: pure, shell: %q}\n", meet("a", "b"), meet("b", "a")))
+	if _, err := gate.Run(context.Background(), h.rc, h.device, params(together, map[string]any{"parallelism": 2})); err != nil {
+		t.Fatalf("with parallelism 2 the two checks did not meet: %v", err)
+	}
+	got := resultsByName(t, h.rc)
+	if got["a"]["status"] != "PASS" || got["b"]["status"] != "PASS" {
+		t.Errorf("a = %v, b = %v; each should have seen the other running", got["a"], got["b"])
 	}
 }
 
@@ -238,12 +250,13 @@ func TestRun_ATCPPreconditionIsTestedFromTheDevice(t *testing.T) {
 			_ = c.Close()
 		}
 	}()
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	// An address nothing can answer, not a released port, which another
+	// process may take (FAILURE_PATTERNS 123, 177, 183): TEST-NET-1 (RFC
+	// 5737) is never routed, so the dial fails, at once where there is no
+	// route and within the probe's budget where packets are dropped. Port 0,
+	// those entries' other remedy, is refused by the manifest's validation.
+	gate.SetProbeTimeout(t, 2*time.Second)
+	closedAddr := "192.0.2.1:9"
 	manifest := h.manifest(t, fmt.Sprintf("version: 1\ndefaults: {timeout: 30s}\nchecks:\n  - {name: up, kind: network, shell: \"true\", requires: {tcp: [%q]}}\n  - {name: down, kind: network, shell: \"true\", requires: {tcp: [%q]}}\n", ln.Addr().String(), closedAddr))
 	if _, err := gate.Run(context.Background(), h.rc, h.device, params(manifest, nil)); err != nil {
 		t.Fatal(err)
