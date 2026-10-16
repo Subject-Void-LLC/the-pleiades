@@ -147,16 +147,28 @@ func TestCLI_BuildPinsRefreshesRollsBackAndVerifiesLocks(t *testing.T) {
 		t.Fatalf("the project's files are %q, want the Dockerfile %s:root 640", owned, testsupport.DockerHostUser)
 	}
 
-	// A check of the refresh resolves and writes nothing.
+	// A check of the refresh resolves and writes nothing, and says what it
+	// would change: each file's reference, to the digest the registry
+	// serves, marked as a prediction. Without this the step proved only
+	// that nothing was written, which a check that never ran also does.
+	pinnedRef := ref + "@" + pushed
 	refresh := runbook("refresh", "    build.digests.refresh:\n"+files)
 	checked := report("run", refresh, "--mode", "check")
 	if checked.Outcome.ExitCode != 0 || onDevice("Dockerfile") != dockerfile {
 		t.Fatalf("a checked refresh: exit %d, Dockerfile %q", checked.Outcome.ExitCode, onDevice("Dockerfile"))
 	}
+	predicted, _ := checked.Tasks[0].Stats["changes"].([]any)
+	if checked.Tasks[0].Stats["predicted"] != true || len(predicted) != 2 {
+		t.Fatalf("a checked refresh predicted %v (predicted: %v), want both files' changes", predicted, checked.Tasks[0].Stats["predicted"])
+	}
+	for _, c := range predicted {
+		if change, _ := c.(map[string]any); change["from"] != ref || change["to"] != pinnedRef {
+			t.Errorf("a predicted change %v, want %s to %s", c, ref, pinnedRef)
+		}
+	}
 
 	// The refresh pins each to what the registry serves, keeping the mode.
 	ran := report("run", refresh)
-	pinnedRef := ref + "@" + pushed
 	if ran.Outcome.ExitCode != 0 || onDevice("Dockerfile") != "FROM "+pinnedRef+"\nRUN true\n" || !strings.Contains(onDevice("compose.yaml"), "image: "+pinnedRef+"\n") {
 		t.Fatalf("the refresh to %s: exit %d, Dockerfile %q, compose %q, tasks %+v", pinnedRef, ran.Outcome.ExitCode, onDevice("Dockerfile"), onDevice("compose.yaml"), ran.Tasks)
 	}
