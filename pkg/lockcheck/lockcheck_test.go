@@ -217,11 +217,13 @@ func TestRegistry(t *testing.T) {
 
 // FuzzVerify: neither format panics on any input.
 func FuzzVerify(f *testing.F) {
-	f.Add(npmLockOK, npmManifestOK, "npm")
-	f.Add(cargoLockOK, cargoManifestOK, "cargo")
-	f.Fuzz(func(t *testing.T, lock, manifest, format string) {
-		if fm, ok := Lookup(format); ok {
-			_, _ = fm.Verify([]byte(lock), []byte(manifest), nil)
-		}
+	formats := Names()
+	f.Add(npmLockOK, npmManifestOK, uint8(1))
+	f.Add(cargoLockOK, cargoManifestOK, uint8(0))
+	f.Fuzz(func(t *testing.T, lock, manifest string, which uint8) {
+		// The format is one of the registered ones: a fuzzed name would
+		// almost always find no format and test nothing.
+		fm, _ := Lookup(formats[int(which)%len(formats)])
+		_, _ = fm.Verify([]byte(lock), []byte(manifest), nil)
 	})
 }
