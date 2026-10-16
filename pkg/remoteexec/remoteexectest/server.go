@@ -46,6 +46,7 @@ package remoteexectest
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -354,6 +355,12 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, 
 
 	var sessions sync.WaitGroup
 	defer sessions.Wait()
+	// A forward still dialing when its connection ends is abandoned, as a
+	// real sshd abandons it, rather than holding Close until the kernel
+	// gives up on an address that drops packets (minutes). Deferred after
+	// sessions.Wait, so it runs first.
+	connCtx, endConn := context.WithCancel(context.Background())
+	defer endConn()
 
 	for newChannel := range chans {
 		switch newChannel.ChannelType() {
@@ -384,7 +391,7 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64, 
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
-				serveDirectTCPIP(newChannel)
+				serveDirectTCPIP(connCtx, newChannel)
 			}()
 
 		case "direct-streamlocal@openssh.com":
@@ -424,14 +431,15 @@ type directTCPIPPayload struct {
 // exact distinction internal/transport/ssh's own hop-chain tests
 // (TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError)
 // depend on.
-func serveDirectTCPIP(newChannel cryptossh.NewChannel) {
+func serveDirectTCPIP(ctx context.Context, newChannel cryptossh.NewChannel) {
 	var payload directTCPIPPayload
 	if err := cryptossh.Unmarshal(newChannel.ExtraData(), &payload); err != nil {
 		_ = newChannel.Reject(cryptossh.ConnectionFailed, "malformed direct-tcpip payload")
 		return
 	}
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort))))
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort))))
 	if err != nil {
 		_ = newChannel.Reject(cryptossh.ConnectionFailed, err.Error())
 		return
