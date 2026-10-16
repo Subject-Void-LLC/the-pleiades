@@ -24,33 +24,53 @@ const (
 	cratesIOSparse = "sparse+https://index.crates.io/"
 )
 
-// cargoLock is the part of Cargo.lock read here.
-type cargoLock struct {
-	Version int            `toml:"version"`
-	Package []cargoPackage `toml:"package"`
-}
-
 // cargoPackage is one [[package]] of Cargo.lock.
 type cargoPackage struct {
-	Name     string `toml:"name"`
-	Version  string `toml:"version"`
-	Source   string `toml:"source"`
-	Checksum string `toml:"checksum"`
+	Name, Version, Source, Checksum string
 }
 
-// cargoManifest is the part of Cargo.toml read here.
-type cargoManifest struct {
-	Dependencies      map[string]any `toml:"dependencies"`
-	DevDependencies   map[string]any `toml:"dev-dependencies"`
-	BuildDependencies map[string]any `toml:"build-dependencies"`
-	Target            map[string]struct {
-		Dependencies      map[string]any `toml:"dependencies"`
-		DevDependencies   map[string]any `toml:"dev-dependencies"`
-		BuildDependencies map[string]any `toml:"build-dependencies"`
-	} `toml:"target"`
-	Workspace *struct {
-		Dependencies map[string]any `toml:"dependencies"`
-	} `toml:"workspace"`
+// A Cargo.lock and a Cargo.toml are decoded into maps, whose keys go-toml
+// keeps exactly as written, and read by their exact keys from there.
+// Decoded into structs, go-toml falls back to matching a key to a field
+// regardless of case, so a SOURCE beside the source Cargo fetches from
+// would have replaced it, and a [[PACKAGE]] would have counted as locked;
+// Cargo reads only the key spelled as it is.
+
+// cargoPackages reads Cargo.lock's [[package]] array.
+func cargoPackages(doc map[string]any) ([]cargoPackage, error) {
+	raw, ok := doc["package"]
+	if !ok {
+		return nil, nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("Cargo.lock's package is not an array of tables")
+	}
+	out := make([]cargoPackage, 0, len(list))
+	for i, item := range list {
+		table, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("Cargo.lock's package %d is not a table", i+1)
+		}
+		var p cargoPackage
+		for key, field := range map[string]*string{"name": &p.Name, "version": &p.Version, "source": &p.Source, "checksum": &p.Checksum} {
+			if v, present := table[key]; present {
+				text, ok := v.(string)
+				if !ok {
+					return nil, fmt.Errorf("Cargo.lock's package %d has a %s that is not a string", i+1, key)
+				}
+				*field = text
+			}
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// subtable is doc[key] when it is a table, else nil.
+func subtable(doc map[string]any, key string) map[string]any {
+	table, _ := doc[key].(map[string]any)
+	return table
 }
 
 // Verify checks a Cargo.lock against its Cargo.toml.
@@ -60,14 +80,19 @@ type cargoManifest struct {
 // checked as one. A workspace member's own manifest is checked by naming
 // it, with the workspace's Cargo.lock, in its own call.
 func (f cargoFormat) Verify(lockData, manifestData []byte, sources []string) ([]Finding, error) {
-	var lock cargoLock
+	var lock map[string]any
 	if err := toml.Unmarshal(lockData, &lock); err != nil {
 		return nil, fmt.Errorf("Cargo.lock is not valid TOML: %w", err)
 	}
-	if lock.Version != 3 && lock.Version != 4 {
-		return nil, fmt.Errorf("Cargo.lock is version %d; this reads versions 3 and 4 (Cargo 1.53 and later write them)", lock.Version)
+	version, _ := lock["version"].(int64)
+	if version != 3 && version != 4 {
+		return nil, fmt.Errorf("Cargo.lock is version %v; this reads versions 3 and 4 (Cargo 1.53 and later write them)", lock["version"])
 	}
-	var manifest cargoManifest
+	packages, err := cargoPackages(lock)
+	if err != nil {
+		return nil, err
+	}
+	var manifest map[string]any
 	if err := toml.Unmarshal(manifestData, &manifest); err != nil {
 		return nil, fmt.Errorf("Cargo.toml is not valid TOML: %w", err)
 	}
@@ -76,7 +101,7 @@ func (f cargoFormat) Verify(lockData, manifestData []byte, sources []string) ([]
 	}
 
 	locked := map[string]bool{}
-	for _, p := range lock.Package {
+	for _, p := range packages {
 		locked[p.Name] = true
 	}
 	var findings []Finding
@@ -86,24 +111,23 @@ func (f cargoFormat) Verify(lockData, manifestData []byte, sources []string) ([]
 			declared[crateName(key, spec)] = table
 		}
 	}
-	add("dependencies", manifest.Dependencies)
-	add("dev-dependencies", manifest.DevDependencies)
-	add("build-dependencies", manifest.BuildDependencies)
-	for target, t := range manifest.Target {
-		add("target."+target+".dependencies", t.Dependencies)
-		add("target."+target+".dev-dependencies", t.DevDependencies)
-		add("target."+target+".build-dependencies", t.BuildDependencies)
+	for _, table := range []string{"dependencies", "dev-dependencies", "build-dependencies"} {
+		add(table, subtable(manifest, table))
 	}
-	if manifest.Workspace != nil {
-		add("workspace.dependencies", manifest.Workspace.Dependencies)
+	for target, t := range subtable(manifest, "target") {
+		spec, _ := t.(map[string]any)
+		for _, table := range []string{"dependencies", "dev-dependencies", "build-dependencies"} {
+			add("target."+target+"."+table, subtable(spec, table))
+		}
 	}
+	add("workspace.dependencies", subtable(subtable(manifest, "workspace"), "dependencies"))
 	for name, table := range declared {
 		if !locked[name] {
 			findings = append(findings, Finding{name, fmt.Sprintf("Cargo.toml declares it under [%s], and Cargo.lock does not lock it", table)})
 		}
 	}
 
-	for _, p := range lock.Package {
+	for _, p := range packages {
 		if p.Source == "" {
 			continue
 		}

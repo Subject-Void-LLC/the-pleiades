@@ -18,27 +18,71 @@ func (npmFormat) DefaultSources() []string { return []string{"registry.npmjs.org
 
 // npmLock is the part of package-lock.json read here.
 type npmLock struct {
-	LockfileVersion int                 `json:"lockfileVersion"`
-	Packages        map[string]npmEntry `json:"packages"`
+	LockfileVersion int
+	Packages        map[string]npmEntry
 }
 
 // npmEntry is one entry under packages.
 type npmEntry struct {
-	Version              string            `json:"version"`
-	Resolved             string            `json:"resolved"`
-	Integrity            string            `json:"integrity"`
-	Link                 bool              `json:"link"`
-	InBundle             bool              `json:"inBundle"`
-	Dependencies         map[string]string `json:"dependencies"`
-	DevDependencies      map[string]string `json:"devDependencies"`
-	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	Version              string
+	Resolved             string
+	Integrity            string
+	Link                 bool
+	InBundle             bool
+	Dependencies         map[string]string
+	DevDependencies      map[string]string
+	OptionalDependencies map[string]string
 }
 
 // npmManifest is the part of package.json read here.
 type npmManifest struct {
-	Dependencies         map[string]string `json:"dependencies"`
-	DevDependencies      map[string]string `json:"devDependencies"`
-	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	Dependencies         map[string]string
+	DevDependencies      map[string]string
+	OptionalDependencies map[string]string
+}
+
+// UnmarshalJSON reads the lockfile's keys exactly (readExact).
+func (l *npmLock) UnmarshalJSON(data []byte) error {
+	return readExact(data, map[string]any{"lockfileVersion": &l.LockfileVersion, "packages": &l.Packages})
+}
+
+// UnmarshalJSON reads an entry's keys exactly (readExact).
+func (e *npmEntry) UnmarshalJSON(data []byte) error {
+	return readExact(data, map[string]any{
+		"version": &e.Version, "resolved": &e.Resolved, "integrity": &e.Integrity, "link": &e.Link, "inBundle": &e.InBundle,
+		"dependencies": &e.Dependencies, "devDependencies": &e.DevDependencies, "optionalDependencies": &e.OptionalDependencies,
+	})
+}
+
+// UnmarshalJSON reads the manifest's keys exactly (readExact).
+func (m *npmManifest) UnmarshalJSON(data []byte) error {
+	return readExact(data, map[string]any{
+		"dependencies": &m.Dependencies, "devDependencies": &m.DevDependencies, "optionalDependencies": &m.OptionalDependencies,
+	})
+}
+
+// readExact decodes the JSON object data into each field by its exact
+// key, as npm reads it. encoding/json matches a key to a struct field
+// regardless of case and lets a later spelling replace or merge into an
+// earlier one, so a "Resolved" after "resolved" would have replaced the
+// source npm fetches from, and a "Link" would have skipped an entry npm
+// installs; npm, in JavaScript, reads only the key spelled as it is. A key
+// given twice exactly keeps its last value, as JSON.parse does.
+func readExact(data []byte, fields map[string]any) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	for key, field := range fields {
+		raw, ok := object[key]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(raw, field); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // Verify checks a package-lock.json against its package.json.
