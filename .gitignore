@@ -33,6 +33,9 @@ obj/
 # JWT secret. It is the only copy of the key, so it is backed up by hand and
 # never committed. Anchored to the module root, where docker compose reads it.
 /.env
+# The Mac make mac-check tests on (tools/maccheck): this clone's own, never
+# committed. tests/mac/.env.example shows its one setting.
+/tests/mac/.env
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
