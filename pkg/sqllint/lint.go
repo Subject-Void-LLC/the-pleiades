@@ -7,15 +7,38 @@ import (
 	"strings"
 )
 
-// Destructive says why a statement is not additive: what it removes or
-// rewrites. The empty string means it only adds (or only changes rows'
-// values, which a backfill does).
+// Destructive says why a statement is not provably additive: what it
+// removes or rewrites, or that it runs something whose effect this cannot
+// see. The empty string means it only adds (or only changes rows' values,
+// which a backfill does).
 //
-// It is a rule about the statement's first words, with one exception for
-// a data-modifying CTE, and is deliberately strict: a statement it names
-// that is in fact harmless is waived by the file, with a reason, rather
-// than allowed by a looser rule.
-func Destructive(s Statement) string {
+// It is a rule about the statement's first words and, for one that runs
+// another statement (WITH, PREPARE, EXPLAIN, COPY of a query), about the
+// statement it runs. It is deliberately strict, failing closed: a DO
+// block, a CALL, an EXECUTE, a COPY from or to a program, and a query on
+// its own (whose only effect in a migration is what the functions it
+// calls do) are refused, since what they do cannot be read here. A
+// statement it names that is in fact harmless is waived by the file, with
+// a reason, rather than allowed by a looser rule.
+//
+// What it cannot see and does not refuse is code run by a statement it
+// judges by what that statement says it does: a function an INSERT,
+// UPDATE or CREATE calls, or a trigger one fires.
+func Destructive(s Statement) string { return destructive(s, 0) }
+
+// maxNesting bounds how many statements deep destructive follows one
+// statement running another. PostgreSQL nests them only a few deep (an
+// EXPLAIN of an EXECUTE, a COPY of a WITH), and following a hostile file
+// of thousands, rereading the rest of it at each level, would take time
+// that grows with the square of its length.
+const maxNesting = 4
+
+// destructive is Destructive for a statement nested depth statements deep
+// in the one a file holds.
+func destructive(s Statement, depth int) string {
+	if depth > maxNesting {
+		return "it nests one statement in another more deeply than this reads"
+	}
 	w := s.Words()
 	if len(w) == 0 {
 		return ""
@@ -35,14 +58,43 @@ func Destructive(s Statement) string {
 				return "it deletes rows in a WITH clause"
 			}
 		}
+		main := withMain(s.Tokens)
+		if main == 0 {
+			return "it has a WITH clause whose own statement this cannot find"
+		}
+		return destructive(from(s, main, len(s.Tokens)), depth+1)
+	case "MERGE":
+		for _, word := range w[1:] {
+			if word == "DELETE" {
+				return "it deletes rows in a MERGE"
+			}
+		}
 	case "ALTER":
 		return alterDestructive(s)
+	case "DO":
+		return "it runs a DO block, whose effect this cannot see"
+	case "CALL":
+		return "it calls a procedure, whose effect this cannot see"
+	case "EXECUTE":
+		return "it runs a prepared statement, which this cannot see"
+	case "PREPARE":
+		if body := prepared(s.Tokens); body > 0 {
+			return within("it prepares a statement that", destructive(from(s, body, len(s.Tokens)), depth+1))
+		}
+	case "EXPLAIN":
+		if body := explained(s.Tokens); body > 0 {
+			return within("it explains, and with ANALYZE runs, a statement that", destructive(from(s, body, len(s.Tokens)), depth+1))
+		}
+	case "COPY":
+		return copyDestructive(s, depth)
+	case "SELECT", "VALUES", "TABLE":
+		return "it is a query, whose only effect in a migration is what the functions it calls do, which this cannot see"
 	}
 	return ""
 }
 
-// alterDestructive is Destructive for ALTER: a DROP or RENAME anywhere in
-// it, or a column given a new type.
+// alterDestructive is Destructive for ALTER: a DROP, RENAME or REVOKE
+// (ALTER DEFAULT PRIVILEGES) anywhere in it, or a column given a new type.
 func alterDestructive(s Statement) string {
 	t := s.Tokens
 	for i := 1; i < len(t); i++ {
@@ -54,6 +106,8 @@ func alterDestructive(s Statement) string {
 			return "it drops " + object(words(t[i+1:]))
 		case "RENAME":
 			return "it renames something"
+		case "REVOKE":
+			return "it revokes a privilege"
 		case "ALTER":
 			// ALTER [COLUMN] name [SET DATA] TYPE: the name may be quoted,
 			// and is any one token.

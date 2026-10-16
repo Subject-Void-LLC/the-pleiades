@@ -98,6 +98,48 @@ func TestDestructive(t *testing.T) {
 	}
 }
 
+// TestDestructive_FailsClosed: a statement that runs code this cannot see,
+// or runs another statement, is judged by what it runs, and refused when
+// that cannot be seen; the additive forms of each pass.
+func TestDestructive_FailsClosed(t *testing.T) {
+	const query = "it is a query, whose only effect in a migration is what the functions it calls do, which this cannot see"
+	for sql, want := range map[string]string{
+		"DO $$ BEGIN DROP TABLE t; END $$":                             "it runs a DO block, whose effect this cannot see",
+		"CALL cleanup()":                                               "it calls a procedure, whose effect this cannot see",
+		"EXECUTE q (1)":                                                "it runs a prepared statement, which this cannot see",
+		"PREPARE q (int) AS DELETE FROM t WHERE id = $1":               "it prepares a statement that deletes rows",
+		"PREPARE q AS INSERT INTO t VALUES (1)":                        "",
+		"MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE": "it deletes rows in a MERGE",
+		"MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT VALUES (s.id)": "",
+		"EXPLAIN ANALYZE DELETE FROM t":            "it explains, and with ANALYZE runs, a statement that deletes rows",
+		"EXPLAIN (ANALYZE, BUFFERS) DELETE FROM t": "it explains, and with ANALYZE runs, a statement that deletes rows",
+		"EXPLAIN ANALYZE EXECUTE q":                "it explains, and with ANALYZE runs, a statement that runs a prepared statement, which this cannot see",
+		"EXPLAIN INSERT INTO t VALUES (1)":         "",
+		"SELECT drop_everything()":                 query,
+		"SELECT 1":                                 query,
+		"(SELECT f())":                             query,
+		"VALUES (f())":                             query,
+		"TABLE v":                                  query,
+		"WITH x AS (SELECT 1) SELECT f()":          query,
+		"WITH update AS (SELECT 1), y (a) AS (SELECT 2) SELECT f()": query,
+		"WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x":        "",
+		"WITH x AS (SELECT 1) UPDATE t SET c = 1":                   "",
+		"COPY t FROM PROGRAM 'rm -rf /srv'":                         "it runs a program on the server, whose effect this cannot see",
+		"COPY (DELETE FROM t RETURNING *) TO STDOUT":                "it copies out of a statement that deletes rows",
+		"COPY (SELECT * FROM t) TO STDOUT":                          "it copies out of a statement that is a query, whose only effect in a migration is what the functions it calls do, which this cannot see",
+		"COPY t FROM STDIN":                                         "",
+		"ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM r":   "it revokes a privilege",
+	} {
+		stmts, err := sqllint.Split(sql)
+		if err != nil || len(stmts) != 1 {
+			t.Fatalf("Split(%q) = %v, %v", sql, stmts, err)
+		}
+		if got := sqllint.Destructive(stmts[0]); got != want {
+			t.Errorf("Destructive(%q) = %q, want %q", sql, got, want)
+		}
+	}
+}
+
 // TestTransactionRules: which statements end the transaction a file runs
 // in, and which cannot run in one.
 func TestTransactionRules(t *testing.T) {
@@ -169,5 +211,18 @@ func TestParseDirectives(t *testing.T) {
 		if _, err := sqllint.ParseDirectives(src); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ParseDirectives(%q) = %v, want %q", src, err, want)
 		}
+	}
+}
+
+// TestDestructive_BoundsNesting: a statement nesting others past what
+// PostgreSQL allows is refused rather than followed to the end, so a
+// hostile file cannot make the lint reread itself thousands of times.
+func TestDestructive_BoundsNesting(t *testing.T) {
+	stmts, err := sqllint.Split(strings.Repeat("EXPLAIN ", 100000) + "INSERT INTO t VALUES (1)")
+	if err != nil || len(stmts) != 1 {
+		t.Fatalf("Split = %d statements, %v", len(stmts), err)
+	}
+	if got := sqllint.Destructive(stmts[0]); !strings.HasSuffix(got, "nests one statement in another more deeply than this reads") {
+		t.Errorf("Destructive = %q", got)
 	}
 }
