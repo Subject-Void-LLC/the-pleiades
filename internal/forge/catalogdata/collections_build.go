@@ -30,6 +30,7 @@ var buildCollections = []collectionscaffold.Config{
 				{Name: "references", Type: "list of dict", Returned: "on success", Description: "Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted)."},
 				{Name: "offenders", Type: "int", Returned: "on success", Description: "How many references are offenders, which is zero for a task that succeeded."},
 			},
+			Fragments: []string{"container_engine"},
 			Examples: []collection.Example{
 				{Name: "Check a project's images are pinned", RunbookYAML: "- name: Check image pins\n  build.digests.check:\n    files: [/srv/app/Dockerfile, /srv/app/compose.yaml, /srv/app/k8s/deploy.yaml]\n"},
 			},
@@ -54,6 +55,7 @@ var buildCollections = []collectionscaffold.Config{
 				{Name: "changes", Type: "list of dict", Returned: "always", Description: "Each reference changed, or that a check would change: file, line, from and to."},
 				{Name: "warnings", Type: "list of string", Returned: "when a file was written in place", Description: "Each file written in place rather than renamed over, and why."},
 			},
+			Fragments: []string{"container_engine"},
 			Examples: []collection.Example{
 				{Name: "Move a project's image pins forward", RunbookYAML: "- name: Refresh image pins\n  build.digests.refresh:\n    files: [/srv/app/Dockerfile, /srv/app/compose.yaml]\n"},
 			},

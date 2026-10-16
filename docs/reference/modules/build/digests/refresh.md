@@ -23,6 +23,7 @@ Reads the named files on the device, resolves each reference's tag to the digest
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `files` | `list of string` | no | - | Required unless undo is given. The files on the device to read, each recognized by its name and content: a Dockerfile or Containerfile (each FROM, COPY --from and RUN --mount from that names an image, a FROM through an ARG read from the ARG's default), a Compose file (each service's image), or Kubernetes manifests (every container's image, in every document). A file of none of these kinds is refused by name. Each is read whole, at most 1 MiB. |
 | `set` | `list of dict` | no | - | Exact rewrites to make instead of resolving: each a mapping of file, line, from (the reference written there now) and to (the reference to write, which must parse). A file must also be in files. An entry whose from is not on that line refuses the task. |
 | `undo` | `string` | no | - | The id of an undo record an earlier run of this method kept on the device: the references it names are written back as they were, and files, when not given, are the files it names. Cannot be combined with set. A run that writes keeps a record of its own, and the record it replayed is removed. |

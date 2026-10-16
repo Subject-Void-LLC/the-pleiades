@@ -65,6 +65,7 @@ var gateCollections = []collectionscaffold.Config{
 				{Name: "summary", Type: "string", Returned: "on success", Description: "The counts for a person, for example \"12 passed, 0 failed, 3 skipped\"."},
 				{Name: "ledger", Type: "string", Returned: "when a check was skipped", Description: "The skipped checks grouped by reason, largest group first."},
 			},
+			Fragments: []string{"container_engine"},
 			Examples: []collection.Example{
 				{
 					Name:        "Run a project's pure and db checks",

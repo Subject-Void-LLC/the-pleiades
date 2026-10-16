@@ -23,6 +23,7 @@ Reads the named files on the device and checks each image reference in them: pin
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `files` | `list of string` | yes | - | The files on the device to read, each recognized by its name and content: a Dockerfile or Containerfile (each FROM, COPY --from and RUN --mount from that names an image, a FROM through an ARG read from the ARG's default), a Compose file (each service's image), or Kubernetes manifests (every container's image, in every document). A file of none of these kinds is refused by name. Each is read whole, at most 1 MiB. |
 | `resolve` | `bool` | no | `false` | Also resolve each pinned reference's tag through the device's container engine and report drift. The device must have its engine onboarded. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |

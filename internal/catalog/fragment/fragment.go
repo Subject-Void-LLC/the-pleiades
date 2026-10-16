@@ -33,6 +33,18 @@ var Builtin = map[string]collection.Fragment{
 		},
 	},
 
+	// container_engine covers the engine a method opens through
+	// containerengine.Open when it does not fix one itself (gate.run,
+	// build.digests.check with resolve, build.digests.refresh). On a
+	// device running both Docker and Podman, Open refuses to guess and
+	// asks for this parameter, so a method that opens an engine that way
+	// must accept it, or the advice it gives cannot be followed.
+	"container_engine": {
+		Params: []collection.Param{
+			{Name: "engine", Type: "string", Choices: []string{"docker", "podman"}, Description: "Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused."},
+		},
+	},
+
 	// catalyst_pagination covers the one tuning knob the two
 	// EachDevice-based methods (device_facts, reachability) read.
 	"catalyst_pagination": {

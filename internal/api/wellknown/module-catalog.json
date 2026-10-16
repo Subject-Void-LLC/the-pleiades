@@ -218,6 +218,9 @@
           "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
       ],
+      "fragments": [
+        "container_engine"
+      ],
       "returns": [
         {
           "name": "references",
@@ -295,6 +298,9 @@
           "default": "false",
           "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
+      ],
+      "fragments": [
+        "container_engine"
       ],
       "returns": [
         {
@@ -3177,6 +3183,9 @@
           "default": "false",
           "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
+      ],
+      "fragments": [
+        "container_engine"
       ],
       "returns": [
         {
