@@ -12339,3 +12339,25 @@ waiver.
 
 **Lesson.** A new taint finding on an old helper points at its new caller: fix the flow at the caller, where the
 argument enters, rather than at the helper the analysis happened to report.
+
+## 476. The gate tests ran gate.run's own timeout command on the host, and macOS has none that takes -k (a repeat of 420) (fixed)
+
+**Symptom.** PR #59's `fast-macos` job failed 12 tests in `internal/catalog/gate`, every test that starts a check:
+"the device has no timeout command that takes -k and a duration (coreutils, or BusyBox 1.30 or later)". The Ubuntu,
+Windows and containers jobs passed, and the same tests pass on Linux.
+
+**Root cause.** The gate harness hands each command to a real `/bin/sh` on this machine, so the test device is the
+host. gate.run refuses a device whose timeout cannot bound a check, which is correct: the refusal is the product
+working. The harness assumed the host was that device, as 420's packages did.
+
+**Why 420's fix did not reach it.** 420 audited the packages that failed on the first macOS run. This package was new
+and had not run on macOS, so nothing had listed its host tools; its tests were written and passed on Linux only.
+
+**Fix.** The harness requires a timeout that takes `-k` through `testsupport.Require` before it starts, and says so in
+the skip reason. On macOS the twelve tests skip, and the ledger names why; the Linux release gate proves the real
+behavior.
+
+**Lesson.** A test that runs the product's own commands on the host has every host tool the product checks as a
+precondition. When a package's tests first run on a new platform, list the host tools they run and require each one,
+rather than waiting for the failing run to name them. This is 420's lesson, applied to the tests written after 420's
+audit.

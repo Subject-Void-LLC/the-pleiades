@@ -478,6 +478,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
 474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
 475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
+476. The gate tests ran gate.run's own timeout command on the host, and macOS has none that takes -k (a repeat of 420) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
