@@ -3,6 +3,7 @@ package pg_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -102,6 +103,26 @@ func TestGrants_RefusesADeclarationItCannotRead(t *testing.T) {
 				t.Fatalf("grants = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestGrants_AllMeansWhatTheServerHas: ALL on a table stands for the
+// privileges this server's tables have, so before PostgreSQL 17, which
+// added MAINTAIN, a role granted ALL matches a declared ALL; a MAINTAIN
+// declared outright there is refused rather than reported missing on
+// every run. The fixture's server is older than 17.
+func TestGrants_AllMeansWhatTheServerHas(t *testing.T) {
+	h := newHarness(t)
+	if major, _ := strconv.Atoi(h.value(t, "app", "SELECT current_setting('server_version_num')::int / 10000")); major >= 17 {
+		t.Fatalf("the fixture's server is %d, which has MAINTAIN; this test needs one older than 17", major)
+	}
+	h.sql(t, "app", "CREATE TABLE orders (id int)", "CREATE ROLE writer", "GRANT ALL ON TABLE orders TO writer")
+	if _, err := grants(h, "writer", map[string]any{"tables": map[string]any{"public.orders": []any{"ALL"}}}); err != nil {
+		t.Fatalf("ALL granted, ALL declared: %v", err)
+	}
+	_, err := grants(h, "writer", map[string]any{"tables": map[string]any{"public.orders": []any{"ALL", "MAINTAIN"}}})
+	if err == nil || !strings.Contains(err.Error(), "MAINTAIN exists from PostgreSQL 17") {
+		t.Errorf("MAINTAIN declared on an older server = %v", err)
 	}
 }
 

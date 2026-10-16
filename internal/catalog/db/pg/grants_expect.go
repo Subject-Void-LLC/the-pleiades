@@ -86,6 +86,33 @@ func checkPattern(kind, pattern string) error {
 	return nil
 }
 
+// maintainSince is the first PostgreSQL major version whose tables have
+// the MAINTAIN privilege.
+const maintainSince = 17
+
+// fitServer fits the declared set to the server's major version. Before
+// 17 no table has MAINTAIN, so ALL there stands for the rest, and a
+// MAINTAIN declared outright is refused rather than reported missing on
+// every run.
+func (e expectation) fitServer(major int) error {
+	if major >= maintainSince {
+		return nil
+	}
+	for pattern, privs := range e.privileges["tables"] {
+		kept := make([]privilege, 0, len(privs))
+		for _, p := range privs {
+			switch {
+			case p.name != "MAINTAIN":
+				kept = append(kept, p)
+			case !p.fromAll:
+				return fmt.Errorf("%s.tables %s: MAINTAIN exists from PostgreSQL %d, and this server is %d", paramExpect, pattern, maintainSince, major)
+			}
+		}
+		e.privileges["tables"][pattern] = kept
+	}
+	return nil
+}
+
 // parsePrivileges reads privilege names, upper-cased, with ALL standing
 // for every privilege the kind has and WITH GRANT OPTION kept.
 func parsePrivileges(kind, object string, names []string) ([]privilege, error) {
@@ -100,7 +127,7 @@ func parsePrivileges(kind, object string, names []string) ([]privilege, error) {
 		all := grantKinds[kind]
 		if name == "ALL" || name == "ALL PRIVILEGES" {
 			for _, p := range all {
-				out = append(out, privilege{kind: kind, object: object, name: p, grantable: grantable})
+				out = append(out, privilege{kind: kind, object: object, name: p, grantable: grantable, fromAll: true})
 			}
 			continue
 		}

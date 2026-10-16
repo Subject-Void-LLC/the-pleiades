@@ -71,6 +71,8 @@ func init() {
 type privilege struct {
 	kind, object, name string
 	grantable          bool
+	// fromAll is a declared privilege that ALL stood for.
+	fromAll bool
 }
 
 // key is the privilege without its grant option.
@@ -120,6 +122,13 @@ func Grants(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return fail(err)
 	}
 	defer func() { _ = s.Close() }()
+	_, major, err := s.ServerVersion(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	if err := expect.fitServer(major); err != nil {
+		return fail(err)
+	}
 
 	var cat catalog
 	if err := s.Snapshot(ctx, pgclient.Limits{Statement: timeout, Lock: defaultLockTimeout}, func(tx *sql.Tx) error {
