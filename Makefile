@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet ci-images workflow-lint doctor test-clean-room
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check ci-images workflow-lint doctor test-clean-room
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -667,6 +667,7 @@ pr-check: ci-remote pr-check-vet
 	if [ -n "$$mine_docker" ]; then \
 		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
 	fi; \
+	go run ./tools/maccheck -optional -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
 	if docker info >/dev/null 2>&1; then \
 		go run ./tools/testimages -served $$docker >/dev/null || status=1; \
 	else \
@@ -676,6 +677,25 @@ pr-check: ci-remote pr-check-vet
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
+
+# mac-check runs the branch's container-free packages on a real Mac, before
+# a push, for what a Linux run cannot show: a GNU-only tool or flag that
+# macOS's BSD userland lacks, which CI's fast-macos job otherwise finds only
+# after the push (FAILURE_PATTERNS 420, 476, 494). tools/maccheck drives it
+# through this branch's own pleiades, with the Mac as a device in a private
+# project under .git. Name the Mac in tests/mac/.env (gitignored; copy
+# tests/mac/.env.example), as anything ssh accepts: PLEIADES_MAC=user@host,
+# user@ip, or an ~/.ssh/config alias. Delete the file to stop. pr-check runs
+# the same check whenever a Mac is named, and says macOS was not checked
+# when none is.
+mac-check:
+	@$(SPLIT_PACKAGES); \
+	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
+	mine_fast=""; \
+	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
+		if printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
+	done; \
+	go run ./tools/maccheck -p $(PR_CHECK_PARALLELISM) $$mine_fast
 
 # pr-check-vet vets every package, tests and the integration tag included,
 # as macOS and Windows build them: a file named for one operating system

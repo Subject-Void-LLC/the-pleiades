@@ -282,6 +282,7 @@ make test-full       # the one test pass (Phase 118): -race, -tags integration, 
 make ci-fast         # every container-free package, tolerant, then test-repeat: the fast loop, needs no Docker (a CI job)
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
 make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
+make mac-check       # the branch's container-free packages on a real Mac (PLEIADES_MAC in tests/mac/.env), through pleiades; pr-check runs it when a Mac is named
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target
