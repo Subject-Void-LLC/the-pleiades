@@ -41,6 +41,17 @@ var allowedReleasedPorts = map[string]string{
 // internal/testsupport/refusing), whose port is bound and never listened on, so it refuses
 // at once and nothing else can take it; port 0 ("127.0.0.1:0") where any
 // refusal will do; or keep the listener open while its address is used.
+//
+// What it does not see, by construction: it reads one function at a time
+// and knows a listener only by the call that made it (net.Listen and its
+// kin, tls.Listen, the httptest servers), so a listener from a helper, a
+// net.ListenConfig, a copy of the variable, a struct field, or an address
+// carried into another function is invisible to it. A looser scan run once
+// over the tree (any value closed and then read directly for Addr or URL)
+// found one site in a shape this did not model, an httptest server's URL;
+// modeling httptest servers then found a second, through a variable that
+// held the URL, which the looser scan had missed. Both are fixed. That is
+// evidence about today's tree, not a proof for tomorrow's.
 func TestNoReleasedPortIsUsedAsAnAddress(t *testing.T) {
 	root := repoRoot(t)
 	scanned := 0

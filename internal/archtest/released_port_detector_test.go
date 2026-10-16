@@ -23,6 +23,43 @@ func T() {
 	_ = ln.Close()
 	dial(addr)
 }`, 1},
+		"an httptest server closed, then its URL used": {`package p
+func T() {
+	srv := httptest.NewServer(h)
+	srv.Close()
+	sync([]string{"--endpoint", srv.URL})
+}`, 1},
+		"an httptest server closed, then its listener's Addr read": {`package p
+func T() {
+	srv := httptest.NewTLSServer(h)
+	srv.Close()
+	dial(srv.Listener.Addr().String())
+}`, 1},
+		"an httptest URL kept, then the server closed, then the URL used": {`package p
+func T() {
+	srv := httptest.NewServer(h)
+	u := srv.URL + "/api"
+	srv.Close()
+	get(u)
+}`, 1},
+		"an httptest server used, then closed by cleanup": {`package p
+func T(t *testing.T) {
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	get(srv.URL)
+}`, 0},
+		"an httptest server used, then closed": {`package p
+func T() {
+	srv := httptest.NewServer(h)
+	get(srv.URL)
+	srv.Close()
+}`, 0},
+		"a tls listener closed, then Addr read": {`package p
+func T() {
+	ln, _ := tls.Listen("tcp", "127.0.0.1:0", cfg)
+	ln.Close()
+	dial(ln.Addr().String())
+}`, 1},
 		"closed, then Addr read": {`package p
 func T() {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")

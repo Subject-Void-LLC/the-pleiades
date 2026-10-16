@@ -64,13 +64,16 @@ func scanScope(fset *token.FileSet, body *ast.BlockStmt) []string {
 			}
 			switch x := n.(type) {
 			case *ast.CallExpr:
-				if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Addr" {
-					if id, ok := sel.X.(*ast.Ident); ok && listeners[id.Name] {
-						got = id.Name
-					}
+				if l := addrCallOf(x, listeners); l != "" {
+					got = l
 					return false
 				}
 				if !addressCall(x) {
+					return false
+				}
+			case *ast.SelectorExpr:
+				if l := urlOf(x, listeners); l != "" {
+					got = l
 					return false
 				}
 			case *ast.Ident:
@@ -154,10 +157,12 @@ func scanScope(fset *token.FileSet, body *ast.BlockStmt) []string {
 				// An error or a log naming the address does not connect to it.
 				return false
 			}
-			if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Addr" {
-				if id, ok := sel.X.(*ast.Ident); ok && listeners[id.Name] {
-					uses = append(uses, use{id.Name, x.Pos()})
-				}
+			if l := addrCallOf(x, listeners); l != "" {
+				uses = append(uses, use{l, x.Pos()})
+			}
+		case *ast.SelectorExpr:
+			if l := urlOf(x, listeners); l != "" {
+				uses = append(uses, use{l, x.Pos()})
 			}
 		case *ast.Ident:
 			if l, ok := derived[x.Name]; ok {
@@ -197,14 +202,24 @@ func scanScope(fset *token.FileSet, body *ast.BlockStmt) []string {
 }
 
 // isListen reports whether call binds a port: net.Listen, ListenTCP,
-// ListenUDP or ListenPacket on a network that is not a Unix socket.
+// ListenUDP or ListenPacket on a network that is not a Unix socket,
+// tls.Listen, or an httptest server, whose listener is bound when it is
+// made.
 func isListen(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
 	pkg, ok := sel.X.(*ast.Ident)
-	if !ok || pkg.Name != "net" || !listenFuncs[sel.Sel.Name] {
+	if !ok {
+		return false
+	}
+	switch {
+	case pkg.Name == "httptest" && httptestServers[sel.Sel.Name]:
+		return true
+	case pkg.Name == "tls" && sel.Sel.Name == "Listen":
+	case pkg.Name == "net" && listenFuncs[sel.Sel.Name]:
+	default:
 		return false
 	}
 	if len(call.Args) > 0 {
@@ -213,6 +228,37 @@ func isListen(call *ast.CallExpr) bool {
 		}
 	}
 	return true
+}
+
+// httptestServers are the httptest constructors that bind a listener.
+var httptestServers = map[string]bool{"NewServer": true, "NewTLSServer": true, "NewUnstartedServer": true}
+
+// addrCallOf names the listener call reads the address of: L.Addr(), or
+// L.Listener.Addr() for an httptest server.
+func addrCallOf(call *ast.CallExpr, listeners map[string]bool) string {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Addr" {
+		return ""
+	}
+	recv := sel.X
+	if inner, ok := recv.(*ast.SelectorExpr); ok && inner.Sel.Name == "Listener" {
+		recv = inner.X
+	}
+	if id, ok := recv.(*ast.Ident); ok && listeners[id.Name] {
+		return id.Name
+	}
+	return ""
+}
+
+// urlOf names the httptest server whose URL field sel reads.
+func urlOf(sel *ast.SelectorExpr, listeners map[string]bool) string {
+	if sel.Sel.Name != "URL" {
+		return ""
+	}
+	if id, ok := sel.X.(*ast.Ident); ok && listeners[id.Name] {
+		return id.Name
+	}
+	return ""
 }
 
 // closeOf names the listener e closes (L.Close()), and where the call ends.
