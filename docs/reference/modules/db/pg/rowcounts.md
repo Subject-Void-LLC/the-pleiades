@@ -25,8 +25,8 @@ Counts the rows of every table outside the system schemas with count(*), in a RE
 | --- | --- | --- | --- | --- |
 | `connection` | `string` | yes | - | The name of a database connection: one stored with pleiades add-database-connection, or a PostgreSQL Connection credential bound to the template. It holds the server as the device sees it, the login and its password, the TLS mode and the live databases; a task never carries any of them. |
 | `database` | `string` | yes | - | The database to connect to. |
-| `compare` | `dict` | no | - | The database to compare with: database, and connection when it is on another server. |
-| `schemas` | `list of string` | no | - | Count only the tables in these schemas. |
+| `compare` | `dict` | no | - | The database to compare with: database, and connection when it is on another server. Any other key is refused. |
+| `schemas` | `list of string` | no | - | Count only the tables in these schemas, each of which must exist. |
 | `exclude` | `list of string` | no | - | Tables not to count, as schema.table or schema.*. |
 | `max_tables` | `int` | no | `1000` | The most tables one side may count, up to 10000; past it the task fails rather than count part. |
 | `timeout` | `string` | no | `5m` | Each count's statement timeout, up to 1h. |

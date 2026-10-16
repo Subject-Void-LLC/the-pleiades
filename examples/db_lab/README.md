@@ -38,7 +38,7 @@ pleiades validate runbooks/backup-verify.yaml runbooks/migrate.yaml runbooks/rep
 pleiades run runbooks/migrate.yaml --mode check   # reads and checks every file, lists what is pending, applies nothing
 pleiades run runbooks/migrate.yaml
 pleiades run runbooks/backup-verify.yaml
-pleiades rollback <run-id>                         # removes the archive the dump wrote; a restore is not undone
+pleiades rollback <run-id> --leave 'tasks[1]'     # the backup-verify run: removes the archive; the restore cannot be undone, so it is left by name
 ```
 
 A check of `backup-verify.yaml` in one run fails at the restore, because a checked dump writes no archive for

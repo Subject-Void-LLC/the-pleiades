@@ -55,6 +55,9 @@ func TestTLS_VerifiedFromTheDeviceInProcessAndByPgDump(t *testing.T) {
 	if _, err := query(h, map[string]any{"connection": "stranger", "database": "app", "sql": "SELECT 1", "allow_privileged_role": true}); err == nil || !strings.Contains(err.Error(), "certificate") {
 		t.Errorf("another authority in-process = %v", err)
 	}
+	if _, err := pg.Dump(context.Background(), h.fresh(), h.device, params(map[string]any{"connection": "stranger", "database": "app", "dest": filepath.Join(t.TempDir(), "stranger.dump")})); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("another authority through pg_dump = %v", err)
+	}
 	h.rc.connections = append(h.rc.connections, wire.DatabaseConnection{Name: "named-host", Host: "localhost", Port: h.port, User: adminUser, Password: adminPassword, CAPEM: string(ca), ServerName: "localhost"})
 	if _, err := pg.Dump(context.Background(), h.fresh(), h.device, params(map[string]any{"connection": "named-host", "database": "app", "dest": filepath.Join(t.TempDir(), "x.dump")})); err == nil || !strings.Contains(err.Error(), "the host must be an address") {
 		t.Errorf("server_name with a host name through pg_dump = %v", err)

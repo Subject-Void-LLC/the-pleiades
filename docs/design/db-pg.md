@@ -85,7 +85,7 @@ result records and the run warns about.
 | Method | Check | Reversible |
 |---|---|---|
 | `db.pg.query` | Read-only: same as Invoke. With `write: true`: unchecked (`CannotCheck`, decided from the params, so `check_mode` on such a task is refused at validate): running a write and rolling it back is not "changing nothing" (sequences advance, locks are taken, triggers and `dblink` act outside the transaction). | Read-only calls change nothing. A write: no, it runs arbitrary SQL. |
-| `db.pg.dump` | Connects, checks `pg_dump`'s major version against the server's, that `dest` is absent and its directory writable; writes nothing. | Yes: the undo is `file.remove` of the archive it created (it never replaces one). |
+| `db.pg.dump` | Connects, checks `pg_dump`'s major version against the server's, that `dest` is absent and its directory exists; writes nothing. | Yes: the undo is `file.remove` of the archive it created (it never replaces one). |
 | `db.pg.restore` | Lists the archive (`pg_restore --list`), and makes every refusal a run makes (live, non-empty, absent without `create`); writes nothing. | No: it replaces a database's contents. Dump the target first to keep a way back. |
 | `db.pg.migrate` | Reads and lints every file, reads the version table, verifies every applied file's checksum, and reports the pending ones; applies nothing. | No: SQL has no inverse the method can derive. Write the reverse as a `rollback:` list, or a new forward migration. |
 | `db.pg.grants` | Same as Invoke (it only reads). | Read-only. |
@@ -141,8 +141,10 @@ result records and the run warns about.
   parent, once. Comparing a live database with a copy of it will differ by whatever was written since; the
   comparison is for copies at rest.
 - **`dump` never replaces an archive.** A new file per run (`dest` must not exist), written beside its final name
-  and renamed, so a failed dump never leaves a truncated archive under the name a restore would use; the undo is
-  then a plain removal.
+  and hard-linked to it (`ln`, which fails rather than replace a name that appeared meanwhile), so a failed dump
+  never leaves a truncated archive under the name a restore would use. A filesystem without hard links fails the
+  dump and keeps nothing. The undo is a plain removal, recorded as soon as the archive is in place, so a failure
+  reading it back is a warning rather than a failure that would drop the undo.
 
 ## Reuse
 
