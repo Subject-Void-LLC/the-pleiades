@@ -80,6 +80,12 @@ func subtable(doc map[string]any, key string) map[string]any {
 // checked as one. A workspace member's own manifest is checked by naming
 // it, with the workspace's Cargo.lock, in its own call.
 func (f cargoFormat) Verify(lockData, manifestData []byte, sources []string) ([]Finding, error) {
+	if err := checkTOMLNesting("Cargo.lock", lockData); err != nil {
+		return nil, err
+	}
+	if err := checkTOMLNesting("Cargo.toml", manifestData); err != nil {
+		return nil, err
+	}
 	var lock map[string]any
 	if err := toml.Unmarshal(lockData, &lock); err != nil {
 		return nil, fmt.Errorf("Cargo.lock is not valid TOML: %w", err)
