@@ -9,6 +9,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // TestDialTCP_ReachesAnEndpointAndNamesARefusal opens a channel to a live
@@ -31,12 +33,7 @@ func TestDialTCP_ReachesAnEndpointAndNamesARefusal(t *testing.T) {
 		n, _ := c.Read(buf)
 		_, _ = c.Write(buf[:n])
 	}()
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := testsupport.RefusingAddr(t)
 
 	r := New(Options{InsecureSkipHostKeyVerify: true})
 	p := NewPool(0)
