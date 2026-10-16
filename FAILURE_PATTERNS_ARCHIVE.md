@@ -12406,7 +12406,12 @@ itself, was a defect of its own: 482.
 **Guard.** The follow-up branch `test/released-port-guard` adds `internal/archtest`'s
 `TestNoReleasedPortIsUsedAsAnAddress`, which parses every Go file and refuses a listener's address used after an
 explicit `Close` or returned from a function that closes it by `defer`. On its first run it found eight more sites,
-all moved onto `refusing.Addr`/`refusing.Port` there, and two helpers (`freeTCPPort` in the leader election release
+all moved onto `refusing.Addr`/`refusing.Port` there. A review then said a static guard sees only the shapes it was
+written for; a looser scan (any value closed, then read for `Addr` or `URL`) found an `httptest` server's `URL` used
+after `Close`, and once the guard modeled `httptest` servers it found a second such site the looser scan had missed,
+through a variable holding the URL. Both were fixed in the same PR, and the guard's doc comment lists what it still
+cannot see (a listener from a helper, a `net.ListenConfig`, a copy or a struct field; an address carried into another
+function). It also allows two helpers (`freeTCPPort` in the leader election release
 gate and in `tests/e2e`) allowed by name with their reasons: each hands the port to a subprocess that must bind it
 itself, so it cannot be held, and a taken port fails that subprocess loudly at startup.
 
