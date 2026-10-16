@@ -65,7 +65,7 @@ const putBody = `t=$(mktemp -d ./.pleiades-xfer-XXXXXXXXXXXXXXXX) || exit 104
 trap 'rm -rf -- "$t"' EXIT
 trap 'exit 1' HUP INT TERM PIPE
 scp -t -- "$t" || exit 105
-chmod MODE -- "$t"/BASE || exit 106
+chmod -- MODE "$t"/BASE || exit 106
 mv -f -- "$t"/BASE ./BASE || exit 107
 `
 

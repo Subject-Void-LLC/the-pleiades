@@ -1,0 +1,1 @@
+File copies over SCP (`pkg/scpxfer`) that set a mode now work on macOS and BSD devices. The mode was set with `chmod MODE -- file`, which GNU chmod accepts and BSD chmod refuses, reading `--` as a file name, so every such copy failed there with "could not set the mode".
