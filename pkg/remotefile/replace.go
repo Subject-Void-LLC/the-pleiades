@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
+
+// replaceCleanupTimeout bounds removing Replace's new file after a failure.
+const replaceCleanupTimeout = 30 * time.Second
 
 // Replaced says how Replace wrote a file.
 type Replaced struct {
@@ -55,7 +59,14 @@ func Replace(ctx context.Context, conn *remoteexec.Conn, filePath string, conten
 	if res.ExitCode != 0 || !strings.HasPrefix(tmp, dir+"/.pleiades.") || strings.ContainsAny(tmp, "\n\r") {
 		return Replaced{}, fmt.Errorf("replace %s: writing beside it: exited %d: %s", filePath, res.ExitCode, firstLine(res.Stderr))
 	}
-	cleanup := func() { _, _ = conn.Run(ctx, "rm -f -- "+remoteexec.QuoteArg(tmp)) }
+	// The new file is removed on a context of its own, so a caller's
+	// cancelled context still cleans up. A session that dropped cannot,
+	// and leaves the file, named .pleiades.*, beside the target.
+	cleanup := func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceCleanupTimeout)
+		defer cancel()
+		_, _ = conn.Run(cctx, "rm -f -- "+remoteexec.QuoteArg(tmp))
+	}
 
 	if err := settle(ctx, conn, tmp, before); err != nil {
 		cleanup()

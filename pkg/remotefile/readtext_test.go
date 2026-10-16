@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 )
 
@@ -21,6 +22,11 @@ func TestReadText_ReadsTextAndRefusesEveryOtherShape(t *testing.T) {
 	write := func(name string, content []byte) string {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, content, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		// WriteFile's mode passes through the umask, and the mode is
+		// asserted below, so it is set outright.
+		if err := os.Chmod(p, 0o640); err != nil {
 			t.Fatal(err)
 		}
 		return p
@@ -55,5 +61,22 @@ func TestReadText_ReadsTextAndRefusesEveryOtherShape(t *testing.T) {
 				t.Fatalf("ReadText(%s) = %q, %v; want an error saying %q", tc.path, got, err, tc.want)
 			}
 		})
+	}
+}
+
+// TestReadText_NamesAFileItCannotRead: a regular file the login may not
+// read is refused with the device's own reason, cut and escaped.
+func TestReadText_NamesAFileItCannotRead(t *testing.T) {
+	need.Require(t, "non-root", os.Geteuid() != 0, "root reads a file whose mode forbids it")
+	conn := connect(t)
+	p := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := remotefile.ReadText(context.Background(), conn, p, 64); err == nil || got != nil || !strings.Contains(err.Error(), "could not read") {
+		t.Fatalf("ReadText of an unreadable file = %q, %v", got, err)
 	}
 }

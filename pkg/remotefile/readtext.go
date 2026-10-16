@@ -34,9 +34,15 @@ func ReadText(ctx context.Context, conn *remoteexec.Conn, filePath string, max i
 	case info.Kind != KindFile:
 		return nil, info, fmt.Errorf("%s is a %s, not a regular file", filePath, info.Kind)
 	}
-	res, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"cat", "--", filePath}), nil, max)
-	if errors.Is(err, remoteexec.ErrOutputTooLarge) {
+	if info.Size > int64(max) {
 		return nil, info, fmt.Errorf("%s is over the %d bytes this reads", filePath, max)
+	}
+	// The bound holds standard error too, so it leaves room for cat's own
+	// message past max: an unreadable file is then named as unreadable,
+	// not as too large. Output past max is a file that grew after Stat.
+	res, err := conn.RunWithStdinBounded(ctx, remoteexec.QuoteCommand([]string{"cat", "--", filePath}), nil, max+readTextSlack)
+	if errors.Is(err, remoteexec.ErrOutputTooLarge) || err == nil && len(res.Stdout) > max {
+		return nil, info, fmt.Errorf("%s grew past the %d bytes this reads while it was read", filePath, max)
 	}
 	if err != nil {
 		return nil, info, fmt.Errorf("reading %s: %w", filePath, err)
@@ -50,3 +56,7 @@ func ReadText(ctx context.Context, conn *remoteexec.Conn, filePath string, max i
 	}
 	return content, info, nil
 }
+
+// readTextSlack is the room ReadText's bound leaves above max, for cat's
+// own error message on standard error.
+const readTextSlack = 64 << 10
