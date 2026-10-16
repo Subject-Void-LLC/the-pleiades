@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // dumpRestoreFixture is a source database with two tables and a
@@ -106,6 +107,22 @@ func TestDumpRestoreRowcounts_TheLoop(t *testing.T) {
 	rc = h.fresh()
 	if _, err := pg.Rowcounts(ctx, rc, h.device, params(map[string]any{"connection": "admin", "database": "app", "schemas": []any{"public"}, "exclude": []any{"public.extra"}})); err != nil || len(rc.stats["tables"].([]any)) != 2 {
 		t.Errorf("rowcounts scoped to public without extra = %v, %v", rc.stats["tables"], err)
+	}
+	// A schema named but absent (a typo, or a case PostgreSQL folded) would
+	// count no tables on either side and agree.
+	_, err = pg.Rowcounts(ctx, h.fresh(), h.device, params(map[string]any{"connection": "admin", "database": "app_copy", "schemas": []any{"Public"}, "compare": map[string]any{"database": "app"}}))
+	if err == nil || !strings.Contains(err.Error(), `schemas names "Public", which app_copy does not have`) {
+		t.Errorf("rowcounts of a schema that does not exist = %v", err)
+	}
+}
+
+// TestRowcounts_RefusesAnUnknownCompareKey: a misspelled key under compare
+// (conection) would compare on the counted side's own connection instead.
+func TestRowcounts_RefusesAnUnknownCompareKey(t *testing.T) {
+	rc := &stubContext{connections: []wire.DatabaseConnection{{Name: "admin", Host: "127.0.0.1", User: "u", SSLMode: wire.SSLDisable}}, stats: map[string]any{}}
+	_, err := pg.Rowcounts(context.Background(), rc, nil, params(map[string]any{"connection": "admin", "database": "app", "compare": map[string]any{"database": "app_copy", "conection": "other"}}))
+	if err == nil || !strings.Contains(err.Error(), `compare: "conection" is not database or connection`) {
+		t.Errorf("Rowcounts = %v", err)
 	}
 }
 

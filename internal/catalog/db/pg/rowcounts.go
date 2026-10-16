@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -106,6 +108,12 @@ func Rowcounts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		cmp, ok := raw.(map[string]any)
 		if !ok {
 			return fail(fmt.Errorf("%s is a mapping of database and, for another server, connection", paramCompare))
+		}
+		for _, key := range slices.Sorted(maps.Keys(cmp)) {
+			if key != paramDatabase && key != paramConnection {
+				// A misspelled connection would compare on this side's own.
+				return fail(fmt.Errorf("%s: %q is not %s or %s", paramCompare, key, paramDatabase, paramConnection))
+			}
 		}
 		if otherDatabase, err = databaseName(cmp, paramDatabase); err != nil {
 			return fail(fmt.Errorf("%s: %w", paramCompare, err))
@@ -252,6 +260,17 @@ WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition AND `+userSchema+` ORDER 
 		_ = rows.Close()
 		if err := rows.Err(); err != nil {
 			return err
+		}
+		// A schema named but absent (a typo, or a case PostgreSQL folded)
+		// would count nothing here and agree with nothing there.
+		for _, schema := range slices.Sorted(maps.Keys(scope.schemas)) {
+			var exists bool
+			if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", schema).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return fmt.Errorf("%s names %q, which %s does not have", paramSchemas, schema, database)
+			}
 		}
 		if len(tables) > scope.maxTables {
 			return fmt.Errorf("%s holds %d tables, over %s (%d); narrow it with %s or %s", database, len(tables), paramMaxTables, scope.maxTables, paramSchemas, paramExclude)
