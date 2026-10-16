@@ -5,6 +5,7 @@ package pgclient_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient"
 )
@@ -148,5 +150,86 @@ func TestOpen_RefusesPQGODebugSetAtStart(t *testing.T) {
 	cmd.Env = append(os.Environ(), "PQGO_DEBUG=1", pqDebugChild+"=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the child: %v\n%s", err, out)
+	}
+}
+
+// deadlineless is one end of a pipe that refuses every deadline, as an
+// SSH channel does (pkg/remoteexec's DialTCP and DialUnix return one).
+type deadlineless struct{ net.Conn }
+
+// errNoDeadline is what x/crypto/ssh answers a deadline with.
+var errNoDeadline = errors.New("ssh: tcpChan: deadline not supported")
+
+// SetDeadline refuses, as an SSH channel's does.
+func (deadlineless) SetDeadline(time.Time) error { return errNoDeadline }
+
+// SetReadDeadline refuses, as an SSH channel's does.
+func (deadlineless) SetReadDeadline(time.Time) error { return errNoDeadline }
+
+// SetWriteDeadline refuses, as an SSH channel's does.
+func (deadlineless) SetWriteDeadline(time.Time) error { return errNoDeadline }
+
+// silentServer is a dialer for a server that accepts, reads all it is
+// sent and never answers, over a stream that takes no deadline.
+func silentServer(t *testing.T) func(context.Context) (net.Conn, error) {
+	return func(context.Context) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() { _, _ = io.Copy(io.Discard, server) }()
+		t.Cleanup(func() { _ = server.Close() })
+		return deadlineless{client}, nil
+	}
+}
+
+// TestOpen_IsBoundedOverAStreamWithoutDeadlines: against a server that
+// never answers, over a stream that refuses deadlines, Open gives up once
+// its context ends or its connect timeout passes, whichever is first,
+// whether it is waiting on the answer to its TLS request or on the
+// startup. A deadline on the stream cannot do that.
+func TestOpen_IsBoundedOverAStreamWithoutDeadlines(t *testing.T) {
+	for name, cfg := range map[string]*tls.Config{
+		"waiting on the startup":     nil,
+		"waiting on the TLS request": {MinVersion: tls.VersionTLS12, ServerName: "db"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tg := pgclient.Target{Host: "db", Port: 5432, User: "app", Password: "pw-for-tests", Database: "app", TLS: cfg, Dial: silentServer(t)}
+			t.Run("by the context", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+				defer cancel()
+				if err := openWithin(ctx, t, tg, 10*time.Second); !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("Open = %v, want the context's deadline", err)
+				}
+			})
+			t.Run("by the connect timeout", func(t *testing.T) {
+				bounded := tg
+				bounded.ConnectTimeout = 300 * time.Millisecond
+				if err := openWithin(context.Background(), t, bounded, 10*time.Second); err == nil || !strings.Contains(err.Error(), "did not open within 300ms") {
+					t.Errorf("Open = %v, want the connect timeout named", err)
+				}
+			})
+		})
+	}
+}
+
+// openWithin opens tg against a server that never answers and returns
+// Open's error, failing the test unless Open gives up within limit.
+func openWithin(ctx context.Context, t *testing.T, tg pgclient.Target, limit time.Duration) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		s, err := pgclient.Open(ctx, tg)
+		if err == nil {
+			_ = s.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Open connected to a server that never answered")
+		}
+		return err
+	case <-time.After(limit):
+		t.Fatalf("Open was still waiting after %s, long past its bound", limit)
+		return nil
 	}
 }

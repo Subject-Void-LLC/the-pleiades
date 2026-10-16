@@ -66,6 +66,11 @@ type Target struct {
 	Dial func(ctx context.Context) (net.Conn, error)
 	// ApplicationName is shown in the server's pg_stat_activity.
 	ApplicationName string
+	// ConnectTimeout bounds opening each connection, from the dial through
+	// the TLS negotiation, the startup and the authentication; zero means
+	// 30 seconds. It holds, as the context does, on a stream that refuses
+	// deadlines (an SSH channel): the stream is closed when either ends.
+	ConnectTimeout time.Duration
 }
 
 // Session is one open connection.
@@ -95,7 +100,14 @@ func Open(ctx context.Context, t Target) (*Session, error) {
 	if t.Port < 1 || t.Port > 65535 {
 		return nil, fmt.Errorf("pgclient: port %d is not a port", t.Port)
 	}
-	connector, err := pq.NewConnectorConfig(pq.Config{
+	bound := t.ConnectTimeout
+	switch {
+	case bound < 0:
+		return nil, fmt.Errorf("pgclient: connect timeout %s is negative", bound)
+	case bound == 0:
+		bound = defaultConnectTimeout
+	}
+	pqConnector, err := pq.NewConnectorConfig(pq.Config{
 		Host:            t.Host,
 		Port:            uint16(t.Port),
 		User:            t.User,
@@ -117,8 +129,8 @@ func Open(ctx context.Context, t Target) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pgclient: %w", err)
 	}
-	connector.Dialer(dialer{t: t})
-	db := sql.OpenDB(connector)
+	pqConnector.Dialer(dialer{t: t})
+	db := sql.OpenDB(connector{Connector: pqConnector, bound: bound})
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	if err := db.PingContext(ctx); err != nil {
@@ -175,10 +187,22 @@ func (d dialer) DialTimeout(network, address string, timeout time.Duration) (net
 // DialContext implements pq.DialerContext. The driver's network and
 // address are ignored: where the server is, is the target's dialer's to
 // know.
+//
+// The stream is closed if ctx ends while it is still being opened, which
+// ends any read waiting on it even where a deadline cannot (an SSH
+// channel refuses one). Under a connect's watch (connector.Connect) that
+// lasts until the driver has finished its startup and authentication too;
+// otherwise, as for the driver's cancel request, only until this returns.
 func (d dialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
 	conn, err := d.t.Dial(ctx)
 	if err != nil {
 		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	if w, ok := ctx.Value(watchKey{}).(*watch); ok {
+		w.add(stop)
+	} else {
+		defer stop()
 	}
 	if d.t.TLS == nil {
 		return conn, nil
@@ -194,12 +218,10 @@ func (d dialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) 
 // startTLS asks the server for TLS (an SSLRequest, answered by one byte)
 // and runs the handshake. Exactly one byte is read before the handshake,
 // so nothing the server sends unencrypted after its answer can be taken
-// for protocol (the class CVE-2021-23214 was).
+// for protocol (the class CVE-2021-23214 was). Its reads are bounded by
+// the dialer closing conn when ctx ends, not by a deadline, which an SSH
+// channel refuses.
 func startTLS(ctx context.Context, conn net.Conn, cfg *tls.Config) (net.Conn, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-		defer func() { _ = conn.SetDeadline(time.Time{}) }()
-	}
 	var req [8]byte
 	binary.BigEndian.PutUint32(req[0:4], 8)
 	binary.BigEndian.PutUint32(req[4:8], sslRequestCode)
