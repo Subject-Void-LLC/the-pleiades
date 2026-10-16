@@ -45,3 +45,57 @@ func TestToolRun_ThePasswordTravelsOnStdinOnly(t *testing.T) {
 		t.Errorf("server_name with a host name = %v", err)
 	}
 }
+
+// TestToolRun_ATimeoutUnderASecondStillBounds: timeout(1) reads 0 as no
+// limit at all, so a timeout under a second rounds up to one, never down
+// to none.
+func TestToolRun_ATimeoutUnderASecondStillBounds(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		time.Millisecond:             "timeout -k 10s 1s ",
+		999 * time.Millisecond:       "timeout -k 10s 1s ",
+		time.Second:                  "timeout -k 10s 1s ",
+		1500 * time.Millisecond:      "timeout -k 10s 2s ",
+		time.Hour + time.Millisecond: "timeout -k 10s 3601s ",
+	} {
+		run := toolRun{conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app"}, database: "app", command: []string{"pg_dump"}, timeout: d}
+		script, err := run.script()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(script, want) {
+			t.Errorf("a %s timeout: the script lacks %q:\n%s", d, want, script)
+		}
+	}
+}
+
+// TestToolRun_RefusesAPasswordStdinCannotCarry: the password is read as
+// the first line of standard input, so one holding a line break would be
+// cut there and its rest written into the pinned CA's file; it is refused
+// instead, naming the connection and never the password.
+func TestToolRun_RefusesAPasswordStdinCannotCarry(t *testing.T) {
+	for _, pw := range []string{"first\nsecond", "nul\x00byte"} {
+		run := toolRun{conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app", Password: pw, CAPEM: "-----BEGIN CERTIFICATE-----\n"}, database: "app", command: []string{"pg_dump"}, timeout: time.Hour}
+		_, err := run.script()
+		if err == nil || !strings.Contains(err.Error(), "connection appdb") || strings.Contains(err.Error(), "second") || strings.Contains(err.Error(), "byte") {
+			t.Errorf("password %q: %v", pw, err)
+		}
+	}
+}
+
+// TestConninfoDatabase_IsOnlyEverAName: pg_restore reads --dbname as a
+// connection string when it holds "=" or begins with a URI prefix, so a
+// name is always handed over quoted, as the dbname of a connection string
+// naming nothing else; the host, port, user and TLS settings stay the
+// ones exported beside it.
+func TestConninfoDatabase_IsOnlyEverAName(t *testing.T) {
+	for name, want := range map[string]string{
+		"app":                               `dbname='app'`,
+		"host=evil.example sslmode=disable": `dbname='host=evil.example sslmode=disable'`,
+		"postgresql://evil.example/x":       `dbname='postgresql://evil.example/x'`,
+		`o'b\x`:                             `dbname='o\'b\\x'`,
+	} {
+		if got := conninfoDatabase(name); got != want {
+			t.Errorf("conninfoDatabase(%q) = %s, want %s", name, got, want)
+		}
+	}
+}

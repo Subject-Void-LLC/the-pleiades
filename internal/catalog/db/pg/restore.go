@@ -218,7 +218,7 @@ func restore(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			return fail(fmt.Errorf("creating database %s: %w", req.database, err))
 		}
 	}
-	command := []string{"pg_restore", "--single-transaction", "--exit-on-error", "--no-password", "--dbname=" + req.database}
+	command := []string{"pg_restore", "--single-transaction", "--exit-on-error", "--no-password", "--dbname=" + conninfoDatabase(req.database)}
 	if req.clean {
 		command = append(command, "--clean", "--if-exists")
 	}

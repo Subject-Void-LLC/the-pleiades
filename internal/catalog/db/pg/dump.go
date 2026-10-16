@@ -147,7 +147,7 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return fail(err)
 	}
 	partial := dest + ".pleiades-partial-" + hex.EncodeToString(suffix)
-	command := []string{"pg_dump", "--format=custom", "--no-password", "--file=" + partial}
+	command := []string{"pg_dump", "--format=custom", "--no-password", "--dbname=" + conninfoDatabase(database), "--file=" + partial}
 	if schemaOnly {
 		command = append(command, "--schema-only")
 	}

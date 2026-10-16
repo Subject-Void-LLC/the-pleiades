@@ -111,7 +111,9 @@ func TestDumpRestoreRowcounts_TheLoop(t *testing.T) {
 // connection or by its own setting) unless told why; a database holding
 // tables unless clean; a database that does not exist unless create; a
 // file that is not an archive. A failed restore into a database it
-// created leaves no database behind.
+// created leaves no database behind. A name pg_restore would read as a
+// connection string, were it handed over bare, is restored into exactly as
+// written.
 func TestRestore_RefusesWhatWouldDestroySomething(t *testing.T) {
 	h, dir := dumpRestoreFixture(t)
 	ctx := context.Background()
@@ -150,6 +152,17 @@ func TestRestore_RefusesWhatWouldDestroySomething(t *testing.T) {
 	}
 	if rc.stats["live_override"] != "refreshing the demo copy" || !strings.Contains(strings.Join(rc.stats["warnings"].([]string), "\n"), "restoring over live database marked") {
 		t.Errorf("the override was not recorded: %v", rc.stats)
+	}
+
+	// pg_restore reads a --dbname holding "=" as a connection string, which
+	// could name another host and send it the password; this one would
+	// restore into app instead. It is only ever a name.
+	const literal = `dbname=app o'b\x`
+	if _, err := pg.Restore(ctx, h.fresh(), h.device, params(map[string]any{"connection": "admin", "database": literal, "src": dest, "create": true})); err != nil {
+		t.Fatalf("restoring into %q: %v", literal, err)
+	}
+	if got := h.value(t, literal, "SELECT count(*) FROM orders"); got != "25" {
+		t.Errorf("%q holds %s orders, want 25", literal, got)
 	}
 
 	// An archive whose objects belong to a role that is gone: restored with
