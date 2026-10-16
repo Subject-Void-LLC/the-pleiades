@@ -127,7 +127,10 @@ func EndsTransaction(s Statement) bool {
 
 // OutsideTransaction says why a statement cannot run inside a transaction
 // block, or "" when it can: the server refuses these in one, so a file
-// holding one must say -- pleiades: no-transaction.
+// holding one must say -- pleiades: no-transaction. It reads the
+// statement's own verb and the object right after it, so a column, a
+// table or a clause named DATABASE, TABLESPACE or CONCURRENTLY further on
+// is not mistaken for one.
 func OutsideTransaction(s Statement) string {
 	w := s.Words()
 	if len(w) == 0 {
@@ -136,21 +139,63 @@ func OutsideTransaction(s Statement) string {
 	switch w[0] {
 	case "VACUUM":
 		return "VACUUM"
-	case "CREATE", "DROP", "REINDEX":
-		for _, word := range w[1:] {
-			switch word {
-			case "CONCURRENTLY":
+	case "CREATE", "DROP":
+		i := 1
+		if w[0] == "CREATE" && i < len(w) && w[i] == "UNIQUE" {
+			i++
+		}
+		if i >= len(w) {
+			return ""
+		}
+		switch w[i] {
+		case "DATABASE", "TABLESPACE":
+			return w[0] + " " + w[i]
+		case "INDEX":
+			// [CREATE [UNIQUE] | DROP] INDEX CONCURRENTLY ...
+			if i+1 < len(w) && w[i+1] == "CONCURRENTLY" {
 				return w[0] + " ... CONCURRENTLY"
-			case "DATABASE", "TABLESPACE":
-				return w[0] + " " + word
 			}
 		}
+	case "REINDEX":
+		return reindexOutside(s.Tokens)
 	case "ALTER":
 		if len(w) > 1 && w[1] == "SYSTEM" {
 			return "ALTER SYSTEM"
 		}
 	}
 	return ""
+}
+
+// reindexOutside is OutsideTransaction for REINDEX [ (option, ...) ]
+// kind [CONCURRENTLY] name: a concurrent rebuild of anything, asked for
+// after the kind or as an option not set false, and a rebuild of a whole
+// schema, database or system, which commits as it goes.
+func reindexOutside(t []Token) string {
+	i := 1
+	concurrently := false
+	if i < len(t) && t[i].Kind == Other && t[i].Text == "(" {
+		for i++; i < len(t) && !(t[i].Kind == Other && t[i].Text == ")"); i++ {
+			if isWord(t[i], "CONCURRENTLY") && (i+1 >= len(t) || !isFalse(t[i+1])) {
+				concurrently = true
+			}
+		}
+		i++ // past the closing parenthesis
+	}
+	if i >= len(t) {
+		return ""
+	}
+	if concurrently || (i+1 < len(t) && isWord(t[i+1], "CONCURRENTLY")) {
+		return "REINDEX ... CONCURRENTLY"
+	}
+	if isWord(t[i], "SCHEMA") || isWord(t[i], "DATABASE") || isWord(t[i], "SYSTEM") {
+		return "REINDEX " + t[i].Text
+	}
+	return ""
+}
+
+// isFalse reports whether tok is a boolean option's false: FALSE, OFF or 0.
+func isFalse(tok Token) bool {
+	return isWord(tok, "FALSE") || isWord(tok, "OFF") || (tok.Kind == Other && tok.Text == "0")
 }
 
 // Directives are what a migration file says about itself, in comment
