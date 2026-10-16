@@ -1,0 +1,12 @@
+id: gate-lab
+hosts: build-box
+tasks:
+  - name: Show how the project's checks are classified
+    gate.list:
+      manifest: /srv/app/gates.yaml
+    register: classified
+
+  - name: Run the pure and db checks
+    gate.run:
+      manifest: /srv/app/gates.yaml
+      kinds: [pure, db]

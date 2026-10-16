@@ -2814,6 +2814,205 @@
       ]
     }
   },
+  "gate.list": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the manifest and runs nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Validates a project's gate manifest on the device and lists how each check is classified, running nothing.",
+      "description": "Reads and validates the same manifest gate.run reads, under the same rules, and reports each check's name, kind, whether it is heavy or serial, its timeout, where it would run (a directory on the device or an image), its preconditions, and whether the task's selection would run it, with the reason when it would not. A check that needs a container engine on a device with none onboarded is reported as not runnable. Nothing in the manifest runs, so a check of this task is the task itself.",
+      "params": [
+        {
+          "name": "manifest",
+          "type": "string",
+          "required": true,
+          "description": "The gate manifest's path on the device."
+        },
+        {
+          "name": "kinds",
+          "type": "list of string",
+          "description": "Mark as selected only checks of these kinds, as gate.run would select them."
+        },
+        {
+          "name": "checks",
+          "type": "list of string",
+          "description": "Mark as selected only these checks, by name."
+        },
+        {
+          "name": "heavy",
+          "type": "string",
+          "default": "include",
+          "description": "include, exclude or only, as for gate.run."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "checks",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "One entry per check: name, kind, heavy, serial, timeout_s, runs (\"dir <path>\" or \"image <reference>\"), requires (the preconditions, as written), selected, reason (why it is not selected), and runnable (false, with the reason in reason, for a check the device cannot run)."
+        },
+        {
+          "name": "kinds",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Every kind the manifest may use: name, builtin and description."
+        },
+        {
+          "name": "selected",
+          "type": "int",
+          "returned": "always",
+          "description": "How many checks the selection would run."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Show how a project's checks are classified",
+          "runbookYaml": "- name: List the gate\n  gate.list:\n    manifest: /srv/app/gates.yaml\n  register: gates\n"
+        }
+      ],
+      "seeAlso": [
+        "gate.run"
+      ]
+    }
+  },
+  "gate.run": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It runs the project's own checks and changes nothing of its own; what a check writes is that check's doing, which this platform cannot see to undo. It is not declared read-only, since a check is a command."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Runs a project's gate manifest of named checks on the device and reports PASS, FAIL or SKIP for each.",
+      "description": "Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device and runs the checks the task selects, one result per check. A check runs its command in a directory on the device over SSH, or in a fresh container from a digest-pinned image on the device's container engine, with no network unless it names one, a read-only root with a writable /tmp unless it says writable, and no new privileges; the image is pulled only when the check says pull. Every check has a timeout, its own or the manifest's default, and there is no implicit one; a directory check's is enforced on the device with the timeout command, which the device must have, and an image check's by killing its container. Checks run one at a time unless the manifest's defaults.parallelism or the task's parallelism raises it, at most one heavy check runs at a time, and a serial check runs with nothing else. A check skips, rather than runs to fail, when a precondition it declares is not met (a command on the PATH, an environment variable set, a file, the operating system, the container engine, a TCP endpoint the device reaches), or when it exits with a code its skip_exit lists; a check the task did not select, or that the task's deadline or a cancellation reached before it started, is skipped too, saying why. No exit code means skipped unless a check declares it, and a SKIP is never counted as a PASS. Any FAIL fails the task, and with fail_on_skip so does any SKIP. A failed task's error carries each failing check's reason and the end of its output, since a failed task's returns are not kept. The output kept is the last 40 lines and 8 KiB of a failing or skipping check, with anything a terminal would act on escaped. The manifest is refused whole, before anything runs, for a check with no kind, a kind neither built in (pure, db, network, model) nor declared, a check with no timeout, an image not pinned by digest, and every other rule it breaks. A check gets no environment and no credential from the platform. A check is not checkable: whether it passes is known only by running it, so a check of this task reads and validates the manifest and the selection, then reports the task unchecked.",
+      "params": [
+        {
+          "name": "manifest",
+          "type": "string",
+          "required": true,
+          "description": "The gate manifest's path on the device. A check's dir is relative to the manifest's own directory."
+        },
+        {
+          "name": "kinds",
+          "type": "list of string",
+          "description": "Run only checks of these kinds. Every kind when absent. A kind the manifest does not have is refused."
+        },
+        {
+          "name": "checks",
+          "type": "list of string",
+          "description": "Run only these checks, by name, among those the kinds select. A name the manifest does not have is refused."
+        },
+        {
+          "name": "heavy",
+          "type": "string",
+          "default": "include",
+          "description": "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."
+        },
+        {
+          "name": "parallelism",
+          "type": "int",
+          "description": "How many checks run at once, overriding the manifest's defaults.parallelism; 1 when neither sets it, at most 16. Heavy checks still run one at a time and serial checks alone."
+        },
+        {
+          "name": "fail_on_skip",
+          "type": "bool",
+          "default": "false",
+          "description": "Fail the task when any check is skipped, for a gate whose every check must run."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "checks",
+          "type": "list of dict",
+          "returned": "on success",
+          "description": "One entry per check in the manifest, in its order: name, kind, status (PASS, FAIL or SKIP), reason, duration_ms, exit_code (-1 when it did not run to an exit status) and tail (the end of a failing or skipping check's output)."
+        },
+        {
+          "name": "passed",
+          "type": "int",
+          "returned": "on success",
+          "description": "How many checks passed."
+        },
+        {
+          "name": "failed",
+          "type": "int",
+          "returned": "on success",
+          "description": "How many checks failed, which is zero for a task that succeeded."
+        },
+        {
+          "name": "skipped",
+          "type": "int",
+          "returned": "on success",
+          "description": "How many checks were skipped, for any reason."
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "returned": "on success",
+          "description": "The counts for a person, for example \"12 passed, 0 failed, 3 skipped\"."
+        },
+        {
+          "name": "ledger",
+          "type": "string",
+          "returned": "when a check was skipped",
+          "description": "The skipped checks grouped by reason, largest group first."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Run a project's pure and db checks",
+          "runbookYaml": "- name: Gate the release\n  gate.run:\n    manifest: /srv/app/gates.yaml\n    kinds: [pure, db]\n"
+        },
+        {
+          "name": "Run only the heavy checks, two at a time",
+          "runbookYaml": "- name: Run the slow suites\n  gate.run:\n    manifest: /srv/app/gates.yaml\n    heavy: only\n    parallelism: 2\n"
+        }
+      ],
+      "seeAlso": [
+        "gate.list",
+        "exec.command"
+      ]
+    }
+  },
   "http.request": {
     "executionContext": {
       "site": "controller",

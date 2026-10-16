@@ -49,6 +49,14 @@ func (c *Conn) DialUnix(ctx context.Context, path string) (net.Conn, error) {
 		return nil, fmt.Errorf("remoteexec: socket path %q on %s must be absolute and hold no NUL byte", path, c.addr)
 	}
 
+	return c.openForwarded(ctx, "unix", path, describeChannelRefusal)
+}
+
+// openForwarded opens a channel from this connection to address on the far
+// side's network (network "unix" or "tcp"), describing a refusal with
+// describe. DialUnix and DialTCP share it, so both take the same care with
+// a cancellation and a channel that breaks.
+func (c *Conn) openForwarded(ctx context.Context, network, address string, describe func(error) error) (net.Conn, error) {
 	// ssh.Client.Dial takes no context, so the open runs in a goroutine and
 	// a cancellation abandons it. The buffered channel lets that goroutine
 	// finish and close what it opened even when nobody is waiting.
@@ -58,7 +66,7 @@ func (c *Conn) DialUnix(ctx context.Context, path string) (net.Conn, error) {
 	}
 	done := make(chan opened, 1)
 	go func() {
-		conn, err := c.client.Dial("unix", path)
+		conn, err := c.client.Dial(network, address)
 		done <- opened{conn: conn, err: err}
 	}()
 
@@ -72,10 +80,10 @@ func (c *Conn) DialUnix(ctx context.Context, path string) (net.Conn, error) {
 				_ = r.conn.Close()
 			}
 		}()
-		return nil, fmt.Errorf("remoteexec: open a channel to %s on %s: %w", path, c.addr, ctx.Err())
+		return nil, fmt.Errorf("remoteexec: open a channel to %s on %s: %w", address, c.addr, ctx.Err())
 	case r := <-done:
 		if r.err != nil {
-			return nil, fmt.Errorf("remoteexec: open a channel to %s on %s: %w", path, c.addr, describeChannelRefusal(r.err))
+			return nil, fmt.Errorf("remoteexec: open a channel to %s on %s: %w", address, c.addr, describe(r.err))
 		}
 		return &unixChannel{Conn: r.conn, owner: c}, nil
 	}
@@ -100,7 +108,7 @@ func describeChannelRefusal(err error) error {
 	}
 }
 
-// unixChannel is a channel DialUnix opened. It taints the connection it
+// unixChannel is a channel DialUnix or DialTCP opened. It taints the connection it
 // rode on when a read or write failed for any reason other than the far
 // side's clean end of stream, since the channel's state on the server is
 // then unknown.

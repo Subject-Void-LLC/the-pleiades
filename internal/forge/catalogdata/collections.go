@@ -29,6 +29,7 @@ var Collections = concatCollections(
 	networkCollections,
 	extendedCollections,
 	gatingCollections,
+	gateCollections,
 	sessionCollections,
 	virtCollections,
 	winFileCollections,

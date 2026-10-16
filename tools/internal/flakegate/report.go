@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/gate"
 )
 
 // Skip is one test go test reported as skipped, with the reason the test
@@ -81,40 +83,14 @@ func skipReason(lines []string) string {
 
 // SkipLedger formats skips for a person: grouped by reason, largest group
 // first, naming up to limit tests in each and counting the rest. It
-// returns the empty string when nothing was skipped.
+// returns the empty string when nothing was skipped. The grouping is
+// pkg/gate's Ledger, which gate.run's skipped checks share.
 func SkipLedger(skips []Skip, limit int) string {
-	if len(skips) == 0 {
-		return ""
+	entries := make([]gate.SkipEntry, len(skips))
+	for i, s := range skips {
+		entries[i] = gate.SkipEntry{Name: shortPackage(s.Package) + " " + s.Test, Reason: s.Reason}
 	}
-	groups := map[string][]Skip{}
-	for _, s := range skips {
-		groups[s.Reason] = append(groups[s.Reason], s)
-	}
-	reasons := make([]string, 0, len(groups))
-	for r := range groups {
-		reasons = append(reasons, r)
-	}
-	sort.Slice(reasons, func(a, b int) bool {
-		if len(groups[reasons[a]]) != len(groups[reasons[b]]) {
-			return len(groups[reasons[a]]) > len(groups[reasons[b]])
-		}
-		return reasons[a] < reasons[b]
-	})
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d test(s) skipped, so they are not evidence of anything in this run:\n", len(skips))
-	for _, r := range reasons {
-		g := groups[r]
-		fmt.Fprintf(&b, "\n  %d: %s\n", len(g), r)
-		for i, s := range g {
-			if i == limit {
-				fmt.Fprintf(&b, "      and %d more\n", len(g)-limit)
-				break
-			}
-			fmt.Fprintf(&b, "      %s %s\n", shortPackage(s.Package), s.Test)
-		}
-	}
-	return b.String()
+	return gate.Ledger("test(s)", entries, limit)
 }
 
 // shortPackage drops this module's own path prefix from an import path,
@@ -203,11 +179,10 @@ func FailureOutput(events []Event, f Failure, maxLines int) string {
 		}
 		lines = append(lines, strings.TrimRight(evt.Output, "\n"))
 	}
-	if len(lines) <= maxLines {
+	tail, cut := gate.LastLines(lines, maxLines)
+	if cut == 0 {
 		return strings.Join(lines, "\n")
 	}
-	cut := len(lines) - maxLines
-	tail := lines[cut:]
 	// The last lines are often what ran after the failure: cleanup,
 	// container teardown, a broker's log dumped by a helper. When none of
 	// them came from the test's own file, the last line that did is kept
@@ -222,8 +197,7 @@ func FailureOutput(events []Event, f Failure, maxLines int) string {
 			}
 		}
 	}
-	head := fmt.Sprintf("... %d earlier line(s) left out", cut)
-	return strings.Join(append([]string{head}, tail...), "\n")
+	return strings.Join(append([]string{gate.Omitted(cut)}, tail...), "\n")
 }
 
 // testMessage matches the first line of a message a test file printed

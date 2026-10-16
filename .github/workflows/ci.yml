@@ -138,9 +138,12 @@ jobs:
       # them never running. Required below, so losing it turns this red.
       - name: Install socat for the PTY-backed serial tests
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
+      # Linux refuses a connection to a port bound but not listened on,
+      # which internal/testsupport/refusing checks before handing one out
+      # and skips without; required, so a runner that stops refusing fails.
       - name: make ci-fast
         env:
-          PLEIADES_TEST_REQUIRE: userns,socat
+          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port
         run: make ci-fast
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -306,7 +309,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
       - name: make test-full
         env:
-          PLEIADES_TEST_REQUIRE: userns,socat
+          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port
         run: make test-full
       - name: make coverage-measured
         run: make coverage-measured
