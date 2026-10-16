@@ -78,9 +78,11 @@ func TestCLI_EdgeExampleReadsAndNamesEveryDifference(t *testing.T) {
 		}
 	}
 
-	srv.Tunnels[0]["status"] = "degraded"
-	srv.Connectors["11111111-2222-3333-4444-555555555555"] = srv.Connectors["11111111-2222-3333-4444-555555555555"][:1]
-	srv.Records["00000000000000000000000000000001"][1]["proxied"] = false
+	srv.Mutate(func(s *cfapitest.Server) {
+		s.Tunnels[0]["status"] = "degraded"
+		s.Connectors["11111111-2222-3333-4444-555555555555"] = s.Connectors["11111111-2222-3333-4444-555555555555"][:1]
+		s.Records["00000000000000000000000000000001"][1]["proxied"] = false
+	})
 	rep, raw, code := runPleiadesJSON(t, dir, "run", "runbooks/edge.yaml")
 	outputs = append(outputs, raw)
 	if code == 0 {
@@ -91,9 +93,11 @@ func TestCLI_EdgeExampleReadsAndNamesEveryDifference(t *testing.T) {
 	if !strings.Contains(rep.Tasks[0].Error, "degraded, not healthy") || !strings.Contains(rep.Tasks[0].Error, "fewer than 2") {
 		t.Errorf("tunnel: %s", rep.Tasks[0].Error)
 	}
-	srv.Tunnels[0]["status"] = "healthy"
-	srv.Connectors["11111111-2222-3333-4444-555555555555"] = append(srv.Connectors["11111111-2222-3333-4444-555555555555"],
-		map[string]any{"id": "c3", "conns": []map[string]any{{"colo_name": "lhr01"}}})
+	srv.Mutate(func(s *cfapitest.Server) {
+		s.Tunnels[0]["status"] = "healthy"
+		s.Connectors["11111111-2222-3333-4444-555555555555"] = append(s.Connectors["11111111-2222-3333-4444-555555555555"],
+			map[string]any{"id": "c3", "conns": []map[string]any{{"colo_name": "lhr01"}}})
+	})
 	rep, raw, code = runPleiadesJSON(t, dir, "run", "runbooks/edge.yaml")
 	outputs = append(outputs, raw)
 	if code == 0 || len(rep.Tasks) != 3 || rep.Tasks[0].Status != "ok" || rep.Tasks[1].Status != "ok" || !strings.Contains(rep.Tasks[2].Error, "192.0.2.11 is proxied false, not true") {

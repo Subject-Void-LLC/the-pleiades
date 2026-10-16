@@ -12361,3 +12361,19 @@ behavior.
 precondition. When a package's tests first run on a new platform, list the host tools they run and require each one,
 rather than waiting for the failing run to name them. This is 420's lesson, applied to the tests written after 420's
 audit.
+
+## 477. A release gate's fake server read its data while the test wrote it, with no lock (a repeat of 6 and 33) (fixed)
+
+**Symptom.** `go test -race ./cmd/pleiades/` reported `WARNING: DATA RACE` in `TestCLI_EdgeExampleReadsAndNamesEveryDifference`:
+the test wrote the fake Cloudflare server's maps (tunnel status, connectors, a record's proxied flag) between runs,
+while the server's handler goroutine read them. Nothing ordered the two.
+
+**Root cause.** `cfapitest.Server` locked its request log and nothing else, so its data was shared with the test's
+goroutine unguarded. The race was between the test and the handler, both in-process, so `-race` saw it and a plain run
+did not: it could pass for a long time.
+
+**Fix.** The server holds its lock for the whole handler, and a `Mutate` method runs a test's change under that lock.
+The gate test makes its changes through `Mutate`. Both packages pass under `-race`.
+
+**Lesson.** A fake server in a test is shared state like any other: when a test changes it while the server answers,
+the change goes through the server's lock. This is 6's and 33's lesson in a test fixture that was written after them.

@@ -117,10 +117,18 @@ func filter(items []map[string]any, field, want string) []map[string]any {
 	return out
 }
 
+// Mutate changes the server's data under the lock every request holds, so a
+// test may change it between or during requests without a data race.
+func (s *Server) Mutate(change func(*Server)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	change(s)
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.requests = append(s.requests, r.URL.RequestURI())
-	s.mu.Unlock()
 	if r.Header.Get("Authorization") != "Bearer "+s.Token {
 		fail(w, http.StatusUnauthorized, 10000, "Authentication error")
 		return
