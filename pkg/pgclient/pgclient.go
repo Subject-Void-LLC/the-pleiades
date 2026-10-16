@@ -104,6 +104,15 @@ func Open(ctx context.Context, t Target) (*Session, error) {
 		SSLMode:         pq.SSLModeDisable,
 		Passfile:        os.DevNull,
 		ApplicationName: t.ApplicationName,
+		// The driver decodes text as UTF-8 and times in ISO form, and sets
+		// both only when it reads a connection string, never from a Config,
+		// so they are asked for here. pkg/sqllint lexes strings as standard
+		// conforming, where a backslash is an ordinary character. Sent in
+		// the startup packet, all three win over the database's and the
+		// role's own settings.
+		ClientEncoding: "UTF8",
+		Datestyle:      "ISO, MDY",
+		Runtime:        map[string]string{"standard_conforming_strings": "on"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pgclient: %w", err)

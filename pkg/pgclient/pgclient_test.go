@@ -1,6 +1,7 @@
 // Tests for pgclient against a real PostgreSQL server in a container:
 // the connection, what it never reads of this machine, TLS through its
-// own negotiation, and the bounds and rules of a query.
+// own negotiation, the session settings it pins over the server's, and
+// the bounds and rules of a query.
 package pgclient_test
 
 import (
@@ -321,5 +322,45 @@ func TestErrorCode(t *testing.T) {
 	}
 	if got := pgclient.ErrorCode(errors.New("not the server's")); got != "" {
 		t.Errorf("ErrorCode of another error = %q", got)
+	}
+}
+
+// TestOpen_SessionSettingsWinOverTheServers: a role set to another date
+// style and to non-standard strings, connecting to a LATIN1 database that
+// sets its own client encoding, still gets UTF8, ISO dates and
+// standard-conforming strings, so text, times and where a string ends
+// read as this package and pkg/sqllint expect.
+func TestOpen_SessionSettingsWinOverTheServers(t *testing.T) {
+	srv := startServer(t, "")
+	ctx := context.Background()
+	admin := open(t, srv.target(password, nil))
+	for _, stmt := range []string{
+		"CREATE DATABASE latin TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'",
+		"ALTER DATABASE latin SET client_encoding = 'LATIN1'",
+		"ALTER ROLE " + user + " SET datestyle = 'SQL, DMY'",
+		"ALTER ROLE " + user + " SET standard_conforming_strings = off",
+	} {
+		if _, err := admin.DB().ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	tg := srv.target(password, nil)
+	tg.Database = "latin"
+	s := open(t, tg)
+	for setting, want := range map[string]string{"client_encoding": "UTF8", "DateStyle": "ISO, MDY", "standard_conforming_strings": "on"} {
+		var got string
+		if err := s.DB().QueryRowContext(ctx, "SELECT current_setting($1)", setting).Scan(&got); err != nil || got != want {
+			t.Errorf("%s = %q, %v; want %q", setting, got, err, want)
+		}
+	}
+	// chr(233) is e with an acute accent in LATIN1, which reaches here as
+	// UTF-8; the backslash ends nothing, since strings conform.
+	var text string
+	if err := s.DB().QueryRowContext(ctx, `SELECT 'caf' || chr(233) || '\'`).Scan(&text); err != nil || text != "caf\xc3\xa9\\" {
+		t.Errorf("text = %q, %v", text, err)
+	}
+	var at time.Time
+	if err := s.DB().QueryRowContext(ctx, "SELECT '2026-03-04 05:06:07'::timestamp").Scan(&at); err != nil || at.Month() != time.March || at.Day() != 4 {
+		t.Errorf("timestamp = %v, %v", at, err)
 	}
 }

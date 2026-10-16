@@ -1,10 +1,14 @@
 // Tests for pgclient that need no server: what Open refuses before it
-// dials anything.
+// dials anything, and what its startup packet asks the server for.
 package pgclient_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -13,6 +17,81 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient"
 )
+
+// readStartup reads a protocol 3 startup packet from conn, as a server
+// does, and returns its parameters.
+func readStartup(conn io.Reader) (map[string]string, error) {
+	var head [8]byte
+	if _, err := io.ReadFull(conn, head[:]); err != nil {
+		return nil, err
+	}
+	size := binary.BigEndian.Uint32(head[0:4])
+	if size < 9 || size > 1<<16 {
+		return nil, fmt.Errorf("a startup packet of %d bytes", size)
+	}
+	if proto := binary.BigEndian.Uint32(head[4:8]); proto>>16 != 3 {
+		return nil, fmt.Errorf("protocol %d.%d, not 3", proto>>16, proto&0xffff)
+	}
+	body := make([]byte, size-8)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return nil, err
+	}
+	// The body is key, NUL, value, NUL, ..., ending with one more NUL.
+	fields := bytes.Split(bytes.TrimSuffix(body, []byte{0, 0}), []byte{0})
+	if len(fields)%2 != 0 {
+		return nil, fmt.Errorf("startup parameters %q do not pair up", body)
+	}
+	params := map[string]string{}
+	for i := 0; i < len(fields); i += 2 {
+		params[string(fields[i])] = string(fields[i+1])
+	}
+	return params, nil
+}
+
+// TestOpen_PinsSessionSettingsAtStartup: the startup packet itself asks
+// for the client encoding and date style the driver decodes with, and for
+// standard-conforming strings, which pkg/sqllint lexes by. Sent there,
+// they win over a database's or a role's own settings, so a LATIN1
+// database or a role set to escape backslashes cannot change what text
+// and times read as, or where a string ends.
+func TestOpen_PinsSessionSettingsAtStartup(t *testing.T) {
+	client, server := net.Pipe()
+	type startup struct {
+		params map[string]string
+		err    error
+	}
+	got := make(chan startup, 1)
+	go func() {
+		// The server reads the packet and hangs up: Open then fails, and
+		// the packet is all this test is after.
+		defer func() { _ = server.Close() }()
+		params, err := readStartup(server)
+		got <- startup{params, err}
+	}()
+	tg := pgclient.Target{
+		Host: "db", Port: 5432, User: "app", Password: "pw-for-tests", Database: "app",
+		Dial: func(context.Context) (net.Conn, error) { return client, nil },
+	}
+	if s, err := pgclient.Open(context.Background(), tg); err == nil {
+		_ = s.Close()
+		t.Fatal("Open succeeded against a server that hung up")
+	}
+	sent := <-got
+	if sent.err != nil {
+		t.Fatalf("reading the startup packet: %v", sent.err)
+	}
+	for name, want := range map[string]string{
+		"client_encoding":             "UTF8",
+		"datestyle":                   "ISO, MDY",
+		"standard_conforming_strings": "on",
+		"user":                        "app",
+		"database":                    "app",
+	} {
+		if sent.params[name] != want {
+			t.Errorf("startup %s = %q, want %q (all: %v)", name, sent.params[name], want, sent.params)
+		}
+	}
+}
 
 // unreachable is a target whose dialer records that it was called and
 // fails, for a test that must see Open refuse before dialing.
