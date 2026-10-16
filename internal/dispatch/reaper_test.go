@@ -101,11 +101,9 @@ func TestReaper_EndToEnd_ReclaimsAndCompletesStaleJob(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
-	// The delivery that settled the job returned nil. A losing one may not:
-	// its claim can fail on this test store's shared-cache SQLite ("table
-	// is locked"), where the Controller's WAL database waits instead, and a
-	// failed delivery is only redelivered. What must hold is below: one
-	// fan-out, one dispatch, one task.
+	// The delivery that settled the job returned nil. A losing one may
+	// return an error, since a failed delivery is only redelivered. What
+	// must hold is below: one fan-out, one dispatch, one task.
 	// The settling handler reports just after the state changes, so its
 	// nil is waited for, not drained.
 	for handled := false; !handled; {

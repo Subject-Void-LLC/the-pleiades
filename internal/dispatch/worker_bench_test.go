@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -35,20 +34,14 @@ import (
 // arbitrarily different sizes that cannot be read side by side.
 const benchDeviceCount = 50
 
-// benchJobStore builds a real, SQLite-backed JobStore, the identical
-// production write path TestEntJobStore_* and TestWorker_* already
-// exercise (ent_store_test.go, worker_test.go), sized for a benchmark
-// rather than a single test: tb is testing.TB, not testing.T, since
-// enttest.Open's own TestingT constraint (Error, FailNow) is satisfied by
-// both testing.T and testing.B, letting this one helper serve ordinary
-// tests and this benchmark alike without a second, parallel
-// implementation.
+// benchJobStore builds a real, SQLite-backed JobStore over openTestDB's
+// database, the identical production write path TestEntJobStore_* and
+// TestWorker_* already exercise (ent_store_test.go, worker_test.go). tb is
+// testing.TB, so the one helper serves ordinary tests and this benchmark
+// alike.
 func benchJobStore(tb testing.TB) dispatch.JobStore {
 	tb.Helper()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", tb.Name())
-	client := enttest.Open(tb, "sqlite3", dsn)
-	tb.Cleanup(func() { _ = client.Close() })
-	return dispatch.NewEntJobStore(client)
+	return dispatch.NewEntJobStore(openTestDB(tb))
 }
 
 // benchRunbookSource builds a real runbook.Source over a fixture
