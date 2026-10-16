@@ -384,6 +384,12 @@ type DispatchPayload struct {
 	// output like Secrets.
 	Registry *RegistryCredential `json:"registry,omitempty"`
 
+	// Databases are the template's named database connections, absent when
+	// none is bound. A method reaches one only through
+	// sdk.DatabaseConnections, by the name its task gives, and each password
+	// is masked from every output like Secrets.
+	Databases []DatabaseConnection `json:"databases,omitempty"`
+
 	// Rollback, when set, makes this dispatch a rollback (Phase 40): the
 	// Runner runs these steps, which undo what job Rollback.Of did on this
 	// device, instead of RunbookID's tasks. RunbookID still names the

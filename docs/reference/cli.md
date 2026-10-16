@@ -114,6 +114,55 @@ store an encrypted account for one container registry, given only to pulls and p
 
 `pleiades add-registry-credential registry.example.com:5000 --username deploy`
 
+## pleiades add-database-connection
+
+store a named PostgreSQL connection, its password encrypted, given only to a db.pg task that names it
+
+`pleiades add-database-connection <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --host | `string` | - | the server as the device a task runs on sees it: a name, an address, or its Unix socket directory |
+| --port | `int` | `5432` | the server's port |
+| --user | `string` | - | the login |
+| --password-stdin | `bool` | `false` | read the password as one line on standard input |
+| --no-password | `bool` | `false` | send no password (peer or trust authentication) |
+| --sslmode | `string` | `verify-full` | verify-full, or disable for a local server (loopback or a socket) |
+| --ca-file | `string` | - | a PEM file of the authority the server's certificate must chain to (default: the system's roots) |
+| --server-name | `string` | - | the name the server's certificate is checked against, when it is not --host |
+| --insecure-transport | `bool` | `false` | allow --sslmode disable to a server that is not local; the password and every row cross that network in the clear |
+| --live | `string` | - | comma-separated databases on this server a restore refuses unless the task overrides it |
+
+`pleiades add-database-connection appdb --host db.internal --user app --ca-file db-ca.pem --live app --password-stdin`
+
+`pleiades add-database-connection local --host /var/run/postgresql --user postgres --sslmode disable --no-password`
+
+## pleiades list-database-connections
+
+list the stored database connections, never a password
+
+`pleiades list-database-connections [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades list-database-connections --json`
+
+## pleiades remove-database-connection
+
+remove a stored database connection
+
+`pleiades remove-database-connection <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+
+`pleiades remove-database-connection appdb`
+
 ## pleiades import-kubeconfig
 
 make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file

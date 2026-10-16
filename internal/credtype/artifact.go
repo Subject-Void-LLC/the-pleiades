@@ -282,6 +282,9 @@ type Artifact struct {
 	// registry is the one container registry credential, set only by
 	// registryTarget for the same reason.
 	registry *wire.RegistryCredential
+	// databases are the named database connections, set only by
+	// databaseTarget for the same reason; several, each its own name.
+	databases []wire.DatabaseConnection
 	// kubernetes is the one cluster credential, set only by
 	// kubernetesTarget for the same reason.
 	kubernetes *KubernetesCredential
@@ -312,6 +315,12 @@ type Artifact struct {
 // wire.DispatchPayload.Secrets carries, so a caller assigns it straight
 // across. See this file's own constants for why the keys are restated here
 // rather than imported.
+// Databases returns the named database connections this artifact
+// carries.
+func (a Artifact) Databases() []wire.DatabaseConnection {
+	return append([]wire.DatabaseConnection(nil), a.databases...)
+}
+
 // Registry returns the container registry credential this artifact
 // carries, and false when it carries none.
 func (a Artifact) Registry() (*wire.RegistryCredential, bool) {
@@ -440,6 +449,15 @@ func Combine(arts ...Artifact) (Artifact, error) {
 			}
 			machineOwner = a.CredentialName
 			out.machine = machine
+		}
+
+		for _, db := range a.Databases() {
+			if _, dup := wire.FindDatabaseConnection(out.databases, db.Name); dup {
+				return Artifact{}, fmt.Errorf(
+					"%w: %q is a second database connection named %s, and a task names a connection by its name",
+					ErrInjectorConflict, a.CredentialName, db.Name)
+			}
+			out.databases = append(out.databases, db)
 		}
 
 		if reg, ok := a.Registry(); ok {

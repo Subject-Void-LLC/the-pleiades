@@ -42,6 +42,10 @@ type credentialsDocument struct {
 	// (wire.RegistryHost). It is a namespace of its own: no device name can
 	// reach an entry here, and no registry host can reach a device's.
 	Registries map[string]credentialEntry `yaml:"registries,omitempty"`
+	// Databases holds named database connections, keyed by name
+	// (wire.DatabaseConnection.Name), in a namespace of their own like
+	// Registries.
+	Databases map[string]databaseEntry `yaml:"databases,omitempty"`
 }
 
 // credentialEntry is one device's stored credential. Username is stored

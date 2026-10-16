@@ -1,0 +1,22 @@
+id: db-backup-verify
+hosts: db-host
+tasks:
+  - name: Dump the application's database
+    db.pg.dump:
+      connection: appdb
+      database: app
+      dest: /var/backups/app.dump
+
+  - name: Restore the dump into a scratch database
+    db.pg.restore:
+      connection: appdb
+      database: app_restore_check
+      src: /var/backups/app.dump
+      create: true
+
+  - name: The copy holds what the source held
+    db.pg.rowcounts:
+      connection: appdb
+      database: app_restore_check
+      compare:
+        database: app

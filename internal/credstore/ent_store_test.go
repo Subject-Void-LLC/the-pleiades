@@ -443,3 +443,43 @@ func TestExternalReferenceMustNameADeclaredInput(t *testing.T) {
 		t.Fatal("CreateCredential() accepted an external lookup naming an input the type does not declare")
 	}
 }
+
+// TestDatabaseConnectionsBindOncePerName: the store reads each database
+// connection's name from its stored values, and binds several to one
+// template when their names differ and refuses two of one name.
+func TestDatabaseConnectionsBindOncePerName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, client, orgID, _ := fixture(t)
+	dbType, err := store.EnsureManagedType(ctx, credtype.CredentialType{
+		Name: "PostgreSQL Connection", Kind: credtype.KindDatabase, Namespace: "pleiades_postgres",
+		Inputs: credtype.InputSchema{Fields: []credtype.InputField{
+			{ID: "name", Label: "Name"}, {ID: "host", Label: "Host"}, {ID: "username", Label: "Username"},
+			{ID: "password", Label: "Password", Secret: true},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func(credName, connName string) int {
+		c, err := store.CreateCredential(ctx, orgID, dbType.ID, credName, "",
+			map[string]string{"name": connName, "host": "db.internal", "username": "app", "password": "pw-" + credName}, nil)
+		if err != nil {
+			t.Fatalf("CreateCredential(%s) error = %v", credName, err)
+		}
+		return c.ID
+	}
+	prod, scratch, prodAgain := create("prod", "appdb"), create("scratch", "scratch"), create("prod again", "appdb")
+
+	inv := client.Inventory.Create().SetName("edge").SetOrganizationID(orgID).SaveX(ctx)
+	tmpl := client.Template.Create().
+		SetName("restore").SetKind("runbook").SetDefinition("restore.yml").
+		SetOrganizationID(orgID).SetInventoryID(inv.ID).SaveX(ctx)
+	if err := store.SetTemplateCredentials(ctx, tmpl.ID, []int{prod, scratch}); err != nil {
+		t.Fatalf("two connections of different names: %v", err)
+	}
+	if err := store.SetTemplateCredentials(ctx, tmpl.ID, []int{prod, prodAgain}); !errors.Is(err, credtype.ErrBindingConflict) {
+		t.Fatalf("two connections named appdb = %v, want ErrBindingConflict", err)
+	}
+}

@@ -172,6 +172,46 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "add-database-connection",
+			Positional: "<name>",
+			Synopsis:   "store a named PostgreSQL connection, its password encrypted, given only to a db.pg task that names it",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "host", Type: "string", Default: "", Doc: "the server as the device a task runs on sees it: a name, an address, or its Unix socket directory"},
+				{Name: "port", Type: "int", Default: "5432", Doc: "the server's port"},
+				{Name: "user", Type: "string", Default: "", Doc: "the login"},
+				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password as one line on standard input"},
+				{Name: "no-password", Type: "bool", Default: "false", Doc: "send no password (peer or trust authentication)"},
+				{Name: "sslmode", Type: "string", Default: "verify-full", Doc: "verify-full, or disable for a local server (loopback or a socket)"},
+				{Name: "ca-file", Type: "string", Default: "", Doc: "a PEM file of the authority the server's certificate must chain to (default: the system's roots)"},
+				{Name: "server-name", Type: "string", Default: "", Doc: "the name the server's certificate is checked against, when it is not --host"},
+				{Name: "insecure-transport", Type: "bool", Default: "false", Doc: "allow --sslmode disable to a server that is not local; the password and every row cross that network in the clear"},
+				{Name: "live", Type: "string", Default: "", Doc: "comma-separated databases on this server a restore refuses unless the task overrides it"},
+			},
+			Examples: []string{
+				"pleiades add-database-connection appdb --host db.internal --user app --ca-file db-ca.pem --live app --password-stdin",
+				"pleiades add-database-connection local --host /var/run/postgresql --user postgres --sslmode disable --no-password",
+			},
+		},
+		{
+			Name:     "list-database-connections",
+			Synopsis: "list the stored database connections, never a password",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+			},
+			Examples: []string{"pleiades list-database-connections --json"},
+		},
+		{
+			Name:       "remove-database-connection",
+			Positional: "<name>",
+			Synopsis:   "remove a stored database connection",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+			},
+			Examples: []string{"pleiades remove-database-connection appdb"},
+		},
+		{
 			Name:       "import-kubeconfig",
 			Positional: "<device>",
 			Synopsis:   "make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file",

@@ -54,10 +54,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// gate Collection added the 105th and 106th: gate.list and gate.run,
 	// a project's own checks run on a device from a gate manifest. The
 	// build Collection added the 107th through 109th: build.digests.check,
-	// build.digests.refresh and build.lock.verify.
+	// build.digests.refresh and build.lock.verify. The db Collection added
+	// the 110th through 115th: db.pg.query, dump, restore, migrate, grants
+	// and rowcounts.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 109
+	const wantCollections = 115
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

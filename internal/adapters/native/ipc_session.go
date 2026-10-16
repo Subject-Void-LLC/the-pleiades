@@ -66,9 +66,10 @@ type sessionAnswer struct {
 }
 
 // newSession returns the session for one dispatch whose payload carries
-// secrets, which are masked out of anything the child sends back.
+// secrets, which are masked out of anything the child sends back, exactly
+// as the one-shot path masks them (childSecretValues).
 func (e *ipcCollectionExecutor) newSession(payload wire.DispatchPayload) *ipcSession {
-	return &ipcSession{oneShot: e.forDispatch(payload), payload: payload, secrets: redact.MapValues(payload.Secrets)}
+	return &ipcSession{oneShot: e.forDispatch(payload), payload: payload, secrets: childSecretValues(payload)}
 }
 
 // invoke implements engine.CollectionInvoker through the session child.

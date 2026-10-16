@@ -387,6 +387,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
@@ -408,6 +409,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e

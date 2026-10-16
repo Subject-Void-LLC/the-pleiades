@@ -40,12 +40,17 @@ type RunbookContext struct {
 	// method only for its own host (RegistryCredential). The Runner sets it
 	// for its own built-in methods; an external program never receives one.
 	registry *wire.RegistryCredential
+	// databases are the dispatch's named database connections, given to a
+	// method only by name (DatabaseConnection). Like registry, the Runner
+	// sets them for its own built-in methods only.
+	databases []wire.DatabaseConnection
 }
 
 var (
 	_ sdk.RunbookContext      = (*RunbookContext)(nil)
 	_ sdk.ConnectionPooler    = (*RunbookContext)(nil)
 	_ sdk.RegistryCredentials = (*RunbookContext)(nil)
+	_ sdk.DatabaseConnections = (*RunbookContext)(nil)
 )
 
 // ConnectionPool implements sdk.ConnectionPooler: the pool this call's
@@ -114,6 +119,18 @@ func (c *RunbookContext) Zero() {
 		}
 		delete(c.secrets, k)
 	}
+	c.databases = nil
+}
+
+// DatabaseConnection implements sdk.DatabaseConnections. The Runner masks
+// every bound connection's password out of whatever its child sends back,
+// a one-shot child's and a session child's alike, so the child registers
+// none.
+func (c *RunbookContext) DatabaseConnection(name string) (wire.DatabaseConnection, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn, ok := wire.FindDatabaseConnection(c.databases, name)
+	return conn, ok, nil
 }
 
 // RegistryCredential implements sdk.RegistryCredentials.

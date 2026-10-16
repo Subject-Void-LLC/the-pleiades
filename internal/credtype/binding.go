@@ -56,6 +56,12 @@ type Bound struct {
 	// it can have at most one of any other identity.
 	VaultIdentifier string
 
+	// DatabaseName is the value of a database connection's name input,
+	// meaningful only when Kind is KindDatabase: a definition can carry
+	// several database connections, one per name, as it can vault
+	// credentials one per identifier.
+	DatabaseName string
+
 	// PresentsCertificate says this credential supplies a client
 	// certificate, and is meaningful only when Kind is KindCryptography.
 	//
@@ -97,8 +103,11 @@ func CheckBinding(bound []Bound) error {
 
 	for _, b := range bound {
 		key := string(b.Kind)
-		if b.Kind == KindVault {
+		switch b.Kind {
+		case KindVault:
 			key = string(KindVault) + "\x00" + b.VaultIdentifier
+		case KindDatabase:
+			key = string(KindDatabase) + "\x00" + b.DatabaseName
 		}
 
 		previous, clash := seen[key]
@@ -111,6 +120,11 @@ func CheckBinding(bound []Bound) error {
 			return fmt.Errorf(
 				"%w: %q and %q are both vault credentials with the identifier %s, and a definition can carry at most one vault credential per identifier",
 				ErrBindingConflict, previous.CredentialName, b.CredentialName, describeVaultIdentifier(b.VaultIdentifier))
+		}
+		if b.Kind == KindDatabase {
+			return fmt.Errorf(
+				"%w: %q and %q are both database connections named %q, and a task names a connection by its name",
+				ErrBindingConflict, previous.CredentialName, b.CredentialName, b.DatabaseName)
 		}
 		return fmt.Errorf(
 			"%w: %q and %q are both %s credentials, and a definition can carry at most one credential of each kind",

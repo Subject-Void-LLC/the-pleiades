@@ -493,13 +493,15 @@ func TestCheckValuesNeverQuotesAValue(t *testing.T) {
 
 // TestKindVocabularyIsClosed pins the binding rule's foundation. The rule
 // "one credential per type, vault exempted" keys on kind, so an open
-// vocabulary would make it unenforceable.
+// vocabulary would make it unenforceable. The set is AWX's twelve plus
+// one of this platform's own, database (pleiades_postgres), which AWX has
+// no kind for and which, like vault, binds once per name rather than once.
 func TestKindVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 
 	kinds := credtype.Kinds()
-	if len(kinds) != 12 {
-		t.Errorf("Kinds() has %d entries, want AWX's 12: %v", len(kinds), kinds)
+	if len(kinds) != 13 {
+		t.Errorf("Kinds() has %d entries, want AWX's 12 and database: %v", len(kinds), kinds)
 	}
 	for _, k := range kinds {
 		if !k.Valid() {

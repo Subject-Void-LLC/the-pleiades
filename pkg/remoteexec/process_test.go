@@ -49,13 +49,14 @@ func startShellServer(t *testing.T, opts remoteexectest.Options) (*remoteexectes
 	return srv, conn
 }
 
-// closeStdin sends end-of-file on a started command's standard input,
-// which is what a caller does for a command that reads none: the
-// harness's shell, like os/exec generally, does not report a command's
-// exit until its standard input has ended.
+// closeStdin sends end-of-file on a started command's standard input. The
+// harness, like OpenSSH's sshd, ends the session when the command ends,
+// so a command that reads no input may already be gone, its channel
+// closed, by the time this runs; x/crypto then answers io.EOF, and the
+// input is as closed as it can be. Any other error fails the test.
 func closeStdin(t *testing.T, proc *Process) {
 	t.Helper()
-	if err := proc.CloseWrite(); err != nil {
+	if err := proc.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("CloseWrite() error = %v", err)
 	}
 }
