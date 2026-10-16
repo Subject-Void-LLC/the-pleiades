@@ -78,3 +78,24 @@ func Addr(t testing.TB) string {
 	}
 	return addr
 }
+
+// Port is the port of an Addr, for a test that gives a device a port on
+// 127.0.0.1 rather than a whole address.
+func Port(t testing.TB) int {
+	t.Helper()
+	addr := Addr(t)
+	if addr == "" {
+		return 0 // t was stopped; only a recording TB carries on to here
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("splitting %s: %v", addr, err)
+		return 0
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatalf("reading the port of %s: %v", addr, err)
+		return 0
+	}
+	return n
+}

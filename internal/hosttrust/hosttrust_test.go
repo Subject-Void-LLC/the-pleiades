@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
@@ -136,10 +137,7 @@ func TestScan(t *testing.T) {
 	if srv.Logins() != 0 {
 		t.Error("the scan logged in")
 	}
-	listener, _ := net.Listen("tcp", "127.0.0.1:0")
-	closed := listener.Addr().String()
-	listener.Close()
-	if _, err := Scan(context.Background(), closed, time.Second); err == nil {
+	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil {
 		t.Error("a closed port gave keys")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

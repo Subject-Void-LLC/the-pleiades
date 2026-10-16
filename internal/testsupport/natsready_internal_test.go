@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 )
 
 // greetingServer listens on a loopback port; the first drop connections
@@ -60,12 +62,7 @@ func TestWaitForNATSGreeting(t *testing.T) {
 		t.Errorf("a port that closed its first connections, then answered: %v", err)
 	}
 
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	refused := closed.Addr().String()
-	_ = closed.Close()
+	refused := refusing.Addr(t)
 
 	for name, tc := range map[string]struct{ addr, want string }{
 		"a silent server":        {greetingServer(t, 0, ""), "within 1s"},

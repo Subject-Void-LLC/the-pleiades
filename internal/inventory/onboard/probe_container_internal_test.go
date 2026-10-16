@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
@@ -208,12 +209,7 @@ func TestContainerProbe_TLS(t *testing.T) {
 		t.Errorf("probed %+v, want the Docker engine over TLS", got)
 	}
 
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gone := closed.Addr().String()
-	_ = closed.Close()
+	gone := refusing.Addr(t)
 	_, err = containerProber{}.Probe(context.Background(), hostRecord(t, map[string]inventory.PropertyValue{container.EngineTLSProperty: gone}), nil)
 	if err == nil || !strings.Contains(err.Error(), "no container engine answered") || !strings.Contains(err.Error(), "over TLS") {
 		t.Errorf("an engine_tls address with nothing there: %v", err)
@@ -244,12 +240,7 @@ func (nowhere) Name() string { return "nowhere" }
 // probers refuse a server with no address, one with no credential, and one
 // whose login cannot connect, before any engine is asked.
 func TestSSHEngineProbes_RefuseWhatCannotLogIn(t *testing.T) {
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := closed.Addr().(*net.TCPAddr).Port
-	_ = closed.Close()
+	port := refusing.Port(t)
 	password := map[string]string{"username": "u", "password": "p"}
 
 	server := func(props map[string]inventory.PropertyValue) inventory.InventoryItem {
