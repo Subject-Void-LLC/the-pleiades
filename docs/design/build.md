@@ -24,10 +24,17 @@ its name and content:
 - **Dockerfile / Containerfile**: each `FROM` (with `--platform` flags read past), and `COPY --from=` and
   `RUN --mount=from=` naming an image rather than a stage. `FROM scratch` and a stage named earlier in the file
   are not images. A reference built from an `ARG` is read from the ARG's default in the same file; one with no
-  default is reported as unresolvable rather than guessed.
-- **Compose**: each service's `image:`.
+  default is reported as unresolvable rather than guessed. ARGs are scoped as a build scopes them: a `FROM` reads
+  only the ARGs before the first `FROM`, and `COPY --from` and `RUN --mount` read the stage's own (a bare `ARG` in
+  a stage imports the global value). A here-document opens only where BuildKit opens one, at a word starting with
+  `<<` in `RUN`, `COPY` or `ADD`. One ARG several lines use is one reference, at the ARG.
+- **Compose**: each service's `image:`, through YAML merge keys (`<<: *base`) and aliases as Compose reads them;
+  an image an anchor holds is one reference, at the anchor.
 - **Kubernetes manifests**: every `image:` under a pod template's `containers`, `initContainers` and
-  `ephemeralContainers`, in every document of the file.
+  `ephemeralContainers`, in every document of the file, through aliases.
+
+A YAML file that gives a key twice in one mapping is refused, since readers keep different values (Compose refuses
+it too).
 
 A file of none of these kinds is refused by name rather than skipped, so a typo in `files` is not a silent pass.
 
@@ -36,7 +43,7 @@ A file of none of these kinds is refused by name rather than skipped, so a typo 
 | Method | Capabilities | Why |
 |---|---|---|
 | `build.digests.check` | `CommandExecCapable`; with `resolve`, also `ContainerEngineCapable` | reads files over SSH; asks the registry through the engine |
-| `build.digests.refresh` | `CommandExecCapable`, `ContainerEngineCapable` | resolving and writing |
+| `build.digests.refresh` | `CommandExecCapable`; when it resolves (no `set`, no `undo`), also `ContainerEngineCapable` | writing; asks the registry through the engine. The engine is not in the manifest's requirements, so a `set` or an `undo` (a rollback) still runs on a device whose engine is gone, and a resolve there is refused when it opens the engine. |
 | `build.lock.verify` | `CommandExecCapable` | reads the lockfile and manifest |
 
 Resolving goes through the device's engine (the engine API's distribution route, a new operation on the engine
@@ -71,9 +78,13 @@ view the build will have. A device whose engine has no such route (to be measure
   unauthorized) fails the task with nothing written, rather than leaving files half refreshed.
 - **A file changed since it was read is not overwritten.** Each file is written by replacing it whole, only if
   its content still hashes to what was read; otherwise the task fails naming it.
-- **A lockfile entry with no integrity hash is an offender**, including one from a `file:`, `link:` or git
-  source, unless the task allows that source by name; an unsupported lockfile version (npm's version 1) is
-  refused rather than half read.
+- **A lockfile entry with no integrity hash is an offender**, a `file:` tarball's included, even when the task
+  allows its source: allowing a source says where an entry may come from, not that it need not be checked. Two
+  kinds of entry are not sources at all and are not checked as one: an npm workspace `link`, which is code in the
+  project itself, and an entry bundled inside its parent, which carries the parent's integrity. A git dependency
+  pinned to a full commit needs no integrity hash, since npm records none and the commit is the pin. Keys are read
+  exactly as npm and Cargo read them, so a key differing only in case (`Resolved`, `SOURCE`) is not the key they
+  use. An unsupported lockfile version (npm's version 1) is refused rather than half read.
 
 ## One new dependency, and why
 
@@ -94,6 +105,10 @@ format needs none (`encoding/json`).
 | The registry refuses, is unreachable or rate limits | Refresh fails with nothing written, naming the reference and the registry's answer. |
 | A tag no longer exists | Drift (check with resolve); refresh fails naming it. |
 | A file whose owner or group the login cannot give a new file (a project file in root's group, edited by the deploying account) | The new content is copied into the file in place, from a complete copy already on the device, so it keeps its owner, group, mode and links; the run names it in `warnings`, since a reader at that instant could see it part written. A file the login cannot write at all is refused before anything is truncated. |
-| A file edited between read and write | Refresh fails naming it, and puts back every file it already rewrote (it holds their originals), since a failed task's undo is not journaled; a file it could not put back is named. |
+| A file edited between read and write | Refresh fails naming it, and puts back every file it already rewrote (it holds their originals), since a failed task's undo is not journaled. A file it could not put back is named, and the run's undo record is then kept and named in the error with the replay that writes the files back; replaying it skips a file the run never wrote. |
+| The undo record would be over 1 MiB, the most a replay reads | Refused before any file is written. |
+| A path given twice in `files` | Refused by name. |
+| A Cargo.toml or Cargo.lock nested more than 100 deep | Refused before it is parsed, since the TOML parser recurses with no limit and a deep enough file would end the process. |
+| Device text in an error or a return (a reference, a package) | Cut to 512 bytes and escaped. |
 | A manifest dependency not in the lockfile, an entry with no integrity, a source not allowed | One offender each, with the package, version and source; any offender fails the task. |
 | A lockfile version or format no plug-in reads | Refused naming it. |
