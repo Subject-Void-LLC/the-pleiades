@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,9 @@ import (
 func (r pleiadesRemote) Ready(mac string) error {
 	t, err := resolve(mac)
 	if err != nil {
+		return err
+	}
+	if err := loginCheck(mac, t); err != nil {
 		return err
 	}
 	if err := r.ensureDevice(mac, t); err != nil {
@@ -64,13 +68,7 @@ func readyAnswer(mac, out string) error {
 // holds exactly t: built pleiades, init, add-host, add-credential with the
 // first of t's identity files that exists, and onboard.
 func (r pleiadesRemote) ensureDevice(mac string, t sshTarget) error {
-	key := ""
-	for _, k := range t.keys {
-		if expanded := expandHome(k); fileExists(expanded) {
-			key = expanded
-			break
-		}
-	}
+	key := firstKey(t)
 	if key == "" {
 		return fmt.Errorf("ssh names no private key that exists for %s (it looked at %v); make one with ssh-keygen -t ed25519", mac, t.keys)
 	}
@@ -198,4 +196,43 @@ func argvYAML(argv ...string) string {
 		quoted[i] = string(b)
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// loginCheck logs in once with plain ssh, never prompting, so a key the
+// Mac does not hold or a host key this machine does not know is named
+// with the command that fixes it, rather than as the raw error of the
+// Pleiades onboarding that would meet it next.
+func loginCheck(mac string, t sshTarget) error {
+	var stderr bytes.Buffer
+	cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", mac, "true") // #nosec G204 -- the developer's own configured Mac
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return loginFailure(mac, firstKey(t), stderr.String(), err)
+	}
+	return nil
+}
+
+// loginFailure explains a failed ssh login by what ssh said.
+func loginFailure(mac, key, said string, err error) error {
+	pub := "~/.ssh/id_ed25519.pub"
+	if key != "" {
+		pub = key + ".pub"
+	}
+	switch {
+	case strings.Contains(said, "Permission denied"):
+		return fmt.Errorf("%s refused this machine's key: %s\n  Add it to the Mac once, from this machine (it asks for the Mac's password):\n    ssh-copy-id -i %s %s", mac, strings.TrimSpace(said), pub, mac)
+	case strings.Contains(said, "Host key verification failed"), strings.Contains(said, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
+		return fmt.Errorf("this machine does not trust %s's host key: %s\n  Check it is your Mac, then accept its key once: ssh %s true", mac, strings.TrimSpace(said), mac)
+	}
+	return fmt.Errorf("ssh could not log in to %s: %v: %s", mac, err, strings.TrimSpace(said))
+}
+
+// firstKey is the first of t's identity files that exists, or "".
+func firstKey(t sshTarget) string {
+	for _, k := range t.keys {
+		if expanded := expandHome(k); fileExists(expanded) {
+			return expanded
+		}
+	}
+	return ""
 }

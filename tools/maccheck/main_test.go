@@ -223,3 +223,17 @@ func TestConfigured(t *testing.T) {
 		}
 	}
 }
+
+// TestLoginFailure names the fix for each way ssh refuses.
+func TestLoginFailure(t *testing.T) {
+	for said, want := range map[string]string{
+		"me@mac: Permission denied (publickey,password).":      "ssh-copy-id -i /home/me/.ssh/id_ed25519.pub me@mac",
+		"Host key verification failed.":                        "accept its key once: ssh me@mac true",
+		"ssh: connect to host mac port 22: Connection refused": "ssh could not log in to me@mac",
+	} {
+		err := loginFailure("me@mac", "/home/me/.ssh/id_ed25519", said, errors.New("exit status 255"))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("loginFailure(%q) = %v, want it to say %q", said, err, want)
+		}
+	}
+}
