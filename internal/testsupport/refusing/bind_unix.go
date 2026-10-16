@@ -1,7 +1,7 @@
 //go:build unix
 
 // Binding a loopback port without listening on it, through the socket calls.
-package testsupport
+package refusing
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 
 // errNoUnlistenedBind is never returned here: every Unix can bind a port
 // without listening on it. It is declared on every platform so
-// RefusingAddr reads the same everywhere.
+// Addr reads the same everywhere.
 var errNoUnlistenedBind = errors.New("this platform cannot bind a port without listening on it")
 
 // bindUnlistened binds a TCP socket to 127.0.0.1 on a port the kernel

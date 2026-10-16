@@ -139,8 +139,8 @@ jobs:
       - name: Install socat for the PTY-backed serial tests
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
       # Linux refuses a connection to a port bound but not listened on,
-      # which testsupport.RefusingAddr checks before handing one out and
-      # skips without; required, so a runner that stops refusing fails.
+      # which internal/testsupport/refusing checks before handing one out
+      # and skips without; required, so a runner that stops refusing fails.
       - name: make ci-fast
         env:
           PLEIADES_TEST_REQUIRE: userns,socat,refusing-port

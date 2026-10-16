@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 )
 
 // TestDialTCP_ReachesAnEndpointAndNamesARefusal opens a channel to a live
@@ -33,7 +33,7 @@ func TestDialTCP_ReachesAnEndpointAndNamesARefusal(t *testing.T) {
 		n, _ := c.Read(buf)
 		_, _ = c.Write(buf[:n])
 	}()
-	closedAddr := testsupport.RefusingAddr(t)
+	closedAddr := refusing.Addr(t)
 
 	r := New(Options{InsecureSkipHostKeyVerify: true})
 	p := NewPool(0)

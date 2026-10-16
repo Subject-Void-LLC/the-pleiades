@@ -7,43 +7,22 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
-// RequireEnv lists, comma separated, what a run insists on: a test that
-// needs one of them fails when it is missing instead of skipping. "all"
-// requires everything. CI sets it for what its runners provide, so a
-// capability a runner loses turns the job red rather than quietly
-// shrinking what it tests; a developer's machine leaves it unset.
-const RequireEnv = "PLEIADES_TEST_REQUIRE"
+// RequireEnv lists, comma separated, what a run insists on (need.Env).
+const RequireEnv = need.Env
 
-// Require stops t when the machine lacks need: available is the answer
-// and why says what is missing and how to provide it. When this run
-// requires need (RequireEnv), that is a failure; otherwise it is a skip,
-// which every tools/testgate run lists with its reason, so it is never
-// read as a pass.
-func Require(t testing.TB, need string, available bool, why string) {
+// Require stops t when the machine lacks what: a skip naming it, or a
+// failure when this run requires it (need.Require, whose package imports
+// only the standard library so a light test can use it directly).
+func Require(t testing.TB, what string, available bool, why string) {
 	t.Helper()
-	if available {
-		return
-	}
-	if required(need) {
-		t.Fatalf("this run requires %s (%s=%s), and it is missing: %s", need, RequireEnv, os.Getenv(RequireEnv), why)
-		return // unreachable with a real testing.T, whose Fatalf never returns
-	}
-	t.Skipf("needs %s: %s", need, why)
-}
-
-// required reports whether RequireEnv names need, or says all.
-func required(need string) bool {
-	list := strings.Split(os.Getenv(RequireEnv), ",")
-	for i := range list {
-		list[i] = strings.TrimSpace(list[i])
-	}
-	return slices.Contains(list, need) || slices.Contains(list, "all")
+	need.Require(t, what, available, why)
 }
 
 // LocalStackEnv names the variable holding the auth token the AWS
