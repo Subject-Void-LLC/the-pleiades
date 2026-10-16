@@ -21,6 +21,12 @@
 // (pkg/devicetls: a TLS 1.2 floor, a pinned authority or the system's,
 // and always verified). The driver then speaks the protocol over a stream
 // that is already encrypted.
+//
+// The driver reads one variable this package cannot turn off: PQGO_DEBUG,
+// once, as the program starts. Set to 1, it writes each connection's
+// settings, password included, and every query and row to standard
+// error. So Open refuses to connect while it is set to anything, or was
+// when the program started.
 package pgclient
 
 import (
@@ -68,8 +74,21 @@ type Session struct {
 	target Target
 }
 
+// debugAtStart is PQGO_DEBUG as it was when the driver read it: this
+// package's variables are set after the driver's, as the program starts.
+var debugAtStart = os.Getenv(debugVariable)
+
+// debugVariable turns the driver's protocol trace on.
+const debugVariable = "PQGO_DEBUG"
+
 // Open connects to t and confirms the server answers.
 func Open(ctx context.Context, t Target) (*Session, error) {
+	// The driver decided at start whether to trace, so unsetting the
+	// variable since does not help; the current value is checked as well,
+	// so no value that could ever turn the trace on is let through.
+	if debugAtStart != "" || os.Getenv(debugVariable) != "" {
+		return nil, fmt.Errorf("pgclient: %s is set, and the driver then writes every connection's password, query and row to standard error; unset it and start again", debugVariable)
+	}
 	if t.Dial == nil {
 		return nil, errors.New("pgclient: a target needs a dialer")
 	}
