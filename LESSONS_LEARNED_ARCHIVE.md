@@ -5755,3 +5755,15 @@ fooled, a Dockerfile and YAML reader that saw less than the build, an undo dropp
 validation refused (in `gate.run`, already merged), fuzz targets that rarely reached the code, a quadratic line count
 and a gate step that asserted nothing. Every one passed the gates, because gates run the tests the author wrote.
 
+## 292. Load put on someone else's machine is bounded and cleans up after itself, or it is not put there
+
+**Rule.** On a machine that is not this one (the owner's Mac, a lab host), run only the real workload, never
+synthetic load; bound every remote command on the remote side, end it with a trap that kills its children and
+removes its files, and run it in the background here so this side's tool timeout cannot cut it off before its
+cleanup. Kill by exact process name (`pkill -x`), never `pkill -f` with a pattern the killing shell's own command
+line contains.
+
+**Why.** 2026-10-16. Reproducing a flaky test on the owner's MacBook, I started twelve `yes` processes for load.
+The ssh command hit my tool's timeout, its `kill` never ran, and the owner found Activity Monitor full of `yes`.
+The first cleanup attempt then used `pkill -f` with a pattern in its own command line and killed itself. The
+reproduction that worked used eight copies of the real test binary instead, bounded and trapped.

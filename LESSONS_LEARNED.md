@@ -324,6 +324,7 @@ story, per `.AGENTS/AGENTS.md`.
 289. **Before a pull request, check its whole diff against FAILURE_PATTERNS; pr-check sees only what a Linux run can (2026-10-15).**
 290. **A test import in a package other modules consume is part of their module graph; a warm cache proves nothing about it (2026-10-15).**
 291. **The failure-pattern check is a read of the code against each class; a passing pr-check says nothing about them (2026-10-16).**
+292. **Load put on someone else's machine is bounded and cleans up after itself, or it is not put there (2026-10-16).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

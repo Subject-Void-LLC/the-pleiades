@@ -12665,3 +12665,35 @@ the harness it failed exactly these two and nothing else.
 **Lesson.** A platform difference a Linux machine can be made to show is a harness setting, not a review
 checklist item. What it cannot show (a missing `timeout -k`, a different `stat`) still needs a real macOS run
 before the push, which a pull request's `fast-macos` is too late for.
+
+## 495. The reaper's end-to-end test failed on a shared-cache test database the Controller does not use (a repeat of 469) (fixed)
+
+**Symptom.** 2026-10-16, #61's `fast-macos`, in the strict repeat: "the reaper's republish never moved the job out of
+fanning_out", after "database table is locked: jobs" on both the claim and the settle.
+
+**Root cause.** `internal/dispatch`'s test store was in-memory shared-cache SQLite, which answers two connections
+writing one table with SQLITE_LOCKED at once; the Controller's database is a file in WAL mode with a busy timeout,
+which waits. Once the settle failed the job was freshly claimed, so not stale for an hour, and nothing could finish
+it. 469 fixed the test's reading of the outcome and named the shared cache in a comment, but kept it.
+
+**Fix.** Reproduced on a real Mac (Apple M4, `make mac-check`'s machine) with eight copies at once: 6 failures in
+200 runs. The test store now opens the database through `ent.OpenDatabase`, the Controller's own path, migrations
+included: 0 in 200. Branch `fix/reaper-test-store`.
+
+**Lesson.** A test store that is not the production configuration fails in ways production does not, and its
+comments explaining the difference are the clue; replace the store, not the assertion.
+
+## 496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
+
+**Symptom.** #61's `containers (1)` at `64f1a959`: `TestGrandIntegration_EachKindReachesItsOwnAdapter`'s `noop`
+runbook job never left "running" in 300 s, under load and again re-run alone. The same commit passed locally in 16 s
+against real Docker, and on a fresh runner the job passed with no re-run.
+
+**Root cause.** Unknown. The stuck job is the `noop` runbook, which reaches no device, so nothing #61 changed is in
+its path. A runner that stays slow for a whole job (both failures were on one runner) is the leading reading.
+
+**Fix.** None yet. If it recurs, the Runner's own output for the stuck dispatch is the evidence to keep; the
+harness prints the Controller's, not the Runner's.
+
+**Lesson.** A failure that repeats alone on one runner and not on another is still worth a line; two samples are
+how it was told from a code change here.

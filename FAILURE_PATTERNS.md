@@ -497,6 +497,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 492. ReadText's output bound also held standard error, so an unreadable file was reported as too large (fixed)
 493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
 494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
+495. The reaper's end-to-end test failed on a shared-cache test database the Controller does not use (a repeat of 469) (fixed)
+496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
