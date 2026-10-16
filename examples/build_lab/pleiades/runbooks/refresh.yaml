@@ -1,0 +1,8 @@
+id: build-refresh
+hosts: build-box
+tasks:
+  - name: Move every image pin to what its tag names now
+    build.digests.refresh:
+      files:
+        - /srv/app/Dockerfile
+        - /srv/app/compose.yaml

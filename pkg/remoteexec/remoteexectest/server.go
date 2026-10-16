@@ -54,6 +54,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -550,6 +551,13 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request,
 		// string would be asserting against its own idea of a shell rather
 		// than a shell.
 		cmd := exec.Command("/bin/sh", "-c", command) // #nosec G204 -- test harness; the command is the calling test's own input, see this package's doc comment
+		// GNU tools permute their arguments, so an option written after an
+		// operand (chmod 700 -- f) works on Linux and fails on macOS and
+		// the BSDs, whose getopt stops at the first operand: chmod there
+		// reads "--" as a file. POSIXLY_CORRECT makes GNU getopt stop the
+		// same way, so a command a device would refuse fails here too,
+		// on Linux, before a macOS run or a BSD device finds it.
+		cmd.Env = append(os.Environ(), "POSIXLY_CORRECT=1")
 		cmd.Stdout = channel
 		cmd.Stderr = channel.Stderr()
 

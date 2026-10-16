@@ -29,6 +29,7 @@ require (
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats.go v1.54.0
 	github.com/nats-io/nkeys v0.4.16
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pin/tftp/v3 v3.2.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.24.1

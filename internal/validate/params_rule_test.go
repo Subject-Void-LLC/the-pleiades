@@ -46,6 +46,11 @@ func TestParamsRule(t *testing.T) {
 			"params copied from another method", "net.cli.command", map[string]any{"command": "show clock", "prompt": []any{"x"}, "answer": []any{"y"}},
 			[]string{`passes parameters "answer", "prompt"`},
 		},
+		// The engine a device running two asks for ("set engine: to choose
+		// one", containerengine) must be a key its methods accept.
+		{"engine for build.digests.check", "build.digests.check", map[string]any{"files": []any{"Dockerfile"}, "resolve": true, "engine": "podman"}, nil},
+		{"engine for build.digests.refresh", "build.digests.refresh", map[string]any{"files": []any{"Dockerfile"}, "engine": "podman"}, nil},
+		{"engine for gate.run", "gate.run", map[string]any{"manifest": "gate.yaml", "engine": "podman"}, nil},
 		{"engine action", "noop", map[string]any{"anything": 1}, nil},
 		{"unregistered method", "totally.fake.name", map[string]any{"x": 1}, nil},
 		{"declared-only method", "file.template", map[string]any{"x": 1}, nil},

@@ -52,10 +52,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// wait.connection; seeing into a VM with no window the 101st through
 	// 104th: virt.vbox.vm.screenshot, log, send_keys and addresses. The
 	// gate Collection added the 105th and 106th: gate.list and gate.run,
-	// a project's own checks run on a device from a gate manifest.
+	// a project's own checks run on a device from a gate manifest. The
+	// build Collection added the 107th through 109th: build.digests.check,
+	// build.digests.refresh and build.lock.verify.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 106
+	const wantCollections = 109
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

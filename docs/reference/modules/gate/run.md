@@ -23,6 +23,7 @@ Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device an
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `manifest` | `string` | yes | - | The gate manifest's path on the device. A check's dir is relative to the manifest's own directory. |
 | `kinds` | `list of string` | no | - | Run only checks of these kinds. Every kind when absent. A kind the manifest does not have is refused. |
 | `checks` | `list of string` | no | - | Run only these checks, by name, among those the kinds select. A name the manifest does not have is refused. |

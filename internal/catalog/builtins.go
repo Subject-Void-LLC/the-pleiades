@@ -9,6 +9,8 @@ package catalog
 
 import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/archive"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/build/digests"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/build/lock"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
