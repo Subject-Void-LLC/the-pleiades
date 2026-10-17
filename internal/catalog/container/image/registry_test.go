@@ -87,7 +87,9 @@ func platformManifest(t *testing.T, h *harness) (string, string) {
 func TestPull_PresentAndAbsent(t *testing.T) {
 	h := newHarness(t)
 	before := h.idOf(t, testsupport.NginxImage)
-	if before == "" {
+	// An image restored from a cache has its tag and no repository digest,
+	// which a pull by digest does not take for present.
+	if len(h.repoDigests(t, testsupport.NginxImage)) == 0 {
 		if _, err := call(t, h, fresh(), "container.image.pull", false, map[string]any{"image": testsupport.NginxImage}); err != nil {
 			t.Fatal(err)
 		}

@@ -121,7 +121,22 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) pinned(t *testing.T, image string) string {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := h.api.ImageInspect(ctx, image); err != nil {
+	repo, _, _ := strings.Cut(image, ":")
+	digestOf := func() (string, []string) {
+		info, err := h.api.ImageInspect(ctx, image)
+		if err != nil {
+			return "", nil
+		}
+		for _, d := range info.RepoDigests {
+			if strings.HasPrefix(d, repo+"@") || strings.HasPrefix(d, "docker.io/library/"+repo+"@") {
+				return d, info.RepoDigests
+			}
+		}
+		return "", info.RepoDigests
+	}
+	// An image restored from a cache (docker load) has its tag and no
+	// repository digest; pulling it again records the digest.
+	if d, _ := digestOf(); d == "" {
 		stream, err := h.api.ImagePull(ctx, image, client.ImagePullOptions{})
 		if err != nil {
 			t.Fatalf("pulling %s: %v", image, err)
@@ -131,17 +146,11 @@ func (h *harness) pinned(t *testing.T, image string) string {
 		}
 		_ = stream.Close()
 	}
-	info, err := h.api.ImageInspect(ctx, image)
-	if err != nil {
-		t.Fatal(err)
+	d, held := digestOf()
+	if d != "" {
+		return d
 	}
-	repo, _, _ := strings.Cut(image, ":")
-	for _, d := range info.RepoDigests {
-		if strings.HasPrefix(d, repo+"@") || strings.HasPrefix(d, "docker.io/library/"+repo+"@") {
-			return d
-		}
-	}
-	t.Fatalf("%s has no repository digest: %v", image, info.RepoDigests)
+	t.Fatalf("%s has no repository digest: %v", image, held)
 	return ""
 }
 
