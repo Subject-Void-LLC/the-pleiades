@@ -1186,7 +1186,7 @@
       ]
     }
   },
-  "container.image.import_rootfs": {
+  "container.image.import": {
     "supportedTransports": [
       "engine_local",
       "engine_socket",
@@ -1289,7 +1289,7 @@
       "examples": [
         {
           "name": "Import a root filesystem",
-          "runbookYaml": "- name: Import the rootfs\n  container.image.import_rootfs:\n    path: /srv/rootfs/base.tar\n    image: base:2026-10\n"
+          "runbookYaml": "- name: Import the rootfs\n  container.image.import:\n    path: /srv/rootfs/base.tar\n    image: base:2026-10\n"
         }
       ],
       "seeAlso": [
@@ -1444,7 +1444,7 @@
       ],
       "seeAlso": [
         "container.image.save",
-        "container.image.import_rootfs"
+        "container.image.import"
       ]
     }
   },

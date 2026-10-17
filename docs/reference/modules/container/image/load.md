@@ -48,7 +48,7 @@ Note that no rollback engine reads this yet. What exists today is the recording,
 ## See also
 
 - `container.image.save`
-- `container.image.import_rootfs`
+- `container.image.import`
 
 ## Examples
 

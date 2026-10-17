@@ -126,7 +126,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [container.image.info](modules/container/image/info.md)
 - [container.image.load](modules/container/image/load.md)
 - [container.image.save](modules/container/image/save.md)
-- [container.image.import_rootfs](modules/container/image/import_rootfs.md)
+- [container.image.import](modules/container/image/import.md)
 - [container.image.search](modules/container/image/search.md)
 - [container.image.resolve](modules/container/image/resolve.md)
 - [container.image.prune](modules/container/image/prune.md)

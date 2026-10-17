@@ -2,7 +2,7 @@
 status: beta
 ---
 
-# container.image.import_rootfs
+# container.image.import
 
 Makes an image from a filesystem archive.
 
@@ -57,7 +57,7 @@ Import a root filesystem:
 
 ```yaml
 - name: Import the rootfs
-  container.image.import_rootfs:
+  container.image.import:
     path: /srv/rootfs/base.tar
     image: base:2026-10
 ```

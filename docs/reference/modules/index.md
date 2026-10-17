@@ -48,7 +48,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.create](container/create.md) | implemented | Makes a container exist as declared, without starting it. |
 | [container.engine.info](container/engine/info.md) | implemented | Reads the container engine's own report of itself. |
 | [container.exec](container/exec.md) | implemented | Runs one command inside a running container. |
-| [container.image.import_rootfs](container/image/import_rootfs.md) | implemented | Makes an image from a filesystem archive. |
+| [container.image.import](container/image/import.md) | implemented | Makes an image from a filesystem archive. |
 | [container.image.info](container/image/info.md) | implemented | Reports images on the engine. |
 | [container.image.load](container/image/load.md) | implemented | Loads images from an archive, refusing one whose digest differs. |
 | [container.image.prune](container/image/prune.md) | implemented | Keeps each repository's newest tags and removes the rest. |
