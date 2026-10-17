@@ -32,6 +32,7 @@ func vulnDoc() collection.Doc {
 			{Name: paramLockfiles, Type: "list of string", Description: "Lockfiles on the device to scan, each recognized by its name (package-lock.json, Cargo.lock, go.mod, requirements.txt and the rest OSV-Scanner reads)."},
 			{Name: paramFailOn, Type: "string", Default: "high", Description: "The least severity that fails the task: critical, high, medium, low, or any (every finding, scored or not)."},
 			{Name: paramFixableOnly, Type: "bool", Default: "false", Description: "Fail only on vulnerabilities a fixed version exists for; the rest are still reported."},
+			{Name: paramAllowEmpty, Type: "bool", Default: "false", Description: "Pass, with a warning, when OSV-Scanner finds no package to check. Without it that fails the task, since a scan that saw nothing (a wrong path, or files the scanner could not read) is no evidence of no vulnerability."},
 			{Name: paramOfflineDB, Type: "string", Description: "A directory on the device holding OSV-Scanner's local databases (osv-scalibr/<ecosystem>/all.zip, as osv-scanner --download-offline-databases writes them); the scan then joins no network, and refuses an ecosystem it has no database for."},
 			ignoreParam, timeoutParam, pullParam, hostKeyParam,
 		},

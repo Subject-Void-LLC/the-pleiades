@@ -136,6 +136,10 @@ func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return fail(err)
 	}
+	allowEmpty, err := sdk.BoolParamOr(params, paramAllowEmpty, false)
+	if err != nil {
+		return fail(err)
+	}
 
 	ssh, err := sdk.Connect(ctx, rc, device, params, fqcnVuln)
 	if err != nil {
@@ -224,7 +228,16 @@ func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			return fail(fmt.Errorf("OSV-Scanner's report: %w", err))
 		}
 	case osvNoPackages:
-		warnings = append(warnings, "OSV-Scanner found no packages to check")
+		// A scan that saw nothing is no evidence of no vulnerability: a
+		// wrong path, or files the scanner could not read, look the same.
+		scanned := t.path
+		if len(lockfiles) > 0 {
+			scanned = strings.Join(lockfiles, ", ")
+		}
+		if !allowEmpty {
+			return fail(fmt.Errorf("OSV-Scanner found no package to check in %s, so nothing was scanned; set %s if that is expected", scanned, paramAllowEmpty))
+		}
+		warnings = append(warnings, fmt.Sprintf("OSV-Scanner found no package to check in %s (%s)", scanned, paramAllowEmpty))
 	default:
 		return fail(ran.failure("OSV-Scanner"))
 	}

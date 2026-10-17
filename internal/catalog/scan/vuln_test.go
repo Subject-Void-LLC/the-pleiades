@@ -161,3 +161,22 @@ func TestVuln_TheTreeCannotTurnOffTheGate(t *testing.T) {
 		t.Fatalf("a tree with a directory the search cannot read = %v", err)
 	}
 }
+
+// TestVuln_NothingToScanFails: a directory OSV-Scanner finds no package
+// in fails, saying nothing was scanned, since a scan that saw nothing is
+// no evidence of no vulnerability; with allow_empty it passes, warned.
+func TestVuln_NothingToScanFails(t *testing.T) {
+	h := newHarness(t)
+	empty := writeFiles(t, map[string]string{"README.md": "no dependencies here\n"})
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	if _, err := vuln(h, map[string]any{"dir": empty, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "nothing was scanned") || !strings.Contains(err.Error(), empty) {
+		t.Fatalf("a directory with no package = %v", err)
+	}
+	stats, err := vuln(h, map[string]any{"dir": empty, "offline_db": db, "allow_empty": true})
+	if err != nil {
+		t.Fatalf("a directory with no package, allowed = %v", err)
+	}
+	if w, _ := stats["warnings"].([]string); len(w) != 1 || !strings.Contains(w[0], "found no package") {
+		t.Errorf("warnings = %v", stats["warnings"])
+	}
+}

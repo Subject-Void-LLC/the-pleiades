@@ -48,6 +48,7 @@ const (
 	paramIgnore       = "ignore"
 	paramTimeout      = "timeout"
 	paramPull         = "pull"
+	paramAllowEmpty   = "allow_empty"
 
 	statScanner = "scanner"
 )
