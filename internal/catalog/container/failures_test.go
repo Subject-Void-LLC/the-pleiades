@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/client"
 )
@@ -132,5 +133,52 @@ func TestParams_ANumberIsNotAbsent(t *testing.T) {
 	}
 	if state := h.state(t, name); state != "running" {
 		t.Errorf("a refused stop changed the container: state %q", state)
+	}
+}
+
+// TestRun_AOneShotPastItsOutputLimitIsStopped: output past the limit
+// fails the task at once and removes the container, rather than leaving it
+// blocked writing to a stream nothing reads until its timeout.
+func TestRun_AOneShotPastItsOutputLimitIsStopped(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	start := time.Now()
+	_, err := call(t, h, fresh(), "container.run", false, map[string]any{
+		"name": name, "image": h.nginx, "wait": true, "wait_timeout": 120,
+		"command": []any{"/bin/sh", "-c", "yes | head -c 3000000; sleep 100"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("a one-shot writing 3 MB = %v, want its output refused", err)
+	}
+	if took := time.Since(start); took > 30*time.Second {
+		t.Errorf("the refusal took %s; the container was left running", took)
+	}
+	if state := h.state(t, name); state != "" {
+		t.Errorf("the refused one-shot left a container in state %q", state)
+	}
+}
+
+// TestCopyIn_ReplacesAFileOverItsReadLimit: an existing file larger than
+// copy_in ever writes differs from the bytes given, so it is replaced
+// rather than the task refused.
+func TestCopyIn_ReplacesAFileOverItsReadLimit(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": name, "image": h.nginx}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, h, fresh(), "container.exec", false, map[string]any{"name": name, "cmd": "head -c 70000000 /dev/zero > /tmp/big"}); err != nil {
+		t.Fatal(err)
+	}
+	put := map[string]any{"name": name, "dest": "/tmp/big", "content": "small\n"}
+	if res, err := call(t, h, fresh(), "container.copy_in", true, put); err != nil || !res.Changed {
+		t.Errorf("a check over a large file = %+v, %v", res, err)
+	}
+	if res, err := call(t, h, fresh(), "container.copy_in", false, put); err != nil || !res.Changed {
+		t.Fatalf("copy_in over a large file = %+v, %v", res, err)
+	}
+	rc := fresh()
+	if _, err := call(t, h, rc, "container.copy_out", false, map[string]any{"name": name, "src": "/tmp/big"}); err != nil || rc.stats["content"] != "small\n" {
+		t.Errorf("the file after = %v, %v", rc.stats["content"], err)
 	}
 }

@@ -74,6 +74,10 @@ func copyIn(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, err
 	}
 	have, haveMode, exists, err := readOne(ctx, s, name, dest, maxCopyIn)
+	if errors.Is(err, errTooLarge) {
+		// Larger than any file this method writes, so it differs.
+		have, exists, err = nil, false, nil
+	}
 	if err != nil {
 		return fail(err)
 	}

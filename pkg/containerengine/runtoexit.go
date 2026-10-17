@@ -61,32 +61,50 @@ func (s *Session) RunToExit(ctx context.Context, id string, tty bool, timeout ti
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	waited := s.API.ContainerWait(runCtx, id, client.ContainerWaitOptions{Condition: moby.WaitConditionNotRunning})
-	select {
-	case done := <-waited.Result:
-		res.ExitCode = int(done.StatusCode)
-		if done.Error != nil && done.Error.Message != "" {
-			return res, fmt.Errorf("waiting for container %s: %s", id, done.Error.Message)
+	var out *output
+	for exited := false; !exited; {
+		select {
+		case o := <-read:
+			if o.err != nil {
+				// Output past the limit, or a broken stream: nothing reads
+				// the container's output now, so it would block writing
+				// until its timeout. It is stopped at once instead.
+				s.kill(id)
+				return res, fmt.Errorf("reading container %s's output: %w; it was killed", id, o.err)
+			}
+			out = &o
+			read = nil
+		case done := <-waited.Result:
+			res.ExitCode = int(done.StatusCode)
+			if done.Error != nil && done.Error.Message != "" {
+				return res, fmt.Errorf("waiting for container %s: %s", id, done.Error.Message)
+			}
+			exited = true
+		case err := <-waited.Error:
+			if runCtx.Err() == nil {
+				return res, fmt.Errorf("waiting for container %s: %w", id, err)
+			}
+			s.kill(id)
+			if ctx.Err() != nil {
+				return res, fmt.Errorf("container %s: %w", id, ctx.Err())
+			}
+			res.TimedOut, res.ExitCode = true, 137
+			exited = true
 		}
-	case err := <-waited.Error:
-		if runCtx.Err() == nil {
-			return res, fmt.Errorf("waiting for container %s: %w", id, err)
-		}
-		s.kill(id)
-		if ctx.Err() != nil {
-			return res, fmt.Errorf("container %s: %w", id, ctx.Err())
-		}
-		res.TimedOut, res.ExitCode = true, 137
 	}
 	// The stream ends when the container does, a killed one included.
-	select {
-	case out := <-read:
-		if out.err != nil {
-			return res, fmt.Errorf("reading container %s's output: %w", id, out.err)
+	if out == nil {
+		select {
+		case o := <-read:
+			if o.err != nil {
+				return res, fmt.Errorf("reading container %s's output: %w", id, o.err)
+			}
+			out = &o
+		case <-time.After(removeGrace):
+			return res, fmt.Errorf("container %s exited but its output never ended", id)
 		}
-		res.Stdout, res.Stderr = string(out.stdout), string(out.stderr)
-	case <-time.After(removeGrace):
-		return res, fmt.Errorf("container %s exited but its output never ended", id)
 	}
+	res.Stdout, res.Stderr = string(out.stdout), string(out.stderr)
 	return res, nil
 }
 

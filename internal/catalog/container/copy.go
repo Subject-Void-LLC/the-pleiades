@@ -5,6 +5,7 @@ package container
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -46,6 +47,9 @@ func containerPath(params map[string]any, key string) (string, error) {
 	return p, nil
 }
 
+// errTooLarge is readOne's refusal of a file over its limit.
+var errTooLarge = errors.New("the file is too large")
+
 // readOne reads the regular file at p in container name, up to limit
 // bytes, reporting false when there is none.
 func readOne(ctx context.Context, s *containerengine.Session, name, p string, limit int) ([]byte, int64, bool, error) {
@@ -66,7 +70,7 @@ func readOne(ctx context.Context, s *containerengine.Session, name, p string, li
 		return nil, 0, false, fmt.Errorf("reading %s in container %s: %w", p, name, err)
 	}
 	if hdr.Size > int64(limit) {
-		return nil, 0, false, fmt.Errorf("%s in container %s is %d bytes, over the %d one read takes", p, name, hdr.Size, limit)
+		return nil, 0, false, fmt.Errorf("%s in container %s is %d bytes, over the %d one read takes: %w", p, name, hdr.Size, limit, errTooLarge)
 	}
 	data, err := io.ReadAll(io.LimitReader(tr, int64(limit)+1))
 	if err != nil {

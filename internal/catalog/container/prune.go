@@ -1,5 +1,5 @@
-// container.prune: what a task names as unused, removed by the IDs a read
-// found, so a run removes exactly what its check listed.
+// container.prune: what a task names as unused, removed by the IDs its own
+// listing found, so a run removes only what it listed.
 package container
 
 import (
