@@ -176,6 +176,11 @@ func (d *Document) Validate() Report {
 	if len(subjects) == 0 {
 		r.Problems = append(r.Problems, "the document describes nothing (no DESCRIBES relationship)")
 	}
+	// A subject must be a package the document holds: one it does not
+	// hold has no name, version or supplier to check.
+	if missing := d.unheldSubjects(); len(missing) > 0 {
+		r.Problems = append(r.Problems, fmt.Sprintf("%d DESCRIBES relationship(s) name no package in the document: %s", len(missing), first(missing)))
+	}
 	related := map[string]bool{}
 	for _, rel := range d.Relationships {
 		if rel.From != "SPDXRef-DOCUMENT" {
@@ -220,6 +225,22 @@ func (d *Document) Validate() Report {
 	return r
 }
 
+// unheldSubjects is every described element the document holds no
+// package for.
+func (d *Document) unheldSubjects() []string {
+	held := map[string]bool{}
+	for _, p := range d.Packages {
+		held[p.SPDXID] = true
+	}
+	var out []string
+	for _, s := range d.Subjects() {
+		if !held[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // first is up to listed names, sorted, and how many more.
 func first(names []string) string {
 	sorted := append([]string(nil), names...)
@@ -245,6 +266,9 @@ func (d *Document) SetSubjectSupplier(supplier, tool string) ([]byte, error) {
 	}
 	if len(subjects) == 0 {
 		return nil, errors.New("the document describes nothing, so no subject can be given a supplier")
+	}
+	if missing := d.unheldSubjects(); len(missing) > 0 {
+		return nil, fmt.Errorf("the document describes %s, which is no package in it, so no supplier can be set on it", first(missing))
 	}
 	pkgs, _ := d.raw["packages"].([]any)
 	for i, item := range pkgs {

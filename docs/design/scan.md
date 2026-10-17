@@ -78,7 +78,8 @@ writing, rather than the run itself.
 - **No secret value leaves the container in a form this keeps.** Gitleaks runs with `--redact`, and the parser
   drops its `Secret` and `Match` fields regardless, so a finding is file, line, rule and fingerprint. A test plants
   a sentinel credential and requires it absent from the result, the error and every log line.
-- **NTIA minimum elements.** The document must name its author and timestamp and carry dependency relationships,
+- **NTIA minimum elements.** The document must name its author and timestamp, describe a subject that is a package
+  it holds (a DESCRIBES naming anything else is refused, never skipped), and carry dependency relationships,
   and every component a name, a version and a unique identifier (a purl or CPE); the subject's supplier is the
   task's `supplier`. Generators rarely know a dependency's supplier (Syft writes NOASSERTION), so a dependency
   without one is counted and warned about, and fails the task only with `strict_suppliers`; failing every real

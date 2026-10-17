@@ -125,3 +125,25 @@ func TestParse_RefusesWhatIsNotSPDX23(t *testing.T) {
 		t.Error("a supplier was set on a document with no subject")
 	}
 }
+
+// TestValidate_ASubjectMustBeAPackage: a DESCRIBES relationship naming an
+// element the document holds no package for is a problem, beside the
+// subject it does hold, and an edit refuses to set a supplier on it
+// rather than skip it.
+func TestValidate_ASubjectMustBeAPackage(t *testing.T) {
+	doc := `{"spdxVersion":"SPDX-2.3","name":"x","documentNamespace":"https://example.com/x",` +
+		`"creationInfo":{"created":"2026-10-15T00:00:00Z","creators":["Tool: syft"]},` +
+		`"packages":[{"SPDXID":"SPDXRef-root","name":"app","versionInfo":"1.0","supplier":"Organization: Example Co"}],` +
+		`"relationships":[{"spdxElementId":"SPDXRef-DOCUMENT","relationshipType":"DESCRIBES","relatedSpdxElement":"SPDXRef-root"},` +
+		`{"spdxElementId":"SPDXRef-DOCUMENT","relationshipType":"DESCRIBES","relatedSpdxElement":"SPDXRef-gone"}]}`
+	d, err := sbomcheck.Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(d.Validate().Problems, "\n"); !strings.Contains(got, "1 DESCRIBES relationship(s) name no package in the document: SPDXRef-gone") {
+		t.Errorf("problems = %q", got)
+	}
+	if _, err := d.SetSubjectSupplier("Organization: Example Co", "pleiades"); err == nil || !strings.Contains(err.Error(), "SPDXRef-gone") {
+		t.Errorf("SetSubjectSupplier = %v", err)
+	}
+}
