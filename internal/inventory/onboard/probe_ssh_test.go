@@ -40,7 +40,8 @@ func TestParseSSHProbe(t *testing.T) {
 		{"systemctl without systemd running", "pleiades-probe=1\nkernel=Linux\nhas=systemctl\nhas=firewall-cmd\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
 		{"apt without dpkg", "pleiades-probe=1\nkernel=Linux\nhas=apt-get\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
 		{"freebsd: files, and no Linux package manager", "pleiades-probe=1\nkernel=FreeBSD\nhas=apt-get\nhas=dpkg\nhas=systemctl\nsystemd_running=1\n", []capability.Name{capability.NameShellExec, capability.NamePOSIXFileSystem}},
-		{"a kernel nothing was proven on", "pleiades-probe=1\nkernel=Darwin\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec}},
+		{"darwin: files, and nothing of Linux's", "pleiades-probe=1\nkernel=Darwin\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec, capability.NamePOSIXFileSystem}},
+		{"a kernel nothing was proven on", "pleiades-probe=1\nkernel=SunOS\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec}},
 		{"a router's command line", "% Invalid input detected at '^' marker.\n", nil},
 		{"a banner before the marker", "kernel=Linux\nhas=apt-get\nhas=dpkg\npleiades-probe=1\nkernel=OpenBSD\n", []capability.Name{capability.NameShellExec}},
 	} {

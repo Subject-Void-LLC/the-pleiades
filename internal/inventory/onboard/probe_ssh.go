@@ -86,8 +86,8 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 // script's own key=value lines count, and each capability needs every
 // fact behind it: a package manager needs its low-level tool too (dpkg for
 // apt, rpm for dnf), firewalld needs a running systemd, every Linux
-// capability needs the kernel to say Linux, and a FreeBSD kernel is granted
-// POSIX file access alone.
+// capability needs the kernel to say Linux, and a FreeBSD or Darwin kernel
+// is granted POSIX file access alone.
 func parseSSHProbe(out string) Probed {
 	lines := strings.Split(out, "\n")
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "pleiades-probe=1" })
@@ -117,13 +117,17 @@ func parseSSHProbe(out string) Probed {
 	caps := []capability.Name{capability.NameShellExec}
 	switch facts["kernel"] {
 	case "Linux":
-	case "FreeBSD":
-		// The file methods reach FreeBSD: pkg/remotefile reads a file with
-		// BSD stat's form when GNU's fails and hashes with shasum, proven
-		// against FreeBSD 15.1 through the real binary
-		// (TestCLI_FreeBSDFileChecksMatchTheirRealRuns). Nothing Linux-only
-		// is granted: facts.gather reads Linux's files, and apt, dnf and
-		// systemd are Linux's.
+	case "FreeBSD", "Darwin":
+		// The file methods reach FreeBSD and macOS: pkg/remotefile reads a
+		// file with BSD stat's form when GNU's fails and hashes with
+		// shasum, proven against FreeBSD 15.1 through the real binary
+		// (TestCLI_FreeBSDFileChecksMatchTheirRealRuns), and on macOS by
+		// pkg/remotefile's, internal/catalog/archive's and
+		// internal/catalog/file's own tests run on a real Mac through
+		// make mac-check, whose shipping of each tree with file.copy and
+		// archive.extract then exercises them through the real binary on
+		// every run. Nothing Linux-only is granted: facts.gather reads
+		// Linux's files, and apt, dnf and systemd are Linux's.
 		return Probed{Capabilities: append(caps, capability.NamePOSIXFileSystem), Facts: facts}
 	default:
 		return Probed{Capabilities: caps, Facts: facts}
