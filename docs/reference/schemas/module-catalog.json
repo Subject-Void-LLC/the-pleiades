@@ -6538,7 +6538,7 @@
         {
           "name": "ignore",
           "type": "string",
-          "description": "An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD). An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land."
+          "description": "An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD, in UTC) no more than 366 days after the day of the run, since an end years away is no end. An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land."
         },
         {
           "name": "timeout",
@@ -6661,7 +6661,7 @@
         {
           "name": "ignore",
           "type": "string",
-          "description": "An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD). An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land."
+          "description": "An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD, in UTC) no more than 366 days after the day of the run, since an end years away is no end. An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land."
         },
         {
           "name": "timeout",

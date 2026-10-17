@@ -19,7 +19,7 @@ func FuzzParse(f *testing.F) {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		file, err := scanignore.Parse(data)
+		file, err := scanignore.Parse(data, time.Now())
 		if err != nil {
 			return
 		}

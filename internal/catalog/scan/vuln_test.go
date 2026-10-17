@@ -97,6 +97,10 @@ func TestVuln_AnIgnoreFileNeedsAReasonAndAnEnd(t *testing.T) {
 	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  until: " + future + "\n")}); err == nil || !strings.Contains(err.Error(), "has no reason") {
 		t.Fatalf("an ignore entry with no reason = %v", err)
 	}
+	// An end years away is no end: the file is refused, naming the entry.
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  reason: accepted\n  until: 9999-12-31\n")}); err == nil || !strings.Contains(err.Error(), "GHSA-crit's until 9999-12-31 is more than 366 days") {
+		t.Fatalf("an ignore entry with no real end = %v", err)
+	}
 }
 
 // TestVuln_RefusesBeforeTheScanner names each refusal.

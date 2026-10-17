@@ -60,7 +60,8 @@ writing, rather than the run itself.
   ecosystem; the rest are still reported. The default fails on every one at the threshold: an unfixable
   vulnerability is still shipped.
 - **The ignore file is this platform's, not the scanner's.** One YAML list per project, `{id, reason, until}`,
-  every field required, `until` a date (`2026-12-31`). The scanner's own ignore formats do not require a reason
+  every field required, `until` a date (`2026-12-31`, in UTC) no more than 366 days after the run's, so an
+  acceptance is reviewed at least once a year. The scanner's own ignore formats do not require a reason
   or an end, and an ignore that never ends is a vulnerability nobody looks at again. Past `until`, an entry
   suppresses nothing and the run warns; an entry that matches nothing warns, so the file shrinks as fixes land.
   `scan.secrets` reads the same format, its `id` a finding's fingerprint (`file:rule:line`).

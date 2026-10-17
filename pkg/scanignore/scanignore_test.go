@@ -33,7 +33,7 @@ func TestJudge_SuppressesUntilItsDayThenReports(t *testing.T) {
 - id: GHSA-unused
   reason: was in an old dependency
   until: 2027-01-01
-`))
+`), day("2026-06-01"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +62,7 @@ func TestParse_RefusesAnIncompleteFileWhole(t *testing.T) {
 		"- id: A\n  reason: r\n":                                                                 "A has no until",
 		"- reason: r\n  until: 2026-01-01\n":                                                     "an entry has no id",
 		"- id: A\n  reason: r\n  until: next week\n":                                             `until "next week" is not a date`,
+		"- id: A\n  reason: r\n  until: 9999-12-31\n":                                            "A's until 9999-12-31 is more than 366 days after today (2026-01-01)",
 		"- id: A\n  reason: r\n  until: 2026-01-01\n  expires: never\n":                          `"expires" is not a key`,
 		"- id: A\n  reason: r\n  until: 2026-01-01\n- id: A\n  reason: r\n  until: 2026-01-01\n": "A is already ignored at line 1",
 		"id: A\n":                    "is a list of entries",
@@ -70,13 +71,31 @@ func TestParse_RefusesAnIncompleteFileWhole(t *testing.T) {
 		"\xff":                       "not UTF-8",
 		strings.Repeat("#", 1<<20+1): "over",
 	} {
-		if _, err := scanignore.Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := scanignore.Parse([]byte(src), day("2026-01-01")); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Parse(%.40q) = %v, want %q", src, err, want)
 		}
 	}
 	for _, empty := range []string{"", "# nothing ignored\n", "[]\n", "~\n"} {
-		if f, err := scanignore.Parse([]byte(empty)); err != nil || len(f.Entries) != 0 {
+		if f, err := scanignore.Parse([]byte(empty), day("2026-01-01")); err != nil || len(f.Entries) != 0 {
 			t.Errorf("Parse(%q) = %+v, %v", empty, f, err)
 		}
+	}
+}
+
+// TestParse_AnUntilIsAtMostAYearAhead: an until up to 366 days after the
+// day the file is read is accepted, a day later refused, and the day is
+// the one in UTC, as until is.
+func TestParse_AnUntilIsAtMostAYearAhead(t *testing.T) {
+	entry := func(until string) []byte { return []byte("- id: A\n  reason: r\n  until: " + until + "\n") }
+	if _, err := scanignore.Parse(entry("2027-01-02"), day("2026-01-01")); err != nil {
+		t.Errorf("366 days ahead = %v", err)
+	}
+	if _, err := scanignore.Parse(entry("2027-01-03"), day("2026-01-01")); err == nil {
+		t.Error("367 days ahead was accepted")
+	}
+	// 23:00 on 2026-01-01 in New York is 04:00 on 2026-01-02 in UTC.
+	evening := time.Date(2026, 1, 1, 23, 0, 0, 0, time.FixedZone("EST", -5*3600))
+	if _, err := scanignore.Parse(entry("2027-01-03"), evening); err != nil {
+		t.Errorf("366 days after the UTC day = %v", err)
 	}
 }

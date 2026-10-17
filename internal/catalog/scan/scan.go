@@ -299,7 +299,7 @@ func loadIgnore(ctx context.Context, ssh *remoteexec.Conn, params map[string]any
 	if err != nil {
 		return scanignore.File{}, err
 	}
-	f, err := scanignore.Parse(data)
+	f, err := scanignore.Parse(data, today())
 	if err != nil {
 		return scanignore.File{}, fmt.Errorf("%s: %w", p, err)
 	}

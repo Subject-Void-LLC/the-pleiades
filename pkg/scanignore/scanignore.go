@@ -1,8 +1,9 @@
 // Package scanignore reads a scan's ignore file: entries that suppress a
 // finding by id, each saying why it is accepted and until when. An
 // acceptance with no reason is one nobody can review, and one with no end
-// is a finding nobody looks at again, so both are required; past its date
-// an entry suppresses nothing, and the scan says so.
+// is a finding nobody looks at again, so both are required, and an end
+// more than a year away is refused; past its date an entry suppresses
+// nothing, and the scan says so.
 //
 // The file is YAML, a list:
 //
@@ -28,6 +29,11 @@ const MaxFileBytes = 1 << 20
 
 // MaxEntries bounds how many entries one file holds.
 const MaxEntries = 10000
+
+// MaxHorizonDays is how far after the day it is read an entry's until may
+// be: an end years away is no end, and an acceptance is reviewed at least
+// once a year.
+const MaxHorizonDays = 366
 
 // dateLayout is how until is written.
 const dateLayout = "2006-01-02"
@@ -59,11 +65,13 @@ type rawEntry struct {
 	Until  string `yaml:"until"`
 }
 
-// Parse reads an ignore file, refusing it whole when any entry is
-// incomplete, an id repeats, a key is unknown or a date does not read: a
-// half-read ignore file would suppress some findings it was not meant to,
-// or fail to suppress some it was.
-func Parse(data []byte) (File, error) {
+// Parse reads an ignore file on day today (its date in UTC is what
+// counts), refusing it whole when any entry is incomplete, an id repeats,
+// a key is unknown, a date does not read, or an until is more than
+// MaxHorizonDays after today: a half-read ignore file would suppress some
+// findings it was not meant to, or fail to suppress some it was.
+func Parse(data []byte, today time.Time) (File, error) {
+	horizon := utcDay(today).AddDate(0, 0, MaxHorizonDays)
 	if len(data) > MaxFileBytes {
 		return File{}, fmt.Errorf("the ignore file is over %d bytes", MaxFileBytes)
 	}
@@ -125,6 +133,9 @@ func Parse(data []byte) (File, error) {
 		if err != nil {
 			return File{}, fmt.Errorf("line %d: %s's until %q is not a date (YYYY-MM-DD)", node.Line, e.ID, raw.Until)
 		}
+		if until.After(horizon) {
+			return File{}, fmt.Errorf("line %d: %s's until %s is more than %d days after today (%s); an acceptance is reviewed at least once a year", node.Line, e.ID, until.Format(dateLayout), MaxHorizonDays, utcDay(today).Format(dateLayout))
+		}
 		e.Until = until
 		if first, dup := seen[e.ID]; dup {
 			return File{}, fmt.Errorf("line %d: %s is already ignored at line %d", node.Line, e.ID, first)
@@ -138,8 +149,13 @@ func Parse(data []byte) (File, error) {
 // Expired reports whether e no longer suppresses anything on day today:
 // it suppresses through the whole of its until day.
 func (e Entry) Expired(today time.Time) bool {
-	y, m, d := today.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).After(e.Until)
+	return utcDay(today).After(e.Until)
+}
+
+// utcDay is the start of t's day in UTC, the calendar until is written in.
+func utcDay(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 // Judge applies a file to one scan's findings on one day.
