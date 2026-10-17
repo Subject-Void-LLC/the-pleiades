@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
