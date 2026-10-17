@@ -69,9 +69,8 @@ func (e *runEngine) answer(req *http.Request, body []byte) string {
 	case strings.HasSuffix(path, "/start"):
 		return "HTTP/1.1 204 No Content\r\n\r\n"
 	case strings.HasSuffix(path, "/wait"):
-		e.mu.Unlock()
-		time.Sleep(e.waitFor)
-		e.mu.Lock()
+		// The header goes at once and the status once the container ends
+		// (dial holds the body back waitFor), as an engine answers a wait.
 		return jsonAnswer("200 OK", fmt.Sprintf(`{"StatusCode":%d}`, e.exitCode))
 	case strings.HasSuffix(path, "/kill"):
 		e.killed++
@@ -110,7 +109,17 @@ func (e *runEngine) dial(context.Context) (net.Conn, error) {
 			return
 		}
 		body, _ := io.ReadAll(req.Body)
-		_, _ = s.Write([]byte(e.answer(req, body)))
+		answer := e.answer(req, body)
+		if head, rest, found := strings.Cut(answer, "\r\n\r\n"); found && strings.HasSuffix(req.URL.Path, "/wait") {
+			// An engine acknowledges a wait with its header at once and
+			// sends the status when the container ends.
+			if _, err := s.Write([]byte(head + "\r\n\r\n")); err != nil {
+				return
+			}
+			time.Sleep(e.waitFor)
+			answer = rest
+		}
+		_, _ = s.Write([]byte(answer))
 	}()
 	return c, nil
 }

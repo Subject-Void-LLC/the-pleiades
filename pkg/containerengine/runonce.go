@@ -38,6 +38,11 @@ const runOnceTmpfs = "rw,noexec,nosuid,size=256m"
 // a run whose context is already over still removes its container.
 const removeGrace = 30 * time.Second
 
+// outputGrace bounds how long RunOnce goes on reading a container's
+// output once the container has ended. A variable only so a test can
+// shorten it.
+var outputGrace = removeGrace
+
 // ErrImageAbsent is RunOnce's refusal of an image the engine does not
 // have when pulling it was not asked for; nothing was created.
 var ErrImageAbsent = errors.New("the image is not on the engine")
@@ -71,7 +76,9 @@ type RunOnceOptions struct {
 	Env []string
 	// Output receives what the container writes to standard output and
 	// standard error, in the order the engine sent it. A bounded writer
-	// (gate.Tail) keeps a chatty command in constant memory.
+	// (gate.Tail) keeps a chatty command in constant memory. It must not
+	// block. Nothing is written to it once RunOnce has returned; a write
+	// it refuses ends the run, the container killed.
 	Output io.Writer
 	// Errors, when set, receives standard error apart, and Output then
 	// standard output alone: a tool that writes a report on one and logs
@@ -123,6 +130,10 @@ type RunOnceResult struct {
 	TimedOut bool
 	// Pulled reports that the image was pulled first.
 	Pulled bool
+	// OutputCut reports that the output had not ended within a grace
+	// after the container did, and was cut there: Output and Errors may
+	// lack its end.
+	OutputCut bool
 }
 
 // RunOnce runs opts.Cmd in a fresh container from opts.Image and returns
@@ -202,9 +213,10 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	if err != nil {
 		return res, fmt.Errorf("containerengine: attaching to container %s: %w", id, err)
 	}
-	defer attached.Close()
 	copied := make(chan error, 1)
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		if media, ok := attached.MediaType(); ok && media == rawStream {
 			_, err := io.Copy(output, attached.Reader)
 			copied <- err
@@ -216,6 +228,15 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 		}
 		copied <- copyFrames(attached.Reader, output, errs)
 	}()
+	// Whatever ends the run, the copy is stopped and waited for before
+	// RunOnce returns, so nothing is written to Output or Errors after it
+	// and a caller may read what they hold without a lock. Closing the
+	// stream ends a read in progress; a write in progress is the caller's
+	// own writer's, which does not block.
+	defer func() {
+		attached.Close()
+		<-finished
+	}()
 
 	if _, err := s.API.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
 		return res, fmt.Errorf("containerengine: starting container %s: %w", id, err)
@@ -224,28 +245,53 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 	waited := s.API.ContainerWait(runCtx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-	select {
-	case done := <-waited.Result:
-		res.ExitCode = int(done.StatusCode)
-		if done.Error != nil && done.Error.Message != "" {
-			return res, fmt.Errorf("containerengine: waiting for container %s: %s", id, done.Error.Message)
+	// stream is nil once the output has ended.
+	stream := copied
+	for ended := false; !ended; {
+		select {
+		case err := <-stream:
+			if err != nil {
+				// The output could not be taken: the writer refused it
+				// (past its bound) or the stream broke. Nothing reads what
+				// the container writes now, so it would block writing until
+				// its timeout; it is stopped at once instead.
+				s.kill(id)
+				return res, fmt.Errorf("containerengine: container %s: reading its output: %w", id, err)
+			}
+			stream = nil
+		case done := <-waited.Result:
+			res.ExitCode = int(done.StatusCode)
+			if done.Error != nil && done.Error.Message != "" {
+				return res, fmt.Errorf("containerengine: waiting for container %s: %s", id, done.Error.Message)
+			}
+			ended = true
+		case err := <-waited.Error:
+			if runCtx.Err() == nil {
+				return res, fmt.Errorf("containerengine: waiting for container %s: %w", id, err)
+			}
+			s.kill(id)
+			if ctx.Err() != nil {
+				return res, fmt.Errorf("containerengine: container %s: %w", id, ctx.Err())
+			}
+			res.TimedOut = true
+			res.ExitCode = 137
+			ended = true
 		}
-	case err := <-waited.Error:
-		if runCtx.Err() == nil {
-			return res, fmt.Errorf("containerengine: waiting for container %s: %w", id, err)
-		}
-		s.kill(id)
-		if ctx.Err() != nil {
-			return res, fmt.Errorf("containerengine: container %s: %w", id, ctx.Err())
-		}
-		res.TimedOut = true
-		res.ExitCode = 137
 	}
-	// The stream ends when the container does; a container killed above
-	// ends it too, so this does not outlast the run.
+	if stream == nil {
+		return res, nil
+	}
+	// The stream ends when the container does, once the engine has passed
+	// on all it wrote (a container killed above ends it too). Past
+	// outputGrace it is cut, and the result says so, rather than RunOnce
+	// waiting on an engine that never ends it.
 	select {
-	case <-copied:
-	case <-time.After(removeGrace):
+	case err := <-stream:
+		if err != nil {
+			return res, fmt.Errorf("containerengine: container %s: reading its output: %w", id, err)
+		}
+	case <-time.After(outputGrace):
+		res.OutputCut = true
 	}
 	return res, nil
 }

@@ -184,13 +184,16 @@ type scannerRun struct {
 // errReportTooLarge is a report past maxReportBytes.
 var errReportTooLarge = errors.New("the scanner's report is larger than this reads")
 
-// capped is a buffer that refuses to grow past max.
+// capped is a buffer that refuses to grow past max. RunOnce writes to it
+// only before it returns, so it needs no lock.
 type capped struct {
 	buf      bytes.Buffer
 	max      int
 	overflow bool
 }
 
+// Write keeps p, or refuses it past max, marking the overflow; RunOnce
+// then stops the scanner rather than leave it blocked writing.
 func (c *capped) Write(p []byte) (int, error) {
 	if c.buf.Len()+len(p) > c.max {
 		c.overflow = true
@@ -234,6 +237,10 @@ func run(ctx context.Context, engine *containerengine.Session, o runOptions) (sc
 	}
 	if res.TimedOut {
 		return scannerRun{}, fmt.Errorf("the scanner ran past its %s timeout and was stopped", o.timeout)
+	}
+	// A report cut short is never read as if it were whole.
+	if res.OutputCut {
+		return scannerRun{}, errors.New("the scanner's report was still arriving well after the scanner ended, and was cut short")
 	}
 	return scannerRun{exitCode: res.ExitCode, report: report.buf.Bytes(), errors: errs}, nil
 }
