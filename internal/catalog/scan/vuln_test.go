@@ -259,3 +259,19 @@ func TestVuln_TheTreeCannotHideFromTheScan(t *testing.T) {
 		t.Errorf("with respect_gitignore = %v", err)
 	}
 }
+
+// TestVuln_ALockfileTheScannerCouldNotReadFails: OSV-Scanner skips a
+// lockfile it cannot read with only a line on its standard error, and the
+// task fails naming it, though the readable lockfile beside it is clean.
+func TestVuln_ALockfileTheScannerCouldNotReadFails(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, map[string]string{
+		"app/package.json":         `{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}}`,
+		"app/package-lock.json":    `{"name":"app","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}},"node_modules/is-number":{"version":"7.0.0"}}}`,
+		"broken/package-lock.json": `{"name":"broken","lockfileVersion":3,"packages":{`,
+	})
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "broken/package-lock.json") {
+		t.Fatalf("a lockfile the scanner could not read = %v", err)
+	}
+}

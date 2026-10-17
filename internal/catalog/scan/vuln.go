@@ -239,7 +239,8 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if offline == "" {
 		network = defaultNetwork(engine)
 	}
-	ran, err := run(ctx, engine, runOptions{image: osvScannerImage, cmd: cmd, mounts: mounts, env: env, network: network, timeout: timeout, pull: pull, check: mode == collection.ModeCheck})
+	watch := &skipWatch{skips: osvSkip}
+	ran, err := run(ctx, engine, runOptions{image: osvScannerImage, cmd: cmd, mounts: mounts, env: env, network: network, timeout: timeout, pull: pull, watch: watch, check: mode == collection.ModeCheck})
 	if err != nil {
 		return fail(err)
 	}
@@ -248,6 +249,13 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	var warnings []string
 	var findings []osvreport.Finding
+	// A lockfile OSV-Scanner could not read it left out, and a
+	// vulnerability there is as shipped as one anywhere else.
+	if ran.exitCode == 0 || ran.exitCode == osvFound || ran.exitCode == osvNoPackages {
+		if n, paths := watch.skipped(func(p string) string { return sourceOnDevice(t, byContainer, p) }); n > 0 {
+			return fail(fmt.Errorf("%s could not read %d file(s) and left them out, so they were not scanned%s", scannerLabel("OSV-Scanner", osvScannerImage), n, listedOf(paths, n)))
+		}
+	}
 	switch ran.exitCode {
 	case 0, osvFound:
 		if findings, err = osvreport.Parse(ran.report); err != nil {

@@ -127,7 +127,7 @@ func secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, err
 	}
-	watch := &skipWatch{}
+	watch := &skipWatch{skips: gitleaksSkip}
 	ran, err := run(ctx, engine, runOptions{
 		image: gitleaksImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull, watch: watch, check: mode == collection.ModeCheck,
 		// --redact keeps a value out of the report in the first place;
@@ -174,7 +174,7 @@ func secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	var problems []string
 	// What Gitleaks could not read it did not scan, and a credential there
 	// is as shipped as one anywhere else.
-	if n, paths := watch.skipped(t); n > 0 {
+	if n, paths := watch.skipped(t.onDevice); n > 0 {
 		problems = append(problems, fmt.Sprintf("Gitleaks could not read %d path(s) in %s and skipped them, so they were not scanned; make each readable to the engine's containers (an SELinux label or a rootless engine's user mapping can refuse one)%s", n, t.path, listedOf(paths, n)))
 	}
 	if len(failing) > 0 {
