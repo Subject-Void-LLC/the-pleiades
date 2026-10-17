@@ -109,3 +109,95 @@ func lifecycleDoc(fqcn string) collection.Doc {
 		SeeAlso:   []string{"container.stop", "container.recreate"},
 	}
 }
+
+// readDoc is info's, list's or logs' documentation.
+func readDoc(fqcn string) collection.Doc {
+	switch fqcn {
+	case "container.info":
+		return collection.Doc{
+			Summary:     "Reports one container as the engine sees it.",
+			Description: "Reports the container named name: whether it exists, and if so its ID, state, image, command, labels, network, restart policy, privilege, mounts, last exit code and start time, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as not existing, not as a failure. It changes nothing, so a check is the same read." + reachNote,
+			Params:      []collection.Param{nameParam, hostKeyParam},
+			Fragments:   []string{"container_engine"},
+			Returns: []collection.ReturnField{
+				{Name: statExists, Type: "bool", Returned: "always", Description: "Whether a container by that name exists."},
+				{Name: statID, Type: "string", Returned: "when it exists", Description: "The container's ID."},
+				{Name: statState, Type: "string", Returned: "when it exists", Description: "Its state as the engine names it."},
+				{Name: statEnv, Type: "list of string", Returned: "when it exists", Description: "Its environment variables, by name only."},
+			},
+			Examples: []collection.Example{{Name: "Is the web server running?", RunbookYAML: "- name: Web state\n  container.info:\n    name: web\n  register: web\n"}},
+			SeeAlso:  []string{"container.list", "container.logs"},
+		}
+	case "container.list":
+		return collection.Doc{
+			Summary:     "Lists the engine's containers.",
+			Description: "Lists the engine's running containers, or every container with all, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read." + reachNote,
+			Params: []collection.Param{
+				{Name: paramAll, Type: "bool", Default: "false", Description: "List stopped containers too."},
+				{Name: paramMatch, Type: "string", Description: "Only containers whose name matches this glob (web-*)."},
+				hostKeyParam,
+			},
+			Fragments: []string{"container_engine"},
+			Returns:   []collection.ReturnField{{Name: statContainers, Type: "list of dict", Returned: "always", Description: "The containers, each with name, id, state, image_id, image and labels."}},
+			Examples:  []collection.Example{{Name: "Every web container, stopped ones too", RunbookYAML: "- name: Web containers\n  container.list:\n    all: true\n    match: web-*\n  register: webs\n"}},
+			SeeAlso:   []string{"container.info"},
+		}
+	}
+	return collection.Doc{
+		Summary:     "Returns a container's last lines of output.",
+		Description: "Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. It changes nothing, so a check is the same read." + reachNote,
+		Params: []collection.Param{
+			nameParam,
+			{Name: paramTail, Type: "int", Default: "100", Description: "How many of the last lines to return, from 1 to 10000."},
+			{Name: paramSince, Type: "string", Description: "Only lines since this RFC 3339 timestamp, Unix time, or duration (10m)."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_engine"},
+		Returns: []collection.ReturnField{
+			nameReturn, idReturn,
+			{Name: statStdout, Type: "string", Returned: "always", Description: "What it wrote to standard output."},
+			{Name: statStderr, Type: "string", Returned: "always", Description: "What it wrote to standard error."},
+		},
+		Examples: []collection.Example{{Name: "Why did the job fail?", RunbookYAML: "- name: Job output\n  container.logs:\n    name: backup\n    tail: 50\n  register: out\n"}},
+		SeeAlso:  []string{"container.info", "container.exec"},
+	}
+}
+
+func execDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Runs one command inside a running container.",
+		Description: "Runs cmd inside the running container named name, through the container's own /bin/sh -c, on whichever engine the device runs, and reports its real exit code, stdout and stderr (together at most 1 MiB, refused past it). A non-zero exit is an error, after the output is recorded, the line exec.command draws. The container must be running. It cannot be checked: what a command changes is known only once it has run." + reachNote,
+		Params: []collection.Param{
+			nameParam,
+			{Name: paramCmd, Type: "string", Required: true, Description: "The command line, run inside the container's /bin/sh -c.", Format: collection.ParamFormatCommand},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_engine"},
+		Returns: []collection.ReturnField{
+			nameReturn,
+			{Name: statExitCode, Type: "int", Returned: "always", Description: "The command's real exit status."},
+			{Name: statStdout, Type: "string", Returned: "always", Description: "What it wrote to standard output."},
+			{Name: statStderr, Type: "string", Returned: "always", Description: "What it wrote to standard error."},
+		},
+		Examples: []collection.Example{{Name: "Read the app's version inside its container", RunbookYAML: "- name: App version\n  container.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"}},
+		SeeAlso:  []string{"container.logs", "exec.command"},
+	}
+}
+
+func recreateDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Replaces a container with its declaration.",
+		Description: "Makes the container named name match its declaration by replacing it: an absent one is created and started; one that matches is left alone (started if stopped) unless force is set; one that differs, or any one with force, is removed (forced) and created again from the declaration, then started. The differences found are returned. The old container's writable layer and anonymous volumes are gone, so a recreate has no undo. With id, a container that no longer has that ID is refused. A check reads, resolves and compares, and removes, pulls and creates nothing." + reachNote,
+		Params: []collection.Param{
+			idParam,
+			{Name: paramForce, Type: "bool", Default: "false", Description: "Replace the container even when it matches the declaration."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_spec", "container_engine"},
+		Returns: append([]collection.ReturnField{nameReturn, idReturn, stateReturn,
+			{Name: "differences", Type: "list of string", Returned: "when the container existed", Description: "How the old container differed from the declaration, environment values never named."},
+		}, imageReturns...),
+		Examples: []collection.Example{{Name: "Roll the web server onto a new image", RunbookYAML: "- name: Web on 1.28\n  container.recreate:\n    name: web\n    image: nginx:1.28\n    network: appnet\n    ports: [\"127.0.0.1:8080:80\"]\n"}},
+		SeeAlso:  []string{"container.run", "container.remove"},
+	}
+}

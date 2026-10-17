@@ -109,7 +109,7 @@ func converge(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 
 	if exists {
-		return existing(ctx, rc, s, spec, live, img, mode, start)
+		return existing(ctx, rc, s, spec, live, img, mode, start, true)
 	}
 	if mode == collection.ModeCheck {
 		state := "created"
@@ -118,13 +118,13 @@ func converge(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		}
 		return collection.Result{Changed: true}, recordStats(rc, map[string]any{statState: state})
 	}
-	return createNew(ctx, rc, s, spec, start)
+	return createNew(ctx, rc, s, spec, start, true)
 }
 
 // existing settles a container that is already there: one that differs is
-// refused, a stopped one is started when start is set, and anything else
-// is left as it is.
-func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, live moby.InspectResponse, img containerengine.PresentImage, mode collection.Mode, start bool) (collection.Result, error) {
+// refused, a stopped one is started when start is set (recording stopping
+// it as the undo when record is set), and anything else is left as it is.
+func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, live moby.InspectResponse, img containerengine.PresentImage, mode collection.Mode, start, record bool) (collection.Result, error) {
 	if err := recordStats(rc, map[string]any{statID: live.ID, statState: stateOf(live)}); err != nil {
 		return collection.Result{}, err
 	}
@@ -156,21 +156,24 @@ func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Ses
 	if _, err := s.API.ContainerStart(ctx, live.ID, client.ContainerStartOptions{}); err != nil {
 		return collection.Result{}, fmt.Errorf("starting container %s: %w", spec.Name, err)
 	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "container.stop",
-		Params:      map[string]any{paramName: spec.Name, paramID: live.ID},
-		Description: "Stop the container this task started.",
-	}); err != nil {
-		return collection.Result{}, err
+	if record {
+		if err := sdk.RecordInverse(rc, sdk.Inverse{
+			FQCN:        "container.stop",
+			Params:      map[string]any{paramName: spec.Name, paramID: live.ID},
+			Description: "Stop the container this task started.",
+		}); err != nil {
+			return collection.Result{}, err
+		}
 	}
 	return collection.Result{Changed: true}, rc.SetStat(statState, "running")
 }
 
-// createNew creates the container, and starts it when start is set. A
+// createNew creates the container, and starts it when start is set,
+// recording its removal as the undo when record is set. A
 // create whose answer was lost is found by name rather than sent twice; a
 // start that fails removes what the create made, since the engine drops a
 // failed task's undo (FAILURE_PATTERNS 452).
-func createNew(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, start bool) (collection.Result, error) {
+func createNew(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, start, record bool) (collection.Result, error) {
 	cfg, host, net, err := spec.Create()
 	if err != nil {
 		return collection.Result{}, err
@@ -194,12 +197,14 @@ func createNew(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 		}
 		state = "running"
 	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "container.remove",
-		Params:      map[string]any{paramName: spec.Name, paramID: created.ID, paramForce: true},
-		Description: "Remove the container this task created.",
-	}); err != nil {
-		return collection.Result{}, err
+	if record {
+		if err := sdk.RecordInverse(rc, sdk.Inverse{
+			FQCN:        "container.remove",
+			Params:      map[string]any{paramName: spec.Name, paramID: created.ID, paramForce: true},
+			Description: "Remove the container this task created.",
+		}); err != nil {
+			return collection.Result{}, err
+		}
 	}
 	return collection.Result{Changed: true}, recordStats(rc, map[string]any{statID: created.ID, statState: state})
 }
