@@ -59,10 +59,14 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// and rowcounts. Phase 119e retired the four container.docker.*
 	// methods (115 less 4) into fourteen container.* ones built on the
 	// engine's API (125): run, create, start, stop, restart, remove,
-	// recreate, exec, info, list, logs, prune, copy_in and copy_out.
+	// recreate, exec, info, list, logs, prune, copy_in and copy_out. The
+	// container network, volume and engine methods added the 126th
+	// through 134th: container.network.create, remove, connect,
+	// disconnect and info, container.volume.create, remove and info, and
+	// container.engine.info.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 125
+	const wantCollections = 134
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

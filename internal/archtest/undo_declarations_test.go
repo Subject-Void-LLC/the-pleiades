@@ -19,6 +19,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -90,8 +91,12 @@ func TestEveryUndoDeclarationNamesARealMethodAndItsParams(t *testing.T) {
 // TestEveryGenericDispatcherDeclaresItsManagersUndos: pkg.install runs
 // pkg.apt.install or pkg.dnf.install, whose undo it then emits, so its
 // own declaration (which the journal reads, since the task's method is
-// pkg.install) must cover every one of theirs. Found by naming: a method
-// X.verb and its concrete siblings X.<manager>.verb.
+// pkg.install) must cover every one of theirs. Found by naming, a method
+// X.verb and its siblings X.<y>.verb, and held to what makes a sibling a
+// manager: it requires a capability narrower than one the generic
+// requires (AptCapable under PackageManagerCapable). container.create
+// and container.network.create share a name shape and a capability, and
+// one never runs the other.
 func TestEveryGenericDispatcherDeclaresItsManagersUndos(t *testing.T) {
 	methods := builtinMethods(t)
 	byName := map[string]collection.Descriptor{}
@@ -106,7 +111,7 @@ func TestEveryGenericDispatcherDeclaresItsManagersUndos(t *testing.T) {
 		}
 		for name, concrete := range byName {
 			parts := strings.Split(name, ".")
-			if len(parts) != 3 || parts[0] != namespace || parts[2] != verb {
+			if len(parts) != 3 || parts[0] != namespace || parts[2] != verb || !narrows(generic.Manifest, concrete.Manifest) {
 				continue
 			}
 			generics++
@@ -120,6 +125,24 @@ func TestEveryGenericDispatcherDeclaresItsManagersUndos(t *testing.T) {
 	if generics == 0 {
 		t.Fatal("no generic dispatcher was examined")
 	}
+	t.Logf("%d generic-to-manager pair(s) examined", generics)
+}
+
+// narrows reports whether concrete requires a capability strictly beneath
+// one generic requires: the relation of a manager's method to the generic
+// method that resolves the manager and dispatches to it.
+func narrows(generic, concrete collection.Manifest) bool {
+	for _, c := range concrete.RequiredCapabilities {
+		if slices.Contains(generic.RequiredCapabilities, c) {
+			continue
+		}
+		for _, g := range generic.RequiredCapabilities {
+			if capability.Resolves(map[capability.Name]struct{}{c: {}}, g) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // declaresSpec reports whether specs holds want's target with exactly its
