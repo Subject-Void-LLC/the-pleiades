@@ -191,6 +191,18 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 // renders every fragment's params ahead of the method's own, so a shared
 // parameter (a credential shape, a pagination knob) always appears first
 // and identically worded everywhere it is used.
+// riskNote is the lead a parameter's description gets in the reference
+// when setting it reaches beyond the task's own target.
+func riskNote(r collection.ParamRisk) string {
+	switch r {
+	case "":
+		return ""
+	case collection.ParamRiskHostEscape:
+		return "**Host escape:** setting this lets the container act on its host. "
+	}
+	return "**Risk (" + string(r) + "):** "
+}
+
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
@@ -206,7 +218,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), p.Description}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + p.Description}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

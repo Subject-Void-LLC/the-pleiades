@@ -29,17 +29,17 @@ Makes the container named name exist from image as the task declares it, without
 | `command` | `list` | no | - | The command, as a list of arguments, replacing the image's. Never run through a shell unless the list names one ([/bin/sh, -c, "..."]). |
 | `entrypoint` | `list` | no | - | The entrypoint, as a list of arguments, replacing the image's. |
 | `env` | `dict` | no | - | Environment variables by name. Values are never reported (results, diffs and errors name the variable only), since one may come from a credential; anyone with access to the engine can still read them by inspecting the container. |
-| `network` | `string` | no | `none` | The network the container joins: none (the default: no network at all), bridge, host, or a network's name. Reaching a network is always a declared decision. |
+| `network` | `string` | no | `none` | **Host escape:** setting this lets the container act on its host. The network the container joins: none (the default: no network at all), bridge, host, or a network's name. Reaching a network is always a declared decision, and host shares the host's own network stack, its loopback services included. |
 | `ports` | `list` | no | - | Published ports, [host_ip:]host_port:container_port[/tcp\|udp\|sctp]. Refused on network none or host, where nothing is published. |
-| `volumes` | `list` | no | - | Mounts, source:target[:ro\|rw]: a source beginning with / is a host path (absolute and clean, never the engine's own socket), anything else a named volume. Read-only unless the mount says rw. |
+| `volumes` | `list` | no | - | **Host escape:** setting this lets the container act on its host. Mounts, source:target[:ro\|rw]: a source beginning with / is a host path (absolute and clean, never the engine's own socket), anything else a named volume. Read-only unless the mount says rw. |
 | `restart_policy` | `string` | no | `no` | The engine's restart policy for the container. |
 | `labels` | `dict` | no | - | Labels on the container. org.pleiades.image, which records the image the task named, is this platform's own. |
 | `workdir` | `string` | no | - | The process's working directory, an absolute path inside the container. |
 | `user` | `string` | no | - | The user, or user:group, the process runs as. |
 | `read_only` | `bool` | no | `false` | Give the container a read-only root filesystem. |
-| `privileged` | `bool` | no | `false` | Run the container privileged: every capability and every device of the host, which is root on the host for whoever controls the container. |
-| `cap_add` | `list` | no | - | Kernel capabilities to add, by name (NET_ADMIN, SYS_TIME). |
-| `devices` | `list` | no | - | Host devices to give the container, /dev/path[:/dev/path-inside]. |
+| `privileged` | `bool` | no | `false` | **Host escape:** setting this lets the container act on its host. Run the container privileged: every capability and every device of the host, which is root on the host for whoever controls the container. |
+| `cap_add` | `list` | no | - | **Host escape:** setting this lets the container act on its host. Kernel capabilities to add, by name (NET_ADMIN, SYS_TIME). |
+| `devices` | `list` | no | - | **Host escape:** setting this lets the container act on its host. Host devices to give the container, /dev/path[:/dev/path-inside]. |
 | `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 

@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +156,31 @@ func TestGenerateModules_RemovesStalePages(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(out, "modules", "container", "run.md")); err != nil {
 		t.Errorf("a registered method's page was not written: %v", err)
+	}
+}
+
+// TestGenerateModules_MarksHostEscapes: a parameter declaring a risk is
+// marked on its method's page, and one declaring none is not.
+func TestGenerateModules_MarksHostEscapes(t *testing.T) {
+	out := t.TempDir()
+	if err := generateModules(out); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(filepath.Join(out, "modules", "container", "run.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(page), "\n") {
+		marked := strings.Contains(line, "**Host escape:**")
+		switch {
+		case strings.HasPrefix(line, "| `privileged` |"), strings.HasPrefix(line, "| `devices` |"):
+			if !marked {
+				t.Errorf("a host escape is not marked: %s", line)
+			}
+		case strings.HasPrefix(line, "| `image` |"):
+			if marked {
+				t.Errorf("a parameter with no risk is marked: %s", line)
+			}
+		}
 	}
 }

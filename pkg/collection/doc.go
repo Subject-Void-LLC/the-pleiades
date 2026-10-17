@@ -20,9 +20,10 @@ type Param struct {
 
 	// Risk marks a parameter whose setting widens what a task can do
 	// beyond its own target: a container's host escapes (privileged, added
-	// capabilities, devices, host mounts). Empty for every other
-	// parameter. Validation and risk classes read it, so a runbook that
-	// sets one is named where it is reviewed.
+	// capabilities, devices, host mounts, the host's network). Empty for
+	// every other parameter. The generated reference marks the parameter
+	// with it, so whoever reads a method's page before using it sees which
+	// settings reach the host; nothing at run time reads it.
 	Risk ParamRisk `json:"risk,omitempty"`
 }
 
