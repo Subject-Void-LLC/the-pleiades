@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,9 +23,19 @@ import (
 
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+)
+
+// The scanner images, named here as well as in the scan package so CI's
+// image list (tools/testimages, which reads literals) caches them for this
+// package's shard; the gate refuses to run when the two disagree.
+const (
+	gateOSVScannerImage = "ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa"
+	gateSyftImage       = "anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02"
+	gateGitleaksImage   = "zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
 )
 
 // TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork is the release gate.
@@ -34,6 +45,21 @@ func TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork(t *testing.T) {
 	}
 	info, err := exec.Command("docker", "info", "--format", "{{.ID}}").Output()
 	testsupport.Require(t, "docker", err == nil && len(strings.TrimSpace(string(info))) > 0, "the scanners run on this machine's Docker engine")
+	// A check pulls nothing, so the check below covers its tasks only with
+	// the scanners already on the engine: that is this gate's precondition,
+	// made here rather than left to whatever this machine last pulled.
+	gate := []string{gateOSVScannerImage, gateSyftImage, gateGitleaksImage}
+	if !slices.Equal(gate, scan.ScannerImages()) {
+		t.Fatalf("the gate names %v and the scan methods run %v; update the gate's constants", gate, scan.ScannerImages())
+	}
+	for _, image := range gate {
+		if exec.Command("docker", "image", "inspect", image).Run() == nil { // #nosec G204 -- a pinned image constant
+			continue
+		}
+		if out, err := exec.Command("docker", "pull", "-q", image).CombinedOutput(); err != nil { // #nosec G204 -- same
+			t.Fatalf("pulling %s: %v\n%s", image, err, out)
+		}
+	}
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

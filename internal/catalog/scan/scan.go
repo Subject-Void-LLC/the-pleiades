@@ -37,6 +37,10 @@ var (
 	gitleaksImage   = "zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
 )
 
+// ScannerImages are the pinned images the scan methods run, for a test that
+// must have them on its engine before a check, which pulls nothing.
+func ScannerImages() []string { return []string{osvScannerImage, syftImage, gitleaksImage} }
+
 // The methods' names.
 const (
 	fqcnVuln    = "scan.vuln"
