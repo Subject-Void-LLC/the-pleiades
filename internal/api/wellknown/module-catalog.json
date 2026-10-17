@@ -6651,7 +6651,7 @@
           "name": "respect_gitignore",
           "type": "bool",
           "default": "false",
-          "description": "Let the .gitignore files in dir narrow the scan, as git sees the tree. By default they do not: the runbook decides what is scanned, never the tree, so node_modules and vendor directories are scanned even when a .gitignore lists them, being what ships. Only with dir."
+          "description": "Let the .gitignore files in dir narrow the scan, as git sees the tree. By default they do not: the runbook decides what is scanned, never the tree, so a directory a .gitignore lists (a vendored tree, a build output) is scanned all the same. OSV-Scanner itself never reads lockfiles inside node_modules either way, since the root lockfile already lists what npm installed there. Only with dir."
         },
         {
           "name": "allow_empty",

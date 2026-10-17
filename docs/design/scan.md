@@ -79,8 +79,9 @@ writing, rather than the run itself.
   since the scanner, as its container's root, may read what the search could not.
 - **The runbook decides what is scanned, never the tree.** OSV-Scanner leaves out whatever a `.gitignore` in the
   tree lists, even with no repository around it (measured), so a tree could hide a lockfile from its own scan.
-  `scan.vuln` passes `--no-ignore`, so node_modules and vendor directories are scanned even when a `.gitignore`
-  lists them: they are what ships. `respect_gitignore` asks for git's view of a directory instead.
+  `scan.vuln` passes `--no-ignore`, so a directory a `.gitignore` lists (a vendored tree, a build output) is
+  scanned all the same (measured: hidden without it, found with it). `respect_gitignore` asks for git's view of a
+  directory instead.
 - **A scan that saw nothing fails.** A wrong path and files the scanner could not read look like a clean tree, so
   OSV-Scanner finding no package to check fails `scan.vuln`, naming what was scanned, and an SBOM holding no
   component but its subject fails `scan.sbom` (it meets every NTIA element and says nothing), each unless
@@ -142,6 +143,10 @@ untrusted input and each fuzzed.
 ## Limits
 
 Known, recorded, and not fixed here:
+
+- OSV-Scanner never reads a lockfile inside `node_modules`, with or without `--no-ignore` (measured with 2.6.0):
+  npm's root lockfile already lists what is installed there, so a lockfile placed inside `node_modules` is not
+  scanned on its own.
 
 - Gitleaks does not look inside an archive in the tree (`--max-archive-depth` defaults to 0), so a credential in a
   zip or tarball there is not found (measured).

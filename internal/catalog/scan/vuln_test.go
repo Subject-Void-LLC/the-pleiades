@@ -233,18 +233,19 @@ func TestVuln_AScannerErrorNamesTheScannerAndItsVersion(t *testing.T) {
 
 // TestVuln_TheTreeCannotHideFromTheScan: a .gitignore in the scanned
 // tree, which OSV-Scanner honors unless told not to, does not hide the
-// lockfile under node_modules it lists, so the vulnerability there fails
-// the task; with respect_gitignore the runbook asks for git's view, and
-// the listed directory is left out.
+// lockfile under the vendored directory it lists, so the vulnerability
+// there fails the task; with respect_gitignore the runbook asks for git's
+// view, and the listed directory is left out. (Not node_modules, which
+// OSV-Scanner never reads lockfiles inside, gitignored or not.)
 func TestVuln_TheTreeCannotHideFromTheScan(t *testing.T) {
 	h := newHarness(t)
 	files := map[string]string{
-		".gitignore":            "node_modules/\n",
+		".gitignore":            "vendored/\n",
 		"app/package.json":      `{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}}`,
 		"app/package-lock.json": `{"name":"app","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}},"node_modules/is-number":{"version":"7.0.0"}}}`,
 	}
 	for name, body := range npmProject {
-		files["node_modules/dep/"+name] = body
+		files["vendored/dep/"+name] = body
 	}
 	project := writeFiles(t, files)
 	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
@@ -252,7 +253,7 @@ func TestVuln_TheTreeCannotHideFromTheScan(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GHSA-crit") {
 		t.Fatalf("a vulnerable lockfile the tree's .gitignore lists = %v", err)
 	}
-	if source := stats["findings"].([]any)[0].(map[string]any)["source"]; source != filepath.Join(project, "node_modules", "dep", "package-lock.json") {
+	if source := stats["findings"].([]any)[0].(map[string]any)["source"]; source != filepath.Join(project, "vendored", "dep", "package-lock.json") {
 		t.Errorf("the finding is in %v", source)
 	}
 	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "respect_gitignore": true}); err != nil {
