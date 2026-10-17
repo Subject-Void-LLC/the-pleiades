@@ -40,6 +40,13 @@ func TestSBOM_WritesAValidatedSBOMIntoANewDirectory(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "sbom.spdx.json: OK") {
 		t.Fatalf("sha256sum -c: %v\n%s", err, out)
 	}
+	// Reports meant to be read: the directory and both files are
+	// readable by anyone who may read where they were written.
+	for name, want := range map[string]os.FileMode{"": 0o755, "sbom.spdx.json": 0o644, "SHA256SUMS": 0o644} {
+		if info, err := os.Stat(filepath.Join(dest, name)); err != nil || info.Mode().Perm() != want {
+			t.Errorf("%s: mode %v, %v; want %v", filepath.Join(dest, name), info.Mode().Perm(), err, want)
+		}
+	}
 	data, err := os.ReadFile(filepath.Join(dest, "sbom.spdx.json")) // #nosec G304 -- this test's own directory
 	if err != nil {
 		t.Fatal(err)

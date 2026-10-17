@@ -88,7 +88,8 @@ writing, rather than the run itself.
   task's `supplier`. Generators rarely know a dependency's supplier (Syft writes NOASSERTION), so a dependency
   without one is counted and warned about, and fails the task only with `strict_suppliers`; failing every real
   SBOM by default would teach operators to ignore the check.
-- **`SHA256SUMS` in `sha256sum` format**, one line for the SBOM, so `sha256sum -c` verifies it on any host.
+- **`SHA256SUMS` in `sha256sum` format**, one line for the SBOM, so `sha256sum -c` verifies it on any host. Both
+  files are mode 0644 in a 0755 directory: they are reports meant to be read.
 - **The subject's supplier is set here, not by Syft.** Syft's `--source-supplier` was measured stamping the
   supplier on every package, claiming the operator supplied every dependency (and doubling the
   `Organization: ` prefix). `pkg/sbomcheck` records it on the described subject alone and adds this platform to

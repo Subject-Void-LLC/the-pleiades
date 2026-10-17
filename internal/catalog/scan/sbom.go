@@ -253,8 +253,19 @@ func writeSBOM(ctx context.Context, ssh *remoteexec.Conn, dest string, sbom []by
 	if err := remotefile.Write(ctx, ssh, sbomPath, sbom); err != nil {
 		return undo(err)
 	}
-	if err := remotefile.Write(ctx, ssh, path.Join(dest, sumsFile), []byte(digest+"  "+sbomFile+"\n")); err != nil {
+	sumsPath := path.Join(dest, sumsFile)
+	if err := remotefile.Write(ctx, ssh, sumsPath, []byte(digest+"  "+sbomFile+"\n")); err != nil {
 		return undo(err)
+	}
+	// Write leaves each file mktemp's 0600; these are reports meant to be
+	// read, as the directory holding them is. Both paths are absolute, so
+	// neither reads as an option.
+	res, err = ssh.Run(ctx, "chmod 0644 "+remoteexec.QuoteArg(sbomPath)+" "+remoteexec.QuoteArg(sumsPath))
+	if err != nil {
+		return undo(err)
+	}
+	if res.ExitCode != 0 {
+		return undo(fmt.Errorf("making the SBOM readable: %s", remoteexec.Excerpt(strings.TrimSpace(res.Stderr), 256)))
 	}
 	onDevice, _, err := remotefile.Checksum(ctx, ssh, sbomPath)
 	if err != nil {
