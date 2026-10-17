@@ -23,11 +23,12 @@ Runs OSV-Scanner over an image archive (docker save), a directory (recursively, 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `dir` | `string` | no | - | A directory on the device to scan, recursively. One of dir, image_archive and lockfiles. |
+| `dir` | `string` | no | - | A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). One of dir, image_archive and lockfiles. |
 | `image_archive` | `string` | no | - | An image archive on the device, as docker save or podman save writes one. |
 | `lockfiles` | `list of string` | no | - | Lockfiles on the device to scan, each recognized by its name (package-lock.json, Cargo.lock, go.mod, requirements.txt and the rest OSV-Scanner reads). |
 | `fail_on` | `string` | no | `high` | The least severity that fails the task: critical, high, medium, low, or any (every finding, scored or not). |
 | `fixable_only` | `bool` | no | `false` | Fail only on vulnerabilities a fixed version exists for; the rest are still reported. |
+| `respect_gitignore` | `bool` | no | `false` | Let the .gitignore files in dir narrow the scan, as git sees the tree. By default they do not: the runbook decides what is scanned, never the tree, so node_modules and vendor directories are scanned even when a .gitignore lists them, being what ships. Only with dir. |
 | `allow_empty` | `bool` | no | `false` | Pass, with a warning, when OSV-Scanner finds no package to check. Without it that fails the task, since a scan that saw nothing (a wrong path, or files the scanner could not read) is no evidence of no vulnerability. |
 | `offline_db` | `string` | no | - | A directory on the device holding OSV-Scanner's local databases (osv-scalibr/<ecosystem>/all.zip, as osv-scanner --download-offline-databases writes them); the scan then joins no network, and refuses an ecosystem it has no database for. |
 | `ignore` | `string` | no | - | An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD, in UTC) no more than 366 days after the day of the run, since an end years away is no end. An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land. |

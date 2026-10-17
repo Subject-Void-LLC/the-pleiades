@@ -77,6 +77,10 @@ writing, rather than the run itself.
   Gitleaks runs with `--ignore-gitleaks-allow`, and OSV-Scanner with `--config /dev/null`, so none is read even
   where the search could not see it (inside an image archive). A tree the search cannot read whole is refused,
   since the scanner, as its container's root, may read what the search could not.
+- **The runbook decides what is scanned, never the tree.** OSV-Scanner leaves out whatever a `.gitignore` in the
+  tree lists, even with no repository around it (measured), so a tree could hide a lockfile from its own scan.
+  `scan.vuln` passes `--no-ignore`, so node_modules and vendor directories are scanned even when a `.gitignore`
+  lists them: they are what ships. `respect_gitignore` asks for git's view of a directory instead.
 - **A scan that saw nothing fails.** A wrong path and files the scanner could not read look like a clean tree, so
   OSV-Scanner finding no package to check fails `scan.vuln`, naming what was scanned, and an SBOM holding no
   component but its subject fails `scan.sbom` (it meets every NTIA element and says nothing), each unless

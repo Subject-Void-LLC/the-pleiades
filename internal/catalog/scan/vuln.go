@@ -23,6 +23,7 @@ const (
 	paramOfflineDB   = "offline_db"
 	paramFailOn      = "fail_on"
 	paramFixableOnly = "fixable_only"
+	paramGitignore   = "respect_gitignore"
 
 	statFindings = "findings"
 	statFailing  = "failing"
@@ -151,6 +152,13 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return fail(err)
 	}
+	gitignore, err := sdk.BoolParamOr(params, paramGitignore, false)
+	if err != nil {
+		return fail(err)
+	}
+	if gitignore && !t.dir {
+		return fail(fmt.Errorf("%s narrows a %s scan by the tree's .gitignore files; an image archive or lockfiles have none", paramGitignore, paramDir))
+	}
 
 	ssh, err := sdk.Connect(ctx, rc, device, params, fqcnVuln)
 	if err != nil {
@@ -187,6 +195,13 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		}
 		mounts = append(mounts, t.mount())
 		cmd = append(cmd, "-r", t.inContainer())
+		// The runbook decides what is scanned, never the tree: OSV-Scanner
+		// leaves out what a .gitignore lists (node_modules and vendor
+		// directories among the usual entries, which are what ships)
+		// unless told not to, even with no repository around it.
+		if !gitignore {
+			cmd = append(cmd, "--no-ignore")
+		}
 	default:
 		if err := t.check(ctx, ssh); err != nil {
 			return fail(err)

@@ -6623,7 +6623,7 @@
         {
           "name": "dir",
           "type": "string",
-          "description": "A directory on the device to scan, recursively. One of dir, image_archive and lockfiles."
+          "description": "A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). One of dir, image_archive and lockfiles."
         },
         {
           "name": "image_archive",
@@ -6646,6 +6646,12 @@
           "type": "bool",
           "default": "false",
           "description": "Fail only on vulnerabilities a fixed version exists for; the rest are still reported."
+        },
+        {
+          "name": "respect_gitignore",
+          "type": "bool",
+          "default": "false",
+          "description": "Let the .gitignore files in dir narrow the scan, as git sees the tree. By default they do not: the runbook decides what is scanned, never the tree, so node_modules and vendor directories are scanned even when a .gitignore lists them, being what ships. Only with dir."
         },
         {
           "name": "allow_empty",
