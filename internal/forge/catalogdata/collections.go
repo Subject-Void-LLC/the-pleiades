@@ -33,6 +33,7 @@ var Collections = concatCollections(
 	buildCollections,
 	dbCollections,
 	containerCollections,
+	containerImageCollections,
 	sessionCollections,
 	virtCollections,
 	winFileCollections,
