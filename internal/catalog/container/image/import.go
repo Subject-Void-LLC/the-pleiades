@@ -17,10 +17,10 @@ import (
 func init() {
 	register(fqcnImport, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
-		Notes:      "A run records pointing the tag back at the image it named before, or removing the imported image, by ID, when the tag was new.",
+		Notes:      "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial, since the imported image stays (container.image.prune removes it); one under a new tag records removing the imported image, by ID. An import that fails after reaching the engine puts the tag back or removes what it made, since a failed task records no undo.",
 		Inverses: []sdk.InverseSpec{
-			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget}},
-			{FQCN: fqcnRemove, Record: []string{paramImage, paramID}},
+			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget, paramID, containerengine.ParamEngine}, MayBePartial: true},
+			{FQCN: fqcnRemove, Record: []string{paramImage, paramID, containerengine.ParamEngine}},
 		},
 	}, importDoc()), importImage)
 }
@@ -77,18 +77,48 @@ func importImage(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	}
 	defer func() { _ = res.Close() }()
 	if _, err := containerengine.DrainProgress(res); err != nil {
-		return fail(fmt.Errorf("importing %s: %w", p, err))
+		return fail(fmt.Errorf("importing %s: %w; %s", p, err, restoreAfterImport(ctx, s, ref, prior.ID, had)))
 	}
 	img, exists, err := inspect(ctx, s, ref)
-	if err != nil || !exists {
-		return fail(fmt.Errorf("reading %s after importing it: %v", ref, err))
+	if err != nil {
+		return fail(fmt.Errorf("reading %s after importing it: %w; %s", ref, err, restoreAfterImport(ctx, s, ref, prior.ID, had)))
+	}
+	if !exists {
+		return fail(fmt.Errorf("the engine reported %s imported, and has no image by that name", ref))
 	}
 	if err := rc.SetStat(statImageID, img.ID); err != nil {
 		return collection.Result{}, err
 	}
 	inv := sdk.Inverse{FQCN: fqcnRemove, Params: map[string]any{paramImage: img.ID, paramID: img.ID}, Description: "Remove the image this task imported."}
 	if had {
-		inv = sdk.Inverse{FQCN: fqcnTag, Params: map[string]any{paramSource: prior.ID, paramTarget: ref}, Description: "Point the tag back at the image it named before this task."}
+		inv = sdk.Inverse{
+			FQCN: fqcnTag, Params: map[string]any{paramSource: prior.ID, paramTarget: ref, paramID: img.ID}, Partial: true,
+			Description: "Point the tag back at the image it named before this task; the image this task imported stays, untagged, for container.image.prune.",
+		}
 	}
-	return collection.Result{Changed: true}, sdk.RecordInverse(rc, inv)
+	return collection.Result{Changed: true}, containerengine.RecordUndo(rc, s, inv)
+}
+
+// restoreAfterImport undoes what an import that failed after reaching the
+// engine may have done, since a failed task's undo is dropped
+// (FAILURE_PATTERNS 452): a tag that named another image is pointed back,
+// and an image made under a name that was absent is removed. It says what
+// it did, for the error.
+func restoreAfterImport(ctx context.Context, s *containerengine.Session, ref, prior string, had bool) string {
+	cctx, cancel := containerengine.CleanupContext(ctx)
+	defer cancel()
+	if had {
+		if _, err := s.API.ImageTag(cctx, client.ImageTagOptions{Source: prior, Target: ref}); err != nil {
+			return fmt.Sprintf("pointing %s back at %s failed too: %v", ref, prior, err)
+		}
+		return fmt.Sprintf("%s was pointed back at %s", ref, prior)
+	}
+	img, exists, err := inspect(cctx, s, ref)
+	if err != nil || !exists {
+		return "no image was left under that name"
+	}
+	if _, err := s.API.ImageRemove(cctx, img.ID, client.ImageRemoveOptions{}); err != nil {
+		return fmt.Sprintf("removing the image it may have made failed too: %v", err)
+	}
+	return "the image it made was removed"
 }

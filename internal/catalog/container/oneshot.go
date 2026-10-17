@@ -125,7 +125,7 @@ func runToExit(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 	state := "removed"
 	if !shot.remove && accepted {
 		state = "exited"
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
+		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        "container.remove",
 			Params:      map[string]any{paramName: spec.Name, paramID: created.ID, paramForce: true},
 			Description: "Remove the container this task ran.",

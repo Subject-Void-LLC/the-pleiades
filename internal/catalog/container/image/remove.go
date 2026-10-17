@@ -4,9 +4,12 @@ package image
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/client"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -73,25 +76,39 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err := recordStats(rc, map[string]any{statImageID: img.ID, statUsedBy: users[img.ID]}); err != nil {
 		return collection.Result{}, err
 	}
-	if len(users[img.ID]) > 0 && !force {
+	// A tag of an image that keeps another name is only untagged, which no
+	// container notices: they run by the image's ID.
+	untagOnly := !isImageID(ref) && len(img.RepoTags) > 1
+	if len(users[img.ID]) > 0 && !force && !untagOnly {
 		return fail(fmt.Errorf("image %s is used by container %s; remove them first, or set %s", ref, strings.Join(users[img.ID], ", "), paramForce))
 	}
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, nil
 	}
-	// An image named by ID goes with every name it has, which the engine
-	// does only when forced; the check above already refused one in use.
-	res, err := s.API.ImageRemove(ctx, ref, client.ImageRemoveOptions{Force: force || isImageID(ref), PruneChildren: true})
-	if err != nil {
-		return fail(fmt.Errorf("removing %s: %w", ref, err))
+	// The engine removes an image named by ID with several names only when
+	// forced, and Podman's force also removes the containers using it, so
+	// without a task's force each name goes first and then the ID.
+	refs := []string{ref}
+	if isImageID(ref) && !force {
+		refs = append(slices.Clone(img.RepoTags), img.ID)
 	}
 	var removed []string
-	for _, item := range res.Items {
-		if item.Untagged != "" {
-			removed = append(removed, item.Untagged)
+	for _, r := range refs {
+		res, err := s.API.ImageRemove(ctx, r, client.ImageRemoveOptions{Force: force, PruneChildren: true})
+		if cerrdefs.IsNotFound(err) && r == img.ID && len(refs) > 1 {
+			// Its last name went, and took the image with it.
+			break
 		}
-		if item.Deleted != "" {
-			removed = append(removed, item.Deleted)
+		if err != nil {
+			return collection.Result{Changed: len(removed) > 0}, errors.Join(rc.SetStat(statRemoved, removed), fmt.Errorf("%s: removing %s: %w", fqcnRemove, r, err))
+		}
+		for _, item := range res.Items {
+			if item.Untagged != "" {
+				removed = append(removed, item.Untagged)
+			}
+			if item.Deleted != "" {
+				removed = append(removed, item.Deleted)
+			}
 		}
 	}
 	return collection.Result{Changed: true}, rc.SetStat(statRemoved, removed)

@@ -26,7 +26,7 @@ func init() {
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that created the volume records its removal, pinned to the moment the engine made it; one that found it as declared records nothing.",
-			Inverses:   []sdk.InverseSpec{{FQCN: fqcnRemove, Record: []string{paramName, paramCreatedAt}}},
+			Inverses:   []sdk.InverseSpec{{FQCN: fqcnRemove, Record: []string{paramName, paramCreatedAt, containerengine.ParamEngine}}},
 		}, createDoc()),
 		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
 			return create(ctx, rc, d, p, collection.ModeExecute)
@@ -129,7 +129,7 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if made.Volume.CreatedAt != "" {
 		undo[paramCreatedAt] = made.Volume.CreatedAt
 	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{FQCN: fqcnRemove, Params: undo, Description: "Remove the volume this task created."}); err != nil {
+	if err := containerengine.RecordUndo(rc, s, sdk.Inverse{FQCN: fqcnRemove, Params: undo, Description: "Remove the volume this task created."}); err != nil {
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: true}, recordStats(rc, map[string]any{statDriver: made.Volume.Driver, statCreatedAt: made.Volume.CreatedAt})

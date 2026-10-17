@@ -863,7 +863,8 @@
           "record": [
             "name",
             "id",
-            "force"
+            "force",
+            "engine"
           ]
         }
       ]
@@ -1204,20 +1205,24 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run records pointing the tag back at the image it named before, or removing the imported image, by ID, when the tag was new.",
+      "notes": "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial, since the imported image stays (container.image.prune removes it); one under a new tag records removing the imported image, by ID. An import that fails after reaching the engine puts the tag back or removes what it made, since a failed task records no undo.",
       "inverses": [
         {
           "fqcn": "container.image.tag",
           "record": [
             "source",
-            "tag"
-          ]
+            "tag",
+            "id",
+            "engine"
+          ],
+          "mayBePartial": true
         },
         {
           "fqcn": "container.image.remove",
           "record": [
             "image",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -1225,7 +1230,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Makes an image from a filesystem archive.",
-      "description": "Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, or removing the imported image when the tag was new. A check reads and hashes the archive, and imports nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, guarded by the image it names now, and partial, since the imported image stays for container.image.prune; or removing the imported image when the tag was new. An import that fails after reaching the engine puts the tag back, or removes what it made, since a failed task records no undo. A check reads and hashes the archive, and imports nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "path",
@@ -1544,28 +1549,32 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that pulled an absent image records its removal, by ID; one that only pointed the tag at the image records pointing it back, or removing the tag when it was new; one that found both as asked records nothing.",
+      "notes": "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial when the run also pulled, since the pulled image stays (container.image.prune removes it); one that pulled an absent image under a new tag records its removal, by ID; one that pointed a new tag at an image already there records removing the tag, unless it is the image's only name; one that found both as asked records nothing.",
       "inverses": [
         {
           "fqcn": "container.image.remove",
           "record": [
             "image",
-            "id"
+            "id",
+            "engine"
           ]
         },
         {
           "fqcn": "container.image.tag",
           "record": [
             "source",
-            "tag"
-          ]
+            "tag",
+            "id",
+            "engine"
+          ],
+          "mayBePartial": true
         }
       ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Pulls an image by digest and names it by its tag.",
-      "description": "Makes the image a reference names present on the engine. A tag is resolved through its registry to the digest it names now (a multi-platform image's index, so it means the same on every machine), the image is pulled by that digest when absent, and the tag is then pointed at it on the engine; an image named by digest is pulled as named. The registry credential bound for the image's registry is used when there is one. Present and tagged is no change. A run that pulled an absent image records its removal as the undo (nothing can be using an image that was not there); one that only moved or added the tag records moving it back or removing it. A check resolves the digest and reads the engine, and pulls and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Makes the image a reference names present on the engine. A tag is resolved through its registry to the digest it names now (a multi-platform image's index, so it means the same on every machine), the image is pulled by that digest when absent, and the tag is then pointed at it on the engine; an image named by digest is pulled as named. The registry credential bound for the image's registry is used when there is one. Present and tagged is no change. A run that moved an existing tag records moving it back as the undo, guarded by the image it names now; when the run also pulled, that undo is partial, since the pulled image stays for container.image.prune. A run that pulled an absent image under a new tag records its removal (nothing can be using an image that was not there), and one that added a tag to an image already there records removing the tag, unless it is the image's only name. A pull whose tagging then fails removes the image it pulled. A check resolves the digest and reads the engine, and pulls and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "image",
@@ -1741,7 +1750,7 @@
           "name": "force",
           "type": "bool",
           "default": "false",
-          "description": "Remove an image a stopped container uses (the engine still refuses one a running container uses)."
+          "description": "Remove an image a stopped container uses; the engine still refuses one a running container uses. On Podman, force also deletes the stopped containers using the image, which Docker leaves."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -2053,20 +2062,23 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that moved the tag records pointing it back at the image it named before; one that added a new tag records removing it, by the image's ID; one that found the tag already there records nothing.",
+      "notes": "A run that moved the tag records pointing it back at the image it named before, guarded by the image it names now; one that added a new tag records removing it, by the image's ID, unless the tag is the image's only name, since removing that deletes the image; one that found the tag already there records nothing.",
       "inverses": [
         {
           "fqcn": "container.image.tag",
           "record": [
             "source",
-            "tag"
+            "tag",
+            "id",
+            "engine"
           ]
         },
         {
           "fqcn": "container.image.remove",
           "record": [
             "image",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -2074,7 +2086,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Names an image by another tag.",
-      "description": "Points tag at the image source names (a reference or an image ID). A tag already naming that image is no change; one naming another image is moved. A missing source is refused. A run that moved the tag records moving it back as the undo, and one that added a new tag records removing it. A check reads both and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Points tag at the image source names (a reference or an image ID). A tag already naming that image is no change; one naming another image is moved. A missing source is refused. A run that moved the tag records moving it back as the undo, guarded by the image it names now, and one that added a new tag records removing it, unless the tag is the image's only name, since removing that deletes the image. A check reads both and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "source",
@@ -2087,6 +2099,11 @@
           "type": "string",
           "required": true,
           "description": "The tag to point at it, repository:tag; a missing tag is latest. A reference by digest is refused."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The image the tag must name now, by ID; when it names another, or none, the task is refused and nothing is tagged. The undo of a run that moved the tag sets it, so a rollback never moves a tag someone has moved again since."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -2387,7 +2404,8 @@
             "network",
             "container",
             "network_id",
-            "container_id"
+            "container_id",
+            "engine"
           ]
         }
       ]
@@ -2508,7 +2526,8 @@
           "fqcn": "container.network.remove",
           "record": [
             "name",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -2652,7 +2671,8 @@
             "network_id",
             "container_id",
             "aliases",
-            "ipv4_address"
+            "ipv4_address",
+            "engine"
           ]
         }
       ]
@@ -2891,7 +2911,8 @@
             "gateway",
             "ip_range",
             "mtu",
-            "parent"
+            "parent",
+            "engine"
           ],
           "withhold": [
             "labels"
@@ -3592,14 +3613,16 @@
           "record": [
             "name",
             "id",
-            "force"
+            "force",
+            "engine"
           ]
         },
         {
           "fqcn": "container.stop",
           "record": [
             "name",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -3760,7 +3783,8 @@
           "fqcn": "container.stop",
           "record": [
             "name",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -3847,7 +3871,8 @@
           "fqcn": "container.start",
           "record": [
             "name",
-            "id"
+            "id",
+            "engine"
           ]
         }
       ]
@@ -3940,7 +3965,8 @@
           "fqcn": "container.volume.remove",
           "record": [
             "name",
-            "created_at"
+            "created_at",
+            "engine"
           ]
         }
       ]

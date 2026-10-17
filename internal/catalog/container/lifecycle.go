@@ -47,7 +47,7 @@ func registerAction(a action) {
 	rev := collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run that changed the container's state records the opposite change, by ID; one that found it already so records nothing.",
-		Inverses:   []sdk.InverseSpec{{FQCN: a.inverse, Record: []string{paramName, paramID}}},
+		Inverses:   []sdk.InverseSpec{{FQCN: a.inverse, Record: []string{paramName, paramID, containerengine.ParamEngine}}},
 	}
 	if a.inverse == "" {
 		rev = collection.Reversibility{Reversible: false, Notes: "A restart has no undo: the container runs before and after it, and the processes it ended cannot be brought back."}
@@ -111,7 +111,7 @@ func change(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return fail(fmt.Errorf("container %s: %w", name, err))
 	}
 	if a.inverse != "" {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
+		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        a.inverse,
 			Params:      map[string]any{paramName: name, paramID: c.ID},
 			Description: "Put the container back in the state this task found it in.",

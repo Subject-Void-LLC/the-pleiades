@@ -19,10 +19,10 @@ const fqcnTag = "container.image.tag"
 func init() {
 	register(fqcnTag, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
-		Notes:      "A run that moved the tag records pointing it back at the image it named before; one that added a new tag records removing it, by the image's ID; one that found the tag already there records nothing.",
+		Notes:      "A run that moved the tag records pointing it back at the image it named before, guarded by the image it names now; one that added a new tag records removing it, by the image's ID, unless the tag is the image's only name, since removing that deletes the image; one that found the tag already there records nothing.",
 		Inverses: []sdk.InverseSpec{
-			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget}},
-			{FQCN: fqcnRemove, Record: []string{paramImage, paramID}},
+			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget, paramID, containerengine.ParamEngine}},
+			{FQCN: fqcnRemove, Record: []string{paramImage, paramID, containerengine.ParamEngine}},
 		},
 	}, tagDoc()), tag)
 }
@@ -46,6 +46,13 @@ func tag(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return fail(err)
 	}
+	want, err := containerengine.TextParam(params, paramID)
+	if err != nil {
+		return fail(err)
+	}
+	if want != "" && !isImageID(want) {
+		return fail(fmt.Errorf("%s: %q is not an image ID", paramID, want))
+	}
 	s, err := open(ctx, rc, device, params, fqcnTag, containerengine.OpImageInspect, containerengine.OpImageTag)
 	if err != nil {
 		return collection.Result{}, err
@@ -62,6 +69,13 @@ func tag(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return fail(err)
 	}
+	if want != "" && (!had || !sameImage(prior.ID, want)) {
+		now := "no image"
+		if had {
+			now = "image " + prior.ID
+		}
+		return fail(fmt.Errorf("%s now names %s, not %s, so this task, recorded against the other, does nothing to it", target, now, want))
+	}
 	if err := recordStats(rc, map[string]any{statImage: target, statImageID: src.ID}); err != nil {
 		return collection.Result{}, err
 	}
@@ -74,17 +88,21 @@ func tag(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if _, err := s.API.ImageTag(ctx, client.ImageTagOptions{Source: src.ID, Target: target}); err != nil {
 		return fail(fmt.Errorf("naming %s %s: %w", source, target, err))
 	}
-	inv := sdk.Inverse{
+	if had {
+		return collection.Result{Changed: true}, containerengine.RecordUndo(rc, s, sdk.Inverse{
+			FQCN:        fqcnTag,
+			Params:      map[string]any{paramSource: prior.ID, paramTarget: target, paramID: src.ID},
+			Description: "Point the tag back at the image it named before this task.",
+		})
+	}
+	if len(src.RepoTags) == 0 {
+		// The tag is the image's only name, and removing an image's last
+		// name deletes the image, which was there before this task.
+		return collection.Result{Changed: true}, nil
+	}
+	return collection.Result{Changed: true}, containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN:        fqcnRemove,
 		Params:      map[string]any{paramImage: target, paramID: src.ID},
 		Description: "Remove the tag this task added.",
-	}
-	if had {
-		inv = sdk.Inverse{
-			FQCN:        fqcnTag,
-			Params:      map[string]any{paramSource: prior.ID, paramTarget: target},
-			Description: "Point the tag back at the image it named before this task.",
-		}
-	}
-	return collection.Result{Changed: true}, sdk.RecordInverse(rc, inv)
+	})
 }

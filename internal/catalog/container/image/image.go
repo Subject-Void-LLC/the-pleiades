@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/distribution/reference"
@@ -55,6 +56,12 @@ var imageIDPattern = regexp.MustCompile(`^(sha256:)?[0-9a-f]{64}$`)
 
 // isImageID reports whether s is an image ID rather than a reference.
 func isImageID(s string) bool { return imageIDPattern.MatchString(s) }
+
+// sameImage reports whether two image IDs name one image, with or
+// without the sha256: prefix.
+func sameImage(a, b string) bool {
+	return strings.TrimPrefix(a, "sha256:") == strings.TrimPrefix(b, "sha256:")
+}
 
 // validImageRef refuses what is neither an image ID nor a reference the
 // engines' own grammar accepts (containerengine.ValidImage).

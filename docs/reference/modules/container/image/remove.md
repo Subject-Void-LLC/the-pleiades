@@ -26,7 +26,7 @@ Removes the reference image names: a tag is removed, and the image with it when 
 | `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `image` | `string` | yes | - | The image: a reference, or an image ID. |
 | `id` | `string` | no | - | The image ID the reference must still name. |
-| `force` | `bool` | no | `false` | Remove an image a stopped container uses (the engine still refuses one a running container uses). |
+| `force` | `bool` | no | `false` | Remove an image a stopped container uses; the engine still refuses one a running container uses. On Podman, force also deletes the stopped containers using the image, which Docker leaves. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

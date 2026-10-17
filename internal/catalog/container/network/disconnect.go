@@ -21,7 +21,7 @@ func init() {
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that disconnected the container records connecting it again, by both IDs, with the aliases and static IPv4 address it had; one that found it not connected records nothing.",
-			Inverses:   []sdk.InverseSpec{{FQCN: fqcnConnect, Record: append(slices.Clone(guards), paramAliases, paramIPv4)}},
+			Inverses:   []sdk.InverseSpec{{FQCN: fqcnConnect, Record: append(slices.Clone(guards), paramAliases, paramIPv4, containerengine.ParamEngine)}},
 		}, disconnectDoc()),
 		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
 			return disconnect(ctx, rc, d, p, collection.ModeExecute)
@@ -62,7 +62,7 @@ func disconnect(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 	if _, err := s.API.NetworkDisconnect(ctx, p.network.ID, client.NetworkDisconnectOptions{Container: p.container.ID}); err != nil {
 		return fail(fmt.Errorf("disconnecting container %s from network %s: %w", container, network, err))
 	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
+	if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN:        fqcnConnect,
 		Params:      reconnectParams(network, container, p),
 		Description: "Connect the container this task disconnected again, as it was.",

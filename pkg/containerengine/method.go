@@ -45,3 +45,17 @@ func StringMapParam(params map[string]any, key string) (map[string]string, error
 func TextParam(params map[string]any, key string) (string, error) {
 	return textOf(params, key)
 }
+
+// RecordUndo records inv as the task's undo with the engine s reached
+// named in it, so the undo replays against that engine on a device that
+// runs both Docker and Podman, where a run naming no engine is refused.
+// Every container method's InverseSpec records ParamEngine for this.
+func RecordUndo(rc sdk.RunbookContext, s *Session, inv sdk.Inverse) error {
+	params := make(map[string]any, len(inv.Params)+1)
+	for k, v := range inv.Params {
+		params[k] = v
+	}
+	params[ParamEngine] = string(s.Kind)
+	inv.Params = params
+	return sdk.RecordInverse(rc, inv)
+}

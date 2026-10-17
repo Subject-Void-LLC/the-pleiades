@@ -29,7 +29,7 @@ func init() {
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that created the network records its removal, by ID; one that found it as declared records nothing.",
-			Inverses:   []sdk.InverseSpec{{FQCN: fqcnRemove, Record: []string{paramName, paramID}}},
+			Inverses:   []sdk.InverseSpec{{FQCN: fqcnRemove, Record: []string{paramName, paramID, containerengine.ParamEngine}}},
 		}, createDoc()),
 		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
 			return create(ctx, rc, d, p, collection.ModeExecute)
@@ -96,7 +96,7 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if !engineID.MatchString(made.ID) {
 		return fail(fmt.Errorf("the engine answered an unusable ID for the network it created"))
 	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
+	if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN:        fqcnRemove,
 		Params:      map[string]any{paramName: name, paramID: made.ID},
 		Description: "Remove the network this task created.",

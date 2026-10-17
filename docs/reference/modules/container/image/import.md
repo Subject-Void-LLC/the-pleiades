@@ -6,7 +6,7 @@ status: beta
 
 Makes an image from a filesystem archive.
 
-Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, or removing the imported image when the tag was new. A check reads and hashes the archive, and imports nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, guarded by the image it names now, and partial, since the imported image stays for container.image.prune; or removing the imported image when the tag was new. An import that fails after reaching the engine puts the tag back, or removes what it made, since a failed task records no undo. A check reads and hashes the archive, and imports nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -43,7 +43,7 @@ Imports the filesystem archive at path (a tar of a root filesystem, as container
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run records pointing the tag back at the image it named before, or removing the imported image, by ID, when the tag was new.
+A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial, since the imported image stays (container.image.prune removes it); one under a new tag records removing the imported image, by ID. An import that fails after reaching the engine puts the tag back or removes what it made, since a failed task records no undo.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

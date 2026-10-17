@@ -38,8 +38,8 @@ const cleanupGrace = 30 * time.Second
 // convergeInverses are run's undos; create's is the first alone, since a
 // create never starts a container.
 var convergeInverses = []sdk.InverseSpec{
-	{FQCN: "container.remove", Record: []string{paramName, paramID, paramForce}},
-	{FQCN: "container.stop", Record: []string{paramName, paramID}},
+	{FQCN: "container.remove", Record: []string{paramName, paramID, paramForce, containerengine.ParamEngine}},
+	{FQCN: "container.stop", Record: []string{paramName, paramID, containerengine.ParamEngine}},
 }
 
 func init() {
@@ -169,7 +169,7 @@ func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Ses
 		return collection.Result{}, fmt.Errorf("starting container %s: %w", spec.Name, err)
 	}
 	if record {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
+		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        "container.stop",
 			Params:      map[string]any{paramName: spec.Name, paramID: live.ID},
 			Description: "Stop the container this task started.",
@@ -222,7 +222,7 @@ func createNew(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 		state = "running"
 	}
 	if record {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
+		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        "container.remove",
 			Params:      map[string]any{paramName: spec.Name, paramID: created.ID, paramForce: true},
 			Description: "Remove the container this task created.",

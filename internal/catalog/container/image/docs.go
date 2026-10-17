@@ -25,7 +25,7 @@ var (
 func pullDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Pulls an image by digest and names it by its tag.",
-		Description: "Makes the image a reference names present on the engine. A tag is resolved through its registry to the digest it names now (a multi-platform image's index, so it means the same on every machine), the image is pulled by that digest when absent, and the tag is then pointed at it on the engine; an image named by digest is pulled as named. The registry credential bound for the image's registry is used when there is one. Present and tagged is no change. A run that pulled an absent image records its removal as the undo (nothing can be using an image that was not there); one that only moved or added the tag records moving it back or removing it. A check resolves the digest and reads the engine, and pulls and tags nothing." + containerengine.ReachNote,
+		Description: "Makes the image a reference names present on the engine. A tag is resolved through its registry to the digest it names now (a multi-platform image's index, so it means the same on every machine), the image is pulled by that digest when absent, and the tag is then pointed at it on the engine; an image named by digest is pulled as named. The registry credential bound for the image's registry is used when there is one. Present and tagged is no change. A run that moved an existing tag records moving it back as the undo, guarded by the image it names now; when the run also pulled, that undo is partial, since the pulled image stays for container.image.prune. A run that pulled an absent image under a new tag records its removal (nothing can be using an image that was not there), and one that added a tag to an image already there records removing the tag, unless it is the image's only name. A pull whose tagging then fails removes the image it pulled. A check resolves the digest and reads the engine, and pulls and tags nothing." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramImage, Type: "string", Required: true, Description: "The image: a reference by tag (resolved to its digest), or by digest."},
 			containerengine.HostKeyParam,
@@ -65,10 +65,11 @@ func pushDoc() collection.Doc {
 func tagDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Names an image by another tag.",
-		Description: "Points tag at the image source names (a reference or an image ID). A tag already naming that image is no change; one naming another image is moved. A missing source is refused. A run that moved the tag records moving it back as the undo, and one that added a new tag records removing it. A check reads both and tags nothing." + containerengine.ReachNote,
+		Description: "Points tag at the image source names (a reference or an image ID). A tag already naming that image is no change; one naming another image is moved. A missing source is refused. A run that moved the tag records moving it back as the undo, guarded by the image it names now, and one that added a new tag records removing it, unless the tag is the image's only name, since removing that deletes the image. A check reads both and tags nothing." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramSource, Type: "string", Required: true, Description: "The image to name: a reference or an image ID."},
 			{Name: paramTarget, Type: "string", Required: true, Description: "The tag to point at it, repository:tag; a missing tag is latest. A reference by digest is refused."},
+			{Name: paramID, Type: "string", Description: "The image the tag must name now, by ID; when it names another, or none, the task is refused and nothing is tagged. The undo of a run that moved the tag sets it, so a rollback never moves a tag someone has moved again since."},
 			containerengine.HostKeyParam,
 		},
 		Fragments: []string{"container_engine"},
@@ -88,7 +89,7 @@ func removeDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: paramImage, Type: "string", Required: true, Description: "The image: a reference, or an image ID."},
 			{Name: paramID, Type: "string", Description: "The image ID the reference must still name."},
-			{Name: paramForce, Type: "bool", Default: "false", Description: "Remove an image a stopped container uses (the engine still refuses one a running container uses)."},
+			{Name: paramForce, Type: "bool", Default: "false", Description: "Remove an image a stopped container uses; the engine still refuses one a running container uses. On Podman, force also deletes the stopped containers using the image, which Docker leaves."},
 			containerengine.HostKeyParam,
 		},
 		Fragments: []string{"container_engine"},
@@ -198,7 +199,7 @@ func loadDoc() collection.Doc {
 func importDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Makes an image from a filesystem archive.",
-		Description: "Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, or removing the imported image when the tag was new. A check reads and hashes the archive, and imports nothing." + filesNote + containerengine.ReachNote,
+		Description: "Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, guarded by the image it names now, and partial, since the imported image stays for container.image.prune; or removing the imported image when the tag was new. An import that fails after reaching the engine puts the tag back, or removes what it made, since a failed task records no undo. A check reads and hashes the archive, and imports nothing." + filesNote + containerengine.ReachNote,
 		Params: []collection.Param{
 			pathParam,
 			{Name: paramImage, Type: "string", Required: true, Description: "The tag the new image gets, repository:tag; a missing tag is latest."},

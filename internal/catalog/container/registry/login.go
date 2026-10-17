@@ -94,12 +94,7 @@ func login(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{Changed: true}, nil
 	}
 	undo := map[string]any{paramRegistry: host, paramAuthFile: l.path}
-	if named, err := containerengine.TextParam(params, paramEngine); err != nil {
-		return fail(err)
-	} else if named != "" {
-		undo[paramEngine] = named
-	}
-	return collection.Result{Changed: true}, sdk.RecordInverse(rc, sdk.Inverse{
+	return collection.Result{Changed: true}, containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN: fqcnLogout, Params: undo, Description: "Remove the registry login this task added.",
 	})
 }

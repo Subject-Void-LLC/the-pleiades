@@ -30,7 +30,7 @@ func init() {
 			Notes:      "A run that removed the network records creating it again with the settings it had: driver, internal, IPv6, its first subnet with its gateway and range, MTU, parent and labels. Labels are not kept in the journal. The undo is partial when the network had an option or a second subnet no parameter sets; a network is a fresh one with a new ID once made again, and the containers that used it are not reconnected.",
 			Inverses: []sdk.InverseSpec{{
 				FQCN:         fqcnCreate,
-				Record:       []string{paramName, paramDriver, paramInternal, paramIPv6, paramSubnet, paramGateway, paramIPRange, paramMTU, paramParent},
+				Record:       []string{paramName, paramDriver, paramInternal, paramIPv6, paramSubnet, paramGateway, paramIPRange, paramMTU, paramParent, containerengine.ParamEngine},
 				Withhold:     []string{paramLabels},
 				MayBePartial: true,
 			}},
@@ -93,7 +93,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return fail(fmt.Errorf("network %s: %w", name, err))
 	}
 	undo, partial := recreateParams(live)
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
+	if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN:        fqcnCreate,
 		Params:      undo,
 		Description: "Create the network this task removed again, with the settings it had.",

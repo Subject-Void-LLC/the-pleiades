@@ -23,10 +23,10 @@ var pullOps = append([]containerengine.Op{containerengine.OpImageTag}, container
 func init() {
 	register(fqcnPull, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
-		Notes:      "A run that pulled an absent image records its removal, by ID; one that only pointed the tag at the image records pointing it back, or removing the tag when it was new; one that found both as asked records nothing.",
+		Notes:      "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial when the run also pulled, since the pulled image stays (container.image.prune removes it); one that pulled an absent image under a new tag records its removal, by ID; one that pointed a new tag at an image already there records removing the tag, unless it is the image's only name; one that found both as asked records nothing.",
 		Inverses: []sdk.InverseSpec{
-			{FQCN: fqcnRemove, Record: []string{paramImage, paramID}},
-			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget}},
+			{FQCN: fqcnRemove, Record: []string{paramImage, paramID, containerengine.ParamEngine}},
+			{FQCN: fqcnTag, Record: []string{paramSource, paramTarget, paramID, containerengine.ParamEngine}, MayBePartial: true},
 		},
 	}, pullDoc()), pull)
 }
@@ -89,33 +89,58 @@ func pull(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, nil
 	}
+	onlyName := false
+	if retag && before == "" && !img.Pulled {
+		present, _, err := inspect(ctx, s, img.ID)
+		if err != nil {
+			return fail(err)
+		}
+		onlyName = len(present.RepoTags) == 0
+	}
 	if retag {
 		if _, err := s.API.ImageTag(ctx, client.ImageTagOptions{Source: img.ID, Target: tag}); err != nil {
+			if img.Pulled {
+				// A failed task's undo is dropped (FAILURE_PATTERNS 452), so
+				// the image this run pulled is removed here instead.
+				cctx, cancel := containerengine.CleanupContext(ctx)
+				defer cancel()
+				_, _ = s.API.ImageRemove(cctx, img.ID, client.ImageRemoveOptions{})
+				return fail(fmt.Errorf("naming %s %s: %w; the image this task pulled was removed", img.Pinned, tag, err))
+			}
 			return fail(fmt.Errorf("naming %s %s: %w", img.Pinned, tag, err))
 		}
 	}
-	return collection.Result{Changed: true}, recordPullUndo(rc, img, tag, before, retag)
+	return collection.Result{Changed: true}, recordPullUndo(rc, s, img, tag, before, retag, onlyName)
 }
 
-// recordPullUndo records what reverses a pull: removing the image when it
-// was absent (nothing can be using an image that was not there), else
-// pointing the tag back where it was, or removing a tag that was new.
-func recordPullUndo(rc sdk.RunbookContext, img containerengine.PresentImage, tag, before string, retag bool) error {
+// recordPullUndo records what reverses a pull. A tag that named another
+// image is pointed back, guarded by the image it names now, partial when
+// the image was also pulled: one undo cannot also remove it, and the tag
+// is what a user reads. An image pulled under a new tag is removed, by ID
+// (nothing can be using an image that was not there). A new tag on an
+// image already there is removed, unless it is the image's only name,
+// since removing that deletes the image.
+func recordPullUndo(rc sdk.RunbookContext, s *containerengine.Session, img containerengine.PresentImage, tag, before string, retag, onlyName bool) error {
 	switch {
+	case retag && before != "":
+		inv := sdk.Inverse{
+			FQCN:        fqcnTag,
+			Params:      map[string]any{paramSource: before, paramTarget: tag, paramID: img.ID},
+			Description: "Point the tag back at the image it named before this task.",
+		}
+		if img.Pulled {
+			inv.Partial = true
+			inv.Description = "Point the tag back at the image it named before this task; the image this task pulled stays, untagged, for container.image.prune."
+		}
+		return containerengine.RecordUndo(rc, s, inv)
 	case img.Pulled:
-		return sdk.RecordInverse(rc, sdk.Inverse{
+		return containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        fqcnRemove,
 			Params:      map[string]any{paramImage: img.ID, paramID: img.ID},
 			Description: "Remove the image this task pulled.",
 		})
-	case retag && before != "":
-		return sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:        fqcnTag,
-			Params:      map[string]any{paramSource: before, paramTarget: tag},
-			Description: "Point the tag back at the image it named before this task.",
-		})
-	case retag:
-		return sdk.RecordInverse(rc, sdk.Inverse{
+	case retag && !onlyName:
+		return containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        fqcnRemove,
 			Params:      map[string]any{paramImage: tag, paramID: img.ID},
 			Description: "Remove the tag this task added.",
