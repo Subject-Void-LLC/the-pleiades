@@ -106,3 +106,31 @@ func TestLifecycle_StatesTheMethodsDecline(t *testing.T) {
 		t.Error("a hostile container name was accepted")
 	}
 }
+
+// TestParams_ANumberIsNotAbsent: a value that is not text is refused, not
+// read as unset: an unquoted mode would have written 0644, a numeric id
+// would have skipped the guard an undo relies on, and a numeric since
+// would have read every line.
+func TestParams_ANumberIsNotAbsent(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": name, "image": h.nginx}); err != nil {
+		t.Fatal(err)
+	}
+	for label, tc := range map[string]struct {
+		fqcn   string
+		params map[string]any
+	}{
+		"an unquoted mode":   {"container.copy_in", map[string]any{"name": name, "dest": "/tmp/x", "content": "x", "mode": 755}},
+		"a numeric id guard": {"container.stop", map[string]any{"name": name, "id": 42}},
+		"a numeric since":    {"container.logs", map[string]any{"name": name, "since": 1700000000}},
+		"a numeric match":    {"container.list", map[string]any{"match": 7}},
+	} {
+		if _, err := call(t, h, fresh(), tc.fqcn, false, tc.params); err == nil || !strings.Contains(err.Error(), "not text") {
+			t.Errorf("%s: err = %v, want it refused as not text", label, err)
+		}
+	}
+	if state := h.state(t, name); state != "running" {
+		t.Errorf("a refused stop changed the container: state %q", state)
+	}
+}

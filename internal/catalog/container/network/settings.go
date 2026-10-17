@@ -80,7 +80,9 @@ type settings struct {
 func parseSettings(params map[string]any) (settings, error) {
 	var s settings
 	var err error
-	s.Driver = sdk.StringParam(params, paramDriver)
+	if s.Driver, err = containerengine.TextParam(params, paramDriver); err != nil {
+		return s, err
+	}
 	if s.Driver == "" {
 		s.Driver = driverBridge
 	}
@@ -93,7 +95,9 @@ func parseSettings(params map[string]any) (settings, error) {
 	if s.IPv6, err = sdk.BoolParamOr(params, paramIPv6, false); err != nil {
 		return s, err
 	}
-	if raw := sdk.StringParam(params, paramSubnet); raw != "" {
+	if raw, err := containerengine.TextParam(params, paramSubnet); err != nil {
+		return s, err
+	} else if raw != "" {
 		if s.Subnet, err = netip.ParsePrefix(raw); err != nil || s.Subnet != s.Subnet.Masked() {
 			return s, fmt.Errorf("%s: %q is not a network address with its prefix length (10.10.0.0/24)", paramSubnet, raw)
 		}
@@ -101,7 +105,9 @@ func parseSettings(params map[string]any) (settings, error) {
 			return s, fmt.Errorf("%s: %s is IPv6; set %s", paramSubnet, raw, paramIPv6)
 		}
 	}
-	if raw := sdk.StringParam(params, paramGateway); raw != "" {
+	if raw, err := containerengine.TextParam(params, paramGateway); err != nil {
+		return s, err
+	} else if raw != "" {
 		if s.Gateway, err = netip.ParseAddr(raw); err != nil {
 			return s, fmt.Errorf("%s: %q is not an address", paramGateway, raw)
 		}
@@ -109,7 +115,9 @@ func parseSettings(params map[string]any) (settings, error) {
 			return s, fmt.Errorf("%s: %s is not inside the declared %s", paramGateway, raw, paramSubnet)
 		}
 	}
-	if raw := sdk.StringParam(params, paramIPRange); raw != "" {
+	if raw, err := containerengine.TextParam(params, paramIPRange); err != nil {
+		return s, err
+	} else if raw != "" {
 		if s.IPRange, err = netip.ParsePrefix(raw); err != nil || s.IPRange != s.IPRange.Masked() {
 			return s, fmt.Errorf("%s: %q is not a network address with its prefix length", paramIPRange, raw)
 		}
@@ -130,7 +138,9 @@ func parseSettings(params map[string]any) (settings, error) {
 		}
 		s.MTU = mtu
 	}
-	if s.Parent = sdk.StringParam(params, paramParent); s.Parent != "" {
+	if s.Parent, err = containerengine.TextParam(params, paramParent); err != nil {
+		return s, err
+	} else if s.Parent != "" {
 		if s.Driver == driverBridge {
 			return s, fmt.Errorf("%s: a bridge network has no parent interface", paramParent)
 		}

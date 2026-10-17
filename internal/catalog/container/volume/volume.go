@@ -75,7 +75,10 @@ func validName(params map[string]any) (string, error) {
 // stands in for one, and an undo recorded against one volume never removes
 // another made under its name since.
 func guardCreated(params map[string]any, v moby.Volume) error {
-	want := sdk.StringParam(params, paramCreatedAt)
+	want, err := containerengine.TextParam(params, paramCreatedAt)
+	if err != nil {
+		return err
+	}
 	if want == "" || want == v.CreatedAt {
 		return nil
 	}

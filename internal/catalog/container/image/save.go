@@ -44,7 +44,10 @@ func archivePath(params map[string]any) (string, error) {
 
 // wantDigest reads the optional digest parameter.
 func wantDigest(params map[string]any) (string, error) {
-	d := sdk.StringParam(params, paramDigest)
+	d, err := containerengine.TextParam(params, paramDigest)
+	if err != nil {
+		return "", err
+	}
 	if d != "" && !archiveDigest.MatchString(d) {
 		return "", fmt.Errorf("%s: %q is not sha256:<64 hex digits>", paramDigest, d)
 	}

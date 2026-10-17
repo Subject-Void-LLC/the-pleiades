@@ -96,7 +96,10 @@ func openLoginFile(ctx context.Context, rc sdk.RunbookContext, device inventory.
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	p := sdk.StringParam(params, paramAuthFile)
+	p, err := containerengine.TextParam(params, paramAuthFile)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	if p != "" {
 		if err := containerengine.ValidHostPath(paramAuthFile, p); err != nil {
 			return nil, fmt.Errorf("%s: %w", fqcn, err)

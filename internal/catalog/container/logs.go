@@ -39,7 +39,10 @@ func Logs(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if tail < 1 || tail > maxTail {
 		return fail(fmt.Errorf("%s: %d is not a number of lines from 1 to %d", paramTail, tail, maxTail))
 	}
-	since := sdk.StringParam(params, paramSince)
+	since, err := containerengine.TextParam(params, paramSince)
+	if err != nil {
+		return fail(err)
+	}
 	if since != "" && strings.ContainsAny(since, "&?#/ ") {
 		return fail(fmt.Errorf("%s: %q is not a timestamp or a duration", paramSince, since))
 	}

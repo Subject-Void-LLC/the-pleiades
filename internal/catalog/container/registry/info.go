@@ -26,7 +26,11 @@ func init() {
 func info(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, _ collection.Mode) (collection.Result, error) {
 	fail := failer(fqcnInfo)
 	host := ""
-	if sdk.StringParam(params, paramRegistry) != "" {
+	named, err := containerengine.TextParam(params, paramRegistry)
+	if err != nil {
+		return fail(err)
+	}
+	if named != "" {
 		h, err := registryHost(params)
 		if err != nil {
 			return fail(err)

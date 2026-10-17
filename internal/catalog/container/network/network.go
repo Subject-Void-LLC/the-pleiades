@@ -87,7 +87,10 @@ func inspectNetwork(ctx context.Context, s *containerengine.Session, name string
 // so an undo recorded against one network or container never acts on
 // another that took its name since.
 func guardID(params map[string]any, key, kind, name, id string) error {
-	want := sdk.StringParam(params, key)
+	want, err := containerengine.TextParam(params, key)
+	if err != nil {
+		return err
+	}
 	if want == "" {
 		return nil
 	}

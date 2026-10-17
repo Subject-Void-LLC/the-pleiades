@@ -148,7 +148,9 @@ func parseEndpoint(params map[string]any) (endpointWant, error) {
 		}
 	}
 	w.aliases = aliases
-	if raw := sdk.StringParam(params, paramIPv4); raw != "" {
+	if raw, err := containerengine.TextParam(params, paramIPv4); err != nil {
+		return w, err
+	} else if raw != "" {
 		if w.ipv4, err = netip.ParseAddr(raw); err != nil || !w.ipv4.Is4() {
 			return w, fmt.Errorf("%s: %q is not an IPv4 address", paramIPv4, raw)
 		}

@@ -94,7 +94,9 @@ func login(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{Changed: true}, nil
 	}
 	undo := map[string]any{paramRegistry: host, paramAuthFile: l.path}
-	if named := sdk.StringParam(params, paramEngine); named != "" {
+	if named, err := containerengine.TextParam(params, paramEngine); err != nil {
+		return fail(err)
+	} else if named != "" {
 		undo[paramEngine] = named
 	}
 	return collection.Result{Changed: true}, sdk.RecordInverse(rc, sdk.Inverse{

@@ -36,7 +36,10 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err := validImageRef(paramImage, ref); err != nil {
 		return fail(err)
 	}
-	want := sdk.StringParam(params, paramID)
+	want, err := containerengine.TextParam(params, paramID)
+	if err != nil {
+		return fail(err)
+	}
 	if want != "" && !isImageID(want) {
 		return fail(fmt.Errorf("%s: %q is not an image ID", paramID, want))
 	}

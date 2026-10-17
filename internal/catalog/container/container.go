@@ -75,7 +75,10 @@ func stateOf(c moby.InspectResponse) string {
 // an undo recorded against one container never acts on another that took
 // its name since.
 func guardID(params map[string]any, c moby.InspectResponse) error {
-	want := sdk.StringParam(params, paramID)
+	want, err := containerengine.TextParam(params, paramID)
+	if err != nil {
+		return err
+	}
 	if want == "" {
 		return nil
 	}

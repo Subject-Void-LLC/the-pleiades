@@ -27,7 +27,10 @@ func List(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	match := sdk.StringParam(params, paramMatch)
+	match, err := containerengine.TextParam(params, paramMatch)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	if _, err := path.Match(match, ""); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %s: %q is not a glob: %w", fqcn, paramMatch, match, err)
 	}

@@ -38,3 +38,10 @@ func MethodManifest(rev collection.Reversibility, doc collection.Doc) collection
 func StringMapParam(params map[string]any, key string) (map[string]string, error) {
 	return stringMap(params, key)
 }
+
+// TextParam reads an optional text parameter: absent is "", and any value
+// that is not text is refused rather than read as absent, since a task that
+// wrote mode: 0755 or id: 42 meant something by it.
+func TextParam(params map[string]any, key string) (string, error) {
+	return textOf(params, key)
+}

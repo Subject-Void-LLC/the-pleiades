@@ -45,7 +45,11 @@ type declared struct {
 
 // parseDeclared reads a volume's declaration.
 func parseDeclared(params map[string]any) (declared, error) {
-	d := declared{driver: sdk.StringParam(params, paramDriver)}
+	driver, err := containerengine.TextParam(params, paramDriver)
+	if err != nil {
+		return declared{}, err
+	}
+	d := declared{driver: driver}
 	if d.driver == "" {
 		d.driver = driverLocal
 	}

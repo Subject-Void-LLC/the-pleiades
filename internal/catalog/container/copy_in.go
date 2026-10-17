@@ -105,7 +105,10 @@ func copyIn(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 // fileMode reads mode, an octal string, 0644 by default.
 func fileMode(params map[string]any) (int64, error) {
-	raw := sdk.StringParam(params, paramMode)
+	raw, err := containerengine.TextParam(params, paramMode)
+	if err != nil {
+		return 0, err
+	}
 	if raw == "" {
 		return 0o644, nil
 	}
@@ -119,7 +122,10 @@ func fileMode(params map[string]any) (int64, error) {
 // bytesToCopy is content, or src read from the run's project; exactly one.
 func bytesToCopy(rc sdk.RunbookContext, params map[string]any) ([]byte, error) {
 	content, hasContent := params[paramContent]
-	src := sdk.StringParam(params, paramSrc)
+	src, err := containerengine.TextParam(params, paramSrc)
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	case hasContent && content != nil && src != "":
 		return nil, fmt.Errorf("set %s or %s, not both", paramContent, paramSrc)
