@@ -52,12 +52,12 @@ func dockerRunRunbookCmd(t *testing.T, dir, host, name, image, secret, program s
 	return path
 }
 
-// TestCLI_DockerRunKeepsItsSecretOffEveryOutput plants a random environment
+// TestCLI_ContainerRunKeepsItsSecretOffEveryOutput plants a random environment
 // value and asserts it reaches the container and nothing the platform wrote:
 // the run's report, its error on a failed run, and every file under the
 // project's state directory (the journal included). The value travels to
 // the engine in the create request's body, never on a command line.
-func TestCLI_DockerRunKeepsItsSecretOffEveryOutput(t *testing.T) {
+func TestCLI_ContainerRunKeepsItsSecretOffEveryOutput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts a real Docker engine behind a real sshd")
 	}

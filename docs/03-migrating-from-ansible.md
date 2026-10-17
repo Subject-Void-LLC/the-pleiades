@@ -273,7 +273,7 @@ it.** Every method states two things, its execution context: its site, `target`
 (on or against the device) or `controller` (in the process running the task: the CLI, or
 a Runner), and whether it acts on a device at all, `required`, `optional` or `none`. Each
 method's reference page shows them as its Runs row, which is authoritative where this
-column disagrees: `container.docker.*` and `archive.extract` say "hybrid" here and are
+column disagrees: `container.*` and `archive.extract` say "hybrid" here and are
 target-side there, since they act on the device over its own connection. Today the
 controller-side methods are `cloud.aws.*` and `net.catalyst.*`, which act on an API
 device, and `http.request`, whose device is optional.
