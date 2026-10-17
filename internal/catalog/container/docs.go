@@ -229,3 +229,49 @@ func pruneDoc() collection.Doc {
 		SeeAlso:   []string{"container.remove"},
 	}
 }
+
+func copyInDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Puts one file into a container.",
+		Description: "Makes the file at dest inside the container named name hold content, or the bytes of src, a file in the project directory, with mode. The file is read first and written only when its bytes or mode differ, so a second run with the same bytes writes nothing. src is read by the command line, which holds the project (relative, inside it, through no symbolic link, never .pleiades, at most 64 MiB); a Walk-tier Runner cannot see the project, so there src is refused and content is the way. The container may be running or stopped. The bytes the file held before are not kept, so the write has no undo. A check reads and compares, and writes nothing." + reachNote,
+		Params: []collection.Param{
+			nameParam,
+			{Name: paramDest, Type: "string", Required: true, Description: "The file's absolute path inside the container; its directory must exist."},
+			{Name: paramContent, Type: "string", Description: "The bytes the file should hold. Set content or src, not both."},
+			{Name: paramSrc, Type: "string", Description: "A file in the project directory whose bytes the file should hold, relative to it."},
+			{Name: paramMode, Type: "string", Default: "0644", Description: "The file's mode, in octal."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_engine"},
+		Returns: []collection.ReturnField{
+			nameReturn,
+			{Name: paramDest, Type: "string", Returned: "always", Description: "The file's path inside the container."},
+			{Name: statChecksum, Type: "string", Returned: "always", Description: "The SHA-256 of the bytes it holds."},
+			{Name: statSize, Type: "int", Returned: "always", Description: "Their size."},
+		},
+		Examples: []collection.Example{{Name: "Drop a configuration file into a running container", RunbookYAML: "- name: Web config\n  container.copy_in:\n    name: web\n    dest: /etc/nginx/conf.d/site.conf\n    src: files/site.conf\n"}},
+		SeeAlso:  []string{"container.copy_out", "file.copy"},
+	}
+}
+
+func copyOutDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Reads one text file out of a container.",
+		Description: "Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. It changes nothing, so a check is the same read." + reachNote,
+		Params: []collection.Param{
+			nameParam,
+			{Name: paramSrc, Type: "string", Required: true, Description: "The file's absolute path inside the container."},
+			{Name: paramMax, Type: "int", Default: "1048576", Description: "The largest file read, in bytes, up to 16 MiB."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_engine"},
+		Returns: []collection.ReturnField{
+			nameReturn,
+			{Name: statText, Type: "string", Returned: "always", Description: "The file's text."},
+			{Name: statSize, Type: "int", Returned: "always", Description: "Its size in bytes."},
+			{Name: statChecksum, Type: "string", Returned: "always", Description: "Its SHA-256."},
+		},
+		Examples: []collection.Example{{Name: "Read the app's version file", RunbookYAML: "- name: Version\n  container.copy_out:\n    name: web\n    src: /opt/app/VERSION\n  register: version\n"}},
+		SeeAlso:  []string{"container.copy_in", "container.exec"},
+	}
+}

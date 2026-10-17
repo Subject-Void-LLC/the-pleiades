@@ -190,3 +190,43 @@ func TestPrune_RemovesWhatItsCheckListed(t *testing.T) {
 		t.Error("an unknown kind was pruned")
 	}
 }
+
+// TestCopyInAndOut: a file put in is read back whole; a second put of the
+// same bytes is no change; a check of new bytes writes nothing; a binary
+// file is refused by copy_out; a relative path is refused.
+func TestCopyInAndOut(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": name, "image": h.nginx}); err != nil {
+		t.Fatal(err)
+	}
+	put := map[string]any{"name": name, "dest": "/tmp/pleiades.txt", "content": "hello\n", "mode": "0600"}
+	if res, err := call(t, h, fresh(), "container.copy_in", false, put); err != nil || !res.Changed {
+		t.Fatalf("copy_in = %+v, %v", res, err)
+	}
+	rc := fresh()
+	if _, err := call(t, h, rc, "container.copy_out", false, map[string]any{"name": name, "src": "/tmp/pleiades.txt"}); err != nil || rc.stats["content"] != "hello\n" {
+		t.Fatalf("copy_out = %v, %v", rc.stats, err)
+	}
+	if res, err := call(t, h, fresh(), "container.copy_in", false, put); err != nil || res.Changed {
+		t.Errorf("a second copy_in of the same bytes = %+v, %v; want no change", res, err)
+	}
+	put["content"] = "changed\n"
+	if res, err := call(t, h, fresh(), "container.copy_in", true, put); err != nil || !res.Changed {
+		t.Errorf("a check of new bytes = %+v, %v", res, err)
+	}
+	rc = fresh()
+	if _, err := call(t, h, rc, "container.copy_out", false, map[string]any{"name": name, "src": "/tmp/pleiades.txt"}); err != nil || rc.stats["content"] != "hello\n" {
+		t.Errorf("the check wrote the file: %v, %v", rc.stats, err)
+	}
+	put["content"] = "\x00\xff\xfe"
+	if _, err := call(t, h, fresh(), "container.copy_in", false, put); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, h, fresh(), "container.copy_out", false, map[string]any{"name": name, "src": "/tmp/pleiades.txt"}); err == nil || !strings.Contains(err.Error(), "not text") {
+		t.Errorf("copy_out of binary = %v", err)
+	}
+	if _, err := call(t, h, fresh(), "container.copy_in", false, map[string]any{"name": name, "dest": "tmp/x", "content": "x"}); err == nil {
+		t.Error("a relative dest was written")
+	}
+}
