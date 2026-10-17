@@ -1,4 +1,4 @@
-// Release gate for the container.docker.run fixes of 2026-10-14: through the
+// Release gate for container.run's secrets and engine pin: through the
 // real binary, against a real Docker engine behind a real sshd, a run that
 // creates a container keeps its environment value off every output the
 // platform writes, a failed run does too, and the run acts on the engine
@@ -20,7 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
-// dockerRunRunbook writes a runbook running container.docker.run on host,
+// dockerRunRunbook writes a runbook running container.run on host,
 // with one environment value, and returns its path.
 func dockerRunRunbook(t *testing.T, dir, host, name, image, secret string) string {
 	t.Helper()
@@ -35,9 +35,12 @@ func dockerRunRunbookCmd(t *testing.T, dir, host, name, image, secret, program s
 		"hosts: " + host + "\n" +
 		"tasks:\n" +
 		"  - name: run a container with a secret in its environment\n" +
-		"    container.docker.run:\n" +
+		"    container.run:\n" +
 		"      name: " + name + "\n" +
 		"      image: " + image + "\n" +
+		// The fixture's engine holds the image, loaded from an archive, so
+		// it has no registry digest to pin and is run as it is.
+		"      pull: never\n" +
 		"      command:\n" +
 		"        - " + program + "\n" +
 		"        - \"300\"\n" +
@@ -53,7 +56,7 @@ func dockerRunRunbookCmd(t *testing.T, dir, host, name, image, secret, program s
 // value and asserts it reaches the container and nothing the platform wrote:
 // the run's report, its error on a failed run, and every file under the
 // project's state directory (the journal included). The value travels to
-// docker as an env file on standard input, never on the command line.
+// the engine in the create request's body, never on a command line.
 func TestCLI_DockerRunKeepsItsSecretOffEveryOutput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts a real Docker engine behind a real sshd")
@@ -104,10 +107,10 @@ func TestCLI_DockerRunKeepsItsSecretOffEveryOutput(t *testing.T) {
 		t.Fatalf("the container's environment = %q, %v; want the value delivered", inside, err)
 	}
 
-	// A run that fails in docker run itself, with the same value in its
+	// A run that fails in the engine itself, with the same value in its
 	// environment: the image is present, so nothing is pulled, and the
-	// container's program does not exist, so docker creates the container,
-	// fails to start it, and quotes its own command line in the error.
+	// container's program does not exist, so the engine creates the
+	// container, fails to start it, and the run removes it again.
 	failed, err := runPleiadesWithEnv(t, dir, env, "run", dockerRunRunbookCmd(t, dir, "box", gateContainerName(t), containerGateImage, secret, "/pleiades-no-such-program"), "--json")
 	if err == nil {
 		t.Fatalf("a run of an absent image succeeded:\n%s", failed)

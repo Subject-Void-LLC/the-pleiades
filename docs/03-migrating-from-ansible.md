@@ -261,7 +261,7 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 | `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
-| `community.docker.docker_container` | `container.docker.run`, `.stop`, `.remove` | `DockerCapable` | hybrid |
+| `community.docker.docker_container` | `container.run`, `container.stop`, `container.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
 | `amazon.aws.s3_bucket` | `cloud.aws.s3.create_bucket`, `.delete_bucket` | `AWSAPICapable` | controller side |
 

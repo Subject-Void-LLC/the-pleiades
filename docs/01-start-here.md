@@ -280,7 +280,7 @@ reports what each task would change and changes nothing. Sixty-nine of the seven
 implemented methods can answer it. Fifty-seven predict a change by reading the device and
 comparing through the same code path their real run takes: every `svc.*` method (systemd,
 Windows and the generic five), every `file.*`, `pkg.*`, `identity.*`, `fw.firewalld.*`,
-`fs.*` and `archive.*` method, `win.feature.*`, `container.docker.run`, `stop` and `remove`,
+`fs.*` and `archive.*` method, `win.feature.*`, every `container.*` method that changes a container,
 and the AWS `ec2` and `s3` methods. A prediction leaves out what only the device decides (a
 new directory's mode, a version the package manager picks, a new instance's ID) rather than
 guessing it. Eight only ever read, so a check runs them for real: `facts.gather`,
@@ -293,7 +293,7 @@ reason, and so is a call whose inputs are missing when the check runs (an archiv
 source, a bucket that is not yet empty), since an earlier task in the same run may be
 what provides them. The nine methods that cannot be checked at all say why on their
 reference pages: an arbitrary command or script (`exec.winrm.shell`,
-`container.docker.exec`, `net.cli.command`), a configuration change only the device's own
+`container.exec`, `net.cli.command`), a configuration change only the device's own
 parser decides (`net.cli.config`, `net.ios.config`, `net.netconf.config`), and the three
 waits, since what they wait for is usually an earlier task's change, which a check never
 makes. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes

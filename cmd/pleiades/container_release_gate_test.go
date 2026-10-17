@@ -1,6 +1,6 @@
 // Release gate for Phases 119a and 119b: through the real binary, a
 // container host is onboarded, validate names the carrier each task will
-// use, and container.docker.exec reaches the engine the device advertised:
+// use, and container.exec reaches the engine the device advertised:
 // over a real SSH login to a real Docker engine, on a socket channel or,
 // where sshd refuses forwarding, through the engine's own dial-stdio, or
 // through this machine's own engine, never through a socket a record typed.
@@ -60,7 +60,7 @@ func ensureGateImage(t *testing.T) {
 	localDocker(t, "pull", "-q", containerGateImage)
 }
 
-// execRunbook writes a runbook running container.docker.exec on host and
+// execRunbook writes a runbook running container.exec on host and
 // returns its path.
 func execRunbook(t *testing.T, dir, host, containerName string) string {
 	t.Helper()
@@ -69,7 +69,7 @@ func execRunbook(t *testing.T, dir, host, containerName string) string {
 		"hosts: " + host + "\n" +
 		"tasks:\n" +
 		"  - name: run a command inside the container\n" +
-		"    container.docker.exec:\n" +
+		"    container.exec:\n" +
 		"      name: " + containerName + "\n" +
 		"      cmd: echo reached $(cat /etc/alpine-release)\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

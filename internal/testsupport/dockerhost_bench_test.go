@@ -14,7 +14,7 @@ import (
 
 // BenchmarkEngineInfo_OverSSHChannel is one engine API request over a
 // channel to the engine's socket on an open login: the path Phase 119a
-// gives container.docker.exec. Each request opens its own channel.
+// gives the container.* methods. Each request opens its own channel.
 func BenchmarkEngineInfo_OverSSHChannel(b *testing.B) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -29,8 +29,8 @@ func BenchmarkEngineInfo_OverSSHChannel(b *testing.B) {
 }
 
 // BenchmarkEngineInfo_DockerCLIOverSSH is the same answer the way
-// container.docker.run reaches the engine today and Ansible's CLI-based
-// modules do: the docker CLI started in a shell over the same open login.
+// the retired container.docker.run reached the engine and Ansible's
+// CLI-based modules do: the docker CLI started in a shell over the same open login.
 // It is the alternative the channel is measured against.
 func BenchmarkEngineInfo_DockerCLIOverSSH(b *testing.B) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

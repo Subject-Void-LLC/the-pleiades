@@ -55,8 +55,8 @@ func reachesAnEngine(m collection.Manifest) bool {
 	return true
 }
 
-// engineOf is the engine an engine-only method requires (container.docker.*
-// requires Docker), or empty for one that reaches whichever the device runs.
+// engineOf is the engine an engine-only method requires (one only Docker
+// has requires Docker), or empty for one that reaches whichever the device runs.
 func engineOf(m collection.Manifest) capability.EngineKind {
 	switch {
 	case slices.Contains(m.RequiredCapabilities, capability.NameDocker):

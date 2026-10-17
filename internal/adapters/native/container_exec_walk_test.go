@@ -1,6 +1,6 @@
 // The Walk tier's half of Phase 119a's release gate: a container host
 // dispatched to a Runner is rebuilt from its payload in the Runner's real
-// per-task child, and container.docker.exec there reaches the engine the
+// per-task child, and container.exec there reaches the engine the
 // device advertised, over a real SSH login to a real Docker engine. It is
 // the path finding S1 ran on: before, the child dialed the socket path the
 // record typed, on the Runner's own machine.
@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/engines"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -56,7 +55,7 @@ func containerHostPayload(d *testsupport.EngineHost, engineID string) wire.Dispa
 }
 
 // TestContainerExec_RunnerChildReachesTheDevicesEngine runs
-// container.docker.exec in the real per-task child against a dispatched
+// container.exec in the real per-task child against a dispatched
 // container host, and proves it ran inside the container on the device's
 // engine; then it proves an older Controller's payload, still carrying the
 // typed socket, is refused rather than run.
@@ -79,9 +78,9 @@ func TestContainerExec_RunnerChildReachesTheDevicesEngine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	desc, ok := collection.Lookup("container.docker.exec")
+	desc, ok := collection.Lookup("container.exec")
 	if !ok {
-		t.Fatal("container.docker.exec is not registered in this binary")
+		t.Fatal("container.exec is not registered in this binary")
 	}
 	params := map[string]any{"name": name, "cmd": "echo walk reached $(cat /etc/alpine-release)"}
 

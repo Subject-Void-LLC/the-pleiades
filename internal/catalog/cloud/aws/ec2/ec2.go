@@ -15,7 +15,7 @@
 //
 // create is idempotent on the instance NAME (its "Name" tag) existing
 // among non-terminated instances only, the same restraint
-// container.docker.run already applies against community.docker's much
+// the first container methods applied against community.docker's much
 // larger surface: an existing match is left alone regardless of whether
 // its image or instance type match what was requested, and this method
 // never recreates. terminate takes an explicit instance_id rather than a

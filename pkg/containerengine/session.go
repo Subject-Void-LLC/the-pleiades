@@ -82,8 +82,8 @@ func Open(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	return OpenKind(ctx, rc, device, params, fqcn, "", ops...)
 }
 
-// OpenKind is Open for an engine-only method (container.docker.*,
-// container.podman.*): kind is the engine it must reach, and a device that
+// OpenKind is Open for an engine-only method, one only Docker or only
+// Podman has: kind is the engine it must reach, and a device that
 // does not run it is refused rather than reached through another.
 func OpenKind(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, kind capability.EngineKind, ops ...Op) (*Session, error) {
 	for _, op := range ops {

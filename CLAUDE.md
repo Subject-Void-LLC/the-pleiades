@@ -156,7 +156,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The ten methods with no check (`exec.winrm.shell`, `container.docker.exec`,
+  call. The ten methods with no check (`exec.winrm.shell`, `container.exec`,
   `net.cli.*`, `net.ios.config`, `net.netconf.config`, the four waits) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
