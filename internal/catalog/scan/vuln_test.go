@@ -3,6 +3,7 @@ package scan_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,5 +183,35 @@ func TestVuln_NothingToScanFails(t *testing.T) {
 	}
 	if w, _ := stats["warnings"].([]string); len(w) != 1 || !strings.Contains(w[0], "found no package") {
 		t.Errorf("warnings = %v", stats["warnings"])
+	}
+}
+
+// TestVuln_ScannerTextReachesTheErrorBoundedAndEscaped: a package whose
+// name is long and carries a terminal escape, as a lockfile may write
+// one, is named in the error bounded and with the escape made visible.
+func TestVuln_ScannerTextReachesTheErrorBoundedAndEscaped(t *testing.T) {
+	h := newHarness(t)
+	name := "evil\x1b[2J" + strings.Repeat("x", 3000)
+	lock, _ := json.Marshal(map[string]any{"name": "demo", "version": "1.0.0", "lockfileVersion": 3, "packages": map[string]any{
+		"": map[string]any{"name": "demo", "version": "1.0.0"}, "node_modules/" + name: map[string]any{"version": "1.3.0"},
+	}})
+	adv, _ := json.Marshal(map[string]any{"schema_version": "1.6.0", "id": "GHSA-long", "modified": "2026-01-01T00:00:00Z", "summary": "test",
+		"affected": []any{map[string]any{"package": map[string]string{"ecosystem": "npm", "name": name},
+			"ranges": []any{map[string]any{"type": "SEMVER", "events": []any{map[string]string{"introduced": "0"}, map[string]string{"fixed": "1.3.1"}}}}}},
+		"severity": []any{map[string]string{"type": "CVSS_V3", "score": criticalVector}},
+	})
+	project := writeFiles(t, map[string]string{"package-lock.json": string(lock)})
+	db := offlineDB(t, map[string]string{"GHSA-long": string(adv)})
+	_, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), "GHSA-long") {
+		t.Fatalf("a vulnerable package with a long name = %v", err)
+	}
+	if strings.ContainsRune(err.Error(), 0x1b) {
+		t.Error("a raw escape reached the error")
+	}
+	for _, line := range strings.Split(err.Error(), "\n") {
+		if len(line) > 1024 {
+			t.Errorf("a line of %d bytes reached the error", len(line))
+		}
 	}
 }

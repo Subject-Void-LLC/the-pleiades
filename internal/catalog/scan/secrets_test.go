@@ -86,3 +86,18 @@ func TestSecrets_TheTreeCannotTurnOffTheGate(t *testing.T) {
 		})
 	}
 }
+
+// TestSecrets_AFileNameReachesTheErrorEscaped: a file whose name carries
+// a terminal escape is named in the error with the escape made visible,
+// never sent raw.
+func TestSecrets_AFileNameReachesTheErrorEscaped(t *testing.T) {
+	h := newHarness(t)
+	tree := writeFiles(t, map[string]string{"conf/\x1b[2Japp.ini": "aws_access_key_id = " + plantedKey + "\n"})
+	_, err := scan.Secrets(context.Background(), h.fresh(), h.device, params(map[string]any{"dir": tree}))
+	if err == nil || !strings.Contains(err.Error(), "app.ini:1: aws-access-token") {
+		t.Fatalf("a planted credential = %v", err)
+	}
+	if strings.ContainsRune(err.Error(), 0x1b) {
+		t.Errorf("a raw escape reached the error: %q", err.Error())
+	}
+}

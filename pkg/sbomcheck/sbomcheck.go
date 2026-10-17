@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // MaxDocumentBytes bounds an SBOM.
@@ -25,6 +27,14 @@ const MaxDocumentBytes = 64 << 20
 
 // noAssertion is SPDX's "nobody knows".
 const noAssertion = "NOASSERTION"
+
+// maxNamed bounds a name or value from the document as a message quotes
+// it.
+const maxNamed = 256
+
+// named is text from the document as a message quotes it: bounded, and
+// with anything a terminal would act on made visible.
+func named(s string) string { return remoteexec.Excerpt(s, maxNamed) }
 
 // Document is a parsed SPDX 2.3 JSON document: the fields this reads, and
 // the whole document, kept so an edit writes back everything it held.
@@ -70,7 +80,7 @@ func Parse(data []byte) (*Document, error) {
 	d := &Document{raw: raw}
 	d.SPDXVersion, _ = raw["spdxVersion"].(string)
 	if d.SPDXVersion != "SPDX-2.3" {
-		return nil, fmt.Errorf("the SBOM is %q, not SPDX-2.3", d.SPDXVersion)
+		return nil, fmt.Errorf("the SBOM is \"%s\", not SPDX-2.3", named(d.SPDXVersion))
 	}
 	d.Name, _ = raw["name"].(string)
 	d.Namespace, _ = raw["documentNamespace"].(string)
@@ -99,7 +109,7 @@ func Parse(data []byte) (*Document, error) {
 			}
 		}
 		if p.SPDXID == "" {
-			return nil, fmt.Errorf("package %d (%q) has no SPDXID", i, p.Name)
+			return nil, fmt.Errorf("package %d (\"%s\") has no SPDXID", i, named(p.Name))
 		}
 		d.Packages = append(d.Packages, p)
 	}
@@ -167,7 +177,7 @@ func (d *Document) Validate() Report {
 		r.Problems = append(r.Problems, "the document names no author (creationInfo.creators)")
 	}
 	if _, err := time.Parse(time.RFC3339, d.Created); err != nil {
-		r.Problems = append(r.Problems, fmt.Sprintf("the document has no timestamp (creationInfo.created is %q)", d.Created))
+		r.Problems = append(r.Problems, fmt.Sprintf("the document has no timestamp (creationInfo.created is \"%s\")", named(d.Created)))
 	}
 	if !strings.Contains(d.Namespace, "://") {
 		r.Problems = append(r.Problems, "the document has no namespace URI, so nothing in it is uniquely identified")
@@ -203,7 +213,7 @@ func (d *Document) Validate() Report {
 		}
 		if subjects[p.SPDXID] {
 			if p.Supplier == "" || p.Supplier == noAssertion {
-				r.Problems = append(r.Problems, fmt.Sprintf("the subject %s has no supplier", name))
+				r.Problems = append(r.Problems, fmt.Sprintf("the subject %s has no supplier", named(name)))
 			}
 			continue
 		}
@@ -245,14 +255,20 @@ func (d *Document) unheldSubjects() []string {
 	return out
 }
 
-// first is up to listed names, sorted, and how many more.
+// first is up to listed names, sorted, each bounded (named), and how
+// many more.
 func first(names []string) string {
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
+	more := ""
 	if len(sorted) > listed {
-		return strings.Join(sorted[:listed], ", ") + fmt.Sprintf(" and %d more", len(sorted)-listed)
+		more = fmt.Sprintf(" and %d more", len(sorted)-listed)
+		sorted = sorted[:listed]
 	}
-	return strings.Join(sorted, ", ")
+	for i, n := range sorted {
+		sorted[i] = named(n)
+	}
+	return strings.Join(sorted, ", ") + more
 }
 
 // SetSubjectSupplier records supplier ("Organization: Example Co" or

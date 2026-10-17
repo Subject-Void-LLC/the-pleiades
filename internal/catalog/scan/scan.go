@@ -291,7 +291,7 @@ func scannerConfigs(ctx context.Context, ssh *remoteexec.Conn, dir string, names
 	var found []string
 	for _, line := range strings.Split(strings.TrimRight(res.Stdout, "\n"), "\n") {
 		if line != "" {
-			found = append(found, remoteexec.Excerpt(line, 512))
+			found = append(found, reported(line))
 		}
 	}
 	return found, nil
@@ -361,13 +361,30 @@ func listed(lines []string) string {
 	return listedOf(lines[:min(len(lines), maxListed)], len(lines))
 }
 
-// listedOf is lines for a failed task's error, then how many of total
+// maxListedLine bounds one line a failed task's error lists, since most
+// carry what a scanner reported.
+const maxListedLine = 1024
+
+// maxReported bounds one name, path or id a scanner reported, as an error
+// quotes it.
+const maxReported = 256
+
+// reported is text a scanner reported, as an error quotes it: bounded, and
+// with anything a terminal would act on made visible.
+func reported(s string) string { return remoteexec.Excerpt(s, maxReported) }
+
+// listedOf is lines for a failed task's error, each bounded and with
+// anything a terminal would act on made visible, then how many of total
 // they leave out.
 func listedOf(lines []string, total int) string {
-	if total > len(lines) {
-		lines = append(lines[:len(lines):len(lines)], fmt.Sprintf("... and %d more", total-len(lines)))
+	out := make([]string, 0, len(lines)+1)
+	for _, l := range lines {
+		out = append(out, remoteexec.Excerpt(l, maxListedLine))
 	}
-	return "\n  " + strings.Join(lines, "\n  ")
+	if total > len(lines) {
+		out = append(out, fmt.Sprintf("... and %d more", total-len(lines)))
+	}
+	return "\n  " + strings.Join(out, "\n  ")
 }
 
 // recordWarnings records a run's warnings, when it has any.

@@ -157,7 +157,7 @@ func secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if e, ok := judge.Ignored(fingerprint); ok {
 			entry["ignored"] = e.Reason
 		} else {
-			failing = append(failing, fmt.Sprintf("%s:%d: %s", file, l.StartLine, l.RuleID))
+			failing = append(failing, fmt.Sprintf("%s:%d: %s", reported(file), l.StartLine, reported(l.RuleID)))
 		}
 		if len(entries) < maxRecordedFindings {
 			entries = append(entries, entry)

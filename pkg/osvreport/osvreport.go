@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // MaxReportBytes bounds a report.
@@ -21,6 +23,13 @@ const MaxReportBytes = 64 << 20
 
 // MaxFindings bounds how many findings one report yields.
 const MaxFindings = 100000
+
+// maxNamed bounds a path or name from the report as a refusal quotes it.
+const maxNamed = 256
+
+// named is text from the report as a refusal quotes it: bounded, and with
+// anything a terminal would act on made visible.
+func named(s string) string { return remoteexec.Excerpt(s, maxNamed) }
 
 // Rating is a severity, ordered.
 type Rating int
@@ -158,11 +167,11 @@ func Parse(data []byte) ([]Finding, error) {
 	for _, result := range *r.Results {
 		for _, p := range result.Packages {
 			if p.Package.Name == "" {
-				return nil, fmt.Errorf("%s: a package with no name", result.Source.Path)
+				return nil, fmt.Errorf("%s: a package with no name", named(result.Source.Path))
 			}
 			for _, g := range p.Groups {
 				if len(g.IDs) == 0 || contains(g.IDs, "") {
-					return nil, fmt.Errorf("%s: %s has a group of advisories with no id", result.Source.Path, p.Package.Name)
+					return nil, fmt.Errorf("%s: %s has a group of advisories with no id", named(result.Source.Path), named(p.Package.Name))
 				}
 				f := Finding{
 					Source: result.Source.Path, Ecosystem: p.Package.Ecosystem, Package: p.Package.Name, Version: p.Package.Version,

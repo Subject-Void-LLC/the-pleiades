@@ -111,3 +111,27 @@ func TestRatings(t *testing.T) {
 		t.Error("ParseRating accepted severe")
 	}
 }
+
+// TestParse_ARefusalBoundsWhatTheReportSays: a refusal names the report's
+// path and package bounded and escaped, however long they are and
+// whatever they hold.
+func TestParse_ARefusalBoundsWhatTheReportSays(t *testing.T) {
+	long := "/src/\x1b[2J" + strings.Repeat("p", 100000)
+	for name, report := range map[string]string{
+		"a package with no name": `{"results":[{"source":{"path":"` + jsonEscape(long) + `"},"packages":[{"package":{"name":""}}]}]}`,
+		"a group with no id":     `{"results":[{"source":{"path":"/src/x"},"packages":[{"package":{"name":"` + jsonEscape(long) + `"},"groups":[{"ids":[]}]}]}]}`,
+	} {
+		_, err := osvreport.Parse([]byte(report))
+		if err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+		if len(err.Error()) > 1024 || strings.ContainsRune(err.Error(), 0x1b) {
+			t.Errorf("%s: a refusal of %d bytes, escape held: %v", name, len(err.Error()), strings.ContainsRune(err.Error(), 0x1b))
+		}
+	}
+}
+
+// jsonEscape is s as the inside of a JSON string.
+func jsonEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\x1b", `\u001b`).Replace(s)
+}

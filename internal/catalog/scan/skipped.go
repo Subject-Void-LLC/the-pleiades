@@ -8,16 +8,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // maxSkipLine bounds one line of the scanner's log as the watch reads it;
 // the start of a line, which says what it is, is what is kept.
 const maxSkipLine = 4096
-
-// maxSkippedPath bounds one skipped path as an error names it.
-const maxSkippedPath = 256
 
 // skipWatch reads Gitleaks' standard error for what it skipped. At
 // --log-level warn every skip it logs is one it could not help: those it
@@ -80,7 +75,7 @@ func (w *skipWatch) skipped(t target) (int, []string) {
 	}
 	out := make([]string, len(w.paths))
 	for i, p := range w.paths {
-		out[i] = remoteexec.Excerpt(t.onDevice(p), maxSkippedPath)
+		out[i] = reported(t.onDevice(p))
 	}
 	return w.count, out
 }

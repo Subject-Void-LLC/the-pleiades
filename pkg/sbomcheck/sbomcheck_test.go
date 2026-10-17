@@ -147,3 +147,28 @@ func TestValidate_ASubjectMustBeAPackage(t *testing.T) {
 		t.Errorf("SetSubjectSupplier = %v", err)
 	}
 }
+
+// TestValidate_AProblemBoundsTheNamesItLists: a name the document gives
+// reaches a problem bounded and escaped, however long it is and whatever
+// it holds.
+func TestValidate_AProblemBoundsTheNamesItLists(t *testing.T) {
+	long := "evil\x1b[2J" + strings.Repeat("n", 100000)
+	doc := `{"spdxVersion":"SPDX-2.3","name":"x","documentNamespace":"https://example.com/x",` +
+		`"creationInfo":{"created":"2026-10-15T00:00:00Z","creators":["Tool: syft"]},` +
+		`"packages":[{"SPDXID":"SPDXRef-root","name":"app","versionInfo":"1.0","supplier":"Organization: Example Co"},` +
+		`{"SPDXID":"SPDXRef-a","name":"` + strings.ReplaceAll(long, "\x1b", `\u001b`) + `"}],` +
+		`"relationships":[{"spdxElementId":"SPDXRef-DOCUMENT","relationshipType":"DESCRIBES","relatedSpdxElement":"SPDXRef-root"}]}`
+	d, err := sbomcheck.Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	problems := d.Validate().Problems
+	if len(problems) == 0 {
+		t.Fatal("a dependency with no version passed")
+	}
+	for _, p := range problems {
+		if len(p) > 1024 || strings.ContainsRune(p, 0x1b) {
+			t.Errorf("a problem of %d bytes, escape held: %v", len(p), strings.ContainsRune(p, 0x1b))
+		}
+	}
+}

@@ -271,7 +271,9 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			if len(f.Fixed) > 0 {
 				fix = "fixed in " + strings.Join(f.Fixed, ", ")
 			}
-			failing = append(failing, fmt.Sprintf("%s: %s (%s); %s", f.Label(), f.ID, f.Rating, fix))
+			// Each part is the scanner's text, bounded on its own so a long
+			// name cannot crowd out the advisory it is exposed to.
+			failing = append(failing, fmt.Sprintf("%s: %s (%s); %s", reported(f.Label()), reported(f.ID), f.Rating, reported(fix)))
 		}
 		if len(entries) < maxRecordedFindings {
 			entries = append(entries, entry)
