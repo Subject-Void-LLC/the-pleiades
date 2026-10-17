@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -75,7 +76,15 @@ func (r pleiadesRemote) ensureDevice(mac string, t sshTarget) error {
 	}
 	stamp := strings.Join([]string{mac, t.host, t.port, t.user, key}, "\n")
 	if data, err := os.ReadFile(filepath.Join(r.project, "target")); err == nil && string(data) == stamp && fileExists(r.binary()) {
-		return r.build()
+		if err := r.build(); err != nil {
+			return err
+		}
+		// Onboarding again records what this branch's binary grants the
+		// Mac, which a binary from another branch may not have.
+		if out, err := r.pleiades("onboard", device, "--dir", r.project); err != nil {
+			return fmt.Errorf("pleiades onboard: %v\n%s", err, strings.TrimSpace(out))
+		}
+		return nil
 	}
 	if err := os.RemoveAll(r.project); err != nil {
 		return err
@@ -157,6 +166,42 @@ func (r pleiadesRemote) adhoc(method string, params ...string) (string, error) {
 	}
 	stdout, _ := task.Stats["stdout"].(string)
 	return stdout, nil
+}
+
+// Ship sends commit sha's tree to the Mac through pleiades: exec.command
+// removes all but the newest trees and answers the Mac's home directory,
+// git archive writes the tree into the private project, file.copy sends
+// it, and archive.extract unpacks it into a directory of its own and
+// deletes the archive.
+func (r pleiadesRemote) Ship(_, sha string) error {
+	out, err := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", fmt.Sprintf(`set -e
+base="$HOME/%[1]s"
+mkdir -p "$base"
+ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
+rm -rf "${base:?}/%[3]s" "${base:?}/%[3]s.tar.gz"
+printf '%%s\n' "$HOME"`, checkoutDir, keptCheckouts, sha)))
+	if err != nil {
+		return fmt.Errorf("preparing the Mac: %v", err)
+	}
+	home := strings.TrimSpace(out)
+	if !strings.HasPrefix(home, "/") {
+		return fmt.Errorf("the Mac named %q as its home directory", home)
+	}
+	files := filepath.Join(r.project, "files")
+	if err := os.MkdirAll(files, 0o700); err != nil {
+		return err
+	}
+	local := filepath.Join(files, sha+".tar.gz")
+	defer func() { _ = os.Remove(local) }()
+	if out, err := exec.Command("git", "archive", "--format=tar.gz", "-o", local, sha).CombinedOutput(); err != nil { // #nosec G204 -- a commit rev-parse resolved
+		return fmt.Errorf("git archive: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	archive := path.Join(home, checkoutDir, sha+".tar.gz")
+	if _, err := r.adhoc("file.copy", "src=files/"+sha+".tar.gz", "dest="+archive, "mode=0600"); err != nil {
+		return err
+	}
+	_, err = r.adhoc("archive.extract", "src="+archive, "dest="+path.Join(home, checkoutDir, sha), "remove:=true")
+	return err
 }
 
 // Test runs script on the Mac through exec.command and reads its exit

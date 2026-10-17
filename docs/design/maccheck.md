@@ -28,8 +28,10 @@ argument-order class on Linux; the rest needs a Mac.
    with this branch's own `pleiades` (`init`, `add-host`, `add-credential`, `onboard`) and remade whenever the
    target changes. `net.ssh.ping` confirms Pleiades reaches it, and `exec.command` that it is a Mac with `go` and
    `caffeinate` on its PATH.
-4. **The tree.** `git archive` of the commit (never the working tree) is unpacked into
-   `~/.pleiades-maccheck/<commit>` on the Mac, over plain ssh (gap 2 below); the newest three are kept.
+4. **The tree.** `git archive` of the commit (never the working tree) is written into the private project,
+   sent with `file.copy`'s `src` and unpacked with `archive.extract` into `~/.pleiades-maccheck/<commit>` on
+   the Mac, the archive then deleted; the newest three trees are kept. Each run onboards the Mac again, so
+   what the branch's binary grants a Darwin kernel is what the run uses.
 5. **The tests.** `exec.command` runs, under `caffeinate -dims` so the Mac does not sleep partway, the branch's
    container-free packages through `tools/testgate` exactly as `pr-check` does: the full pass, then three strict
    repeats.
@@ -43,8 +45,8 @@ Each is something a Pleiades user doing the same would meet. None is built here.
 
 | Gap | What it costs here | What would close it |
 |---|---|---|
-| Onboarding grants a Darwin kernel shell exec only; the file methods are proven on FreeBSD, not macOS. | Nothing yet: the check needs only `exec.command`. | Prove `pkg/remotefile` against a real Mac (this one), as FreeBSD was, and grant POSIX file access for Darwin. |
-| No method moves a local file or tree to a device: `file.copy` refuses `src`, since a Walk-tier Runner cannot see the controller's files. | The tree goes over plain ssh, the one step that is not a Pleiades method. | A transfer that works on both tiers, for instance an artifact the Controller hands the Runner. |
+| ~~Onboarding grants a Darwin kernel shell exec only.~~ Closed 2026-10-16: `pkg/remotefile`, `archive` and `file` pass on this Mac, and a Darwin kernel is granted POSIX file access. Proving it found `archive.create` adding macOS's AppleDouble `._` entries, fixed. | Nothing now. | |
+| ~~No method moves a local file or tree to a device.~~ Closed on the command line 2026-10-16: `file.copy` takes `src`, a project file, and this check ships its tree with it. | Nothing on the command line. | The Walk tier still refuses `src`, since a Runner cannot see the project: an artifact the Controller hands the Runner. |
 | No timeout: `exec.command` has no timeout parameter, and a runbook task has no timeout key. | A hung session is bounded only by `go test`'s own per-package timeout. | A task-level timeout, as Ansible's `timeout:` keyword. |
 | A failed `exec.command` keeps only an excerpt of its output. | The Mac's script always exits 0 and ends its output with `maccheck-exit=<status>`, so a failing run's output survives. | Return `rc` and the full output with the failure, as Ansible does. |
 | `pleiades run` and `adhoc` return a command's output only when it ends. | A run of ten to twenty minutes is silent until it ends. | Stream a running command's output. |
