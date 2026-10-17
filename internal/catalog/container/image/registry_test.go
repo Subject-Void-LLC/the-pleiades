@@ -140,8 +140,8 @@ func TestResolve_ATagToItsIndex(t *testing.T) {
 		t.Fatalf("resolve = %+v, %v", res, err)
 	}
 	digest, _ := rc.stats["digest"].(string)
-	if want := h.idOf(t, testsupport.NginxImage); want != "" && digest != want {
-		t.Errorf("digest = %s, the engine holds %s by %s", digest, testsupport.NginxImage, want)
+	if held := h.repoDigests(t, testsupport.NginxImage); len(held) > 0 && !slices.ContainsFunc(held, func(d string) bool { return strings.HasSuffix(d, "@"+digest) }) {
+		t.Errorf("digest = %s, the engine holds %s by %v", digest, testsupport.NginxImage, held)
 	}
 	if rc.stats["image"] != "nginx@"+digest {
 		t.Errorf("image = %v", rc.stats["image"])

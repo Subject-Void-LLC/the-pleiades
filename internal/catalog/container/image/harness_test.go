@@ -205,6 +205,19 @@ func (h *harness) idOf(t *testing.T, ref string) string {
 	return res.ID
 }
 
+// repoDigests are the registry digests the engine holds the image ref names
+// by: the index digest a pull recorded, whatever the engine calls the image
+// itself (the classic store names it by its config, the containerd one by
+// its index). Empty when there is no such image.
+func (h *harness) repoDigests(t *testing.T, ref string) []string {
+	t.Helper()
+	res, err := h.api.ImageInspect(context.Background(), ref)
+	if err != nil {
+		return nil
+	}
+	return res.RepoDigests
+}
+
 // container creates a stopped container of this test's own from image.
 func (h *harness) container(t *testing.T, image string) string {
 	t.Helper()
