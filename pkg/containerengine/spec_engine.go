@@ -25,6 +25,9 @@ func (s Spec) Create() (*container.Config, *container.HostConfig, *network.Netwo
 		labels = map[string]string{}
 	}
 	labels[LabelManagedBy] = s.Image
+	if s.Attempt != "" {
+		labels[LabelAttempt] = s.Attempt
+	}
 	cfg := &container.Config{
 		Image:      s.ImageID,
 		Cmd:        s.Command,
@@ -48,11 +51,7 @@ func (s Spec) Create() (*container.Config, *container.HostConfig, *network.Netwo
 		host.SecurityOpt = nil
 	}
 	for _, d := range s.Devices {
-		hostPath, inner, _ := strings.Cut(d, ":")
-		if inner == "" {
-			inner = hostPath
-		}
-		host.Devices = append(host.Devices, container.DeviceMapping{PathOnHost: hostPath, PathInContainer: inner, CgroupPermissions: "rwm"})
+		host.Devices = append(host.Devices, container.DeviceMapping{PathOnHost: d.Host, PathInContainer: d.Container, CgroupPermissions: d.Perms})
 	}
 	for _, m := range s.Mounts {
 		t := mount.TypeBind
@@ -127,10 +126,80 @@ func (s Spec) Differences(c container.InspectResponse) []string {
 	if want, got := portStrings(s.Ports), livePorts(c.HostConfig.PortBindings); !slices.Equal(want, got) {
 		d = append(d, fmt.Sprintf("ports: %s, the task names %s", strings.Join(got, ", "), strings.Join(want, ", ")))
 	}
-	if want, got := sortedCopy(s.CapAdd), sortedCopy(c.HostConfig.CapAdd); !slices.Equal(want, got) {
+	if want, got := sortedCopy(s.CapAdd), liveCaps(c.HostConfig.CapAdd); !slices.Equal(want, got) {
 		d = append(d, fmt.Sprintf("cap_add: %s, the task names %s", strings.Join(got, ", "), strings.Join(want, ", ")))
 	}
+	if !devicesMatch(s.Devices, c.HostConfig.Devices) {
+		d = append(d, fmt.Sprintf("devices: %s, the task names %s", strings.Join(liveDevices(c.HostConfig.Devices), ", "), strings.Join(deviceStrings(s.Devices), ", ")))
+	}
+	// An unset user or workdir is the image's own, which the task does not
+	// name, so only a declared one is compared, as command is.
+	if s.User != "" && c.Config.User != s.User {
+		d = append(d, fmt.Sprintf("user: %q, the task names %q", c.Config.User, s.User))
+	}
+	if s.Workdir != "" && c.Config.WorkingDir != s.Workdir {
+		d = append(d, fmt.Sprintf("workdir: %q, the task names %q", c.Config.WorkingDir, s.Workdir))
+	}
+	if !s.Privileged && !slices.Contains(c.HostConfig.SecurityOpt, "no-new-privileges") && !slices.Contains(c.HostConfig.SecurityOpt, "no-new-privileges:true") {
+		d = append(d, "security: the container may gain privileges (no-new-privileges is not set), which every container this platform makes has")
+	}
 	return d
+}
+
+// liveCaps is a container's added capabilities without the CAP_ prefix
+// Podman reports them with, sorted.
+func liveCaps(caps []string) []string {
+	out := make([]string, 0, len(caps))
+	for _, c := range caps {
+		out = append(out, strings.TrimPrefix(c, "CAP_"))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// deviceStrings is devices as docker run writes them, sorted.
+func deviceStrings(devices []Device) []string {
+	out := make([]string, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, d.String())
+	}
+	slices.Sort(out)
+	return out
+}
+
+// devicesMatch reports whether the live devices are the declared ones, by
+// the path each has inside the container. Host path and permissions are
+// compared where the engine reports permissions: Docker does; Podman
+// reports a device by its numbers, so /dev/null (char 1:3) comes back as
+// whichever /dev name it finds first for 1:3, with no permissions.
+func devicesMatch(want []Device, live []container.DeviceMapping) bool {
+	if len(want) != len(live) {
+		return false
+	}
+	byPath := map[string]container.DeviceMapping{}
+	for _, l := range live {
+		byPath[l.PathInContainer] = l
+	}
+	for _, w := range want {
+		l, ok := byPath[w.Container]
+		if !ok {
+			return false
+		}
+		if l.CgroupPermissions != "" && (l.PathOnHost != w.Host || l.CgroupPermissions != w.Perms) {
+			return false
+		}
+	}
+	return true
+}
+
+// liveDevices is a container's devices as docker run writes them, sorted.
+func liveDevices(devices []container.DeviceMapping) []string {
+	out := make([]string, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, Device{Host: d.PathOnHost, Container: d.PathInContainer, Perms: d.CgroupPermissions}.String())
+	}
+	slices.Sort(out)
+	return out
 }
 
 // EnvNames is s's environment names, sorted: what may be reported.
@@ -214,14 +283,23 @@ func livePorts(bindings network.PortMap) []string {
 				continue
 			}
 			p.HostPort = uint16(n)
-			if b.HostIP.IsValid() && !b.HostIP.IsUnspecified() {
-				p.HostIP = b.HostIP.String()
-			}
+			p.HostIP = portHostIP(b.HostIP)
 			out = append(out, p.String())
 		}
 	}
 	slices.Sort(out)
 	return out
+}
+
+// portHostIP is a binding's host address as compared: none and 0.0.0.0
+// are one, since Podman reports 0.0.0.0 for a port given no address and
+// Docker keeps 0.0.0.0 when one is given; any other address, :: included,
+// is itself.
+func portHostIP(a netip.Addr) string {
+	if !a.IsValid() || a == netip.IPv4Unspecified() {
+		return ""
+	}
+	return a.String()
 }
 
 // sortedCopy is s sorted, never nil.

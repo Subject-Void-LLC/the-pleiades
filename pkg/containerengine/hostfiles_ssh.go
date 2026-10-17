@@ -16,11 +16,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 )
 
-// cleanupContext is the context a failed write removes its temporary
-// with: the task's own, without its cancellation, so a canceled task still
-// cleans up.
-func cleanupContext(ctx context.Context) context.Context { return context.WithoutCancel(ctx) }
-
 // run runs command and refuses a non-zero exit, naming what it was doing.
 func (s *sshFS) run(ctx context.Context, what, command string) (string, error) {
 	res, err := s.conn.Run(ctx, command)
@@ -178,7 +173,9 @@ func (s *sshFS) store(ctx context.Context, p string, r io.Reader) (Stored, error
 	keep := false
 	defer func() {
 		if !keep {
-			_, _ = s.conn.Run(cleanupContext(ctx), "rm -f -- "+remoteexec.QuoteArg(tmp))
+			cctx, cancel := CleanupContext(ctx)
+			defer cancel()
+			_, _ = s.conn.Run(cctx, "rm -f -- "+remoteexec.QuoteArg(tmp))
 		}
 	}()
 	h := sha256.New()

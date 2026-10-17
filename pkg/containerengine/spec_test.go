@@ -48,7 +48,19 @@ func TestParseSpec_RefusesWhatAnEngineWouldReadOtherwise(t *testing.T) {
 		"a port with a bad proto":   {base("ports", []any{"8080:80/icmp"}), "not tcp, udp or sctp"},
 		"a relative host path":      {base("volumes", []any{"./data:/data"}), "neither an absolute host path nor a volume name"},
 		"a climbing host path":      {base("volumes", []any{"/srv/../etc:/data"}), "not clean"},
-		"the engine socket":         {base("volumes", []any{"/var/run/docker.sock:/var/run/docker.sock"}), "engine's own socket"},
+		"the engine socket":         {base("volumes", []any{"/var/run/docker.sock:/var/run/docker.sock"}), "engine's socket"},
+		"the socket's directory":    {base("volumes", []any{"/var/run:/x"}), "engine's socket"},
+		"/run":                      {base("volumes", []any{"/run:/x"}), "engine's socket"},
+		"the host's root":           {base("volumes", []any{"/:/host:rw"}), "engine's socket"},
+		"a rootless socket":         {base("volumes", []any{"/run/user/1000/docker.sock:/s"}), "engine's socket"},
+		"a rootless runtime dir":    {base("volumes", []any{"/run/user/1000:/s"}), "engine's socket"},
+		"containerd's socket":       {base("volumes", []any{"/run/containerd/containerd.sock:/s"}), "engine's socket"},
+		"podman's directory":        {base("volumes", []any{"/run/podman:/s"}), "engine's socket"},
+		"our attempt label":         {base("labels", map[string]any{LabelAttempt: "x"}), "this platform's own"},
+		"a device path in a perm":   {base("devices", []any{"/dev/sda:/dev/xvdc:rx"}), "permissions"},
+		"a relative device inside":  {base("devices", []any{"/dev/sda:xvdc"}), "absolute, clean path"},
+		"a device with four parts":  {base("devices", []any{"/dev/sda:/dev/x:r:w"}), "host[:container"},
+		"a doubled permission":      {base("devices", []any{"/dev/sda:/dev/x:rr"}), "permissions"},
 		"a mount at /":              {base("volumes", []any{"/srv:/"}), "below /"},
 		"a bad mount mode":          {base("volumes", []any{"/srv:/data:z"}), "not ro or rw"},
 		"a bad restart policy":      {base("restart_policy", "sometimes"), "restart_policy"},
@@ -134,5 +146,31 @@ func TestSpec_CreateAndDifferences(t *testing.T) {
 	}
 	if strings.Contains(d, "secret-sentinel") || strings.Contains(d, "other") {
 		t.Errorf("a difference names an environment value:\n%s", d)
+	}
+}
+
+// TestParseDevice reads docker run's three forms: a third part is
+// permissions, never part of the path inside the container.
+func TestParseDevice(t *testing.T) {
+	for raw, want := range map[string]Device{
+		"/dev/sda":              {Host: "/dev/sda", Container: "/dev/sda", Perms: "rwm"},
+		"/dev/sda:/dev/xvdc":    {Host: "/dev/sda", Container: "/dev/xvdc", Perms: "rwm"},
+		"/dev/sda:/dev/xvdc:r":  {Host: "/dev/sda", Container: "/dev/xvdc", Perms: "r"},
+		"/dev/fuse:/dev/fuse:m": {Host: "/dev/fuse", Container: "/dev/fuse", Perms: "m"},
+	} {
+		got, err := ParseDevice(raw)
+		if err != nil || got != want {
+			t.Errorf("ParseDevice(%q) = %+v, %v; want %+v", raw, got, err, want)
+		}
+	}
+}
+
+// TestMount_AllowsAPathBesideTheSockets: a host path that neither is nor
+// holds a socket is still a mount.
+func TestMount_AllowsAPathBesideTheSockets(t *testing.T) {
+	for _, raw := range []string{"/srv/data:/data", "/run/app:/x", "/var/lib/app:/x:rw"} {
+		if _, err := ParseMount(raw); err != nil {
+			t.Errorf("ParseMount(%q) = %v", raw, err)
+		}
 	}
 }

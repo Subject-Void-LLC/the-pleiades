@@ -64,7 +64,69 @@ type Spec struct {
 	// host, and is never a default.
 	Privileged bool
 	CapAdd     []string
-	Devices    []string
+	Devices    []Device
+	// Attempt, when set, is a label value that marks the container one
+	// create request made (LabelAttempt), so a create whose answer was
+	// lost finds its own container rather than another run's of the same
+	// name.
+	Attempt string
+}
+
+// Device is one host device given to the container, as docker run's
+// --device reads it: host[:container[:permissions]].
+type Device struct {
+	// Host is the device's path on the host, under /dev.
+	Host string
+	// Container is its path inside the container; Host when not given.
+	Container string
+	// Perms is the cgroup permissions, a non-empty subset of "rwm"; "rwm"
+	// when not given.
+	Perms string
+}
+
+// String is the device as docker run writes it.
+func (d Device) String() string { return d.Host + ":" + d.Container + ":" + d.Perms }
+
+// ParseDevice reads one device, host[:container[:permissions]], as docker
+// run does: a third part is permissions, never part of a path.
+func ParseDevice(raw string) (Device, error) {
+	parts := strings.Split(raw, ":")
+	if len(parts) > 3 {
+		return Device{}, fmt.Errorf("devices: %q is not host[:container[:permissions]]", raw)
+	}
+	d := Device{Host: parts[0], Container: parts[0], Perms: "rwm"}
+	if len(parts) > 1 {
+		d.Container = parts[1]
+	}
+	if len(parts) > 2 {
+		d.Perms = parts[2]
+	}
+	if !strings.HasPrefix(d.Host, "/dev/") || path.Clean(d.Host) != d.Host {
+		return Device{}, fmt.Errorf("devices: %q does not name a device under /dev", raw)
+	}
+	if !path.IsAbs(d.Container) || path.Clean(d.Container) != d.Container || d.Container == "/" {
+		return Device{}, fmt.Errorf("devices: %q gives the device at %q, which is not an absolute, clean path below /", raw, d.Container)
+	}
+	if !validPerms(d.Perms) {
+		return Device{}, fmt.Errorf("devices: %q gives permissions %q, which is not some of r, w and m, each once", raw, d.Perms)
+	}
+	return d, nil
+}
+
+// validPerms reports whether p is a non-empty subset of "rwm", each letter
+// at most once.
+func validPerms(p string) bool {
+	if p == "" || len(p) > 3 {
+		return false
+	}
+	seen := map[rune]bool{}
+	for _, r := range p {
+		if !strings.ContainsRune("rwm", r) || seen[r] {
+			return false
+		}
+		seen[r] = true
+	}
+	return true
 }
 
 // Port is one published port.
@@ -108,6 +170,10 @@ func (m Mount) String() string {
 // LabelManagedBy is the label every container a method creates carries,
 // with the image reference the task asked for as its value.
 const LabelManagedBy = "org.pleiades.image"
+
+// LabelAttempt carries Spec.Attempt: which create request made the
+// container.
+const LabelAttempt = "org.pleiades.attempt"
 
 // restartPolicies are the restart policies a task may name.
 var restartPolicies = []string{"no", "on-failure", "always", "unless-stopped"}
@@ -218,8 +284,8 @@ func ParseSpec(params map[string]any) (Spec, error) {
 		return s, err
 	}
 	for k := range s.Labels {
-		if k == LabelManagedBy {
-			return s, fmt.Errorf("labels: %s is this platform's own", LabelManagedBy)
+		if k == LabelManagedBy || k == LabelAttempt {
+			return s, fmt.Errorf("labels: %s is this platform's own", k)
 		}
 	}
 	if s.Workdir, err = textOf(params, "workdir"); err != nil {
@@ -249,14 +315,16 @@ func ParseSpec(params map[string]any) (Spec, error) {
 		}
 		s.CapAdd[i] = strings.TrimPrefix(c, "CAP_")
 	}
-	if s.Devices, err = listOf(params, "devices"); err != nil {
+	devices, err := listOf(params, "devices")
+	if err != nil {
 		return s, err
 	}
-	for _, d := range s.Devices {
-		host, _, _ := strings.Cut(d, ":")
-		if !strings.HasPrefix(host, "/dev/") || path.Clean(host) != host {
-			return s, fmt.Errorf("devices: %q does not name a device under /dev", d)
+	for _, raw := range devices {
+		d, err := ParseDevice(raw)
+		if err != nil {
+			return s, err
 		}
+		s.Devices = append(s.Devices, d)
 	}
 	return s, nil
 }
@@ -283,7 +351,7 @@ func ParsePortSpec(raw string) (Port, error) {
 		if err != nil {
 			return p, fmt.Errorf("ports: %q: %q is not an IP address", raw, ip)
 		}
-		p.HostIP = addr.String()
+		p.HostIP = portHostIP(addr)
 		hostPart = hostPart[j+1:]
 	}
 	var err error
@@ -305,9 +373,27 @@ func portNumber(s string) (uint16, error) {
 	return uint16(n), nil
 }
 
-// engineSockets are paths that hand whoever mounts them the engine itself,
-// which is root on the host.
-var engineSockets = []string{"/var/run/docker.sock", "/run/docker.sock", "/run/podman/podman.sock", "/var/run/podman/podman.sock"}
+// engineSockets are paths that hand whoever mounts them an engine, which
+// is root on the host (or the user, for a rootless one). A host path that
+// is one, or holds one (/, /run, /var/run), is refused.
+var engineSockets = []string{
+	"/var/run/docker.sock", "/run/docker.sock",
+	"/run/podman/podman.sock", "/var/run/podman/podman.sock",
+	"/run/containerd/containerd.sock", "/var/run/containerd/containerd.sock",
+}
+
+// reachesEngineSocket reports whether mounting the host path p hands the
+// container an engine's socket: p is one, holds one, or is in a user's
+// runtime directory, where rootless Docker and Podman keep theirs.
+func reachesEngineSocket(p string) bool {
+	for _, sock := range engineSockets {
+		if p == sock || p == "/" || strings.HasPrefix(sock, p+"/") {
+			return true
+		}
+	}
+	return p == "/run/user" || strings.HasPrefix(p, "/run/user/") ||
+		p == "/var/run/user" || strings.HasPrefix(p, "/var/run/user/")
+}
 
 // ParseMount reads one mount, source:target[:ro|rw]. A source beginning
 // with "/" is a host path, which must be absolute and clean and never the
@@ -336,8 +422,8 @@ func ParseMount(raw string) (Mount, error) {
 		if path.Clean(m.Source) != m.Source {
 			return m, fmt.Errorf("volumes: %q's host path is not clean", raw)
 		}
-		if slices.Contains(engineSockets, m.Source) {
-			return m, fmt.Errorf("volumes: %q mounts the container engine's own socket, which gives the container the host", raw)
+		if reachesEngineSocket(m.Source) {
+			return m, fmt.Errorf("volumes: %q mounts a container engine's socket, or a directory holding one, which gives the container the host", raw)
 		}
 		return m, nil
 	}
