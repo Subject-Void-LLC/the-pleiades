@@ -10,7 +10,9 @@ dependencies, leaked credentials in its tree, and an SBOM of what it is made of.
   release of The Pleiades pins by digest (OSV-Scanner, Syft and Gitleaks), so nothing is installed on the server.
 - `pleiades/runbooks/release.yaml` gates the image archive on fixable high and critical vulnerabilities, the tree
   on leaked credentials, and writes an SPDX 2.3 SBOM with its `SHA256SUMS` into a new directory.
-- `scan-ignore.yaml` shows the ignore file both scans read: every entry has a reason and an end date.
+- `vuln-ignore.yaml` and `secrets-ignore.yaml` show the ignore file each scan reads: every entry has a reason and
+  an end date. Each scan has its own, since an entry no finding of a scan meets is warned about as one that can be
+  removed, and a vulnerability id never meets a credential's fingerprint.
 
 ## Running it
 

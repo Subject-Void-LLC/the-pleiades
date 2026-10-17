@@ -6,12 +6,12 @@ tasks:
       image_archive: /srv/release/app.tar
       fail_on: high
       fixable_only: true
-      ignore: /srv/app/scan-ignore.yaml
+      ignore: /srv/app/vuln-ignore.yaml
 
   - name: No credential ships
     scan.secrets:
       dir: /srv/app
-      ignore: /srv/app/scan-ignore.yaml
+      ignore: /srv/app/secrets-ignore.yaml
 
   - name: Describe what ships
     scan.sbom:
