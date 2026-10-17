@@ -16,6 +16,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/network"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec/winrm"
