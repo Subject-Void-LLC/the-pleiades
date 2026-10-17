@@ -1,0 +1,1 @@
+`archive.create` treats every `src` as a path: one beginning with `-` could be read by tar as an option, and GNU tar runs a command for `--checkpoint-action=exec`. On macOS it no longer adds an AppleDouble `._` entry beside every file it archives.

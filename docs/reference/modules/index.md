@@ -59,7 +59,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [facts.gather](facts/gather.md) | implemented | Gathers baseline system facts from the target (OS, kernel, distribution). |
 | [file.block.remove](file/block/remove.md) | implemented | Removes a marked, multi-line block of text from a file. |
 | [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |
-| [file.copy](file/copy.md) | implemented | Writes inline content to a file on the target, only when the bytes there differ. |
+| [file.copy](file/copy.md) | implemented | Writes content, or a file from the project, to a file on the target, only when the bytes there differ. |
 | [file.directory](file/directory.md) | implemented | Makes sure a directory exists on the target, with the mode, owner and group the task asks for. |
 | [file.line.remove](file/line/remove.md) | implemented | Ensures no line matching a pattern remains in a file. |
 | [file.line.set](file/line/set.md) | implemented | Ensures one line matching a pattern is present in a file, replacing or appending it. |

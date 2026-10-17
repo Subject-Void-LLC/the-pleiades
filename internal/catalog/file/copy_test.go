@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -161,6 +162,26 @@ func (c *copyContext) EmitFact(key string, value any) error { return c.SetStat(k
 
 // copyParams builds a task's params with host key verification skipped,
 // which every test against the in-process harness needs.
+// copyProjectContext is a copyContext that reads project files from
+// files (sdk.ProjectFiles), or answers err for every read; the reader's
+// own refusals are internal/engine's and tested there.
+type copyProjectContext struct {
+	*copyContext
+	files map[string]string
+	err   error
+}
+
+func (c *copyProjectContext) ReadProjectFile(name string, max int64) ([]byte, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	data, ok := c.files[name]
+	if !ok {
+		return nil, fmt.Errorf("%s: no such file", name)
+	}
+	return []byte(data), nil
+}
+
 func copyParams(dest, content string) map[string]any {
 	return map[string]any{
 		"dest":                          dest,
@@ -396,35 +417,67 @@ func TestCopy_Registered(t *testing.T) {
 	}
 }
 
-// TestCopy_RefusesSrc is the refusal this method exists to be honest
-// about.
-//
-// It has to explain, not merely reject: src works perfectly well on the
-// Crawl tier, so an author who tried it and got "unsupported parameter"
-// would reasonably assume a bug. The message names the tier where it
-// breaks and what to write instead. It is also checked BEFORE the
-// missing-content refusal, since a converted playbook carries src and no
-// content, and "content is required" would send its author to add a
-// parameter rather than to understand the one they wrote.
-func TestCopy_RefusesSrc(t *testing.T) {
-	for _, params := range []map[string]any{
-		{"dest": "/etc/hosts", "src": "files/hosts"},
-		{"dest": "/etc/hosts", "src": nil},
-		{"dest": "/etc/hosts", "src": "files/hosts", "content": "already here"},
+// TestCopy_SrcNeedsTheProject: src is a file in the run's project, which
+// only the command line holds. Where the context cannot read one (no
+// sdk.ProjectFiles, or one answering ErrNoProjectFiles, as a Walk-tier
+// Runner's does) it is refused before any connection, naming where it
+// works and that content is the way there.
+func TestCopy_SrcNeedsTheProject(t *testing.T) {
+	for name, rc := range map[string]sdk.RunbookContext{
+		"no project files at all": nil,
+		"a context with none":     &copyProjectContext{copyContext: &copyContext{stats: map[string]any{}}, err: sdk.ErrNoProjectFiles},
 	} {
-		_, err := file.Copy(context.Background(), nil, nil, params)
-		if err == nil {
-			t.Fatalf("params %v: expected a refusal, got nil", params)
+		_, err := file.Copy(context.Background(), rc, nil, map[string]any{"dest": "/etc/hosts", "src": "files/hosts"})
+		if err == nil || !strings.Contains(err.Error(), "only the command line") || !strings.Contains(err.Error(), "pass the bytes as content") {
+			t.Errorf("%s: %v, want src refused naming the command line and content", name, err)
 		}
-		if !strings.Contains(err.Error(), "src is not supported") {
-			t.Errorf("params %v: error = %q, want it to name the refused parameter", params, err)
+	}
+}
+
+// TestCopy_ContentOrSrc: exactly one of them says what the file holds.
+func TestCopy_ContentOrSrc(t *testing.T) {
+	for _, tc := range []struct {
+		params map[string]any
+		want   string
+	}{
+		{map[string]any{"dest": "/etc/hosts", "src": "files/hosts", "content": "already here"}, "set content or src, not both"},
+		{map[string]any{"dest": "/etc/hosts", "src": ""}, "src names no file"},
+	} {
+		_, err := file.Copy(context.Background(), nil, nil, tc.params)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("params %v: %v, want %q", tc.params, err, tc.want)
 		}
-		if !strings.Contains(err.Error(), "per-task container") {
-			t.Errorf("params %v: error = %q, want it to say why the runner cannot read it", params, err)
-		}
-		if !strings.Contains(err.Error(), "pass it as content") {
-			t.Errorf("params %v: error = %q, want it to say what to write instead", params, err)
-		}
+	}
+}
+
+// TestCopy_WritesAProjectFile: a src's bytes, binary ones included, are
+// what reaches the device, through the same atomic write and checksum
+// comparison as content, so a second run with the same file writes
+// nothing; a refusal from the project's reader is the task's, named src.
+func TestCopy_WritesAProjectFile(t *testing.T) {
+	server := startCopyServer(t)
+	const bytes = "\x00\x01binary\xff\nline\n"
+	rc := &copyProjectContext{copyContext: newCopyContext(server), files: map[string]string{"files/app.bin": bytes}}
+	dest := copyAbsentPath(t)
+	params := map[string]any{"dest": dest, "src": "files/app.bin", "insecure_skip_host_key_verify": true}
+
+	result, err := file.Copy(context.Background(), rc, newCopyTarget(server), params)
+	if err != nil || !result.Changed {
+		t.Fatalf("Copy = %+v, %v", result, err)
+	}
+	if got := copyFileBytes(t, dest); got != bytes {
+		t.Errorf("the file holds %q, want %q", got, bytes)
+	}
+	if got := rc.stats["checksum"]; got != copySHA256(bytes) {
+		t.Errorf("checksum stat = %v, want %q", got, copySHA256(bytes))
+	}
+	rc.stats = map[string]any{}
+	if result, err := file.Copy(context.Background(), rc, newCopyTarget(server), params); err != nil || result.Changed {
+		t.Errorf("a second run with the same file = %+v, %v; want no change", result, err)
+	}
+	rc.err = errors.New("files/app.bin passes through a symbolic link")
+	if _, err := file.Copy(context.Background(), rc, newCopyTarget(server), params); err == nil || !strings.Contains(err.Error(), "src: files/app.bin passes through a symbolic link") {
+		t.Errorf("a refusal from the project's reader = %v", err)
 	}
 }
 
@@ -467,7 +520,7 @@ func TestCopy_RefusesMissingContent(t *testing.T) {
 		if err == nil {
 			t.Fatalf("params %v: expected a refusal, got nil", params)
 		}
-		if !strings.Contains(err.Error(), "content is required") {
+		if !strings.Contains(err.Error(), "content or src is required") {
 			t.Errorf("params %v: error = %q, want it to name the missing parameter", params, err)
 		}
 	}

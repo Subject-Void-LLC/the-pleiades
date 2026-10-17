@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -26,8 +27,10 @@ import (
 // new mtime and a new moment where a reader can see it change, and a
 // converged run must produce none of those.
 //
-// IT SUPPORTS content ONLY, never src, and the refusal is written out
-// below rather than left as a missing feature.
+// The bytes are content, or src: a file in the run's project, read where
+// the project is (the command line, through sdk.ProjectFiles) and refused
+// on a Walk-tier Runner, which cannot see it, naming content as the way
+// there.
 
 // Parameter names, which are ansible.builtin.copy's own names. A person
 // converting a playbook that writes a file with dest, content, mode,
@@ -141,12 +144,12 @@ func init() {
 // the copies cannot drift.
 func copyDoc() collection.Doc {
 	return collection.Doc{
-		Summary:     "Writes inline content to a file on the target, only when the bytes there differ.",
-		Description: "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. Only content is supported; src is refused rather than half-implemented, because src names a file beside the runbook on the controller while this method runs on the runner, which under the Walk tier is a per-task container that cannot see it. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
+		Summary:     "Writes content, or a file from the project, to a file on the target, only when the bytes there differ.",
+		Description: "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
 		Params: []collection.Param{
 			{Name: copyParamDest, Type: "string", Required: true, Description: "The path to write on the device. Its parent directory must already exist: this method writes a file and never creates the directories above it, which is file.directory's job."},
-			{Name: copyParamContent, Type: "string", Required: true, Description: "The bytes to write, used verbatim: nothing is appended, so a file that should end in a newline needs one in the value. An empty string is a real request and truncates the file to nothing. Quote a value YAML would otherwise read as a number or a boolean, since a non-string is refused rather than rendered."},
-			{Name: copyParamSrc, Type: "string", Description: "Refused, always. In Ansible src names a file beside the playbook and the controller reads it; here a Collection method runs on the runner, which under the Walk tier is a per-task container with no access to the controller's filesystem, so honoring src would work on the Crawl tier and fail on the Walk tier. Read the file into a variable and pass it as content instead."},
+			{Name: copyParamContent, Type: "string", Description: "The bytes to write, used verbatim (set content or src, not both): nothing is appended, so a file that should end in a newline needs one in the value. An empty string is a real request and truncates the file to nothing. Quote a value YAML would otherwise read as a number or a boolean, since a non-string is refused rather than rendered."},
+			{Name: copyParamSrc, Type: "string", Description: "A file in the project directory whose bytes the file should hold, as a path relative to that directory: it must stay inside it, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. Read by the command line, which holds the project; refused on a Walk-tier Runner, which cannot see it, where content is the way. Set content or src, not both."},
 			{Name: copyParamMode, Type: "string", Description: "The permission bits as one to four octal digits, quoted, for example \"0644\". Quote it: an unquoted 0644 is a number in YAML, not text. A symbolic mode such as u+x is refused, because it cannot be compared against the mode the device reports and the task would then report changed on every run. Left unset, an existing file keeps its mode and a newly created one gets 0600."},
 			{Name: copyParamOwner, Type: "string", Description: "The user name to give the file. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."},
 			{Name: copyParamGroup, Type: "string", Description: "The group name to give the file, refused as a numeric id for the same reason owner is."},
@@ -230,6 +233,13 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	req, err := copyParseRequest(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if req.src != "" {
+		data, err := readSrc(rc, req.src)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		req.content = string(data)
 	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
@@ -377,8 +387,15 @@ func copyCheck(rc sdk.RunbookContext, req copyRequest, before remotefile.Info, f
 type copyRequest struct {
 	dest    string
 	content string
-	attrs   remotefile.Attributes
+	// src is the project file the content comes from, "" when the task
+	// gave content itself; copyFile reads it before connecting.
+	src   string
+	attrs remotefile.Attributes
 }
+
+// maxSrcBytes bounds a src file: it is read whole, as content is, and
+// written through the same atomic replace.
+const maxSrcBytes = 64 << 20
 
 // copyParseRequest reads and checks the task's params, returning what to
 // write and where.
@@ -391,22 +408,11 @@ type copyRequest struct {
 func copyParseRequest(params map[string]any) (copyRequest, error) {
 	var none copyRequest
 
-	// src is answered FIRST, before the missing-content refusal it would
-	// otherwise trigger. A task carrying src is a converted playbook, and
-	// telling its author "content is required" would send them to add a
-	// parameter when what they need is to understand why the one they
-	// wrote cannot work here. Presence is enough: a task that mentions src
-	// meant to use it, whatever value it gave.
-	if _, present := params[copyParamSrc]; present {
-		return none, fmt.Errorf("%s is not supported: it names a file beside the runbook on the controller, and a Collection method runs on the runner, which under the Walk tier is a per-task container with no access to that filesystem. Honoring it would work on the Crawl tier and fail on the Walk tier, so it is refused on both. Read the file into a variable and pass it as %s instead",
-			copyParamSrc, copyParamContent)
-	}
-
 	// Read all five through one loop rather than five near-identical
 	// blocks: the type refusal is the same sentence for each of them, and
 	// five copies of it is five places for one of them to drift.
-	values := make(map[string]string, 5)
-	for _, key := range []string{copyParamDest, copyParamContent, copyParamMode, copyParamOwner, copyParamGroup} {
+	values := make(map[string]string, 6)
+	for _, key := range []string{copyParamDest, copyParamContent, copyParamSrc, copyParamMode, copyParamOwner, copyParamGroup} {
 		value, err := textParam(params, key)
 		if err != nil {
 			return none, err
@@ -423,14 +429,24 @@ func copyParseRequest(params map[string]any) (copyRequest, error) {
 	// different requests. An empty string is a real instruction to
 	// truncate the file to nothing, which a runbook does deliberately, so
 	// treating it as absent would refuse the one task that needs it most
-	// clearly.
-	if raw, present := params[copyParamContent]; !present || raw == nil {
-		return none, fmt.Errorf("%s is required: it is the only source this method accepts, since %s cannot be read from where a method runs", copyParamContent, copyParamSrc)
+	// clearly. Exactly one of content and src says what the file holds.
+	rawContent, hasContent := params[copyParamContent]
+	hasContent = hasContent && rawContent != nil
+	rawSrc, hasSrc := params[copyParamSrc]
+	hasSrc = hasSrc && rawSrc != nil
+	switch {
+	case hasContent && hasSrc:
+		return none, fmt.Errorf("set %s or %s, not both: each says what the file holds", copyParamContent, copyParamSrc)
+	case !hasContent && !hasSrc:
+		return none, fmt.Errorf("%s or %s is required: the bytes the file should hold, or a file in the project holding them", copyParamContent, copyParamSrc)
+	case hasSrc && values[copyParamSrc] == "":
+		return none, fmt.Errorf("%s names no file", copyParamSrc)
 	}
 
 	req := copyRequest{
 		dest:    dest,
 		content: values[copyParamContent],
+		src:     values[copyParamSrc],
 		attrs: remotefile.Attributes{
 			Mode:  values[copyParamMode],
 			Owner: values[copyParamOwner],
@@ -626,4 +642,27 @@ func copyRecordStats(rc sdk.RunbookContext, dest string, after remotefile.Info, 
 		}
 	}
 	return nil
+}
+
+// readSrc reads src from the run's project (sdk.ProjectFiles), which only
+// the command line holds; anywhere else, a Walk-tier Runner above all, it
+// is refused naming where it works and what to write instead.
+func readSrc(rc sdk.RunbookContext, src string) ([]byte, error) {
+	files, ok := rc.(sdk.ProjectFiles)
+	if !ok {
+		return nil, srcUnreadable()
+	}
+	data, err := files.ReadProjectFile(src, maxSrcBytes)
+	if errors.Is(err, sdk.ErrNoProjectFiles) {
+		return nil, srcUnreadable()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", copyParamSrc, err)
+	}
+	return data, nil
+}
+
+// srcUnreadable is the refusal of src where the run holds no project.
+func srcUnreadable() error {
+	return fmt.Errorf("%s names a file in the project, which only the command line (pleiades run, pleiades adhoc) can read; a Walk-tier Runner is a per-task container that cannot see the project, so pass the bytes as %s there", copyParamSrc, copyParamContent)
 }

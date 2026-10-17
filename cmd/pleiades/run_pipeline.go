@@ -390,7 +390,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// so they cannot collide.
 	actionExecutor := engine.NewCollectionActionExecutor(
 		engine.NewTransportActionExecutor(bindings, credentials, inventoryRepo, engine.NewBuiltinActionExecutor()),
-		engine.NewCredentialRunbookContext(credentials),
+		// The command line holds the project, so a method may read its
+		// files (file.copy's src); a Runner's contexts cannot.
+		engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir),
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
 		// device's login from the same vault: the public key and a hash of

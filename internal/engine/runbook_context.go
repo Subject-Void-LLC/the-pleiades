@@ -49,6 +49,10 @@ type runbookContext struct {
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.
 	route sdk.RouteDial
+	// projectDir is the project directory a method may read files from
+	// (sdk.ProjectFiles), "" where the run has none on this machine; see
+	// WithProjectFiles.
+	projectDir string
 
 	// registered is every secret the method obtained while it ran
 	// (sdk.SecretRegistrar): a registry password this context answered with,
