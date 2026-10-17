@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sbomcheck"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // TestSBOM_WritesAValidatedSBOMIntoANewDirectory: a check writes nothing;
@@ -113,5 +115,54 @@ func TestSBOM_NothingButItsSubjectFails(t *testing.T) {
 	}
 	if rc.stats["components"] != 1 {
 		t.Errorf("components = %v", rc.stats["components"])
+	}
+}
+
+// doneOnceExists is a context that is done from the moment path exists:
+// a task's deadline arriving just after scan.sbom made its directory. It
+// is checked each time a command asks whether it is done.
+type doneOnceExists struct {
+	context.Context
+	path string
+	once sync.Once
+	done chan struct{}
+}
+
+// Done is closed once the path exists.
+func (c *doneOnceExists) Done() <-chan struct{} {
+	if _, err := os.Lstat(c.path); err == nil {
+		c.once.Do(func() { close(c.done) })
+	}
+	return c.done
+}
+
+// Err is context.Canceled once Done is closed.
+func (c *doneOnceExists) Err() error {
+	select {
+	case <-c.Done():
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+// TestSBOM_AWriteCutOffLeavesNoDirectory: when the task's context ends
+// once scan.sbom has made its directory, the write fails and the
+// directory is removed all the same, so a rerun is not refused by what
+// the cut-off one left behind.
+func TestSBOM_AWriteCutOffLeavesNoDirectory(t *testing.T) {
+	h := newHarness(t)
+	conn, err := sdk.Connect(context.Background(), h.fresh(), h.device, params(nil), "scan.sbom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	dest := filepath.Join(t.TempDir(), "sbom")
+	ctx := &doneOnceExists{Context: context.Background(), path: dest, done: make(chan struct{})}
+	if err := scan.WriteSBOM(ctx, conn, dest, []byte(`{"spdxVersion":"SPDX-2.3"}`), strings.Repeat("0", 64)); err == nil {
+		t.Fatal("a write whose context ended succeeded")
+	}
+	if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		t.Fatalf("the cut-off write left %s (%v)", dest, err)
 	}
 }

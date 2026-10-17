@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
@@ -40,6 +41,9 @@ const (
 	sbomFile = "sbom.spdx.json"
 	sumsFile = "SHA256SUMS"
 )
+
+// cleanupTimeout bounds removing the directory a failed write left.
+const cleanupTimeout = 30 * time.Second
 
 // sbomTool is how this platform names itself among an SBOM's creators,
 // having set the subject's supplier.
@@ -244,7 +248,12 @@ func writeSBOM(ctx context.Context, ssh *remoteexec.Conn, dest string, sbom []by
 		return fmt.Errorf("creating %s: %s", dest, remoteexec.Excerpt(strings.TrimSpace(res.Stderr), 256))
 	}
 	undo := func(cause error) error {
-		if err := remotefile.Remove(ctx, ssh, dest, true); err != nil {
+		// On a context of its own, so a task whose context ended (often
+		// why the write failed) still removes what it made: a directory
+		// left behind would refuse every rerun.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if err := remotefile.Remove(cctx, ssh, dest, true); err != nil {
 			return fmt.Errorf("%w; and %s could not be removed: %v", cause, dest, err)
 		}
 		return cause

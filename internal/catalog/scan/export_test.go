@@ -10,3 +10,6 @@ func UseImages(t testing.TB, osv, syft, gitleaks string) {
 	osvScannerImage, syftImage, gitleaksImage = osv, syft, gitleaks
 	t.Cleanup(func() { osvScannerImage, syftImage, gitleaksImage = was[0], was[1], was[2] })
 }
+
+// WriteSBOM is writeSBOM, for a test that ends its context partway.
+var WriteSBOM = writeSBOM
