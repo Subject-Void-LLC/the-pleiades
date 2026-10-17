@@ -107,7 +107,7 @@ func removeDoc() collection.Doc {
 func infoDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Reports images on the engine.",
-		Description: "Reports each image named, or every tagged image when none is named: ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
+		Description: "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramImages, Type: "list", Description: "The images to report, by reference or ID. Absent means every image."},
 			containerengine.HostKeyParam,

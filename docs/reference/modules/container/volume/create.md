@@ -41,7 +41,7 @@ Makes the volume named name exist on the device's engine, with the local driver 
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that created the volume records its removal, pinned to the moment the engine made it; one that found it as declared records nothing.
+A run that created the volume records its removal, pinned to the moment the engine made it, and records nothing where the engine gives no creation time, since an unpinned removal could delete another volume made under the name since; one that found it as declared records nothing.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

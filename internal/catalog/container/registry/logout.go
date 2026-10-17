@@ -4,6 +4,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
@@ -28,6 +29,10 @@ func logout(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return fail(err)
 	}
+	want, err := containerengine.TextParam(params, paramUsername)
+	if err != nil {
+		return fail(err)
+	}
 	l, err := openLoginFile(ctx, rc, device, params, fqcnLogout)
 	if err != nil {
 		return collection.Result{}, err
@@ -37,8 +42,12 @@ func logout(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err := recordStats(rc, map[string]any{statRegistry: host, statAuthFile: l.path}); err != nil {
 		return collection.Result{}, err
 	}
-	if _, had := l.file.entry(key); !had {
+	auth, had := l.file.entry(key)
+	if !had {
 		return collection.Result{}, nil
+	}
+	if want != "" && username(auth) != want {
+		return fail(fmt.Errorf("the login for %s in %s is now another account's, not %s's, so this task, recorded against that account, removes nothing", host, l.path, want))
 	}
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, nil

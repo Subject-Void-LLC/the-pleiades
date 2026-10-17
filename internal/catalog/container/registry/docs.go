@@ -44,6 +44,7 @@ func logoutDoc() collection.Doc {
 		Description: "Removes registry's login from the engine's login file, keeping its other logins and settings, and the file mode 0600. A registry with no login there is no change. A logout has no undo, since the password it removes is not kept. A check reads the file and writes nothing." + fileNote,
 		Params: []collection.Param{
 			{Name: paramRegistry, Type: "string", Required: true, Description: "The registry host, as container.registry.login named it."},
+			{Name: paramUsername, Type: "string", Description: "The account the login must be for; when it is another's, the task is refused and nothing is removed. The undo of a login sets it, so a rollback never removes a login someone has written since."},
 			authFileParam,
 			hostKeyParam,
 		},

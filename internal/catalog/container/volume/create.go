@@ -25,7 +25,7 @@ func init() {
 		Name: fqcnCreate,
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
-			Notes:      "A run that created the volume records its removal, pinned to the moment the engine made it; one that found it as declared records nothing.",
+			Notes:      "A run that created the volume records its removal, pinned to the moment the engine made it, and records nothing where the engine gives no creation time, since an unpinned removal could delete another volume made under the name since; one that found it as declared records nothing.",
 			Inverses:   []sdk.InverseSpec{{FQCN: fqcnRemove, Record: []string{paramName, paramCreatedAt, containerengine.ParamEngine}}},
 		}, createDoc()),
 		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
@@ -125,12 +125,14 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if made.Volume.Name != name {
 		return fail(fmt.Errorf("the engine answered volume %q when asked to create %s", made.Volume.Name, name))
 	}
-	undo := map[string]any{paramName: name}
+	// The creation time is the volume's only identity beside its name, so
+	// an engine that gives none gets no undo: an unguarded removal by name
+	// could delete another volume, and its data, made under it since.
 	if made.Volume.CreatedAt != "" {
-		undo[paramCreatedAt] = made.Volume.CreatedAt
-	}
-	if err := containerengine.RecordUndo(rc, s, sdk.Inverse{FQCN: fqcnRemove, Params: undo, Description: "Remove the volume this task created."}); err != nil {
-		return collection.Result{}, err
+		undo := map[string]any{paramName: name, paramCreatedAt: made.Volume.CreatedAt}
+		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{FQCN: fqcnRemove, Params: undo, Description: "Remove the volume this task created."}); err != nil {
+			return collection.Result{}, err
+		}
 	}
 	return collection.Result{Changed: true}, recordStats(rc, map[string]any{statDriver: made.Volume.Driver, statCreatedAt: made.Volume.CreatedAt})
 }

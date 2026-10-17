@@ -104,6 +104,15 @@ func TestLogoutAndInfo_TheFileAsData(t *testing.T) {
 	}
 
 	params := map[string]any{"registry": "registry.example.com", "auth_file": authFile}
+	// A logout guarded by another account, as a login's undo is once the
+	// login has been replaced, removes nothing.
+	guarded := map[string]any{"registry": "registry.example.com", "auth_file": authFile, "username": "someone-else"}
+	if _, err := call(t, h, fresh(), "container.registry.logout", false, guarded); err == nil || !strings.Contains(err.Error(), "removes nothing") {
+		t.Errorf("a logout guarded by another account = %v", err)
+	}
+	if data, _ := os.ReadFile(authFile); string(data) != original {
+		t.Fatal("a refused logout changed the file")
+	}
 	if res, err := call(t, h, fresh(), "container.registry.logout", true, params); err != nil || !res.Changed {
 		t.Fatalf("a check of logout = %+v, %v", res, err)
 	}

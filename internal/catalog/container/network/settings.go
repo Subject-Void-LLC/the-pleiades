@@ -151,6 +151,9 @@ func parseSettings(params map[string]any) (settings, error) {
 	if s.Labels, err = containerengine.StringMapParam(params, paramLabels); err != nil {
 		return s, err
 	}
+	if _, ours := s.Labels[containerengine.LabelAttempt]; ours {
+		return s, fmt.Errorf("%s: %s is this platform's own", paramLabels, containerengine.LabelAttempt)
+	}
 	return s, nil
 }
 
@@ -278,11 +281,15 @@ func recreateParams(live moby.Inspect) (map[string]any, bool) {
 			partial = true
 		}
 	}
-	if len(live.Labels) > 0 {
-		labels := make(map[string]any, len(live.Labels))
-		for k, v := range live.Labels {
+	labels := make(map[string]any, len(live.Labels))
+	for k, v := range live.Labels {
+		// The attempt label is the create's own, made afresh by the
+		// create that replays this.
+		if k != containerengine.LabelAttempt {
 			labels[k] = v
 		}
+	}
+	if len(labels) > 0 {
 		p[paramLabels] = labels
 	}
 	return p, partial

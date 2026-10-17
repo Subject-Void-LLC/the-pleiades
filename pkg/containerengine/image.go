@@ -9,6 +9,8 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/distribution/reference"
 	"github.com/moby/moby/client"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // EnsureImageOps are the operations EnsureImage sends.
@@ -80,7 +82,9 @@ func (s *Session) EnsureImage(ctx context.Context, ref, auth string, pull bool) 
 	}
 	defer func() { _ = stream.Close() }()
 	if err := stream.Wait(ctx); err != nil {
-		return img, fmt.Errorf("pulling %s: %w", img.Pinned, err)
+		// The stream's error is the registry's own text, cut as every other
+		// message an engine relays is.
+		return img, fmt.Errorf("pulling %s: %s", img.Pinned, remoteexec.Excerpt(err.Error(), 512))
 	}
 	found, err = s.API.ImageInspect(ctx, img.Pinned)
 	if err != nil {

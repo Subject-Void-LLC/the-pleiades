@@ -72,6 +72,12 @@ func TestPlanPrune(t *testing.T) {
 	if !slices.Equal(plan.remove, []string{"ghcr.io/org/app:2", "ghcr.io/org/app:1"}) || len(plan.keep) != 0 {
 		t.Errorf("plan with keep 0 = %+v", plan)
 	}
+	// The newest tag in use takes no keep slot: keep_newest counts the
+	// tags a prune could have removed.
+	plan = planPrune(byRepo, "app", 2, map[string][]string{"new": {"c"}})
+	if !slices.Equal(plan.keepInUse, []string{"app:1.10"}) || !slices.Equal(plan.keep, []string{"app:1.9", "app:1.2"}) || !slices.Equal(plan.remove, []string{"app:1.1"}) {
+		t.Errorf("plan with the newest in use = %+v", plan)
+	}
 	if plan := planPrune(byRepo, "nothing*", 1, nil); len(plan.keep)+len(plan.remove) != 0 {
 		t.Errorf("a pattern matching nothing planned %+v", plan)
 	}

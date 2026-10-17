@@ -4,8 +4,14 @@ package network
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"maps"
 	"strings"
+
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/client"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
@@ -82,14 +88,34 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, rc.SetStat(statDriver, want.Driver)
 	}
-	made, err := s.API.NetworkCreate(ctx, name, want.create())
+	// The create carries a label no other request has, so a create whose
+	// answer was lost finds the network it made, and only that one.
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return collection.Result{}, err
+	}
+	attempt := hex.EncodeToString(nonce)
+	opts := want.create()
+	opts.Labels = maps.Clone(opts.Labels)
+	if opts.Labels == nil {
+		opts.Labels = map[string]string{}
+	}
+	opts.Labels[containerengine.LabelAttempt] = attempt
+	made, err := s.API.NetworkCreate(ctx, name, opts)
 	if err != nil {
-		// A create whose answer was lost may have made the network: say so
-		// rather than guess whether this run made it.
+		if cerrdefs.IsConflict(err) {
+			return fail(fmt.Errorf("creating network %s: %w; another run made a network of that name meanwhile, so run the task again to compare it", name, err))
+		}
+		// The engine may have made it anyway. A failed task's undo is
+		// dropped (FAILURE_PATTERNS 452), so this run's network is removed
+		// here; another's is left alone.
 		cctx, cancel := containerengine.CleanupContext(ctx)
 		defer cancel()
-		if _, there, inspectErr := inspectNetwork(cctx, s, name); inspectErr == nil && there {
-			return fail(fmt.Errorf("creating network %s: %w; a network by that name exists now, so run the task again to compare it", name, err))
+		if live, there, inspectErr := inspectNetwork(cctx, s, name); inspectErr == nil && there && live.Labels[containerengine.LabelAttempt] == attempt {
+			if _, rmErr := s.API.NetworkRemove(cctx, live.ID, client.NetworkRemoveOptions{}); rmErr == nil {
+				return fail(fmt.Errorf("creating network %s: %w; the engine had made it anyway, and it was removed", name, err))
+			}
+			return fail(fmt.Errorf("creating network %s: %w; the engine made it anyway, and removing it failed, so container.network.remove it", name, err))
 		}
 		return fail(fmt.Errorf("creating network %s: %w", name, err))
 	}

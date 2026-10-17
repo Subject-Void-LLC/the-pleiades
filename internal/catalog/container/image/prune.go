@@ -67,12 +67,16 @@ func planPrune(byRepo map[string][]tagged, pattern string, keep int, used map[st
 		tags := byRepo[repo]
 		// Newest first.
 		slices.SortFunc(tags, func(a, b tagged) int { return compareVersions(b.tag, a.tag) })
-		for i, t := range tags {
+		// A tag in use is kept apart and takes no keep slot: keep_newest
+		// counts the tags a prune could otherwise have removed.
+		kept := 0
+		for _, t := range tags {
 			switch {
-			case i < keep:
-				plan.keep = append(plan.keep, t.ref)
 			case len(used[t.id]) > 0:
 				plan.keepInUse = append(plan.keepInUse, t.ref)
+			case kept < keep:
+				plan.keep = append(plan.keep, t.ref)
+				kept++
 			default:
 				plan.remove = append(plan.remove, t.ref)
 			}

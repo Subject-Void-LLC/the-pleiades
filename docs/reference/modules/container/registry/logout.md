@@ -25,6 +25,7 @@ Removes registry's login from the engine's login file, keeping its other logins 
 | --- | --- | --- | --- | --- |
 | `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `registry` | `string` | yes | - | The registry host, as container.registry.login named it. |
+| `username` | `string` | no | - | The account the login must be for; when it is another's, the task is refused and nothing is removed. The undo of a login sets it, so a rollback never removes a login someone has written since. |
 | `auth_file` | `string` | no | - | The login file, an absolute path on the engine's machine. Absent means the engine's own default. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task, when the engine or its machine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 

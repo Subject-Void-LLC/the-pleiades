@@ -28,6 +28,7 @@ const (
 	paramRegistry = "registry"
 	paramAuthFile = "auth_file"
 	paramEngine   = containerengine.ParamEngine
+	paramUsername = "username"
 
 	statRegistry   = "registry"
 	statUsername   = "username"

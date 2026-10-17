@@ -21,7 +21,7 @@ func init() {
 	register(fqcnLogin, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run that added the registry's login records removing it; one that replaced or found a login records nothing, since the password it replaced is not kept.",
-		Inverses:   []sdk.InverseSpec{{FQCN: fqcnLogout, Record: []string{paramRegistry, paramAuthFile, paramEngine}}},
+		Inverses:   []sdk.InverseSpec{{FQCN: fqcnLogout, Record: []string{paramRegistry, paramAuthFile, paramUsername, paramEngine}}},
 	}, loginDoc()), login)
 }
 
@@ -93,7 +93,7 @@ func login(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if had {
 		return collection.Result{Changed: true}, nil
 	}
-	undo := map[string]any{paramRegistry: host, paramAuthFile: l.path}
+	undo := map[string]any{paramRegistry: host, paramAuthFile: l.path, paramUsername: user}
 	return collection.Result{Changed: true}, containerengine.RecordUndo(rc, s, sdk.Inverse{
 		FQCN: fqcnLogout, Params: undo, Description: "Remove the registry login this task added.",
 	})

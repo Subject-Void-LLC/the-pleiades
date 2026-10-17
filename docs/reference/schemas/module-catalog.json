@@ -1326,7 +1326,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reports images on the engine.",
-      "description": "Reports each image named, or every tagged image when none is named: ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "images",
@@ -3273,6 +3273,7 @@
           "record": [
             "registry",
             "auth_file",
+            "username",
             "engine"
           ]
         }
@@ -3373,6 +3374,11 @@
           "type": "string",
           "required": true,
           "description": "The registry host, as container.registry.login named it."
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "description": "The account the login must be for; when it is another's, the task is refused and nothing is removed. The undo of a login sets it, so a rollback never removes a login someone has written since."
         },
         {
           "name": "auth_file",
@@ -3959,7 +3965,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the volume records its removal, pinned to the moment the engine made it; one that found it as declared records nothing.",
+      "notes": "A run that created the volume records its removal, pinned to the moment the engine made it, and records nothing where the engine gives no creation time, since an unpinned removal could delete another volume made under the name since; one that found it as declared records nothing.",
       "inverses": [
         {
           "fqcn": "container.volume.remove",

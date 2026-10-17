@@ -155,7 +155,11 @@ func ChooseEngine(device inventory.InventoryItem, params map[string]any) (capabi
 			runs = append(runs, kind)
 		}
 	}
-	if named := sdk.StringParam(params, ParamEngine); named != "" {
+	named, err := textOf(params, ParamEngine)
+	if err != nil {
+		return "", err
+	}
+	if named != "" {
 		kind := capability.EngineKind(named)
 		if !slices.Contains(runs, kind) {
 			return "", fmt.Errorf("device %q does not run %q; it runs %s", device.Name(), named, kinds(runs))
@@ -200,7 +204,10 @@ func kinds(list []capability.EngineKind) string {
 // engine parameter or the device chooses (ChooseEngine).
 func engineFor(device inventory.InventoryItem, params map[string]any, kind capability.EngineKind) (capability.EngineKind, capability.EngineReach, error) {
 	if kind != "" {
-		named := sdk.StringParam(params, ParamEngine)
+		named, err := textOf(params, ParamEngine)
+		if err != nil {
+			return "", nil, err
+		}
 		if named != "" && capability.EngineKind(named) != kind {
 			return "", nil, fmt.Errorf("this method reaches %s, and the task names %s", kind, named)
 		}
