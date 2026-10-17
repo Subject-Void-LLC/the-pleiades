@@ -110,7 +110,7 @@ func converge(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err != nil {
 		return fail(err)
 	}
-	img, err := s.EnsureImage(ctx, spec.Image, auth, mode == collection.ModeExecute)
+	img, err := presentImage(ctx, s, spec, auth, mode)
 	if err != nil {
 		return fail(err)
 	}

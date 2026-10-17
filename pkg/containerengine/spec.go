@@ -12,6 +12,12 @@ import (
 	"strings"
 )
 
+// The pull policies a task may name.
+const (
+	PullMissing = "missing"
+	PullNever   = "never"
+)
+
 // NetworkNone is the network a container joins when its task names none:
 // no network at all, so reaching one is always a declared decision.
 const NetworkNone = "none"
@@ -49,6 +55,11 @@ type Spec struct {
 	User    string
 	// ReadOnly gives the container a read-only root filesystem.
 	ReadOnly bool
+	// Pull is how the image is found: PullMissing (resolve a tag through
+	// its registry to a digest, and pull that digest when it is absent) or
+	// PullNever (the image the engine already holds under the reference as
+	// written, for a loaded or air-gapped image; absent is refused).
+	Pull string
 	// Host-escape settings: each widens what the container can do to its
 	// host, and is never a default.
 	Privileged bool
@@ -184,6 +195,15 @@ func ParseSpec(params map[string]any) (Spec, error) {
 			return s, err
 		}
 		s.Mounts = append(s.Mounts, m)
+	}
+	if s.Pull, err = textOf(params, "pull"); err != nil {
+		return s, err
+	}
+	if s.Pull == "" {
+		s.Pull = PullMissing
+	}
+	if s.Pull != PullMissing && s.Pull != PullNever {
+		return s, fmt.Errorf("pull: %q is not %s or %s", s.Pull, PullMissing, PullNever)
 	}
 	if s.Restart, err = textOf(params, "restart_policy"); err != nil {
 		return s, err

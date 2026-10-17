@@ -89,3 +89,34 @@ func (s *Session) EnsureImage(ctx context.Context, ref, auth string, pull bool) 
 	img.ID = found.ID
 	return img, nil
 }
+
+// LocalImage is the image the engine already holds under ref as written,
+// for a task whose pull policy is never: a loaded or air-gapped image the
+// engine knows by tag alone. Its digest is the one the engine recorded for
+// it from a registry, when it has one; the ID is what runs. An absent
+// image is refused, never pulled.
+func (s *Session) LocalImage(ctx context.Context, ref string) (PresentImage, error) {
+	img := PresentImage{Ref: ref, Pinned: ref}
+	if err := ValidImage(ref); err != nil {
+		return img, err
+	}
+	found, err := s.API.ImageInspect(ctx, ref)
+	if cerrdefs.IsNotFound(err) {
+		return img, fmt.Errorf("image %s is not on the engine, and pull is never", ref)
+	}
+	if err != nil {
+		return img, fmt.Errorf("reading image %s: %w", ref, err)
+	}
+	img.ID = found.ID
+	if named, err := reference.ParseNormalizedNamed(ref); err == nil {
+		for _, d := range found.RepoDigests {
+			if pinned, err := reference.ParseNormalizedNamed(d); err == nil && pinned.Name() == named.Name() {
+				if c, ok := pinned.(reference.Canonical); ok {
+					img.Digest = c.Digest().String()
+				}
+				break
+			}
+		}
+	}
+	return img, nil
+}

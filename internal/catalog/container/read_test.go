@@ -3,8 +3,11 @@
 package container_test
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/moby/moby/client"
 )
 
 // TestReadAndExec: info reports a container with its environment by name
@@ -228,5 +231,28 @@ func TestCopyInAndOut(t *testing.T) {
 	}
 	if _, err := call(t, h, fresh(), "container.copy_in", false, map[string]any{"name": name, "dest": "tmp/x", "content": "x"}); err == nil {
 		t.Error("a relative dest was written")
+	}
+}
+
+// TestRun_PullNever: an image the engine holds under a local tag no
+// registry knows runs with pull never, by its ID; one it does not hold is
+// refused, never pulled.
+func TestRun_PullNever(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	local := "pleiades-local/" + name + ":1"
+	if _, err := h.api.ImageTag(context.Background(), client.ImageTagOptions{Source: h.nginx, Target: local}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = h.api.ImageRemove(context.Background(), local, client.ImageRemoveOptions{}) })
+	rc := fresh()
+	if _, err := call(t, h, rc, "container.run", false, map[string]any{"name": name, "image": local, "pull": "never"}); err != nil || h.state(t, name) != "running" {
+		t.Fatalf("a local image with pull never = %v; state %q", err, h.state(t, name))
+	}
+	if id, _ := rc.stats["image_id"].(string); !strings.HasPrefix(id, "sha256:") {
+		t.Errorf("image_id = %v", rc.stats["image_id"])
+	}
+	if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": h.name(t), "image": "pleiades-local/absent-" + name + ":1", "pull": "never"}); err == nil || !strings.Contains(err.Error(), "pull is never") {
+		t.Errorf("an absent image with pull never = %v", err)
 	}
 }

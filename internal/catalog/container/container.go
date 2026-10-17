@@ -113,3 +113,13 @@ func recordStats(rc sdk.RunbookContext, stats map[string]any) error {
 	}
 	return nil
 }
+
+// presentImage is the image spec names as the task runs it: by the pull
+// policy missing, pinned to a digest and pulled when absent (never by a
+// check); by never, the image the engine already holds.
+func presentImage(ctx context.Context, s *containerengine.Session, spec containerengine.Spec, auth string, mode collection.Mode) (containerengine.PresentImage, error) {
+	if spec.Pull == containerengine.PullNever {
+		return s.LocalImage(ctx, spec.Image)
+	}
+	return s.EnsureImage(ctx, spec.Image, auth, mode == collection.ModeExecute)
+}
