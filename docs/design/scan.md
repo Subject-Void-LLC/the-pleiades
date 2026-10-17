@@ -64,6 +64,14 @@ writing, rather than the run itself.
   or an end, and an ignore that never ends is a vulnerability nobody looks at again. Past `until`, an entry
   suppresses nothing and the run warns; an entry that matches nothing warns, so the file shrinks as fixes land.
   `scan.secrets` reads the same format, its `id` a finding's fingerprint (`file:rule:line`).
+- **What is scanned never configures its scanner.** Gitleaks reads a `.gitleaks.toml` (rules and allowlists) and a
+  `.gitleaksignore` (fingerprints) at the root of what it scans, and honors an inline `gitleaks:allow` comment;
+  OSV-Scanner reads an `osv-scanner.toml` beside each lockfile, at any depth, as vulnerabilities to ignore. Each
+  would let a tree's own author suppress its findings, with no reason and no end. So a tree holding one is refused
+  before the scanner runs, naming the file, and the platform's ignore file is the way to suppress a finding;
+  Gitleaks runs with `--ignore-gitleaks-allow`, and OSV-Scanner with `--config /dev/null`, so none is read even
+  where the search could not see it (inside an image archive). A tree the search cannot read whole is refused,
+  since the scanner, as its container's root, may read what the search could not.
 - **No secret value leaves the container in a form this keeps.** Gitleaks runs with `--redact`, and the parser
   drops its `Secret` and `Match` fields regardless, so a finding is file, line, rule and fingerprint. A test plants
   a sentinel credential and requires it absent from the result, the error and every log line.
@@ -101,6 +109,7 @@ untrusted input and each fuzzed.
 | The device has no engine onboarded | Refused before contact, naming `pleiades onboard`. |
 | The image is absent and cannot be pulled | Refused naming the image and digest, and how to load it. |
 | The target path does not exist, or is the wrong kind | Refused before the scanner runs. |
+| The tree holds the scanner's own configuration (`.gitleaks.toml`, `.gitleaksignore`, `osv-scanner.toml`) | Refused before the scanner runs, naming each file. |
 | The scanner exits with an error (not a finding) | Fails with its last lines, bounded and escaped. |
 | The scanner's report is not what this parses | Fails naming the scanner and version; a report is never half-read. |
 | An ignore entry without a reason or `until` | The ignore file is refused whole, naming the entry. |

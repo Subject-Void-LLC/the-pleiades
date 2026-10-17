@@ -161,6 +161,15 @@ func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		if err := t.check(ctx, ssh); err != nil {
 			return fail(err)
 		}
+		// OSV-Scanner reads an osv-scanner.toml beside each lockfile it
+		// finds, at any depth, as a list of vulnerabilities to ignore.
+		found, err := scannerConfigs(ctx, ssh, t.path, []string{"osv-scanner.toml"}, false)
+		if err != nil {
+			return fail(err)
+		}
+		if len(found) > 0 {
+			return fail(configRefusal("OSV-Scanner", found))
+		}
 		mounts = append(mounts, t.mount())
 		cmd = append(cmd, "-r", t.inContainer())
 	default:
@@ -183,6 +192,10 @@ func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		env = append(env, "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db")
 		cmd = append(cmd, "--offline-vulnerabilities", "--offline")
 	}
+	// An empty configuration of this run's own replaces any osv-scanner.toml
+	// what is scanned carries, so none is read even where none was found
+	// above (inside an image archive, or written after the search).
+	cmd = append(cmd, "--config", "/dev/null")
 	ignore, err := loadIgnore(ctx, ssh, params)
 	if err != nil {
 		return fail(err)

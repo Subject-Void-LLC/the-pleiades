@@ -98,6 +98,16 @@ func Secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err := t.check(ctx, ssh); err != nil {
 		return fail(err)
 	}
+	// Gitleaks reads a .gitleaks.toml (its rules and allowlists) and a
+	// .gitleaksignore (fingerprints) at the root of what it scans, never
+	// below it, so a tree carrying either could turn its own findings off.
+	found, err := scannerConfigs(ctx, ssh, t.path, []string{".gitleaks.toml", ".gitleaksignore"}, true)
+	if err != nil {
+		return fail(err)
+	}
+	if len(found) > 0 {
+		return fail(configRefusal("Gitleaks", found))
+	}
 	ignore, err := loadIgnore(ctx, ssh, params)
 	if err != nil {
 		return fail(err)
@@ -109,8 +119,10 @@ func Secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	ran, err := run(ctx, engine, runOptions{
 		image: gitleaksImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull,
 		// --redact keeps a value out of the report in the first place;
-		// --exit-code 0 leaves a non-zero exit to mean an error.
-		cmd: []string{"dir", t.inContainer(), "--report-format", "json", "--report-path", "-", "--redact", "--no-banner", "--no-color", "--exit-code", "0", "--log-level", "warn"},
+		// --exit-code 0 leaves a non-zero exit to mean an error;
+		// --ignore-gitleaks-allow keeps an inline gitleaks:allow comment,
+		// which the tree's own author writes, from suppressing anything.
+		cmd: []string{"dir", t.inContainer(), "--report-format", "json", "--report-path", "-", "--redact", "--no-banner", "--no-color", "--exit-code", "0", "--log-level", "warn", "--ignore-gitleaks-allow"},
 	})
 	if err != nil {
 		return fail(err)

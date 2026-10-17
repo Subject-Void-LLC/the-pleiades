@@ -236,6 +236,48 @@ func defaultNetwork(engine *containerengine.Session) string {
 	return "bridge"
 }
 
+// configSearchBytes bounds what a search for a scanner's own
+// configuration may print.
+const configSearchBytes = 64 << 10
+
+// scannerConfigs finds the files under dir named one of names (only at its
+// root when rootOnly), which the scanner would read as its own
+// configuration. A search that could not read every directory is refused
+// rather than trusted, since what it could not read the scanner, running
+// as its container's root, may.
+func scannerConfigs(ctx context.Context, ssh *remoteexec.Conn, dir string, names []string, rootOnly bool) ([]string, error) {
+	var match []string
+	for _, n := range names {
+		match = append(match, "-name "+remoteexec.QuoteArg(n))
+	}
+	depth := ""
+	if rootOnly {
+		depth = " -maxdepth 1"
+	}
+	cmd := "find " + remoteexec.QuoteArg(dir) + depth + " \\( " + strings.Join(match, " -o ") + " \\) -print"
+	res, err := ssh.RunWithStdinBounded(ctx, cmd, nil, configSearchBytes)
+	if err != nil {
+		return nil, fmt.Errorf("searching %s for the scanner's own configuration: %w", dir, err)
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("%s could not be searched whole for the scanner's own configuration, so it is not scanned: %s", dir, remoteexec.Excerpt(strings.TrimSpace(res.Stderr), 512))
+	}
+	var found []string
+	for _, line := range strings.Split(strings.TrimRight(res.Stdout, "\n"), "\n") {
+		if line != "" {
+			found = append(found, remoteexec.Excerpt(line, 512))
+		}
+	}
+	return found, nil
+}
+
+// configRefusal refuses a tree holding its scanner's own configuration,
+// whose ignores need neither a reason nor an end and are written by
+// whoever wrote what is scanned.
+func configRefusal(scanner string, found []string) error {
+	return fmt.Errorf("the scanned tree holds %s's own configuration, which would let what is scanned suppress its own findings; remove each file, and suppress a finding with the file %s names, whose every entry has a reason and an until date:%s", scanner, paramIgnore, listed(found))
+}
+
 // loadIgnore reads the ignore file a task names, if it names one.
 func loadIgnore(ctx context.Context, ssh *remoteexec.Conn, params map[string]any) (scanignore.File, error) {
 	p := sdk.StringParam(params, paramIgnore)

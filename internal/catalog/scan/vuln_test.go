@@ -126,3 +126,38 @@ func TestVuln_RefusesBeforeTheScanner(t *testing.T) {
 		t.Fatalf("a device with no engine = %v", err)
 	}
 }
+
+// TestVuln_TheTreeCannotTurnOffTheGate: an osv-scanner.toml in a scanned
+// directory, which OSV-Scanner would read as an ignore list for the
+// lockfiles beside it (no reason, no end), is refused naming the file,
+// however deep it is.
+func TestVuln_TheTreeCannotTurnOffTheGate(t *testing.T) {
+	h := newHarness(t)
+	files := map[string]string{"app/osv-scanner.toml": "[[IgnoredVulns]]\nid = \"GHSA-crit\"\n"}
+	for name, body := range npmProject {
+		files["app/"+name] = body
+	}
+	project := writeFiles(t, files)
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	_, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(project, "app", "osv-scanner.toml")) {
+		t.Fatalf("a tree with its own osv-scanner.toml = %v", err)
+	}
+
+	// A directory the search cannot read could hide one the scanner, as
+	// its container's root, would read: the scan is refused.
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory of mode 0000")
+	}
+	if err := os.Remove(filepath.Join(project, "app", "osv-scanner.toml")); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(project, "locked")
+	if err := os.Mkdir(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "could not be searched whole") {
+		t.Fatalf("a tree with a directory the search cannot read = %v", err)
+	}
+}

@@ -55,3 +55,34 @@ func TestSecrets_NamesWhereNeverWhat(t *testing.T) {
 		t.Errorf("an image archive = %v", err)
 	}
 }
+
+// TestSecrets_TheTreeCannotTurnOffTheGate: a tree carrying Gitleaks' own
+// configuration at its root, a .gitleaksignore or a .gitleaks.toml, each
+// of which Gitleaks would read and let suppress the planted credential, is
+// refused naming the file; an inline gitleaks:allow comment suppresses
+// nothing; and a .gitleaksignore below the root, which Gitleaks does not
+// read, is scanned past.
+func TestSecrets_TheTreeCannotTurnOffTheGate(t *testing.T) {
+	h := newHarness(t)
+	planted := "aws_access_key_id = " + plantedKey + "\n"
+	for name, tc := range map[string]struct {
+		files map[string]string
+		want  string
+	}{
+		"a .gitleaksignore": {map[string]string{"conf/app.ini": planted, ".gitleaksignore": "/scan/conf/app.ini:aws-access-token:1\n"}, "/.gitleaksignore"},
+		"a .gitleaks.toml":  {map[string]string{"conf/app.ini": planted, ".gitleaks.toml": "[extend]\nuseDefault = true\n[[allowlists]]\npaths = [\"conf/app.ini\"]\n"}, "/.gitleaks.toml"},
+		"an inline allow":   {map[string]string{"conf/app.ini": "aws_access_key_id = " + plantedKey + " # gitleaks:allow\n"}, "conf/app.ini:1: aws-access-token"},
+		"a nested ignore":   {map[string]string{"conf/app.ini": planted, "conf/.gitleaksignore": "/scan/conf/app.ini:aws-access-token:1\n"}, "conf/app.ini:1: aws-access-token"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tree := writeFiles(t, tc.files)
+			_, err := scan.Secrets(context.Background(), h.fresh(), h.device, params(map[string]any{"dir": tree}))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Secrets = %v, want an error naming %q", err, tc.want)
+			}
+			if strings.HasPrefix(tc.want, "/") && !strings.Contains(err.Error(), tree+tc.want) {
+				t.Errorf("the refusal does not name the file on the device: %v", err)
+			}
+		})
+	}
+}
