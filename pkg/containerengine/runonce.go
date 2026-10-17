@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
@@ -43,6 +46,15 @@ func CleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), removeGrace)
 }
 
+// outputGrace bounds how long RunOnce goes on reading a container's
+// output once the container has ended. A variable only so a test can
+// shorten it.
+var outputGrace = removeGrace
+
+// ErrImageAbsent is RunOnce's refusal of an image the engine does not
+// have when pulling it was not asked for; nothing was created.
+var ErrImageAbsent = errors.New("the image is not on the engine")
+
 // RunOnceOptions says how a one-shot container runs.
 type RunOnceOptions struct {
 	// Image is a digest-pinned reference (name@sha256:...).
@@ -62,10 +74,60 @@ type RunOnceOptions struct {
 	Labels map[string]string
 	// Timeout bounds the run; the container is killed past it.
 	Timeout time.Duration
+	// Mounts are host paths bound into the container, every one
+	// read-only: a one-shot container is never handed a writable host path,
+	// so whatever it runs can read what it is given and change none of it.
+	Mounts []ReadOnlyMount
+	// Env sets the container's environment, each NAME=value. Never a
+	// secret: an engine shows a container's environment to anyone who can
+	// inspect it.
+	Env []string
 	// Output receives what the container writes to standard output and
 	// standard error, in the order the engine sent it. A bounded writer
-	// (gate.Tail) keeps a chatty command in constant memory.
+	// (gate.Tail) keeps a chatty command in constant memory. It must not
+	// block. Nothing is written to it once RunOnce has returned; a write
+	// it refuses ends the run, the container killed.
 	Output io.Writer
+	// Errors, when set, receives standard error apart, and Output then
+	// standard output alone: a tool that writes a report on one and logs
+	// on the other has its report kept whole.
+	Errors io.Writer
+}
+
+// ReadOnlyMount binds Source, a path on the engine's host, at Target in
+// the container, read-only.
+type ReadOnlyMount struct {
+	Source, Target string
+}
+
+// envName is an environment variable's name.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// checkMounts refuses a mount whose paths are not absolute and clean, or
+// whose target would cover the container's own root.
+func checkMounts(mounts []ReadOnlyMount) error {
+	for _, m := range mounts {
+		for _, p := range []string{m.Source, m.Target} {
+			if !path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\x00\r\n,") {
+				return fmt.Errorf("containerengine: mount path %q is not absolute and clean", p)
+			}
+		}
+		if m.Target == "/" {
+			return errors.New("containerengine: a mount cannot cover the container's root")
+		}
+	}
+	return nil
+}
+
+// checkEnv refuses an entry that is not NAME=value.
+func checkEnv(env []string) error {
+	for _, e := range env {
+		name, _, found := strings.Cut(e, "=")
+		if !found || !envName.MatchString(name) || strings.ContainsAny(e, "\x00") {
+			return fmt.Errorf("containerengine: environment entry %q is not NAME=value", e)
+		}
+	}
+	return nil
 }
 
 // RunOnceResult is how a one-shot container ended.
@@ -76,6 +138,10 @@ type RunOnceResult struct {
 	TimedOut bool
 	// Pulled reports that the image was pulled first.
 	Pulled bool
+	// OutputCut reports that the output had not ended within a grace
+	// after the container did, and was cut there: Output and Errors may
+	// lack its end.
+	OutputCut bool
 }
 
 // RunOnce runs opts.Cmd in a fresh container from opts.Image and returns
@@ -98,6 +164,12 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 		if err := ValidName("network", opts.Network); err != nil {
 			return res, err
 		}
+	}
+	if err := checkMounts(opts.Mounts); err != nil {
+		return res, err
+	}
+	if err := checkEnv(opts.Env); err != nil {
+		return res, err
 	}
 	output := opts.Output
 	if output == nil {
@@ -122,10 +194,14 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	if !opts.Writable {
 		hostConfig.Tmpfs = map[string]string{"/tmp": runOnceTmpfs}
 	}
+	for _, m := range opts.Mounts {
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: true})
+	}
 	created, err := s.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:        opts.Image,
 			Cmd:          opts.Cmd,
+			Env:          opts.Env,
 			Labels:       opts.Labels,
 			AttachStdout: true,
 			AttachStderr: true,
@@ -145,15 +221,29 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	if err != nil {
 		return res, fmt.Errorf("containerengine: attaching to container %s: %w", id, err)
 	}
-	defer attached.Close()
 	copied := make(chan error, 1)
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		if media, ok := attached.MediaType(); ok && media == rawStream {
 			_, err := io.Copy(output, attached.Reader)
 			copied <- err
 			return
 		}
-		copied <- copyFrames(attached.Reader, output)
+		errs := opts.Errors
+		if errs == nil {
+			errs = output
+		}
+		copied <- copyFrames(attached.Reader, output, errs)
+	}()
+	// Whatever ends the run, the copy is stopped and waited for before
+	// RunOnce returns, so nothing is written to Output or Errors after it
+	// and a caller may read what they hold without a lock. Closing the
+	// stream ends a read in progress; a write in progress is the caller's
+	// own writer's, which does not block.
+	defer func() {
+		attached.Close()
+		<-finished
 	}()
 
 	if _, err := s.API.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
@@ -163,28 +253,53 @@ func (s *Session) RunOnce(ctx context.Context, opts RunOnceOptions) (RunOnceResu
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 	waited := s.API.ContainerWait(runCtx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-	select {
-	case done := <-waited.Result:
-		res.ExitCode = int(done.StatusCode)
-		if done.Error != nil && done.Error.Message != "" {
-			return res, fmt.Errorf("containerengine: waiting for container %s: %s", id, done.Error.Message)
+	// stream is nil once the output has ended.
+	stream := copied
+	for ended := false; !ended; {
+		select {
+		case err := <-stream:
+			if err != nil {
+				// The output could not be taken: the writer refused it
+				// (past its bound) or the stream broke. Nothing reads what
+				// the container writes now, so it would block writing until
+				// its timeout; it is stopped at once instead.
+				s.kill(id)
+				return res, fmt.Errorf("containerengine: container %s: reading its output: %w", id, err)
+			}
+			stream = nil
+		case done := <-waited.Result:
+			res.ExitCode = int(done.StatusCode)
+			if done.Error != nil && done.Error.Message != "" {
+				return res, fmt.Errorf("containerengine: waiting for container %s: %s", id, done.Error.Message)
+			}
+			ended = true
+		case err := <-waited.Error:
+			if runCtx.Err() == nil {
+				return res, fmt.Errorf("containerengine: waiting for container %s: %w", id, err)
+			}
+			s.kill(id)
+			if ctx.Err() != nil {
+				return res, fmt.Errorf("containerengine: container %s: %w", id, ctx.Err())
+			}
+			res.TimedOut = true
+			res.ExitCode = 137
+			ended = true
 		}
-	case err := <-waited.Error:
-		if runCtx.Err() == nil {
-			return res, fmt.Errorf("containerengine: waiting for container %s: %w", id, err)
-		}
-		s.kill(id)
-		if ctx.Err() != nil {
-			return res, fmt.Errorf("containerengine: container %s: %w", id, ctx.Err())
-		}
-		res.TimedOut = true
-		res.ExitCode = 137
 	}
-	// The stream ends when the container does; a container killed above
-	// ends it too, so this does not outlast the run.
+	if stream == nil {
+		return res, nil
+	}
+	// The stream ends when the container does, once the engine has passed
+	// on all it wrote (a container killed above ends it too). Past
+	// outputGrace it is cut, and the result says so, rather than RunOnce
+	// waiting on an engine that never ends it.
 	select {
-	case <-copied:
-	case <-time.After(removeGrace):
+	case err := <-stream:
+		if err != nil {
+			return res, fmt.Errorf("containerengine: container %s: reading its output: %w", id, err)
+		}
+	case <-time.After(outputGrace):
+		res.OutputCut = true
 	}
 	return res, nil
 }
@@ -201,7 +316,7 @@ func (s *Session) ensureImage(ctx context.Context, image string, pull bool) (boo
 		return false, fmt.Errorf("containerengine: inspecting image %s: %w", image, err)
 	}
 	if !pull {
-		return false, fmt.Errorf("containerengine: image %s is not on the device's engine and pulling it was not asked for", image)
+		return false, fmt.Errorf("containerengine: image %s is not on the device's engine and pulling it was not asked for: %w", image, ErrImageAbsent)
 	}
 	stream, err := s.API.ImagePull(ctx, image, client.ImagePullOptions{})
 	if err != nil {
@@ -230,11 +345,12 @@ func (s *Session) removeOnce(id string) {
 	_, _ = s.API.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
-// copyFrames streams an attached container's framed output to w: each
-// frame's payload, standard output and standard error alike, in the order
-// the engine sent them. Nothing is buffered beyond what io.CopyN needs, so
-// a frame claiming a huge length costs no allocation; w bounds what is kept.
-func copyFrames(r io.Reader, w io.Writer) error {
+// copyFrames streams an attached container's framed output: each frame's
+// payload, in the order the engine sent them, to stdout or, for a standard
+// error frame, to stderr (which may be the same writer). Nothing is
+// buffered beyond what io.CopyN needs, so a frame claiming a huge length
+// costs no allocation; the writers bound what is kept.
+func copyFrames(r io.Reader, stdout, stderr io.Writer) error {
 	header := make([]byte, 8)
 	for {
 		if _, err := io.ReadFull(r, header); err != nil {
@@ -244,6 +360,10 @@ func copyFrames(r io.Reader, w io.Writer) error {
 			return fmt.Errorf("reading a frame header: %w", err)
 		}
 		size := int64(binary.BigEndian.Uint32(header[4:8]))
+		w := stdout
+		if header[0] == 2 {
+			w = stderr
+		}
 		if _, err := io.CopyN(w, r, size); err != nil {
 			return fmt.Errorf("reading a %d-byte frame: %w", size, err)
 		}

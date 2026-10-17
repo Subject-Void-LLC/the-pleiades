@@ -44,6 +44,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/dnf"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/connection"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/wait"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/systemd"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/windows"

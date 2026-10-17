@@ -1,0 +1,8 @@
+# The ignore file scan.vuln reads from the device (copy it to
+# /srv/app/vuln-ignore.yaml). Each id is an advisory or one of its
+# aliases. Every entry needs a reason and an end date (YYYY-MM-DD, in UTC,
+# at most a year from the run); past its date an entry suppresses nothing
+# and the run says so.
+- id: GHSA-xxxx-xxxx-xxxx
+  reason: the vulnerable function is never called; see the release notes for 2.4.1
+  until: 2026-12-31

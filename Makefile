@@ -285,7 +285,7 @@ test:
 # provisions real containers.
 #
 # `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
-# development host, and DOCKER_DEPENDENT_PACKAGES below names 42
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 43
 # packages. So the default asks one Docker daemon to build, start, port
 # map and health check the containers of twenty packages simultaneously,
 # on top of a Ryuk reaper per package. Two consecutive full `make ci`
@@ -394,6 +394,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -68,9 +69,8 @@ func (e *runEngine) answer(req *http.Request, body []byte) string {
 	case strings.HasSuffix(path, "/start"):
 		return "HTTP/1.1 204 No Content\r\n\r\n"
 	case strings.HasSuffix(path, "/wait"):
-		e.mu.Unlock()
-		time.Sleep(e.waitFor)
-		e.mu.Lock()
+		// The header goes at once and the status once the container ends
+		// (dial holds the body back waitFor), as an engine answers a wait.
 		return jsonAnswer("200 OK", fmt.Sprintf(`{"StatusCode":%d}`, e.exitCode))
 	case strings.HasSuffix(path, "/kill"):
 		e.killed++
@@ -109,7 +109,17 @@ func (e *runEngine) dial(context.Context) (net.Conn, error) {
 			return
 		}
 		body, _ := io.ReadAll(req.Body)
-		_, _ = s.Write([]byte(e.answer(req, body)))
+		answer := e.answer(req, body)
+		if head, rest, found := strings.Cut(answer, "\r\n\r\n"); found && strings.HasSuffix(req.URL.Path, "/wait") {
+			// An engine acknowledges a wait with its header at once and
+			// sends the status when the container ends.
+			if _, err := s.Write([]byte(head + "\r\n\r\n")); err != nil {
+				return
+			}
+			time.Sleep(e.waitFor)
+			answer = rest
+		}
+		_, _ = s.Write([]byte(answer))
 	}()
 	return c, nil
 }
@@ -143,6 +153,20 @@ func TestRunOnce_RunsHardenedStreamsAndRemoves(t *testing.T) {
 	}
 }
 
+// TestRunOnce_ErrorsApartKeepsAReportWhole: with Errors set, standard
+// error goes there and Output keeps standard output alone, so a tool's
+// report is not interleaved with its logs.
+func TestRunOnce_ErrorsApartKeepsAReportWhole(t *testing.T) {
+	e := &runEngine{imagePresent: true, stream: frames(byte(2), "scanning\n", byte(1), `{"results":`, byte(2), "done\n", byte(1), "[]}")}
+	var out, errs bytes.Buffer
+	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"scan"}, Timeout: time.Minute, Output: &out, Errors: &errs}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != `{"results":[]}` || errs.String() != "scanning\ndone\n" {
+		t.Errorf("output %q, errors %q", out.String(), errs.String())
+	}
+}
+
 // TestRunOnce_ANamedNetworkAndAWritableRoot are opted into, never default.
 func TestRunOnce_ANamedNetworkAndAWritableRoot(t *testing.T) {
 	e := &runEngine{imagePresent: true}
@@ -155,11 +179,37 @@ func TestRunOnce_ANamedNetworkAndAWritableRoot(t *testing.T) {
 	}
 }
 
+// TestRunOnce_MountsAreReadOnlyAndEnvIsPassed: every mount reaches the
+// engine as a read-only bind, and the environment as given.
+func TestRunOnce_MountsAreReadOnlyAndEnvIsPassed(t *testing.T) {
+	e := &runEngine{imagePresent: true}
+	opts := RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute,
+		Mounts: []ReadOnlyMount{{Source: "/srv/app", Target: "/src"}, {Source: "/var/lib/osv", Target: "/db"}},
+		Env:    []string{"OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db"}}
+	if _, err := runSession(t, e).RunOnce(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := e.create["HostConfig"].(map[string]any)
+	mounts, _ := host["Mounts"].([]any)
+	if len(mounts) != 2 {
+		t.Fatalf("mounts = %v", host["Mounts"])
+	}
+	for _, raw := range mounts {
+		m := raw.(map[string]any)
+		if m["Type"] != "bind" || m["ReadOnly"] != true {
+			t.Errorf("mount %v is not a read-only bind", m)
+		}
+	}
+	if env, _ := e.create["Env"].([]any); len(env) != 1 || env[0] != "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db" {
+		t.Errorf("env = %v", e.create["Env"])
+	}
+}
+
 // TestRunOnce_AnAbsentImageIsPulledOnlyWhenAsked refuses it without pull,
 // creating nothing, and pulls it with.
 func TestRunOnce_AnAbsentImageIsPulledOnlyWhenAsked(t *testing.T) {
 	e := &runEngine{}
-	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute}); err == nil || !strings.Contains(err.Error(), "pulling it was not asked for") {
+	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute}); !errors.Is(err, ErrImageAbsent) || !strings.Contains(err.Error(), "pulling it was not asked for") {
 		t.Fatalf("an absent image without pull = %v", err)
 	}
 	if e.created != 0 || e.pulled != 0 {
@@ -197,10 +247,15 @@ func TestRunOnce_RefusesBeforeContact(t *testing.T) {
 	e := &runEngine{imagePresent: true}
 	s := runSession(t, e)
 	for name, opts := range map[string]RunOnceOptions{
-		"an image by tag": {Image: "alpine:3.20", Cmd: []string{"true"}, Timeout: time.Minute},
-		"no command":      {Image: runImage, Timeout: time.Minute},
-		"no timeout":      {Image: runImage, Cmd: []string{"true"}},
-		"a network":       {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Network: "--privileged"},
+		"an image by tag":  {Image: "alpine:3.20", Cmd: []string{"true"}, Timeout: time.Minute},
+		"no command":       {Image: runImage, Timeout: time.Minute},
+		"no timeout":       {Image: runImage, Cmd: []string{"true"}},
+		"a network":        {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Network: "--privileged"},
+		"a relative mount": {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "srv", Target: "/src"}}},
+		"a mount over /":   {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "/srv", Target: "/"}}},
+		"an unclean mount": {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Mounts: []ReadOnlyMount{{Source: "/srv/../etc", Target: "/src"}}},
+		"a bad env name":   {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Env: []string{"1X=y"}},
+		"env with no =":    {Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute, Env: []string{"NAME"}},
 	} {
 		if _, err := s.RunOnce(context.Background(), opts); err == nil {
 			t.Errorf("%s was run", name)

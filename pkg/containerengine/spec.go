@@ -178,9 +178,6 @@ const LabelAttempt = "org.pleiades.attempt"
 // restartPolicies are the restart policies a task may name.
 var restartPolicies = []string{"no", "on-failure", "always", "unless-stopped"}
 
-// envName is what an environment variable's name may be.
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
 // userSpec is what a container's user may be: a name or ID, optionally
 // with a group.
 var userSpec = regexp.MustCompile(`^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)?$`)
