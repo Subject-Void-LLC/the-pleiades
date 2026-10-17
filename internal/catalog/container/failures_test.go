@@ -77,6 +77,19 @@ func TestLifecycle_StatesTheMethodsDecline(t *testing.T) {
 	if _, err := call(t, h, fresh(), "container.remove", false, map[string]any{"name": name}); err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Errorf("remove of a paused container without force = %v", err)
 	}
+	// The refusal's remedy works: a paused container stops, and runs again.
+	if res, err := call(t, h, fresh(), "container.stop", false, map[string]any{"name": name, "timeout": 1}); err != nil || !res.Changed || h.state(t, name) != "exited" {
+		t.Fatalf("stop of a paused container = %+v, %v; state %q", res, err, h.state(t, name))
+	}
+	if res, err := call(t, h, fresh(), "container.run", false, declared); err != nil || !res.Changed || h.state(t, name) != "running" {
+		t.Fatalf("run after stopping the paused container = %+v, %v; state %q", res, err, h.state(t, name))
+	}
+	// A declared setting the container does not have is a difference: the
+	// user it runs as is compared, not taken as declared.
+	asOther := map[string]any{"name": name, "image": h.nginx, "user": "1000"}
+	if _, err := call(t, h, fresh(), "container.run", false, asOther); err == nil || !strings.Contains(err.Error(), "user:") {
+		t.Errorf("a run declaring another user = %v, want the difference named", err)
+	}
 
 	absent := h.name(t)
 	for _, fqcn := range []string{"container.start", "container.stop", "container.restart"} {

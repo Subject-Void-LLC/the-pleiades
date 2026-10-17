@@ -22,7 +22,7 @@ var startAction = action{
 		case "created", "exited":
 			return true, nil
 		case "paused":
-			return false, fmt.Errorf("it is paused; unpause it rather than start it")
+			return false, fmt.Errorf("it is paused, which start does not resume; container.stop stops a paused container, and a start after that runs it")
 		}
 		return false, fmt.Errorf("it is %s, which cannot be started", state)
 	},

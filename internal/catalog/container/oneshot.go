@@ -93,9 +93,11 @@ func oneShotCheck(params map[string]any) error {
 }
 
 // runToExit creates the container, runs it to its exit and returns how it
-// ended, removing it afterwards when remove is set, whatever the outcome.
-// An exit code the task did not accept fails it, after its output is
-// recorded.
+// ended. It is removed afterwards when remove is set, and whenever the
+// task fails, remove or not: the engine drops a failed task's undo
+// (FAILURE_PATTERNS 452), so a container kept then would be named by no
+// undo and refuse every rerun of the task by its name. An exit code the
+// task did not accept fails it, after its output is recorded.
 func runToExit(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, shot oneShot) (collection.Result, error) {
 	cfg, host, net, err := spec.Create()
 	if err != nil {
@@ -109,15 +111,19 @@ func runToExit(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 	if !containerID.MatchString(created.ID) {
 		return collection.Result{}, fmt.Errorf("the engine answered an unusable ID for the container it created")
 	}
-	if shot.remove {
-		defer removeQuietly(s, created.ID)
-	}
+	failed := true
+	defer func() {
+		if shot.remove || failed {
+			removeQuietly(s, created.ID)
+		}
+	}()
 	exited, err := s.RunToExit(ctx, created.ID, cfg.Tty, shot.timeout, maxOneShotOutput)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("container %s: %w", spec.Name, err)
+		return collection.Result{}, fmt.Errorf("container %s: %w; it was removed", spec.Name, err)
 	}
+	accepted := !exited.TimedOut && slices.Contains(shot.accept, exited.ExitCode)
 	state := "removed"
-	if !shot.remove {
+	if !shot.remove && accepted {
 		state = "exited"
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN:        "container.remove",
@@ -134,10 +140,11 @@ func runToExit(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 		return collection.Result{}, err
 	}
 	if exited.TimedOut {
-		return collection.Result{Changed: true}, fmt.Errorf("container %s ran past %s and was killed", spec.Name, shot.timeout)
+		return collection.Result{Changed: true}, fmt.Errorf("container %s ran past %s and was killed and removed", spec.Name, shot.timeout)
 	}
-	if !slices.Contains(shot.accept, exited.ExitCode) {
-		return collection.Result{Changed: true}, fmt.Errorf("container %s exited %d: %s", spec.Name, exited.ExitCode, strings.TrimSpace(firstNonEmpty(exited.Stderr, exited.Stdout)))
+	if !accepted {
+		return collection.Result{Changed: true}, fmt.Errorf("container %s exited %d and was removed: %s", spec.Name, exited.ExitCode, strings.TrimSpace(firstNonEmpty(exited.Stderr, exited.Stdout)))
 	}
+	failed = false
 	return collection.Result{Changed: true}, nil
 }

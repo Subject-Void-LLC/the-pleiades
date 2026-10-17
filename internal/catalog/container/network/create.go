@@ -86,7 +86,9 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		// A create whose answer was lost may have made the network: say so
 		// rather than guess whether this run made it.
-		if _, there, inspectErr := inspectNetwork(context.WithoutCancel(ctx), s, name); inspectErr == nil && there {
+		cctx, cancel := containerengine.CleanupContext(ctx)
+		defer cancel()
+		if _, there, inspectErr := inspectNetwork(cctx, s, name); inspectErr == nil && there {
 			return fail(fmt.Errorf("creating network %s: %w; a network by that name exists now, so run the task again to compare it", name, err))
 		}
 		return fail(fmt.Errorf("creating network %s: %w", name, err))

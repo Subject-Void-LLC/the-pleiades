@@ -4,10 +4,13 @@ package container
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	moby "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
@@ -155,7 +158,7 @@ func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Ses
 			return collection.Result{}, nil
 		}
 	case "paused":
-		return collection.Result{}, fmt.Errorf("container %s is paused; unpause it before running it", spec.Name)
+		return collection.Result{}, fmt.Errorf("container %s is paused, which run does not resume; container.stop stops a paused container, and a run after that starts it", spec.Name)
 	default:
 		return collection.Result{}, fmt.Errorf("container %s is %s, which cannot be started; container.remove it", spec.Name, state)
 	}
@@ -178,18 +181,30 @@ func existing(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Ses
 }
 
 // createNew creates the container, and starts it when start is set,
-// recording its removal as the undo when record is set. A
-// create whose answer was lost is found by name rather than sent twice; a
+// recording its removal as the undo when record is set. A create whose
+// answer was lost is found by the attempt label it alone carries, never
+// by name or image, which another run's container of the same name has
+// too; a name already taken is that other run's, and is left alone. A
 // start that fails removes what the create made, since the engine drops a
 // failed task's undo (FAILURE_PATTERNS 452).
 func createNew(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Session, spec containerengine.Spec, start, record bool) (collection.Result, error) {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return collection.Result{}, err
+	}
+	spec.Attempt = hex.EncodeToString(nonce)
 	cfg, host, net, err := spec.Create()
 	if err != nil {
 		return collection.Result{}, err
 	}
 	created, err := s.API.ContainerCreate(ctx, client.ContainerCreateOptions{Name: spec.Name, Config: cfg, HostConfig: host, NetworkingConfig: net})
 	if err != nil {
-		if live, exists, inspectErr := inspect(context.WithoutCancel(ctx), s, spec.Name); inspectErr == nil && exists && live.Config != nil && live.Config.Labels[containerengine.LabelManagedBy] == spec.Image {
+		if cerrdefs.IsConflict(err) {
+			return collection.Result{}, fmt.Errorf("creating container %s: %w; another run made a container of that name meanwhile, so run the task again to compare it", spec.Name, err)
+		}
+		cctx, cancel := containerengine.CleanupContext(ctx)
+		defer cancel()
+		if live, exists, inspectErr := inspect(cctx, s, spec.Name); inspectErr == nil && exists && live.Config != nil && live.Config.Labels[containerengine.LabelAttempt] == spec.Attempt {
 			removeQuietly(s, live.ID)
 			return collection.Result{}, fmt.Errorf("creating container %s: %w; the engine had made it anyway, and it was removed", spec.Name, err)
 		}

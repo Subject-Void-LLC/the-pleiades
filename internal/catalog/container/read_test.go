@@ -138,8 +138,28 @@ func TestRun_ToItsExit(t *testing.T) {
 	}
 	rc = fresh()
 	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "echo nope >&2; exit 4"}}))
-	if err == nil || !strings.Contains(err.Error(), "exited 4: nope") || rc.stats["exit_code"] != 4 || h.state(t, name) != "" {
+	if err == nil || !strings.Contains(err.Error(), "exited 4 and was removed: nope") || rc.stats["exit_code"] != 4 || h.state(t, name) != "" {
 		t.Errorf("a failing one-shot = %v, %v; state %q", err, rc.stats, h.state(t, name))
+	}
+	// remove: false keeps only a run that succeeded: a failed one leaves
+	// nothing behind, since its undo is dropped with the failure.
+	rc = fresh()
+	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "exit 4"}, "remove": false}))
+	if err == nil || !strings.Contains(err.Error(), "was removed") || h.state(t, name) != "" {
+		t.Errorf("a failing one-shot kept by remove false = %v; state %q", err, h.state(t, name))
+	}
+	if fqcn, _ := inverseOf(rc); fqcn != "" {
+		t.Errorf("a failed one-shot recorded %s as its undo", fqcn)
+	}
+	rc = fresh()
+	if _, err := call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"true"}, "remove": false})); err != nil || h.state(t, name) != "exited" {
+		t.Fatalf("a succeeding one-shot kept by remove false = %v; state %q", err, h.state(t, name))
+	}
+	if fqcn, p := inverseOf(rc); fqcn != "container.remove" || p["id"] == nil {
+		t.Errorf("the kept one-shot's undo = %s %v", fqcn, p)
+	}
+	if _, err := call(t, h, fresh(), "container.remove", false, map[string]any{"name": name}); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := call(t, h, fresh(), "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "exit 4"}, "accept_exit_codes": []any{0, 4}})); err != nil {
 		t.Errorf("an accepted exit code = %v", err)
