@@ -2,12 +2,14 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -98,5 +100,45 @@ func TestReadProjectFile_RefusesASymbolicLink(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "symbolic link") || strings.Contains(string(got), "secret-sentinel") {
 			t.Errorf("ReadProjectFile(%q) = %q, %v; want it refused naming the link", name, got, err)
 		}
+	}
+}
+
+// TestWithProjectFiles: the wrapper gives the contexts it builds the
+// project directory, passes an error from the wrapped builder through,
+// and leaves a context of another kind as it is, which then answers
+// nothing about project files.
+func TestWithProjectFiles(t *testing.T) {
+	dir := projectWith(t, map[string]string{"files/ok": "ok"})
+	rc, err := WithProjectFiles(NewDeviceRunbookContext, dir)(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, ok := rc.(sdk.ProjectFiles)
+	if !ok {
+		t.Fatalf("%T does not answer for project files", rc)
+	}
+	if got, err := files.ReadProjectFile("files/ok", 16); err != nil || string(got) != "ok" {
+		t.Errorf("ReadProjectFile = %q, %v", got, err)
+	}
+
+	boom := errors.New("no credential store")
+	failing := func(context.Context, inventory.InventoryItem) (sdk.RunbookContext, error) { return nil, boom }
+	if _, err := WithProjectFiles(failing, dir)(context.Background(), nil); !errors.Is(err, boom) {
+		t.Errorf("an error from the wrapped builder = %v, want it passed through", err)
+	}
+
+	other := struct{ sdk.RunbookContext }{}
+	foreign := func(context.Context, inventory.InventoryItem) (sdk.RunbookContext, error) { return other, nil }
+	if rc, err := WithProjectFiles(foreign, dir)(context.Background(), nil); err != nil || rc != other {
+		t.Errorf("a context of another kind = %v, %v; want it unchanged", rc, err)
+	}
+}
+
+// TestReadProjectFile_AProjectThatIsNotThere: a project directory that
+// cannot be opened is an error naming it, not an empty file.
+func TestReadProjectFile_AProjectThatIsNotThere(t *testing.T) {
+	c := &runbookContext{projectDir: filepath.Join(t.TempDir(), "gone")}
+	if got, err := c.ReadProjectFile("files/ok", 16); err == nil || !strings.Contains(err.Error(), "opening the project directory") {
+		t.Errorf("ReadProjectFile = %q, %v", got, err)
 	}
 }
