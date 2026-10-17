@@ -50,7 +50,7 @@ func init() {
 	} {
 		collection.MustRegister(collection.Descriptor{
 			Name:     name,
-			Manifest: manifest(readOnly, readDoc(name)),
+			Manifest: containerengine.MethodManifest(readOnly, readDoc(name)),
 			Invoke:   fn,
 			// It only reads, so a check of it is the task itself.
 			Check: fn,

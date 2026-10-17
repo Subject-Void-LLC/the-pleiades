@@ -45,7 +45,7 @@ const (
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "container.copy_in",
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: false,
 			Notes:      "The bytes a file held before are not kept, so the write cannot be undone; a container recreated from its image has the image's file again.",
 		}, copyInDoc()),
@@ -58,7 +58,7 @@ func init() {
 	})
 	collection.MustRegister(collection.Descriptor{
 		Name:     "container.copy_out",
-		Manifest: manifest(readOnly, copyOutDoc()),
+		Manifest: containerengine.MethodManifest(readOnly, copyOutDoc()),
 		Invoke:   CopyOut,
 		// It only reads, so a check of it is the task itself.
 		Check: CopyOut,

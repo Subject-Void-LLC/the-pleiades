@@ -39,7 +39,7 @@ func init() {
 	}
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcnRun,
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that created the container records its removal, by ID; a run that started an existing stopped one records stopping it, by ID; a run that found it running as declared records nothing.",
 			Inverses:   inverses,
@@ -57,7 +57,7 @@ func init() {
 	})
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcnCreate,
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that created the container records its removal, by ID; one that found it as declared records nothing.",
 			Inverses:   inverses[:1],

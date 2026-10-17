@@ -26,7 +26,7 @@ func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "container.exec",
 		Manifest: func() collection.Manifest {
-			m := manifest(collection.Reversibility{
+			m := containerengine.MethodManifest(collection.Reversibility{
 				Reversible: false,
 				Notes:      "A command's effect inside a container is unknown to this platform, as exec.command's is on a host.",
 			}, execDoc())
@@ -38,7 +38,7 @@ func init() {
 	})
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcnRecreate,
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: false,
 			Notes:      "Recreating a container removes the old one, whose writable layer and anonymous volumes are gone; its declaration can make a new one, never the old.",
 		}, recreateDoc()),

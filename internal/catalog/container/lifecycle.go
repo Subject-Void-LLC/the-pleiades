@@ -123,7 +123,7 @@ func init() {
 		}
 		collection.MustRegister(collection.Descriptor{
 			Name:     a.fqcn,
-			Manifest: manifest(rev, lifecycleDoc(a.fqcn)),
+			Manifest: containerengine.MethodManifest(rev, lifecycleDoc(a.fqcn)),
 			Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
 				return change(ctx, rc, d, p, collection.ModeExecute, a)
 			},
@@ -134,7 +134,7 @@ func init() {
 	}
 	collection.MustRegister(collection.Descriptor{
 		Name: "container.remove",
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: false,
 			Notes:      "A removed container's writable layer, and any anonymous volume removed with it, is gone; container.run makes a new one from its declaration.",
 		}, lifecycleDoc("container.remove")),

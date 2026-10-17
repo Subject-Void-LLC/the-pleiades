@@ -41,7 +41,7 @@ var predefinedNetworks = []string{"bridge", "host", "none", "podman"}
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "container.prune",
-		Manifest: manifest(collection.Reversibility{
+		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: false,
 			Notes:      "A pruned container's writable layer, image or volume's data, or network is gone.",
 		}, pruneDoc()),

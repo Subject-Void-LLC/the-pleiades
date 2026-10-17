@@ -17,7 +17,6 @@ import (
 	moby "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -42,21 +41,6 @@ const (
 
 // containerID is what an engine's container ID is.
 var containerID = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-// manifest is the manifest every container.* method shares, with its own
-// reversibility, check support and doc.
-func manifest(rev collection.Reversibility, doc collection.Doc) collection.Manifest {
-	return collection.Manifest{
-		SupportedTransports:  capability.EngineTransports(),
-		RequiredCapabilities: []capability.Name{capability.NameContainerEngine},
-		ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-		EngineVersion:        ">=0.2.0",
-		Status:               collection.StatusImplemented,
-		SupportsCheck:        true,
-		Reversibility:        rev,
-		Doc:                  doc,
-	}
-}
 
 // open opens the device's engine for fqcn, allowing ops.
 func open(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, ops ...containerengine.Op) (*containerengine.Session, error) {
