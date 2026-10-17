@@ -113,3 +113,46 @@ func contains(list []string, s string) bool {
 	}
 	return false
 }
+
+// TestRun_ToItsExit: a one-shot returns its exit code and output and is
+// removed; an exit code not accepted fails the task after its output is
+// recorded, and one accepted does not; a name in use is refused; a run
+// past its timeout is killed; and a check of a one-shot is refused.
+func TestRun_ToItsExit(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	shot := func(extra map[string]any) map[string]any {
+		p := map[string]any{"name": name, "image": h.nginx, "wait": true}
+		for k, v := range extra {
+			p[k] = v
+		}
+		return p
+	}
+	rc := fresh()
+	res, err := call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "echo out; echo err >&2"}}))
+	if err != nil || !res.Changed || rc.stats["exit_code"] != 0 || rc.stats["stdout"] != "out\n" || rc.stats["stderr"] != "err\n" || h.state(t, name) != "" {
+		t.Fatalf("a one-shot = %+v, %v, %v; state %q", res, err, rc.stats, h.state(t, name))
+	}
+	rc = fresh()
+	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "echo nope >&2; exit 4"}}))
+	if err == nil || !strings.Contains(err.Error(), "exited 4: nope") || rc.stats["exit_code"] != 4 || h.state(t, name) != "" {
+		t.Errorf("a failing one-shot = %v, %v; state %q", err, rc.stats, h.state(t, name))
+	}
+	if _, err := call(t, h, fresh(), "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "exit 4"}, "accept_exit_codes": []any{0, 4}})); err != nil {
+		t.Errorf("an accepted exit code = %v", err)
+	}
+	rc = fresh()
+	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"sleep", "30"}, "wait_timeout": 1}))
+	if err == nil || !strings.Contains(err.Error(), "was killed") || rc.stats["timed_out"] != true {
+		t.Errorf("a one-shot past its timeout = %v, %v", err, rc.stats)
+	}
+	if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": name, "image": h.nginx}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, h, fresh(), "container.run", false, shot(nil)); err == nil || !strings.Contains(err.Error(), "makes a fresh one") {
+		t.Errorf("a one-shot onto a name in use = %v", err)
+	}
+	if _, err := call(t, h, fresh(), "container.run", true, shot(nil)); err == nil || !strings.Contains(err.Error(), "known only once it has run") {
+		t.Errorf("a check of a one-shot = %v", err)
+	}
+}

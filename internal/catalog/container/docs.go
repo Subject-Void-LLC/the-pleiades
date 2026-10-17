@@ -34,11 +34,23 @@ var imageReturns = []collection.ReturnField{
 func runDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Makes a container exist as declared, and running.",
-		Description: "Makes the container named name exist from image as the task declares it, and run. An absent container is created and started; a stopped one that matches is started; a running one that matches is left alone. A container that differs from the declaration (its image by digest, command, entrypoint, the declared environment and labels, network, ports, mounts, restart policy, privilege, added capabilities, read-only root) is refused, naming each difference and container.recreate, which replaces it: nothing is ever replaced here. A paused container is refused. Safe by default: no network, read-only bind mounts, restart no, no-new-privileges, and the image pulled and run by digest. A create whose answer was lost is found by name rather than sent twice, and a start that fails removes what the create made. A check makes every read and refusal a run makes, resolving the image's digest and reading the container, and pulls, creates and starts nothing." + reachNote,
-		Params:      []collection.Param{hostKeyParam},
-		Fragments:   []string{"container_spec", "container_engine"},
-		Returns:     append([]collection.ReturnField{nameReturn, idReturn, stateReturn}, imageReturns...),
+		Description: "Makes the container named name exist from image as the task declares it, and run. An absent container is created and started; a stopped one that matches is started; a running one that matches is left alone. A container that differs from the declaration (its image by digest, command, entrypoint, the declared environment and labels, network, ports, mounts, restart policy, privilege, added capabilities, read-only root) is refused, naming each difference and container.recreate, which replaces it: nothing is ever replaced here. A paused container is refused. Safe by default: no network, read-only bind mounts, restart no, no-new-privileges, and the image pulled and run by digest. A create whose answer was lost is found by name rather than sent twice, and a start that fails removes what the create made. A check makes every read and refusal a run makes, resolving the image's digest and reading the container, and pulls, creates and starts nothing. With wait, the container is a one-shot: a fresh container (a name in use is refused) runs to its exit, and the task returns its exit code and output (together at most 1 MiB, refused past it), removes it afterwards whatever the outcome unless remove is false, and fails on an exit code accept_exit_codes does not name; a one-shot runs its command, so it cannot be checked, and check_mode on one is refused at validation." + reachNote,
+		Params: []collection.Param{
+			{Name: paramWait, Type: "bool", Default: "false", Description: "Run the container to its exit, as a command: a one-shot."},
+			{Name: paramRemove, Type: "bool", Default: "true", Description: "With wait, remove the container once it exits, whatever the outcome."},
+			{Name: paramWaitTimeout, Type: "int", Default: "3600", Description: "With wait, seconds the container may run before it is killed and the task fails, up to 86400."},
+			{Name: paramAcceptExit, Type: "list", Default: "[0]", Description: "With wait, the exit codes that are success."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_spec", "container_engine"},
+		Returns: append(append([]collection.ReturnField{nameReturn, idReturn, stateReturn}, imageReturns...),
+			collection.ReturnField{Name: statExitCode, Type: "int", Returned: "with wait", Description: "The container's exit status."},
+			collection.ReturnField{Name: statTimedOut, Type: "bool", Returned: "with wait", Description: "Whether it ran past wait_timeout and was killed."},
+			collection.ReturnField{Name: statStdout, Type: "string", Returned: "with wait", Description: "What it wrote to standard output."},
+			collection.ReturnField{Name: statStderr, Type: "string", Returned: "with wait", Description: "What it wrote to standard error."},
+		),
 		Examples: []collection.Example{
+			{Name: "Run a migration image to its exit", RunbookYAML: "- name: Migrate\n  container.run:\n    name: migrate-{{ vars.release }}\n    image: registry.example/app-migrate:2.4.1\n    network: appnet\n    wait: true\n"},
 			{Name: "Run a web server on a network of its own", RunbookYAML: "- name: Web\n  container.run:\n    name: web\n    image: nginx:1.27\n    network: appnet\n    ports: [\"127.0.0.1:8080:80\"]\n    volumes: [\"/srv/web/conf:/etc/nginx/conf.d\"]\n    restart_policy: unless-stopped\n"},
 		},
 		SeeAlso: []string{"container.create", "container.recreate", "container.stop", "container.remove"},

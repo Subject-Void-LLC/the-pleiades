@@ -23,10 +23,10 @@ const (
 )
 
 // convergeOps are the operations run and create send.
-var convergeOps = append([]containerengine.Op{
+var convergeOps = append(append([]containerengine.Op{
 	containerengine.OpContainerInspect, containerengine.OpContainerCreate,
 	containerengine.OpContainerStart, containerengine.OpContainerRemove,
-}, containerengine.EnsureImageOps...)
+}, containerengine.EnsureImageOps...), containerengine.RunToExitOps...)
 
 // cleanupGrace bounds removing a container a failed run created, on a
 // context of its own so a run that ended still cleans up.
@@ -48,8 +48,12 @@ func init() {
 			return converge(ctx, rc, d, p, collection.ModeExecute, fqcnRun, true)
 		},
 		Check: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
+			if err := oneShotCheck(p); err != nil {
+				return collection.Result{}, err
+			}
 			return converge(ctx, rc, d, p, collection.ModeCheck, fqcnRun, true)
 		},
+		CheckCall: oneShotCheck,
 	})
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcnCreate,
@@ -82,6 +86,16 @@ func converge(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if spec.Image == "" {
 		return fail(fmt.Errorf("image is required"))
 	}
+	shot, err := parseOneShot(params)
+	if err != nil {
+		return fail(err)
+	}
+	if shot.wait && !start {
+		return fail(fmt.Errorf("%s runs nothing; %s with %s runs a container to its exit", fqcnCreate, fqcnRun, paramWait))
+	}
+	if shot.wait && spec.Restart != "no" {
+		return fail(fmt.Errorf("a container run to its exit has no restart policy; %s is %s", "restart_policy", spec.Restart))
+	}
 	auth, err := containerengine.RegistryAuth(rc, spec.Image)
 	if err != nil {
 		return fail(err)
@@ -108,6 +122,12 @@ func converge(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		return collection.Result{}, err
 	}
 
+	if shot.wait {
+		if exists {
+			return fail(fmt.Errorf("a container named %s exists, and a run to its exit makes a fresh one; container.remove it first, or name another", spec.Name))
+		}
+		return runToExit(ctx, rc, s, spec, shot)
+	}
 	if exists {
 		return existing(ctx, rc, s, spec, live, img, mode, start, true)
 	}
