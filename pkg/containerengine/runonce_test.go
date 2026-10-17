@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -199,7 +200,7 @@ func TestRunOnce_MountsAreReadOnlyAndEnvIsPassed(t *testing.T) {
 // creating nothing, and pulls it with.
 func TestRunOnce_AnAbsentImageIsPulledOnlyWhenAsked(t *testing.T) {
 	e := &runEngine{}
-	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute}); err == nil || !strings.Contains(err.Error(), "pulling it was not asked for") {
+	if _, err := runSession(t, e).RunOnce(context.Background(), RunOnceOptions{Image: runImage, Cmd: []string{"true"}, Timeout: time.Minute}); !errors.Is(err, ErrImageAbsent) || !strings.Contains(err.Error(), "pulling it was not asked for") {
 		t.Fatalf("an absent image without pull = %v", err)
 	}
 	if e.created != 0 || e.pulled != 0 {

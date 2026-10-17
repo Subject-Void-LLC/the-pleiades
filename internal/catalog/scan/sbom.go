@@ -145,7 +145,7 @@ func sbom(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		source = "docker-archive:" + t.inContainer()
 	}
 	ran, err := run(ctx, engine, runOptions{
-		image: syftImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull,
+		image: syftImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull, check: mode == collection.ModeCheck,
 		cmd: []string{"scan", source, "-o", "spdx-json", "--source-name", subject[paramName], "--source-version", subject[paramVersion]},
 		// Syft asks the network for its own latest release, which a
 		// container with none answers with an error on every run.

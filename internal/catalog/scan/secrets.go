@@ -35,8 +35,7 @@ func init() {
 			Doc: secretsDoc(),
 		},
 		Invoke: Secrets,
-		// It only reads, so a check of it is the task itself.
-		Check: Secrets,
+		Check:  CheckSecrets,
 	})
 }
 
@@ -76,6 +75,17 @@ func parseLeaks(data []byte) ([]leak, error) {
 
 // Secrets implements scan.secrets.
 func Secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return secrets(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckSecrets is scan.secrets' check: it only reads, so it is the scan a
+// run makes, except that it never pulls the scanner's image.
+func CheckSecrets(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return secrets(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// secrets is Secrets' and CheckSecrets' one body.
+func secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	fail := func(err error) (collection.Result, error) {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcnSecrets, err)
 	}
@@ -119,7 +129,7 @@ func Secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	watch := &skipWatch{}
 	ran, err := run(ctx, engine, runOptions{
-		image: gitleaksImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull, watch: watch,
+		image: gitleaksImage, mounts: []containerengine.ReadOnlyMount{t.mount()}, timeout: timeout, pull: pull, watch: watch, check: mode == collection.ModeCheck,
 		// --redact keeps a value out of the report in the first place;
 		// --exit-code 0 leaves a non-zero exit to mean an error;
 		// --ignore-gitleaks-allow keeps an inline gitleaks:allow comment,

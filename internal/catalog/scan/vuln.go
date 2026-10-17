@@ -59,8 +59,7 @@ func init() {
 			Doc: vulnDoc(),
 		},
 		Invoke: Vuln,
-		// It only reads, so a check of it is the task itself.
-		Check: Vuln,
+		Check:  CheckVuln,
 	})
 }
 
@@ -91,6 +90,18 @@ func gated(r osvreport.Rating) osvreport.Rating {
 
 // Vuln implements scan.vuln.
 func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return vuln(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckVuln is scan.vuln's check: it only reads, so it is the scan a run
+// makes, sending what a run sends, except that it never pulls the
+// scanner's image.
+func CheckVuln(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return vuln(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// vuln is Vuln's and CheckVuln's one body.
+func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	fail := func(err error) (collection.Result, error) {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcnVuln, err)
 	}
@@ -213,7 +224,7 @@ func Vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if offline == "" {
 		network = defaultNetwork(engine)
 	}
-	ran, err := run(ctx, engine, runOptions{image: osvScannerImage, cmd: cmd, mounts: mounts, env: env, network: network, timeout: timeout, pull: pull})
+	ran, err := run(ctx, engine, runOptions{image: osvScannerImage, cmd: cmd, mounts: mounts, env: env, network: network, timeout: timeout, pull: pull, check: mode == collection.ModeCheck})
 	if err != nil {
 		return fail(err)
 	}

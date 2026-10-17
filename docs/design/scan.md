@@ -16,13 +16,14 @@ vulnerabilities its dependencies carry, what it is made of (an SBOM), and whethe
 Each scanner runs in a fresh container on the device's own engine (`containerengine.RunOnce`, as `gate.run`'s
 image checks do), from an image pinned by its multi-platform index digest in this platform's source: OSV-Scanner
 2.6.0, Syft 1.52.0, Gitleaks 8.30.0. Nothing is installed on the device, the scanner a run uses is the one this
-release was tested with, and a tag moving upstream changes nothing. The image is pulled when absent (it is
-content-addressed, so a pull cannot substitute another); a device that cannot pull needs it loaded first.
+release was tested with, and a tag moving upstream changes nothing. A run pulls the image when absent (it is
+content-addressed, so a pull cannot substitute another); a check never pulls, since a pull changes what the engine
+holds, and without the image it reports that it cannot check. A device that cannot pull needs it loaded first.
 
 What is scanned is bind-mounted **read-only**, the container's root is read-only, it runs with
 no-new-privileges, and it joins **no network**, except `scan.vuln` online, which joins the engine's default
-network to reach osv.dev. With `offline_db` (a directory of OSV-Scanner's local databases on the device) it joins
-none. The scanner's report comes back on its standard output, bounded, and is parsed here; the SBOM and
+network to send osv.dev the names and versions of the packages it found. With `offline_db` (a directory of
+OSV-Scanner's local databases on the device) it joins none. The scanner's report comes back on its standard output, bounded, and is parsed here; the SBOM and
 `SHA256SUMS` are written by this platform over SSH, never by the container, so no mount is ever writable.
 
 Paths are the engine host's, which is the device's for an engine reached over SSH or its local socket. On an
@@ -39,9 +40,12 @@ container cannot read is reported as the scanner's error.
 
 | Method | Check | Reversible |
 |---|---|---|
-| `scan.vuln` | Same as Invoke: it reads, and changes nothing. | Read-only. |
+| `scan.vuln` | The scan a run makes: it reads and changes nothing. Online it sends osv.dev what a run sends, the names and versions of the packages found, since a check with no vulnerability data could predict nothing; give `offline_db` for a check that sends nothing. | Read-only. |
 | `scan.sbom` | Generates and validates the SBOM exactly as a run does and reports what it would write, writing nothing. | Yes: its undo removes the directory it created (it never writes into an existing one). |
-| `scan.secrets` | Same as Invoke. | Read-only. |
+| `scan.secrets` | The scan a run makes. | Read-only. |
+
+No check pulls a scanner's image: without it, each reports that it cannot check (the run would pull it), and with
+`pull: false` it is refused, as the run would be.
 
 The goal names scans as changing nothing; `scan.sbom` writes its SBOM, so its check is a run that stops before
 writing, rather than the run itself.

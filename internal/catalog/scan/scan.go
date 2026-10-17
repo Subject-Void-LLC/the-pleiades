@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -28,8 +29,9 @@ import (
 )
 
 // The scanners, each pinned by its multi-platform index digest. Moving
-// one is a release decision: its tests run against the pinned image.
-const (
+// one is a release decision: its tests run against the pinned image. They
+// are variables only so a test can name an image the engine lacks.
+var (
 	osvScannerImage = "ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa"
 	syftImage       = "anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02"
 	gitleaksImage   = "zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
@@ -167,6 +169,8 @@ type runOptions struct {
 	pull    bool
 	// watch, when set, also reads the scanner's standard error.
 	watch io.Writer
+	// check is a check's run, which never pulls the scanner's image.
+	check bool
 }
 
 // scannerRun is what a scanner left: its exit status, its report, and the
@@ -215,11 +219,15 @@ func run(ctx context.Context, engine *containerengine.Session, o runOptions) (sc
 	}
 	res, err := engine.RunOnce(ctx, containerengine.RunOnceOptions{
 		Image: o.image, Cmd: o.cmd, Mounts: o.mounts, Env: o.env, Network: o.network,
-		Timeout: o.timeout, Pull: o.pull, Output: report, Errors: errsTo,
+		// A pull changes what the engine holds, which a check never does.
+		Timeout: o.timeout, Pull: o.pull && !o.check, Output: report, Errors: errsTo,
 		Labels: map[string]string{"org.pleiades.scan": path.Base(strings.SplitN(o.image, ":", 2)[0])},
 	})
 	if report.overflow {
 		return scannerRun{}, fmt.Errorf("%w (%d bytes)", errReportTooLarge, maxReportBytes)
+	}
+	if errors.Is(err, containerengine.ErrImageAbsent) {
+		return scannerRun{}, imageAbsent(o)
 	}
 	if err != nil {
 		return scannerRun{}, err
@@ -228,6 +236,16 @@ func run(ctx context.Context, engine *containerengine.Session, o runOptions) (sc
 		return scannerRun{}, fmt.Errorf("the scanner ran past its %s timeout and was stopped", o.timeout)
 	}
 	return scannerRun{exitCode: res.ExitCode, report: report.buf.Bytes(), errors: errs}, nil
+}
+
+// imageAbsent answers a scanner image the engine does not have and this
+// run may not pull: a check, which pulls nothing, cannot check what a run
+// would find once it had pulled it; a run told not to pull is refused.
+func imageAbsent(o runOptions) error {
+	if o.check && o.pull {
+		return collection.CannotCheck(fmt.Sprintf("the scanner's image %s is not on the device's engine, and a check pulls nothing; a run pulls it first, then scans", o.image))
+	}
+	return fmt.Errorf("the scanner's image %s is not on the device's engine, and %s is false; set %s, or put the image on the engine under that digest", o.image, paramPull, paramPull)
 }
 
 // failure is a scanner's own error, with the end of what it said.

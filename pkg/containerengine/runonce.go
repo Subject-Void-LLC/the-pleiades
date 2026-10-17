@@ -38,6 +38,10 @@ const runOnceTmpfs = "rw,noexec,nosuid,size=256m"
 // a run whose context is already over still removes its container.
 const removeGrace = 30 * time.Second
 
+// ErrImageAbsent is RunOnce's refusal of an image the engine does not
+// have when pulling it was not asked for; nothing was created.
+var ErrImageAbsent = errors.New("the image is not on the engine")
+
 // RunOnceOptions says how a one-shot container runs.
 type RunOnceOptions struct {
 	// Image is a digest-pinned reference (name@sha256:...).
@@ -258,7 +262,7 @@ func (s *Session) ensureImage(ctx context.Context, image string, pull bool) (boo
 		return false, fmt.Errorf("containerengine: inspecting image %s: %w", image, err)
 	}
 	if !pull {
-		return false, fmt.Errorf("containerengine: image %s is not on the device's engine and pulling it was not asked for", image)
+		return false, fmt.Errorf("containerengine: image %s is not on the device's engine and pulling it was not asked for: %w", image, ErrImageAbsent)
 	}
 	stream, err := s.API.ImagePull(ctx, image, client.ImagePullOptions{})
 	if err != nil {
