@@ -46,7 +46,8 @@ func vulnDoc() collection.Doc {
 		Examples: []collection.Example{
 			{Name: "Gate a release on fixable high vulnerabilities", RunbookYAML: "- name: Known vulnerabilities\n  scan.vuln:\n    image_archive: /srv/release/app.tar\n    fail_on: high\n    fixable_only: true\n    ignore: /srv/app/scan-ignore.yaml\n"},
 		},
-		SeeAlso: []string{fqcnSBOM, "build.lock.verify"},
+		Fragments: []string{"container_engine"},
+		SeeAlso:   []string{fqcnSBOM, "build.lock.verify"},
 	}
 }
 
@@ -77,7 +78,8 @@ func sbomDoc() collection.Doc {
 		Examples: []collection.Example{
 			{Name: "Describe a release's image", RunbookYAML: "- name: SBOM\n  scan.sbom:\n    image_archive: /srv/release/app.tar\n    dest: /srv/release/sbom-2.4.1\n    name: app\n    version: 2.4.1\n    supplier: \"Organization: Example Co\"\n"},
 		},
-		SeeAlso: []string{fqcnVuln, "file.remove"},
+		Fragments: []string{"container_engine"},
+		SeeAlso:   []string{fqcnVuln, "file.remove"},
 	}
 }
 
@@ -98,6 +100,7 @@ func secretsDoc() collection.Doc {
 		Examples: []collection.Example{
 			{Name: "No credential in the release tree", RunbookYAML: "- name: Leaked credentials\n  scan.secrets:\n    dir: /srv/release/app\n    ignore: /srv/app/scan-ignore.yaml\n"},
 		},
-		SeeAlso: []string{fqcnVuln},
+		Fragments: []string{"container_engine"},
+		SeeAlso:   []string{fqcnVuln},
 	}
 }

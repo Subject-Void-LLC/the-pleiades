@@ -107,9 +107,9 @@ func TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork(t *testing.T) {
 		return r, out
 	}
 	release := writeRunbook(t, dir, "release", "id: release\nhosts: scan1\ntasks:\n"+
-		"  - name: vulnerabilities\n    scan.vuln:\n      dir: "+project+"\n      offline_db: "+db+"\n      ignore: "+ignore+"\n"+
-		"  - name: sbom\n    scan.sbom:\n      dir: "+project+"\n      dest: "+dest+"\n      name: demo\n      version: 1.0.0\n      supplier: \"Organization: Example Co\"\n"+
-		"  - name: credentials\n    scan.secrets:\n      dir: "+project+"\n")
+		"  - name: vulnerabilities\n    scan.vuln:\n      engine: docker\n      dir: "+project+"\n      offline_db: "+db+"\n      ignore: "+ignore+"\n"+
+		"  - name: sbom\n    scan.sbom:\n      engine: docker\n      dir: "+project+"\n      dest: "+dest+"\n      name: demo\n      version: 1.0.0\n      supplier: \"Organization: Example Co\"\n"+
+		"  - name: credentials\n    scan.secrets:\n      engine: docker\n      dir: "+project+"\n")
 	if out, err := runPleiadesWithEnv(t, dir, env, "validate", release); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out)
 	}
@@ -144,11 +144,11 @@ func TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork(t *testing.T) {
 	}
 
 	// A vulnerability and a planted credential each fail their own task.
-	vulnGate := writeRunbook(t, dir, "vulngate", "id: vulngate\nhosts: scan1\ntasks:\n  - name: vulnerabilities\n    scan.vuln:\n      dir: "+project+"\n      offline_db: "+db+"\n")
+	vulnGate := writeRunbook(t, dir, "vulngate", "id: vulngate\nhosts: scan1\ntasks:\n  - name: vulnerabilities\n    scan.vuln:\n      engine: docker\n      dir: "+project+"\n      offline_db: "+db+"\n")
 	if r, out := report("run", vulnGate); len(r.Tasks) != 1 || !strings.Contains(r.Tasks[0].Error, "GHSA-gate (critical); fixed in 1.3.1") {
 		t.Errorf("a critical vulnerability: %+v\n%s", r.Tasks, out)
 	}
-	leakGate := writeRunbook(t, dir, "leakgate", "id: leakgate\nhosts: scan1\ntasks:\n  - name: credentials\n    scan.secrets:\n      dir: "+leaky+"\n")
+	leakGate := writeRunbook(t, dir, "leakgate", "id: leakgate\nhosts: scan1\ntasks:\n  - name: credentials\n    scan.secrets:\n      engine: docker\n      dir: "+leaky+"\n")
 	r, out := report("run", leakGate)
 	if len(r.Tasks) != 1 || !strings.Contains(r.Tasks[0].Error, "conf/app.ini:1: aws-access-token") {
 		t.Errorf("a planted credential: %+v\n%s", r.Tasks, out)

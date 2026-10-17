@@ -45,7 +45,8 @@ var scanCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{Name: "Describe a release's image", RunbookYAML: "- name: SBOM\n  scan.sbom:\n    image_archive: /srv/release/app.tar\n    dest: /srv/release/sbom-2.4.1\n    name: app\n    version: 2.4.1\n    supplier: \"Organization: Example Co\"\n"},
 			},
-			SeeAlso: []string{"scan.vuln", "file.remove"},
+			Fragments: []string{"container_engine"},
+			SeeAlso:   []string{"scan.vuln", "file.remove"},
 		},
 	},
 	{
@@ -72,7 +73,8 @@ var scanCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{Name: "No credential in the release tree", RunbookYAML: "- name: Leaked credentials\n  scan.secrets:\n    dir: /srv/release/app\n    ignore: /srv/app/scan-ignore.yaml\n"},
 			},
-			SeeAlso: []string{"scan.vuln"},
+			Fragments: []string{"container_engine"},
+			SeeAlso:   []string{"scan.vuln"},
 		},
 	},
 	{
@@ -107,7 +109,8 @@ var scanCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{Name: "Gate a release on fixable high vulnerabilities", RunbookYAML: "- name: Known vulnerabilities\n  scan.vuln:\n    image_archive: /srv/release/app.tar\n    fail_on: high\n    fixable_only: true\n    ignore: /srv/app/scan-ignore.yaml\n"},
 			},
-			SeeAlso: []string{"scan.sbom", "build.lock.verify"},
+			Fragments: []string{"container_engine"},
+			SeeAlso:   []string{"scan.sbom", "build.lock.verify"},
 		},
 	},
 }

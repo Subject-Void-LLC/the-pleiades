@@ -23,6 +23,7 @@ Runs Syft over an image archive or a directory on the device with no network, na
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `dir` | `string` | no | - | A directory on the device to describe. One of dir and image_archive. |
 | `image_archive` | `string` | no | - | An image archive on the device, as docker save or podman save writes one. |
 | `dest` | `string` | yes | - | The directory to write, which must not exist, in one that does. |

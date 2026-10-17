@@ -23,6 +23,7 @@ Runs OSV-Scanner over an image archive (docker save), a directory (recursively, 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
 | `dir` | `string` | no | - | A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). One of dir, image_archive and lockfiles. |
 | `image_archive` | `string` | no | - | An image archive on the device, as docker save or podman save writes one. |
 | `lockfiles` | `list of string` | no | - | Lockfiles on the device to scan, each recognized by its name (package-lock.json, Cargo.lock, go.mod, requirements.txt and the rest OSV-Scanner reads). |
