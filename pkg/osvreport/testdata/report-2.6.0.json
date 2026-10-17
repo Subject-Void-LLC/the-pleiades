@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "/src/package-lock.json",
+        "type": "lockfile"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "left-pad",
+            "version": "1.3.0",
+            "ecosystem": "npm"
+          },
+          "groups": [
+            {
+              "ids": [
+                "GHSA-test-0001"
+              ],
+              "aliases": [
+                "CVE-2026-99999",
+                "GHSA-test-0001"
+              ],
+              "max_severity": "9.8"
+            }
+          ],
+          "vulnerabilities": [
+            {
+              "affected": [
+                {
+                  "package": {
+                    "ecosystem": "npm",
+                    "name": "left-pad"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "1.3.1"
+                        }
+                      ],
+                      "type": "SEMVER"
+                    }
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-99999"
+              ],
+              "id": "GHSA-test-0001",
+              "modified": "2026-01-01T00:00:00Z",
+              "published": "2026-01-01T00:00:00Z",
+              "schema_version": "1.6.0",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                  "type": "CVSS_V3"
+                }
+              ],
+              "summary": "a test advisory"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "experimental_config": {
+    "licenses": {
+      "summary": false,
+      "allowlist": null
+    }
+  }
+}

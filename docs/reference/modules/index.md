@@ -24,11 +24,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `net` | 14 | 12 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
+| `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **115** | **112** |
+| **total** | **118** | **115** |
 
 ## All methods
 
@@ -107,6 +108,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [pkg.upgrade](pkg/upgrade.md) | implemented | Makes sure the newest available version of a package is installed, whichever package manager the device runs. |
 | [pleiades.builtin.connection.reset](pleiades/builtin/connection/reset.md) | implemented | Closes the SSH connection kept open to the device, so its next task logs in again. |
 | [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
+| [scan.sbom](scan/sbom.md) | implemented | Writes an SPDX 2.3 SBOM of an image archive or a directory, held to the NTIA minimum elements, with its SHA256SUMS. |
+| [scan.secrets](scan/secrets.md) | implemented | Finds credentials leaked into a directory, naming each by file, line and rule, never by its value. |
+| [scan.vuln](scan/vuln.md) | implemented | Lists the known vulnerabilities in an image archive, a directory or lockfiles, and fails at a severity. |
 | [svc.disable](svc/disable.md) | implemented | Stops a service starting at boot, whichever service manager the device runs. |
 | [svc.enable](svc/enable.md) | implemented | Makes a service start at boot, whichever service manager the device runs. |
 | [svc.restart](svc/restart.md) | implemented | Restarts a service, whichever service manager the device runs. |

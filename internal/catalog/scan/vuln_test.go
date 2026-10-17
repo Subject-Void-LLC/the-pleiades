@@ -1,0 +1,278 @@
+// Tests for scan.vuln: the real OSV-Scanner, offline, on real files.
+package scan_test
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
+)
+
+// vuln runs scan.vuln with extra params.
+func vuln(h *harness, extra map[string]any) (map[string]any, error) {
+	rc := h.fresh()
+	_, err := scan.Vuln(context.Background(), rc, h.device, params(extra))
+	return rc.stats, err
+}
+
+// TestVuln_GatesOnSeverityAndFixes: a critical vulnerability with a fix
+// fails the default gate, named with its fix and the file it is in; a
+// higher threshold passes it; a medium one with no fix fails only below
+// fixable_only; an unscored one is gated as high.
+func TestVuln_GatesOnSeverityAndFixes(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, npmProject)
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	stats, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), "npm left-pad@1.3.0: GHSA-crit (critical); fixed in 1.3.1") {
+		t.Fatalf("a critical vulnerability = %v", err)
+	}
+	if stats["failing"] != 1 {
+		t.Errorf("failing = %v", stats["failing"])
+	}
+
+	medium := offlineDB(t, map[string]string{"GHSA-med": advisory("GHSA-med", "", mediumVector)})
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": medium}); err != nil {
+		t.Errorf("a medium one under the default high gate = %v", err)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": medium, "fail_on": "medium"}); err == nil || !strings.Contains(err.Error(), "no fix known") {
+		t.Errorf("a medium one at fail_on medium = %v", err)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": medium, "fail_on": "medium", "fixable_only": true}); err != nil {
+		t.Errorf("an unfixable one with fixable_only = %v", err)
+	}
+	unscored := offlineDB(t, map[string]string{"GHSA-none": advisory("GHSA-none", "1.3.1", "")})
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": unscored}); err == nil || !strings.Contains(err.Error(), "GHSA-none (unknown)") {
+		t.Errorf("an unscored one = %v", err)
+	}
+
+	// Named lockfiles, found under their own path on the device.
+	stats, err = vuln(h, map[string]any{"lockfiles": []any{filepath.Join(project, "package-lock.json")}, "offline_db": db, "fail_on": "any"})
+	if err == nil {
+		t.Fatal("a lockfile with a critical vulnerability passed")
+	}
+	finding := stats["findings"].([]any)[0].(map[string]any)
+	if finding["source"] != filepath.Join(project, "package-lock.json") || finding["severity"] != "critical" {
+		t.Errorf("finding = %v", finding)
+	}
+}
+
+// TestVuln_AnIgnoreFileNeedsAReasonAndAnEnd: an entry in date suppresses
+// its finding, recorded with its reason; one past its date suppresses
+// nothing and is warned about; one matching nothing is warned about; an
+// entry with no reason refuses the file.
+func TestVuln_AnIgnoreFileNeedsAReasonAndAnEnd(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, npmProject)
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	future := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	past := time.Now().AddDate(0, 0, -2).Format("2006-01-02")
+	ignore := func(body string) string {
+		p := filepath.Join(t.TempDir(), "scan-ignore.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	stats, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  reason: left-pad is used only in a build script\n  until: " + future + "\n- id: GHSA-gone\n  reason: an old one\n  until: " + future + "\n")})
+	if err != nil {
+		t.Fatalf("an ignored vulnerability = %v", err)
+	}
+	finding := stats["findings"].([]any)[0].(map[string]any)
+	if finding["ignored"] != "left-pad is used only in a build script" || stats["failing"] != 0 {
+		t.Errorf("stats = %v", stats)
+	}
+	if w := strings.Join(stats["warnings"].([]string), "\n"); !strings.Contains(w, "GHSA-gone (line 4") || !strings.Contains(w, "matched nothing") {
+		t.Errorf("warnings = %v", stats["warnings"])
+	}
+
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  reason: accepted\n  until: " + past + "\n")}); err == nil || !strings.Contains(err.Error(), "GHSA-crit") {
+		t.Fatalf("an expired ignore = %v", err)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  until: " + future + "\n")}); err == nil || !strings.Contains(err.Error(), "has no reason") {
+		t.Fatalf("an ignore entry with no reason = %v", err)
+	}
+	// An end years away is no end: the file is refused, naming the entry.
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "ignore": ignore("- id: GHSA-crit\n  reason: accepted\n  until: 9999-12-31\n")}); err == nil || !strings.Contains(err.Error(), "GHSA-crit's until 9999-12-31 is more than 366 days") {
+		t.Fatalf("an ignore entry with no real end = %v", err)
+	}
+}
+
+// TestVuln_RefusesBeforeTheScanner names each refusal.
+func TestVuln_RefusesBeforeTheScanner(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, npmProject)
+	for name, tc := range map[string]struct {
+		params map[string]any
+		want   string
+	}{
+		"nothing to scan":   {map[string]any{}, "give dir"},
+		"two targets":       {map[string]any{"dir": project, "image_archive": "/x.tar"}, "not both"},
+		"a relative path":   {map[string]any{"dir": "srv/app"}, "not an absolute, clean path"},
+		"a file as dir":     {map[string]any{"dir": filepath.Join(project, "package.json")}, "is a file on the device, not a directory"},
+		"an unknown gate":   {map[string]any{"dir": project, "fail_on": "severe"}, "is critical, high, medium, low or any"},
+		"a missing db":      {map[string]any{"dir": project, "offline_db": "/nonexistent/osv"}, "is not a directory on the device"},
+		"lockfiles and dir": {map[string]any{"dir": project, "lockfiles": []any{"/x/package-lock.json"}}, "only one"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := vuln(h, tc.params); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("vuln = %v, want %q", err, tc.want)
+			}
+		})
+	}
+	h.device.Caps = h.device.Caps[:2]
+	if _, err := vuln(h, map[string]any{"dir": project}); err == nil || !strings.Contains(err.Error(), "none was onboarded") {
+		t.Fatalf("a device with no engine = %v", err)
+	}
+}
+
+// TestVuln_TheTreeCannotTurnOffTheGate: an osv-scanner.toml in a scanned
+// directory, which OSV-Scanner would read as an ignore list for the
+// lockfiles beside it (no reason, no end), is refused naming the file,
+// however deep it is.
+func TestVuln_TheTreeCannotTurnOffTheGate(t *testing.T) {
+	h := newHarness(t)
+	files := map[string]string{"app/osv-scanner.toml": "[[IgnoredVulns]]\nid = \"GHSA-crit\"\n"}
+	for name, body := range npmProject {
+		files["app/"+name] = body
+	}
+	project := writeFiles(t, files)
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	_, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(project, "app", "osv-scanner.toml")) {
+		t.Fatalf("a tree with its own osv-scanner.toml = %v", err)
+	}
+
+	// A directory the search cannot read could hide one the scanner, as
+	// its container's root, would read: the scan is refused.
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory of mode 0000")
+	}
+	if err := os.Remove(filepath.Join(project, "app", "osv-scanner.toml")); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(project, "locked")
+	if err := os.Mkdir(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "could not be searched whole") {
+		t.Fatalf("a tree with a directory the search cannot read = %v", err)
+	}
+}
+
+// TestVuln_NothingToScanFails: a directory OSV-Scanner finds no package
+// in fails, saying nothing was scanned, since a scan that saw nothing is
+// no evidence of no vulnerability; with allow_empty it passes, warned.
+func TestVuln_NothingToScanFails(t *testing.T) {
+	h := newHarness(t)
+	empty := writeFiles(t, map[string]string{"README.md": "no dependencies here\n"})
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	if _, err := vuln(h, map[string]any{"dir": empty, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "nothing was scanned") || !strings.Contains(err.Error(), empty) {
+		t.Fatalf("a directory with no package = %v", err)
+	}
+	stats, err := vuln(h, map[string]any{"dir": empty, "offline_db": db, "allow_empty": true})
+	if err != nil {
+		t.Fatalf("a directory with no package, allowed = %v", err)
+	}
+	if w, _ := stats["warnings"].([]string); len(w) != 1 || !strings.Contains(w[0], "found no package") {
+		t.Errorf("warnings = %v", stats["warnings"])
+	}
+}
+
+// TestVuln_ScannerTextReachesTheErrorBoundedAndEscaped: a package whose
+// name is long and carries a terminal escape, as a lockfile may write
+// one, is named in the error bounded and with the escape made visible.
+func TestVuln_ScannerTextReachesTheErrorBoundedAndEscaped(t *testing.T) {
+	h := newHarness(t)
+	name := "evil\x1b[2J" + strings.Repeat("x", 3000)
+	lock, _ := json.Marshal(map[string]any{"name": "demo", "version": "1.0.0", "lockfileVersion": 3, "packages": map[string]any{
+		"": map[string]any{"name": "demo", "version": "1.0.0"}, "node_modules/" + name: map[string]any{"version": "1.3.0"},
+	}})
+	adv, _ := json.Marshal(map[string]any{"schema_version": "1.6.0", "id": "GHSA-long", "modified": "2026-01-01T00:00:00Z", "summary": "test",
+		"affected": []any{map[string]any{"package": map[string]string{"ecosystem": "npm", "name": name},
+			"ranges": []any{map[string]any{"type": "SEMVER", "events": []any{map[string]string{"introduced": "0"}, map[string]string{"fixed": "1.3.1"}}}}}},
+		"severity": []any{map[string]string{"type": "CVSS_V3", "score": criticalVector}},
+	})
+	project := writeFiles(t, map[string]string{"package-lock.json": string(lock)})
+	db := offlineDB(t, map[string]string{"GHSA-long": string(adv)})
+	_, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), "GHSA-long") {
+		t.Fatalf("a vulnerable package with a long name = %v", err)
+	}
+	if strings.ContainsRune(err.Error(), 0x1b) {
+		t.Error("a raw escape reached the error")
+	}
+	for _, line := range strings.Split(err.Error(), "\n") {
+		if len(line) > 1024 {
+			t.Errorf("a line of %d bytes reached the error", len(line))
+		}
+	}
+}
+
+// TestVuln_AScannerErrorNamesTheScannerAndItsVersion: OSV-Scanner refuses
+// an ecosystem its offline databases do not cover, and the task fails
+// naming the scanner and the version pinned, with what it said.
+func TestVuln_AScannerErrorNamesTheScannerAndItsVersion(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, npmProject)
+	empty := t.TempDir()
+	if err := os.Chmod(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": empty}); err == nil || !strings.Contains(err.Error(), "OSV-Scanner 2.6.0 exited") {
+		t.Fatalf("a scan with no database for its ecosystem = %v", err)
+	}
+}
+
+// TestVuln_TheTreeCannotHideFromTheScan: a .gitignore in the scanned
+// tree, which OSV-Scanner honors unless told not to, does not hide the
+// lockfile under the vendored directory it lists, so the vulnerability
+// there fails the task; with respect_gitignore the runbook asks for git's
+// view, and the listed directory is left out. (Not node_modules, which
+// OSV-Scanner never reads lockfiles inside, gitignored or not.)
+func TestVuln_TheTreeCannotHideFromTheScan(t *testing.T) {
+	h := newHarness(t)
+	files := map[string]string{
+		".gitignore":            "vendored/\n",
+		"app/package.json":      `{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}}`,
+		"app/package-lock.json": `{"name":"app","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}},"node_modules/is-number":{"version":"7.0.0"}}}`,
+	}
+	for name, body := range npmProject {
+		files["vendored/dep/"+name] = body
+	}
+	project := writeFiles(t, files)
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	stats, err := vuln(h, map[string]any{"dir": project, "offline_db": db})
+	if err == nil || !strings.Contains(err.Error(), "GHSA-crit") {
+		t.Fatalf("a vulnerable lockfile the tree's .gitignore lists = %v", err)
+	}
+	if source := stats["findings"].([]any)[0].(map[string]any)["source"]; source != filepath.Join(project, "vendored", "dep", "package-lock.json") {
+		t.Errorf("the finding is in %v", source)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db, "respect_gitignore": true}); err != nil {
+		t.Errorf("with respect_gitignore = %v", err)
+	}
+}
+
+// TestVuln_ALockfileTheScannerCouldNotReadFails: OSV-Scanner skips a
+// lockfile it cannot read with only a line on its standard error, and the
+// task fails naming it, though the readable lockfile beside it is clean.
+func TestVuln_ALockfileTheScannerCouldNotReadFails(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, map[string]string{
+		"app/package.json":         `{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}}`,
+		"app/package-lock.json":    `{"name":"app","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"app","version":"1.0.0","dependencies":{"is-number":"^7.0.0"}},"node_modules/is-number":{"version":"7.0.0"}}}`,
+		"broken/package-lock.json": `{"name":"broken","lockfileVersion":3,"packages":{`,
+	})
+	db := offlineDB(t, map[string]string{"GHSA-crit": advisory("GHSA-crit", "1.3.1", criticalVector)})
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": db}); err == nil || !strings.Contains(err.Error(), "broken/package-lock.json") {
+		t.Fatalf("a lockfile the scanner could not read = %v", err)
+	}
+}
