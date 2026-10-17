@@ -138,3 +138,14 @@ untrusted input and each fuzzed.
 | `scan.sbom`'s directory exists | Refused; an SBOM never replaces one. |
 | The scan outlives its timeout | The container is killed and removed; fails naming the timeout. |
 | The run fails | Its error carries what a failure needs (the failing vulnerabilities, findings or missing elements), bounded. |
+
+## Limits
+
+Known, recorded, and not fixed here:
+
+- Gitleaks does not look inside an archive in the tree (`--max-archive-depth` defaults to 0), so a credential in a
+  zip or tarball there is not found (measured).
+- `fixable_only` counts a fixed version from any of an advisory's affected ranges, even one on another branch
+  than the installed version's, which errs toward failing.
+- osv.dev matches NuGet package names case-sensitively, so a lockfile spelling one in another case is not matched:
+  an upstream false negative (measured against the API).
