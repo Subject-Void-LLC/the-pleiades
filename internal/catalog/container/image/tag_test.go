@@ -81,7 +81,7 @@ func TestImport_RecordsItsUndo(t *testing.T) {
 	archive := rootfs(t, dir, "one")
 
 	rc := fresh()
-	if _, err := call(t, h, rc, "container.image.import", false, map[string]any{"path": archive, "image": repo + ":x"}); err != nil {
+	if _, err := call(t, h, rc, "container.image.import_rootfs", false, map[string]any{"path": archive, "image": repo + ":x"}); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := rc.stats["image_id"].(string)
@@ -93,11 +93,11 @@ func TestImport_RecordsItsUndo(t *testing.T) {
 		t.Errorf("digest = %q", digest)
 	}
 
-	if res, err := call(t, h, fresh(), "container.image.import", true, map[string]any{"path": rootfs(t, dir, "two"), "image": repo + ":x"}); err != nil || !res.Changed || h.idOf(t, repo+":x") != first {
+	if res, err := call(t, h, fresh(), "container.image.import_rootfs", true, map[string]any{"path": rootfs(t, dir, "two"), "image": repo + ":x"}); err != nil || !res.Changed || h.idOf(t, repo+":x") != first {
 		t.Errorf("a check of import = %+v, %v", res, err)
 	}
 	rc = fresh()
-	if _, err := call(t, h, rc, "container.image.import", false, map[string]any{"path": rootfs(t, dir, "two"), "image": repo + ":x"}); err != nil {
+	if _, err := call(t, h, rc, "container.image.import_rootfs", false, map[string]any{"path": rootfs(t, dir, "two"), "image": repo + ":x"}); err != nil {
 		t.Fatal(err)
 	}
 	if fqcn, p := inverseOf(rc); fqcn != "container.image.tag" || p["source"] != first || p["tag"] != repo+":x" {
@@ -105,13 +105,13 @@ func TestImport_RecordsItsUndo(t *testing.T) {
 	}
 
 	wrong := "sha256:" + strings.Repeat("0", 64)
-	if _, err := call(t, h, fresh(), "container.image.import", false, map[string]any{"path": archive, "image": repo + ":y", "digest": wrong}); err == nil || !strings.Contains(err.Error(), "not the") || h.idOf(t, repo+":y") != "" {
+	if _, err := call(t, h, fresh(), "container.image.import_rootfs", false, map[string]any{"path": archive, "image": repo + ":y", "digest": wrong}); err == nil || !strings.Contains(err.Error(), "not the") || h.idOf(t, repo+":y") != "" {
 		t.Errorf("an import of an archive with another digest = %v", err)
 	}
-	if _, err := call(t, h, fresh(), "container.image.import", false, map[string]any{"path": "relative.tar", "image": repo + ":y"}); err == nil {
+	if _, err := call(t, h, fresh(), "container.image.import_rootfs", false, map[string]any{"path": "relative.tar", "image": repo + ":y"}); err == nil {
 		t.Error("a relative path was accepted")
 	}
-	if _, err := call(t, h, fresh(), "container.image.import", false, map[string]any{"path": dir + "/../x.tar", "image": repo + ":y"}); err == nil {
+	if _, err := call(t, h, fresh(), "container.image.import_rootfs", false, map[string]any{"path": dir + "/../x.tar", "image": repo + ":y"}); err == nil {
 		t.Error("a path that is not clean was accepted")
 	}
 }

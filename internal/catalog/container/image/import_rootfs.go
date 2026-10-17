@@ -1,4 +1,4 @@
-// container.image.import: a filesystem archive made an image, refused
+// container.image.import_rootfs: a filesystem archive made an image, refused
 // when its digest is not the one the task names.
 package image
 
@@ -25,7 +25,7 @@ func init() {
 	}, importDoc()), importImage)
 }
 
-// importImage is container.image.import's one body: a filesystem archive
+// importImage is container.image.import_rootfs's one body: a filesystem archive
 // at path, refused when its digest is not the one the task names, made an
 // image the tag names.
 func importImage(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {

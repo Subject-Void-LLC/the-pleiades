@@ -181,11 +181,11 @@ func rootfs(t *testing.T, dir, content string) string {
 }
 
 // imported makes the image ref from a one-file archive through
-// container.image.import and returns its ID.
+// container.image.import_rootfs and returns its ID.
 func (h *harness) imported(t *testing.T, ref, content string) string {
 	t.Helper()
 	rc := fresh()
-	if _, err := call(t, h, rc, "container.image.import", false, map[string]any{"path": rootfs(t, t.TempDir(), content), "image": ref}); err != nil {
+	if _, err := call(t, h, rc, "container.image.import_rootfs", false, map[string]any{"path": rootfs(t, t.TempDir(), content), "image": ref}); err != nil {
 		t.Fatalf("importing %s: %v", ref, err)
 	}
 	id, _ := rc.stats["image_id"].(string)
