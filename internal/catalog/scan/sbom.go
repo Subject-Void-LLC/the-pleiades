@@ -112,6 +112,10 @@ func sbom(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return fail(err)
 	}
+	allowEmpty, err := sdk.BoolParamOr(params, paramAllowEmpty, false)
+	if err != nil {
+		return fail(err)
+	}
 	timeout, err := durationParam(params, paramTimeout, defaultTimeout, maxTimeout)
 	if err != nil {
 		return fail(err)
@@ -173,8 +177,16 @@ func sbom(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return fail(fmt.Errorf("%d component(s) have no supplier (%s)%s", len(report.MissingSupplier), paramStrictSuppliers, listed(report.MissingSupplier)))
 	}
 	var warnings []string
+	// An SBOM of nothing but its subject meets every element and says
+	// nothing: a wrong path, or files Syft could not read, look the same.
+	if report.Dependencies == 0 {
+		if !allowEmpty {
+			return fail(fmt.Errorf("the SBOM holds no component but its subject: Syft found nothing to describe in %s; set %s if that is expected", t.path, paramAllowEmpty))
+		}
+		warnings = append(warnings, fmt.Sprintf("the SBOM holds no component but its subject: Syft found nothing to describe in %s (%s)", t.path, paramAllowEmpty))
+	}
 	if n := len(report.MissingSupplier); n > 0 {
-		warnings = append(warnings, fmt.Sprintf("%d of %d dependencies have no supplier the generator could name (NOASSERTION)", n, report.Components-1))
+		warnings = append(warnings, fmt.Sprintf("%d of %d dependencies have no supplier the generator could name (NOASSERTION)", n, report.Dependencies))
 	}
 	sum := sha256.Sum256(written)
 	digest := hex.EncodeToString(sum[:])

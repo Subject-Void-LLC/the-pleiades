@@ -6382,7 +6382,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Writes an SPDX 2.3 SBOM of an image archive or a directory, held to the NTIA minimum elements, with its SHA256SUMS.",
-      "description": "Runs Syft over an image archive or a directory on the device with no network, names the SBOM's subject with the task's name and version, records the task's supplier on the subject alone (never on a dependency, whose supplier the operator does not speak for), and holds the result to the NTIA minimum elements: the document's author, timestamp and namespace, a subject it describes, and every component's name, version, purl or CPE and a dependency relationship. A dependency's supplier, which a generator rarely knows, is counted and warned about, and fails the task only with strict_suppliers. The SBOM (sbom.spdx.json) and a SHA256SUMS in sha256sum's format are written into dest, a new directory, so sha256sum -c verifies it anywhere; the undo removes the directory. A check generates and validates the SBOM as a run does and writes nothing. The scanner runs in a fresh container on the device's own engine, from an image pinned here by its multi-platform index digest, so nothing is installed on the device and every run uses the scanner this release was tested with; what it scans is mounted read-only, its root is read-only, it runs with no-new-privileges and is removed afterwards. Paths are the engine host's, which is the device's for an engine reached over SSH or its local socket.",
+      "description": "Runs Syft over an image archive or a directory on the device with no network, names the SBOM's subject with the task's name and version, records the task's supplier on the subject alone (never on a dependency, whose supplier the operator does not speak for), and holds the result to the NTIA minimum elements: the document's author, timestamp and namespace, a subject it describes that is a package it holds, and every component's name, version, purl or CPE and a dependency relationship. An SBOM holding no component but its subject fails unless allow_empty. A dependency's supplier, which a generator rarely knows, is counted and warned about, and fails the task only with strict_suppliers. The SBOM (sbom.spdx.json) and a SHA256SUMS in sha256sum's format are written into dest, a new directory, so sha256sum -c verifies it anywhere; the undo removes the directory. A check generates and validates the SBOM as a run does and writes nothing. The scanner runs in a fresh container on the device's own engine, from an image pinned here by its multi-platform index digest, so nothing is installed on the device and every run uses the scanner this release was tested with; what it scans is mounted read-only, its root is read-only, it runs with no-new-privileges and is removed afterwards. Paths are the engine host's, which is the device's for an engine reached over SSH or its local socket.",
       "params": [
         {
           "name": "dir",
@@ -6423,6 +6423,12 @@
           "type": "bool",
           "default": "false",
           "description": "Fail when a dependency has no supplier, rather than counting it."
+        },
+        {
+          "name": "allow_empty",
+          "type": "bool",
+          "default": "false",
+          "description": "Write, with a warning, an SBOM holding no component but its subject. Without it that fails the task, since an SBOM of nothing (a wrong path, or files Syft could not read) meets every element and says nothing."
         },
         {
           "name": "timeout",

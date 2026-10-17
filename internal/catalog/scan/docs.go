@@ -53,7 +53,7 @@ func vulnDoc() collection.Doc {
 func sbomDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Writes an SPDX 2.3 SBOM of an image archive or a directory, held to the NTIA minimum elements, with its SHA256SUMS.",
-		Description: "Runs Syft over an image archive or a directory on the device with no network, names the SBOM's subject with the task's name and version, records the task's supplier on the subject alone (never on a dependency, whose supplier the operator does not speak for), and holds the result to the NTIA minimum elements: the document's author, timestamp and namespace, a subject it describes, and every component's name, version, purl or CPE and a dependency relationship. A dependency's supplier, which a generator rarely knows, is counted and warned about, and fails the task only with strict_suppliers. The SBOM (sbom.spdx.json) and a SHA256SUMS in sha256sum's format are written into dest, a new directory, so sha256sum -c verifies it anywhere; the undo removes the directory. A check generates and validates the SBOM as a run does and writes nothing." + isolationNote,
+		Description: "Runs Syft over an image archive or a directory on the device with no network, names the SBOM's subject with the task's name and version, records the task's supplier on the subject alone (never on a dependency, whose supplier the operator does not speak for), and holds the result to the NTIA minimum elements: the document's author, timestamp and namespace, a subject it describes that is a package it holds, and every component's name, version, purl or CPE and a dependency relationship. An SBOM holding no component but its subject fails unless allow_empty. A dependency's supplier, which a generator rarely knows, is counted and warned about, and fails the task only with strict_suppliers. The SBOM (sbom.spdx.json) and a SHA256SUMS in sha256sum's format are written into dest, a new directory, so sha256sum -c verifies it anywhere; the undo removes the directory. A check generates and validates the SBOM as a run does and writes nothing." + isolationNote,
 		Params: []collection.Param{
 			{Name: paramDir, Type: "string", Description: "A directory on the device to describe. One of dir and image_archive."},
 			{Name: paramImageArchive, Type: "string", Description: "An image archive on the device, as docker save or podman save writes one."},
@@ -62,6 +62,7 @@ func sbomDoc() collection.Doc {
 			{Name: paramVersion, Type: "string", Required: true, Description: "The subject's version."},
 			{Name: paramSupplier, Type: "string", Required: true, Description: "Who supplies the subject, as SPDX writes it: \"Organization: name\" or \"Person: name\"."},
 			{Name: paramStrictSuppliers, Type: "bool", Default: "false", Description: "Fail when a dependency has no supplier, rather than counting it."},
+			{Name: paramAllowEmpty, Type: "bool", Default: "false", Description: "Write, with a warning, an SBOM holding no component but its subject. Without it that fails the task, since an SBOM of nothing (a wrong path, or files Syft could not read) meets every element and says nothing."},
 			timeoutParam, pullParam, hostKeyParam,
 		},
 		Returns: []collection.ReturnField{

@@ -43,7 +43,7 @@ func TestValidate_ARealImageSBOMOnceItsSubjectHasASupplier(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = again.Validate()
-	if len(r.Problems) != 0 || strings.Join(r.MissingSupplier, ",") != "busybox,busybox-binsh,ssl_client" {
+	if len(r.Problems) != 0 || r.Dependencies != 14 || strings.Join(r.MissingSupplier, ",") != "busybox,busybox-binsh,ssl_client" {
 		t.Fatalf("after: %+v", r)
 	}
 	suppliers := 0

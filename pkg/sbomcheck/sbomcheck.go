@@ -142,6 +142,9 @@ func (d *Document) Subjects() []string {
 type Report struct {
 	// Components is how many packages the document holds.
 	Components int
+	// Dependencies is how many of them are not a described subject: none
+	// means the generator found nothing in what it described.
+	Dependencies int
 	// Problems are the failures that stand regardless: the document's own
 	// elements, and components without a name, version or identifier.
 	Problems []string
@@ -204,6 +207,7 @@ func (d *Document) Validate() Report {
 			}
 			continue
 		}
+		r.Dependencies++
 		if len(p.Identifiers) == 0 {
 			noID = append(noID, name)
 		}

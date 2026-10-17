@@ -83,3 +83,28 @@ func TestSBOM_WritesAValidatedSBOMIntoANewDirectory(t *testing.T) {
 		t.Errorf("a supplier without its kind = %v", err)
 	}
 }
+
+// TestSBOM_NothingButItsSubjectFails: Syft finds no component in a
+// directory with no dependency, and its SBOM, holding only the subject,
+// meets every element; the task fails rather than write it, leaving no
+// directory, unless allow_empty says that is expected.
+func TestSBOM_NothingButItsSubjectFails(t *testing.T) {
+	h := newHarness(t)
+	empty := writeFiles(t, map[string]string{"README.md": "no dependencies here\n"})
+	dest := filepath.Join(t.TempDir(), "sbom")
+	p := map[string]any{"dir": empty, "dest": dest, "name": "demo-app", "version": "1.0.0", "supplier": "Organization: Example Co"}
+	if _, err := scan.SBOM(context.Background(), h.fresh(), h.device, params(p)); err == nil || !strings.Contains(err.Error(), "no component but its subject") {
+		t.Fatalf("an SBOM of nothing = %v", err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("a refused SBOM left %s", dest)
+	}
+	p["allow_empty"] = true
+	rc := h.fresh()
+	if _, err := scan.SBOM(context.Background(), rc, h.device, params(p)); err != nil {
+		t.Fatalf("an SBOM of nothing, allowed = %v", err)
+	}
+	if rc.stats["components"] != 1 {
+		t.Errorf("components = %v", rc.stats["components"])
+	}
+}
