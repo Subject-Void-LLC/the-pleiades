@@ -164,7 +164,7 @@ Also written as `copy`.
 |---|---|
 | `dest` | `dest` |
 | `content` | `content` |
-| `src` | blocked (`args.unmapped`): file.copy writes content given in the task and never reads a file beside the playbook; put the content in the task |
+| `src` | blocked (`args.unmapped`): Ansible looks src up in a role's files/ and the playbook's directory, and copies a directory whole; file.copy's src is one regular file named relative to the project directory, so rewrite the path, or put the content in the task |
 | `validate` | blocked (`args.unmapped`): file.copy does not validate the new content before replacing the file |
 | `backup` | dropped (`module.semantics`): no backup of the old file is kept |
 | `mode` | `mode` |

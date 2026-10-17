@@ -87,13 +87,24 @@ func normalizeFormat(format string) (string, error) {
 }
 
 // tarCreateArgs builds the tar invocation that writes path from src,
-// compressed when format is tar.gz.
+// compressed when format is tar.gz. Each src is a path, never an option:
+// one beginning with "-" is written ./-prefixed, which names the same
+// file and which GNU and BSD tar alike read as an operand (GNU tar runs a
+// command for --checkpoint-action=exec). COPYFILE_DISABLE=1 stops macOS's
+// tar storing extended attributes as AppleDouble "._" entries beside each
+// file; every other tar ignores it.
 func tarCreateArgs(path string, src []string, format string) []string {
 	flag := "-czf"
 	if format == formatTar {
 		flag = "-cf"
 	}
-	args := append([]string{"tar", flag, path}, src...)
+	args := []string{"env", "COPYFILE_DISABLE=1", "tar", flag, path}
+	for _, s := range src {
+		if strings.HasPrefix(s, "-") {
+			s = "./" + s
+		}
+		args = append(args, s)
+	}
 	return args
 }
 

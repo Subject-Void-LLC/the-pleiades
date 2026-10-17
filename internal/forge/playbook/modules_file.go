@@ -41,7 +41,7 @@ var fileModules = []Entry{
 		Args: append([]Arg{
 			{Name: "dest", To: "dest"},
 			{Name: "content", To: "content"},
-			{Name: "src", Handling: ArgBlock, Code: "args.unmapped", Reason: "file.copy writes content given in the task and never reads a file beside the playbook; put the content in the task"},
+			{Name: "src", Handling: ArgBlock, Code: "args.unmapped", Reason: "Ansible looks src up in a role's files/ and the playbook's directory, and copies a directory whole; file.copy's src is one regular file named relative to the project directory, so rewrite the path, or put the content in the task"},
 			{Name: "validate", Handling: ArgBlock, Code: "args.unmapped", Reason: "file.copy does not validate the new content before replacing the file"},
 			{Name: "backup", Handling: ArgDrop, Code: "module.semantics", Reason: "no backup of the old file is kept"},
 		}, fileAttrs...),

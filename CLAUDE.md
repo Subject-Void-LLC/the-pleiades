@@ -207,7 +207,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   A generic device starts `discovered` (`record.InitialState`), which runs nothing. CLI `pleiades onboard`;
   Controller `POST /inventory/devices/{name}/onboard`, scope `inventory:onboard`, which `inventory:write`
   does not imply. The SSH probe grants the Linux capabilities only for a Linux kernel, and a FreeBSD
-  kernel POSIX file access alone (proven by `TestCLI_FreeBSDFileChecksMatchTheirRealRuns`).
+  or Darwin kernel POSIX file access alone (proven by `TestCLI_FreeBSDFileChecksMatchTheirRealRuns`, and
+  on macOS by the file packages' tests and `make mac-check`'s own shipping through `file.copy`).
   `http.request` with a path `url` calls a device's own API with the device's credential
   (`pkg/httpapi`). A device's TLS is its own (`pkg/devicetls`): a pinned `tls_ca_pem`, `tls_server_name`,
   mutual TLS from the stored certificate, and for an old device TLS 1.0/1.1, legacy cipher suites or a

@@ -375,6 +375,51 @@ func TestCreate_PlainTarFormat(t *testing.T) {
 	}
 }
 
+// TestCreate_ASourceThatLooksLikeAnOptionIsAPath: each src reaches tar
+// as a path, never as an option. GNU tar runs a command of the task's
+// choosing for --checkpoint-action=exec, so on the old argv this test's
+// marker file appeared; now each such src is ./-prefixed, names no file,
+// and the create fails having run nothing.
+func TestCreate_ASourceThatLooksLikeAnOptionIsAPath(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	writeFile(t, src, "data")
+	marker := filepath.Join(dir, "ran")
+	h := newHarness(t)
+	_, err := archivemod.Create(context.Background(), h.rc, h.device, h.params(map[string]any{
+		"path": filepath.Join(dir, "out.tar"), "format": "tar",
+		"src": []any{"--checkpoint=1", "--checkpoint-action=exec=touch " + marker, src},
+	}))
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("tar ran a command a src named")
+	}
+	if err == nil {
+		t.Error("a src naming no file was archived")
+	}
+}
+
+// TestCreate_NoMacMetadataEntries: macOS's tar stores a file's extended
+// attributes as an AppleDouble "._" entry beside it unless told not to,
+// and recent macOS gives every file it writes such attributes, so an
+// archive made on a Mac held a "._src.txt" for each file, which becomes a
+// stray file wherever it is extracted. Only a Mac shows it; make mac-check
+// runs it there.
+func TestCreate_NoMacMetadataEntries(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	writeFile(t, src, "data")
+	path := filepath.Join(dir, "out.tar.gz")
+	h := newHarness(t)
+	if _, err := archivemod.Create(context.Background(), h.rc, h.device, h.params(map[string]any{"path": path, "src": []any{src}})); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	for name := range readTarGzEntries(t, path) {
+		if strings.HasPrefix(filepath.Base(name), "._") {
+			t.Errorf("the archive holds %s, macOS metadata for a file beside it", name)
+		}
+	}
+}
+
 func TestCreate_AlreadyPresentIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.txt")
