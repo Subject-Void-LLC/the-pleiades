@@ -15,6 +15,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/engine"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/network"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
