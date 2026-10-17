@@ -45,6 +45,30 @@ var Builtin = map[string]collection.Fragment{
 		},
 	},
 
+	// container_spec covers a container as container.run, container.create
+	// and container.recreate declare it (pkg/containerengine.ParseSpec),
+	// with its safe defaults stated where a reader meets them.
+	"container_spec": {
+		Params: []collection.Param{
+			{Name: "name", Type: "string", Required: true, Description: "The container's name, which every container.* method addresses it by."},
+			{Name: "image", Type: "string", Required: true, Description: "The image to run. A tag is resolved through its registry to the digest it names now (a multi-platform image's index), and the container runs that digest, which the task returns; an image named by digest is run as named. An absent image is pulled by digest, with the registry credential bound for its host when there is one."},
+			{Name: "command", Type: "list", Description: "The command, as a list of arguments, replacing the image's. Never run through a shell unless the list names one ([/bin/sh, -c, \"...\"])."},
+			{Name: "entrypoint", Type: "list", Description: "The entrypoint, as a list of arguments, replacing the image's."},
+			{Name: "env", Type: "dict", Description: "Environment variables by name. Values are never reported (results, diffs and errors name the variable only), since one may come from a credential; anyone with access to the engine can still read them by inspecting the container."},
+			{Name: "network", Type: "string", Default: "none", Description: "The network the container joins: none (the default: no network at all), bridge, host, or a network's name. Reaching a network is always a declared decision."},
+			{Name: "ports", Type: "list", Description: "Published ports, [host_ip:]host_port:container_port[/tcp|udp|sctp]. Refused on network none or host, where nothing is published."},
+			{Name: "volumes", Type: "list", Description: "Mounts, source:target[:ro|rw]: a source beginning with / is a host path (absolute and clean, never the engine's own socket), anything else a named volume. Read-only unless the mount says rw.", Risk: collection.ParamRiskHostEscape},
+			{Name: "restart_policy", Type: "string", Default: "no", Choices: []string{"no", "on-failure", "always", "unless-stopped"}, Description: "The engine's restart policy for the container."},
+			{Name: "labels", Type: "dict", Description: "Labels on the container. org.pleiades.image, which records the image the task named, is this platform's own."},
+			{Name: "workdir", Type: "string", Description: "The process's working directory, an absolute path inside the container."},
+			{Name: "user", Type: "string", Description: "The user, or user:group, the process runs as."},
+			{Name: "read_only", Type: "bool", Default: "false", Description: "Give the container a read-only root filesystem."},
+			{Name: "privileged", Type: "bool", Default: "false", Description: "Run the container privileged: every capability and every device of the host, which is root on the host for whoever controls the container.", Risk: collection.ParamRiskHostEscape},
+			{Name: "cap_add", Type: "list", Description: "Kernel capabilities to add, by name (NET_ADMIN, SYS_TIME).", Risk: collection.ParamRiskHostEscape},
+			{Name: "devices", Type: "list", Description: "Host devices to give the container, /dev/path[:/dev/path-inside].", Risk: collection.ParamRiskHostEscape},
+		},
+	},
+
 	// catalyst_pagination covers the one tuning knob the two
 	// EachDevice-based methods (device_facts, reachability) read.
 	"catalyst_pagination": {

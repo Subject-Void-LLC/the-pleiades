@@ -13,6 +13,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/build/lock"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec"
