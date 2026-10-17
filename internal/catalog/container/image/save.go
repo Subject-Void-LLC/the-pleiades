@@ -20,7 +20,7 @@ import (
 const (
 	fqcnSave   = "container.image.save"
 	fqcnLoad   = "container.image.load"
-	fqcnImport = "container.image.import_rootfs"
+	fqcnImport = "container.image.import"
 )
 
 // archiveDigest is an archive's digest as a task names it.

@@ -191,7 +191,7 @@ func loadDoc() collection.Doc {
 			{Name: statImages, Type: "list of string", Returned: "when it ran", Description: "The images the engine said it loaded, by tag or ID."},
 		},
 		Examples: []collection.Example{{Name: "Load the saved build", RunbookYAML: "- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"}},
-		SeeAlso:  []string{"container.image.save", "container.image.import_rootfs"},
+		SeeAlso:  []string{"container.image.save", "container.image.import"},
 	}
 }
 
@@ -211,7 +211,7 @@ func importDoc() collection.Doc {
 			{Name: statImage, Type: "string", Returned: "always", Description: "The tag the image gets."},
 			{Name: statImageID, Type: "string", Returned: "when it ran", Description: "The new image's ID."},
 		},
-		Examples: []collection.Example{{Name: "Import a root filesystem", RunbookYAML: "- name: Import the rootfs\n  container.image.import_rootfs:\n    path: /srv/rootfs/base.tar\n    image: base:2026-10\n"}},
+		Examples: []collection.Example{{Name: "Import a root filesystem", RunbookYAML: "- name: Import the rootfs\n  container.image.import:\n    path: /srv/rootfs/base.tar\n    image: base:2026-10\n"}},
 		SeeAlso:  []string{"container.image.load"},
 	}
 }

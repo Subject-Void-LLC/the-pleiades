@@ -65,7 +65,7 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// disconnect and info, container.volume.create, remove and info, and
 	// container.engine.info. The image and registry methods added the
 	// 135th through 148th: container.image.pull, push, tag, remove, save,
-	// load, import_rootfs, prune, info, resolve and search, and
+	// load, import, prune, info, resolve and search, and
 	// container.registry.login, logout and info.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
