@@ -32,17 +32,20 @@ var convergeOps = append(append([]containerengine.Op{
 // context of its own so a run that ended still cleans up.
 const cleanupGrace = 30 * time.Second
 
+// convergeInverses are run's undos; create's is the first alone, since a
+// create never starts a container.
+var convergeInverses = []sdk.InverseSpec{
+	{FQCN: "container.remove", Record: []string{paramName, paramID, paramForce}},
+	{FQCN: "container.stop", Record: []string{paramName, paramID}},
+}
+
 func init() {
-	inverses := []sdk.InverseSpec{
-		{FQCN: "container.remove", Record: []string{paramName, paramID, paramForce}},
-		{FQCN: "container.stop", Record: []string{paramName, paramID}},
-	}
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcnRun,
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Reversible: true,
 			Notes:      "A run that created the container records its removal, by ID; a run that started an existing stopped one records stopping it, by ID; a run that found it running as declared records nothing.",
-			Inverses:   inverses,
+			Inverses:   convergeInverses,
 		}, runDoc()),
 		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
 			return converge(ctx, rc, d, p, collection.ModeExecute, fqcnRun, true)
@@ -54,20 +57,6 @@ func init() {
 			return converge(ctx, rc, d, p, collection.ModeCheck, fqcnRun, true)
 		},
 		CheckCall: oneShotCheck,
-	})
-	collection.MustRegister(collection.Descriptor{
-		Name: fqcnCreate,
-		Manifest: containerengine.MethodManifest(collection.Reversibility{
-			Reversible: true,
-			Notes:      "A run that created the container records its removal, by ID; one that found it as declared records nothing.",
-			Inverses:   inverses[:1],
-		}, createDoc()),
-		Invoke: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
-			return converge(ctx, rc, d, p, collection.ModeExecute, fqcnCreate, false)
-		},
-		Check: func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any) (collection.Result, error) {
-			return converge(ctx, rc, d, p, collection.ModeCheck, fqcnCreate, false)
-		},
 	})
 }
 
