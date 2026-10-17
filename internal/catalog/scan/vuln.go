@@ -236,7 +236,7 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	switch ran.exitCode {
 	case 0, osvFound:
 		if findings, err = osvreport.Parse(ran.report); err != nil {
-			return fail(fmt.Errorf("OSV-Scanner's report: %w", err))
+			return fail(fmt.Errorf("%s's report: %w", scannerLabel("OSV-Scanner", osvScannerImage), err))
 		}
 	case osvNoPackages:
 		// A scan that saw nothing is no evidence of no vulnerability: a
@@ -250,7 +250,7 @@ func vuln(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		}
 		warnings = append(warnings, fmt.Sprintf("OSV-Scanner found no package to check in %s (%s)", scanned, paramAllowEmpty))
 	default:
-		return fail(ran.failure("OSV-Scanner"))
+		return fail(ran.failure(scannerLabel("OSV-Scanner", osvScannerImage)))
 	}
 
 	judge := ignore.Judge(today())

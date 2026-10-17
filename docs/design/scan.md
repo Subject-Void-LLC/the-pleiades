@@ -18,7 +18,8 @@ image checks do), from an image pinned by its multi-platform index digest in thi
 2.6.0, Syft 1.52.0, Gitleaks 8.30.0. Nothing is installed on the device, the scanner a run uses is the one this
 release was tested with, and a tag moving upstream changes nothing. A run pulls the image when absent (it is
 content-addressed, so a pull cannot substitute another); a check never pulls, since a pull changes what the engine
-holds, and without the image it reports that it cannot check. A device that cannot pull needs it loaded first.
+holds, and without the image it reports that it cannot check. A device that cannot pull needs the image on its
+engine under that digest first.
 
 What is scanned is bind-mounted **read-only**, the container's root is read-only, it runs with
 no-new-privileges, and it joins **no network**, except `scan.vuln` online, which joins the engine's default
@@ -53,9 +54,8 @@ writing, rather than the run itself.
 ## Decisions, by edge case
 
 - **Pinned images over binaries on the device.** A device's own `osv-scanner` is whatever version it has, or none;
-  three different machines would give three answers. An image pinned by digest gives one, and a release moves the
-  pin deliberately (`build.digests.refresh` reads a Go constant no more than a Dockerfile, so the pins are
-  constants with a test that each is an index digest).
+  three different machines would give three answers. An image pinned by its index digest gives one, and a release
+  moves the pin deliberately, in the scan package's source; the method tests run against the pinned images.
 - **Severity.** OSV-Scanner reports a CVSS score per group of aliases; this maps it to critical (9.0 and up), high
   (7.0), medium (4.0) and low. A vulnerability with no score is **unknown** and is gated as high: an advisory
   nobody has scored yet is not evidence it is harmless. `fail_on` is `critical`, `high` (default), `medium`, `low`
@@ -120,10 +120,10 @@ untrusted input and each fuzzed.
 | Failure | Answer |
 |---|---|
 | The device has no engine onboarded | Refused before contact, naming `pleiades onboard`. |
-| The image is absent and cannot be pulled | Refused naming the image and digest, and how to load it. |
+| The image is absent and cannot be pulled | Refused naming the image and its digest: with `pull: false`, saying to set it or to put the image on the engine under that digest; a failed pull, with the engine's error. |
 | The target path does not exist, or is the wrong kind | Refused before the scanner runs. |
 | The tree holds the scanner's own configuration (`.gitleaks.toml`, `.gitleaksignore`, `osv-scanner.toml`) | Refused before the scanner runs, naming each file. |
-| The scanner exits with an error (not a finding) | Fails with its last lines, bounded and escaped. |
+| The scanner exits with an error (not a finding) | Fails naming the scanner and version, with its last lines, bounded and escaped. |
 | OSV-Scanner finds no package to check, or the SBOM holds nothing but its subject | Fails naming what was scanned, unless `allow_empty`. |
 | Gitleaks skips a path it cannot read | Fails naming each path (up to 50, the rest counted). |
 | The scanner's report is not what this parses | Fails naming the scanner and version; a report is never half-read. |

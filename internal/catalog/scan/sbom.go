@@ -159,11 +159,11 @@ func sbom(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return fail(err)
 	}
 	if ran.exitCode != 0 {
-		return fail(ran.failure("Syft"))
+		return fail(ran.failure(scannerLabel("Syft", syftImage)))
 	}
 	doc, err := sbomcheck.Parse(ran.report)
 	if err != nil {
-		return fail(fmt.Errorf("Syft's SBOM: %w", err))
+		return fail(fmt.Errorf("%s's SBOM: %w", scannerLabel("Syft", syftImage), err))
 	}
 	written, err := doc.SetSubjectSupplier(subject[paramSupplier], sbomTool)
 	if err != nil {

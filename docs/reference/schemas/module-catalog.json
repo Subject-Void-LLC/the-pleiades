@@ -6440,7 +6440,7 @@
           "name": "pull",
           "type": "bool",
           "default": "true",
-          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs it loaded first."
+          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs the image on its engine under that digest first."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -6550,7 +6550,7 @@
           "name": "pull",
           "type": "bool",
           "default": "true",
-          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs it loaded first."
+          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs the image on its engine under that digest first."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -6673,7 +6673,7 @@
           "name": "pull",
           "type": "bool",
           "default": "true",
-          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs it loaded first."
+          "description": "Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs the image on its engine under that digest first."
         },
         {
           "name": "insecure_skip_host_key_verify",

@@ -248,6 +248,18 @@ func imageAbsent(o runOptions) error {
 	return fmt.Errorf("the scanner's image %s is not on the device's engine, and %s is false; set %s, or put the image on the engine under that digest", o.image, paramPull, paramPull)
 }
 
+// scannerLabel names a pinned scanner for a person: name and the version
+// its image's tag gives (ghcr.io/google/osv-scanner:v2.6.0@sha256:... is
+// OSV-Scanner 2.6.0), or name alone for an image with no tag.
+func scannerLabel(name, image string) string {
+	ref, _, _ := strings.Cut(image, "@")
+	i := strings.LastIndex(ref, ":")
+	if i < 0 || strings.Contains(ref[i:], "/") {
+		return name
+	}
+	return name + " " + strings.TrimPrefix(ref[i+1:], "v")
+}
+
 // failure is a scanner's own error, with the end of what it said.
 func (r scannerRun) failure(name string) error {
 	return fmt.Errorf("%s exited %d:\n%s", name, r.exitCode, r.errors.String())

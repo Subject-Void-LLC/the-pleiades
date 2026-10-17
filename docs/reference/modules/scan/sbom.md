@@ -32,7 +32,7 @@ Runs Syft over an image archive or a directory on the device with no network, na
 | `strict_suppliers` | `bool` | no | `false` | Fail when a dependency has no supplier, rather than counting it. |
 | `allow_empty` | `bool` | no | `false` | Write, with a warning, an SBOM holding no component but its subject. Without it that fails the task, since an SBOM of nothing (a wrong path, or files Syft could not read) meets every element and says nothing. |
 | `timeout` | `string` | no | `15m` | How long the scanner may run, up to 2h, after which its container is killed and removed. |
-| `pull` | `bool` | no | `true` | Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs it loaded first. |
+| `pull` | `bool` | no | `true` | Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs the image on its engine under that digest first. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

@@ -26,7 +26,7 @@ Runs Gitleaks over a directory on the device with its default rules and no netwo
 | `dir` | `string` | yes | - | The directory on the device to scan. |
 | `ignore` | `string` | no | - | An ignore file on the device: a YAML list of {id, reason, until}, every field required, until a date (YYYY-MM-DD, in UTC) no more than 366 days after the day of the run, since an end years away is no end. An entry suppresses its finding through its until day; past it, it suppresses nothing and the run warns, and an entry that matched nothing is warned about so the file shrinks as fixes land. |
 | `timeout` | `string` | no | `15m` | How long the scanner may run, up to 2h, after which its container is killed and removed. |
-| `pull` | `bool` | no | `true` | Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs it loaded first. |
+| `pull` | `bool` | no | `true` | Pull the scanner's pinned image when the engine does not have it, in a run: a check never pulls, and says it cannot check without the image. The image is pinned by digest, so a pull cannot substitute another; a device that cannot pull needs the image on its engine under that digest first. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

@@ -140,11 +140,11 @@ func secrets(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return fail(err)
 	}
 	if ran.exitCode != 0 {
-		return fail(ran.failure("Gitleaks"))
+		return fail(ran.failure(scannerLabel("Gitleaks", gitleaksImage)))
 	}
 	leaks, err := parseLeaks(ran.report)
 	if err != nil {
-		return fail(fmt.Errorf("Gitleaks' report: %w", err))
+		return fail(fmt.Errorf("%s's report: %w", scannerLabel("Gitleaks", gitleaksImage), err))
 	}
 
 	judge := ignore.Judge(today())

@@ -215,3 +215,18 @@ func TestVuln_ScannerTextReachesTheErrorBoundedAndEscaped(t *testing.T) {
 		}
 	}
 }
+
+// TestVuln_AScannerErrorNamesTheScannerAndItsVersion: OSV-Scanner refuses
+// an ecosystem its offline databases do not cover, and the task fails
+// naming the scanner and the version pinned, with what it said.
+func TestVuln_AScannerErrorNamesTheScannerAndItsVersion(t *testing.T) {
+	h := newHarness(t)
+	project := writeFiles(t, npmProject)
+	empty := t.TempDir()
+	if err := os.Chmod(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vuln(h, map[string]any{"dir": project, "offline_db": empty}); err == nil || !strings.Contains(err.Error(), "OSV-Scanner 2.6.0 exited") {
+		t.Fatalf("a scan with no database for its ecosystem = %v", err)
+	}
+}
