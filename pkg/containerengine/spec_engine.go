@@ -278,7 +278,7 @@ func livePorts(bindings network.PortMap) []string {
 	for port, bs := range bindings {
 		for _, b := range bs {
 			p := Port{ContainerPort: port.Num(), Proto: string(port.Proto())}
-			n, err := strconv.Atoi(b.HostPort)
+			n, err := strconv.ParseUint(b.HostPort, 10, 16)
 			if err != nil {
 				continue
 			}

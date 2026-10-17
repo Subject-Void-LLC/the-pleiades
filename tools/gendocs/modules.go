@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,31 +75,39 @@ func modulePagePath(modulesDir, fqcn string) string {
 // it: the retired container.docker.* pages outlived their methods that
 // way.
 func removeStalePages(modulesDir string, written map[string]bool) error {
+	// Every walk and removal goes through a root opened on the directory,
+	// so a symbolic link swapped in mid-walk cannot take one outside it.
+	root, err := os.OpenRoot(modulesDir)
+	if err != nil {
+		return fmt.Errorf("removing stale module pages: %w", err)
+	}
+	defer func() { _ = root.Close() }()
 	var dirs []string
-	err := filepath.WalkDir(modulesDir, func(path string, d os.DirEntry, err error) error {
+	err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			dirs = append(dirs, path)
+			dirs = append(dirs, rel)
 			return nil
 		}
-		if strings.HasSuffix(path, ".md") && !written[path] {
-			return os.Remove(path)
+		if strings.HasSuffix(rel, ".md") && !written[filepath.Join(modulesDir, filepath.FromSlash(rel))] {
+			return root.Remove(rel)
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("removing stale module pages: %w", err)
 	}
-	// Deepest first, so a parent emptied by its children goes too.
+	// Deepest first, so a parent emptied by its children goes too; the
+	// first is the root itself, which stays.
 	for i := len(dirs) - 1; i > 0; i-- {
-		entries, err := os.ReadDir(dirs[i])
+		entries, err := fs.ReadDir(root.FS(), dirs[i])
 		if err != nil {
 			return err
 		}
 		if len(entries) == 0 {
-			if err := os.Remove(dirs[i]); err != nil {
+			if err := root.Remove(dirs[i]); err != nil {
 				return err
 			}
 		}
