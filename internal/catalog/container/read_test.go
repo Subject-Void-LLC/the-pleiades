@@ -156,3 +156,37 @@ func TestRun_ToItsExit(t *testing.T) {
 		t.Errorf("a check of a one-shot = %v", err)
 	}
 }
+
+// TestPrune_RemovesWhatItsCheckListed: a stopped container carrying the
+// test's own label is listed by a check and removed by the run; a running
+// one with the same label is left; a second run is no change.
+func TestPrune_RemovesWhatItsCheckListed(t *testing.T) {
+	h := newHarness(t)
+	stopped, running := h.name(t), h.name(t)
+	label := "pleiades.test=" + stopped
+	for _, n := range []string{stopped, running} {
+		if _, err := call(t, h, fresh(), "container.run", false, map[string]any{"name": n, "image": h.nginx, "labels": map[string]any{"pleiades.test": stopped}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := call(t, h, fresh(), "container.stop", false, map[string]any{"name": stopped, "timeout": 1}); err != nil {
+		t.Fatal(err)
+	}
+	params := map[string]any{"what": "containers", "labels": []any{label}}
+	rc := fresh()
+	if res, err := call(t, h, rc, "container.prune", true, params); err != nil || !res.Changed || h.state(t, stopped) != "exited" {
+		t.Fatalf("a check of prune = %+v, %v; state %q", res, err, h.state(t, stopped))
+	}
+	if pruned, _ := rc.stats["pruned"].([]string); len(pruned) != 1 || pruned[0] != stopped {
+		t.Errorf("the check listed %v", rc.stats["pruned"])
+	}
+	if res, err := call(t, h, fresh(), "container.prune", false, params); err != nil || !res.Changed || h.state(t, stopped) != "" || h.state(t, running) != "running" {
+		t.Fatalf("prune = %+v, %v; stopped %q, running %q", res, err, h.state(t, stopped), h.state(t, running))
+	}
+	if res, err := call(t, h, fresh(), "container.prune", false, params); err != nil || res.Changed {
+		t.Errorf("a second prune = %+v, %v; want no change", res, err)
+	}
+	if _, err := call(t, h, fresh(), "container.prune", false, map[string]any{"what": "everything"}); err == nil {
+		t.Error("an unknown kind was pruned")
+	}
+}

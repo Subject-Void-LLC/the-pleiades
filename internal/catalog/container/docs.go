@@ -213,3 +213,19 @@ func recreateDoc() collection.Doc {
 		SeeAlso:  []string{"container.run", "container.remove"},
 	}
 }
+
+func pruneDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Removes unused containers, images, volumes or networks.",
+		Description: "Removes the unused objects of the kind what names: stopped containers (created, exited or dead), dangling images, anonymous volumes no container uses (a named volume holds data someone named, and is never pruned), or networks no container uses (the engine's own bridge, host and none never). labels narrows it to objects carrying each label (key or key=value). The objects are listed first and removed by ID, never forced, so a run removes exactly what its check listed, and one that came into use since is refused by the engine and reported. More than 500 is refused rather than cut; narrow it with labels. A prune has no undo. A check lists and removes nothing." + reachNote,
+		Params: []collection.Param{
+			{Name: paramWhat, Type: "string", Required: true, Choices: []string{"containers", "images", "volumes", "networks"}, Description: "What to prune."},
+			{Name: paramLabels, Type: "list", Description: "Only objects carrying every one of these labels, key or key=value."},
+			hostKeyParam,
+		},
+		Fragments: []string{"container_engine"},
+		Returns:   []collection.ReturnField{{Name: statPruned, Type: "list of string", Returned: "always", Description: "The names (or IDs) removed, or that would be."}},
+		Examples:  []collection.Example{{Name: "Clear finished job containers", RunbookYAML: "- name: Old job containers\n  container.prune:\n    what: containers\n    labels: [\"role=job\"]\n"}},
+		SeeAlso:   []string{"container.remove"},
+	}
+}
