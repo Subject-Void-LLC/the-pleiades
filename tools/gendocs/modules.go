@@ -28,6 +28,7 @@ func generateModules(outDir string) error {
 
 	byNamespace := map[string][]string{}
 	var missing []string
+	written := map[string]bool{filepath.Join(modulesDir, "index.md"): true}
 
 	for _, cfg := range catalogdata.Collections {
 		desc, ok := collection.Lookup(cfg.Name)
@@ -47,6 +48,7 @@ func generateModules(outDir string) error {
 		if err := writeModulePage(modulesDir, cfg.Name, desc.Manifest, desc.CheckCall != nil); err != nil {
 			return err
 		}
+		written[modulePagePath(modulesDir, cfg.Name)] = true
 	}
 
 	if len(missing) > 0 {
@@ -54,7 +56,54 @@ func generateModules(outDir string) error {
 			len(missing), strings.Join(missing, ", "))
 	}
 
+	if err := removeStalePages(modulesDir, written); err != nil {
+		return err
+	}
 	return writeModulesIndex(modulesDir, byNamespace)
+}
+
+// modulePagePath is where fqcn's reference page is written.
+func modulePagePath(modulesDir, fqcn string) string {
+	return filepath.Join(modulesDir, filepath.Join(strings.Split(fqcn, ".")...)+".md")
+}
+
+// removeStalePages deletes every page under modulesDir this run did not
+// write, and every directory that leaves empty. The directory is this
+// tool's alone, so a page left there is a method that no longer exists,
+// and docs-gen-check, which compares only what a run writes, cannot see
+// it: the retired container.docker.* pages outlived their methods that
+// way.
+func removeStalePages(modulesDir string, written map[string]bool) error {
+	var dirs []string
+	err := filepath.WalkDir(modulesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if strings.HasSuffix(path, ".md") && !written[path] {
+			return os.Remove(path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("removing stale module pages: %w", err)
+	}
+	// Deepest first, so a parent emptied by its children goes too.
+	for i := len(dirs) - 1; i > 0; i-- {
+		entries, err := os.ReadDir(dirs[i])
+		if err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(dirs[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // writeModulePage renders one FQCN's reference page in the fixed section
@@ -134,7 +183,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 		writeExamples(&b, m.Doc)
 	}
 
-	path := filepath.Join(modulesDir, filepath.Join(segments...)+".md")
+	path := modulePagePath(modulesDir, fqcn)
 	return os.WriteFile(path, []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
 }
 
