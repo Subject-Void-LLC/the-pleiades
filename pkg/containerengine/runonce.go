@@ -38,6 +38,14 @@ const runOnceTmpfs = "rw,noexec,nosuid,size=256m"
 // a run whose context is already over still removes its container.
 const removeGrace = 30 * time.Second
 
+// CleanupContext is the context cleanup after a failure runs on: the
+// task's own values without its cancellation, so a task that was canceled
+// still cleans up, and bounded by removeGrace, so a hung engine or login
+// cannot hold the cleanup forever (FAILURE_PATTERNS 462).
+func CleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), removeGrace)
+}
+
 // outputGrace bounds how long RunOnce goes on reading a container's
 // output once the container has ended. A variable only so a test can
 // shorten it.

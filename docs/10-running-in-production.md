@@ -2029,8 +2029,8 @@ stops:
   Collection SDK's `sdk.Connect` dials a device directly and does not follow its
   bastion route; the libraries themselves are proven through a real bastion hop.
 
-**Docker exec is different from all of the above, deliberately.**
-`container.docker.exec` (see the [module reference](reference/modules/container/docker/exec.md))
+**Container exec is different from all of the above, deliberately.**
+`container.exec` (see the [module reference](reference/modules/container/exec.md))
 is a real fqcn with a real Manifest, reached over the container engine's own
 API rather than a byte stream, so it reports a genuine exit code every time.
 How it, and every other container method, reaches an engine is described in
@@ -2141,7 +2141,7 @@ container with the host's root filesystem mounted. A read-only socket mount
 does not restrict that, because file permissions decide who opens the
 socket, not which requests an open connection sends, and neither does a
 non-root caller, because the engine's privilege is what acts. So every
-container method declares the operations it uses (`container.docker.exec`
+container method declares the operations it uses (`container.exec`
 declares exec create, start and inspect), and one guard refuses any request
 outside them before a byte reaches the engine, including a name shaped to
 change the request's path. Answers are bounded too: a document at 64 MiB, a

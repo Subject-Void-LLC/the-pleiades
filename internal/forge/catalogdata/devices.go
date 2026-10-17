@@ -89,8 +89,8 @@ var Devices = []devicescaffold.Config{
 	},
 	{
 		// container.Host is Phase 73's fix for a real, previously-shipped
-		// defect (FAILURE_PATTERNS.md #170): container.docker.run/stop/
-		// remove declared RequiredCapabilities: []capability.Name{
+		// defect (FAILURE_PATTERNS.md #170): the since-retired
+		// container.docker.run/stop/remove declared RequiredCapabilities: []capability.Name{
 		// capability.NameDocker} with zero device types able to satisfy
 		// it. Its baseline is the SSH login and its address, which the
 		// record states. DockerCapable and the engine reach capabilities

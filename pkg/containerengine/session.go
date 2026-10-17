@@ -82,8 +82,8 @@ func Open(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	return OpenKind(ctx, rc, device, params, fqcn, "", ops...)
 }
 
-// OpenKind is Open for an engine-only method (container.docker.*,
-// container.podman.*): kind is the engine it must reach, and a device that
+// OpenKind is Open for an engine-only method, one only Docker or only
+// Podman has: kind is the engine it must reach, and a device that
 // does not run it is refused rather than reached through another.
 func OpenKind(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, kind capability.EngineKind, ops ...Op) (*Session, error) {
 	for _, op := range ops {
@@ -155,7 +155,11 @@ func ChooseEngine(device inventory.InventoryItem, params map[string]any) (capabi
 			runs = append(runs, kind)
 		}
 	}
-	if named := sdk.StringParam(params, ParamEngine); named != "" {
+	named, err := textOf(params, ParamEngine)
+	if err != nil {
+		return "", err
+	}
+	if named != "" {
 		kind := capability.EngineKind(named)
 		if !slices.Contains(runs, kind) {
 			return "", fmt.Errorf("device %q does not run %q; it runs %s", device.Name(), named, kinds(runs))
@@ -200,7 +204,10 @@ func kinds(list []capability.EngineKind) string {
 // engine parameter or the device chooses (ChooseEngine).
 func engineFor(device inventory.InventoryItem, params map[string]any, kind capability.EngineKind) (capability.EngineKind, capability.EngineReach, error) {
 	if kind != "" {
-		named := sdk.StringParam(params, ParamEngine)
+		named, err := textOf(params, ParamEngine)
+		if err != nil {
+			return "", nil, err
+		}
 		if named != "" && capability.EngineKind(named) != kind {
 			return "", nil, fmt.Errorf("this method reaches %s, and the task names %s", kind, named)
 		}

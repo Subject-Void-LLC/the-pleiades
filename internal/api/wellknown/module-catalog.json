@@ -645,7 +645,7 @@
       ]
     }
   },
-  "container.docker.exec": {
+  "container.copy_in": {
     "supportedTransports": [
       "engine_local",
       "engine_socket",
@@ -653,7 +653,7 @@
       "engine_tls"
     ],
     "requiredCapabilities": [
-      "DockerCapable"
+      "ContainerEngineCapable"
     ],
     "executionContext": {
       "site": "target",
@@ -663,25 +663,480 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "An arbitrary command's effect inside a container is unknown to this platform, the same reasoning exec.command and exec.shell already record for the identical shape over SSH."
+      "notes": "The bytes a file held before are not kept, so the write cannot be undone; a container recreated from its image has the image's file again."
     },
-    "supportsCheck": false,
-    "noCheckReason": "a command run inside a container can change anything the container can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read",
+    "supportsCheck": true,
     "doc": {
-      "summary": "Runs one command inside a running Docker container, through the engine's own exec endpoints.",
-      "description": "Runs cmd inside the container named name, through /bin/sh -c on the engine's own exec endpoints (pkg/containerengine), reached the first way onboarding proved for the device: this machine's own socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH (where sshd refuses forwarding), or mutual TLS. `pleiades onboard` finds each, and records the engine's identity and the account it was found as; a task refuses a different engine, a different account, or an engine API older than 1.41. The container must already be running; this method does not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
+      "summary": "Puts one file into a container.",
+      "description": "Makes the file at dest inside the container named name hold content, or the bytes of src, a file in the project directory, with mode. The file is read first and written only when its bytes or mode differ, so a second run with the same bytes writes nothing. src is read by the command line, which holds the project (relative, inside it, through no symbolic link, never .pleiades, at most 64 MiB); a Walk-tier Runner cannot see the project, so there src is refused and content is the way. The container may be running or stopped. The bytes the file held before are not kept, so the write has no undo. A check reads and compares, and writes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The running container to exec into."
+          "description": "The container's name."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "The file's absolute path inside the container; its directory must exist."
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "description": "The bytes the file should hold. Set content or src, not both."
+        },
+        {
+          "name": "src",
+          "type": "string",
+          "description": "A file in the project directory whose bytes the file should hold, relative to it."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "default": "0644",
+          "description": "The file's mode, in octal."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "always",
+          "description": "The file's path inside the container."
+        },
+        {
+          "name": "checksum",
+          "type": "string",
+          "returned": "always",
+          "description": "The SHA-256 of the bytes it holds."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "Their size."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Drop a configuration file into a running container",
+          "runbookYaml": "- name: Web config\n  container.copy_in:\n    name: web\n    dest: /etc/nginx/conf.d/site.conf\n    src: files/site.conf\n"
+        }
+      ],
+      "seeAlso": [
+        "container.copy_out",
+        "file.copy"
+      ]
+    }
+  },
+  "container.copy_out": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads what the engine reports, and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads one text file out of a container.",
+      "description": "Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The file's absolute path inside the container."
+        },
+        {
+          "name": "max_bytes",
+          "type": "int",
+          "default": "1048576",
+          "description": "The largest file read, in bytes, up to 16 MiB."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "returned": "always",
+          "description": "The file's text."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "Its size in bytes."
+        },
+        {
+          "name": "checksum",
+          "type": "string",
+          "returned": "always",
+          "description": "Its SHA-256."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read the app's version file",
+          "runbookYaml": "- name: Version\n  container.copy_out:\n    name: web\n    src: /opt/app/VERSION\n  register: version\n"
+        }
+      ],
+      "seeAlso": [
+        "container.copy_in",
+        "container.exec"
+      ]
+    }
+  },
+  "container.create": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that created the container records its removal, by ID; one that found it as declared records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.remove",
+          "record": [
+            "name",
+            "id",
+            "force",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a container exist as declared, without starting it.",
+      "description": "Makes the container named name exist from image as the task declares it, without starting it: container.run's declaration, comparison and refusals, with no start. An existing container that matches is left as it is, running or not; one that differs is refused, naming container.recreate. A check pulls and creates nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_spec",
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image by digest: the one the container runs, or would."
+        },
+        {
+          "name": "image_digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The image's digest."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "pulled",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image had to be pulled (by a check, would be)."
+        },
+        {
+          "name": "env_names",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The environment variables the task set, by name only."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Create a job container to start later",
+          "runbookYaml": "- name: Backup job\n  container.create:\n    name: backup\n    image: restic/restic:0.17.3\n    command: [backup, /data]\n    volumes: [\"appdata:/data\"]\n"
+        }
+      ],
+      "seeAlso": [
+        "container.run",
+        "container.start"
+      ]
+    }
+  },
+  "container.engine.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: the method reads the engine's own report and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the container engine's own report of itself.",
+      "description": "Reads the device's container engine as it reports itself, for a later task's when: Docker's info and version, or Podman's libpod info, which says what Docker's form does not. Both are reported under the same names: the engine and its version, the newest API version it speaks, its storage driver, whether it runs rootless, the cgroup version and driver, the OS and architecture (in Go's names, linux and amd64), the kernel, the host's operating system, its container and image counts, CPUs and memory. On a device running both engines, engine chooses which. Reading changes nothing, and a check reads the same way. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "engine",
+          "type": "string",
+          "returned": "always",
+          "description": "The engine: docker or podman."
+        },
+        {
+          "name": "carrier",
+          "type": "string",
+          "returned": "always",
+          "description": "How the engine was reached: local, socket, stdio or tls."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The engine's release."
+        },
+        {
+          "name": "api_version",
+          "type": "string",
+          "returned": "always",
+          "description": "The newest API version the engine speaks."
+        },
+        {
+          "name": "storage_driver",
+          "type": "string",
+          "returned": "always",
+          "description": "The storage driver (overlay2, overlay, btrfs, ...)."
+        },
+        {
+          "name": "rootless",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the engine runs without root."
+        },
+        {
+          "name": "cgroup_version",
+          "type": "string",
+          "returned": "always",
+          "description": "The cgroup version, 1 or 2."
+        },
+        {
+          "name": "cgroup_driver",
+          "type": "string",
+          "returned": "always",
+          "description": "The cgroup driver: systemd or cgroupfs."
+        },
+        {
+          "name": "os",
+          "type": "string",
+          "returned": "always",
+          "description": "The engine's OS, in Go's name (linux)."
+        },
+        {
+          "name": "arch",
+          "type": "string",
+          "returned": "always",
+          "description": "The engine's architecture, in Go's name (amd64, arm64)."
+        },
+        {
+          "name": "kernel_version",
+          "type": "string",
+          "returned": "always",
+          "description": "The host's kernel release."
+        },
+        {
+          "name": "operating_system",
+          "type": "string",
+          "returned": "always",
+          "description": "The host's operating system, as the engine names it."
+        },
+        {
+          "name": "containers",
+          "type": "int",
+          "returned": "always",
+          "description": "How many containers the engine has, running or not."
+        },
+        {
+          "name": "containers_running",
+          "type": "int",
+          "returned": "always",
+          "description": "How many of them are running."
+        },
+        {
+          "name": "images",
+          "type": "int",
+          "returned": "always",
+          "description": "How many images the engine has."
+        },
+        {
+          "name": "cpus",
+          "type": "int",
+          "returned": "always",
+          "description": "The host's CPUs, as the engine sees them."
+        },
+        {
+          "name": "memory_bytes",
+          "type": "int",
+          "returned": "always",
+          "description": "The host's memory in bytes, as the engine sees it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Run a container only on a rootless engine",
+          "runbookYaml": "- name: Read the engine\n  container.engine.info:\n  register: engine\n\n- name: Run the build cache\n  container.run:\n    name: cache\n    image: redis:7.4\n  when:\n    - engine.rootless\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.info",
+        "container.volume.info",
+        "facts.gather"
+      ]
+    }
+  },
+  "container.exec": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A command's effect inside a container is unknown to this platform, as exec.command's is on a host."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "a command run inside a container can change anything the container can reach, and what it changes is known only once it has run",
+    "doc": {
+      "summary": "Runs one command inside a running container.",
+      "description": "Runs cmd inside the running container named name, through the container's own /bin/sh -c, on whichever engine the device runs, and reports its real exit code, stdout and stderr (together at most 1 MiB, refused past it). A non-zero exit is an error, after the output is recorded, the line exec.command draws. The container must be running. It cannot be checked: what a command changes is known only once it has run. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
         },
         {
           "name": "cmd",
           "type": "string",
           "required": true,
-          "description": "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them.",
+          "description": "The command line, run inside the container's /bin/sh -c.",
           "format": "command"
         },
         {
@@ -691,55 +1146,173 @@
           "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
       ],
+      "fragments": [
+        "container_engine"
+      ],
       "returns": [
         {
           "name": "name",
           "type": "string",
           "returned": "always",
-          "description": "The container this task acted on."
+          "description": "The container's name."
         },
         {
           "name": "exit_code",
           "type": "int",
           "returned": "always",
-          "description": "The command's real exit status, reported by the Docker daemon."
+          "description": "The command's real exit status."
         },
         {
           "name": "stdout",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard output."
+          "description": "What it wrote to standard output."
         },
         {
           "name": "stderr",
           "type": "string",
           "returned": "always",
-          "description": "Everything the command wrote to standard error."
+          "description": "What it wrote to standard error."
         }
       ],
       "examples": [
         {
-          "name": "Check a running container's own view of a file",
-          "runbookYaml": "- name: Read the app's version file\n  container.docker.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"
+          "name": "Read the app's version inside its container",
+          "runbookYaml": "- name: App version\n  container.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"
         }
       ],
       "seeAlso": [
-        "container.docker.run",
-        "container.docker.stop",
-        "container.docker.remove",
-        "exec.shell"
+        "container.logs",
+        "exec.command"
       ]
     }
   },
-  "container.docker.remove": {
+  "container.image.import": {
     "supportedTransports": [
-      "ssh"
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
     ],
     "requiredCapabilities": [
-      "DockerCapable"
+      "ContainerEngineCapable"
     ],
     "executionContext": {
-      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial, since the imported image stays (container.image.prune removes it); one under a new tag records removing the imported image, by ID. An import that fails after reaching the engine puts the tag back or removes what it made, since a failed task records no undo.",
+      "inverses": [
+        {
+          "fqcn": "container.image.tag",
+          "record": [
+            "source",
+            "tag",
+            "id",
+            "engine"
+          ],
+          "mayBePartial": true
+        },
+        {
+          "fqcn": "container.image.remove",
+          "record": [
+            "image",
+            "id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes an image from a filesystem archive.",
+      "description": "Imports the filesystem archive at path (a tar of a root filesystem, as container export writes it) as a one-layer image the tag names. With digest, an archive with any other digest is refused before the engine reads it, as for container.image.load. An import makes a new image each time, so it always reports a change. A run records pointing the tag back at the image it named before as the undo, guarded by the image it names now, and partial, since the imported image stays for container.image.prune; or removing the imported image when the tag was new. An import that fails after reaching the engine puts the tag back, or removes what it made, since a failed task records no undo. A check reads and hashes the archive, and imports nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The archive's path on the machine the engine runs on: absolute and clean."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The tag the new image gets, repository:tag; a missing tag is latest."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "description": "The archive's digest, sha256:<hex>, as container.image.save returned it. An archive with any other digest is refused before the engine reads a byte of it."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's path."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's digest, sha256:<hex>."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "The archive's size in bytes."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The tag the image gets."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when it ran",
+          "description": "The new image's ID."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Import a root filesystem",
+          "runbookYaml": "- name: Import the rootfs\n  container.image.import:\n    path: /srv/rootfs/base.tar\n    image: base:2026-10\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.load"
+      ]
+    }
+  },
+  "container.image.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
       "site": "target",
       "device": "required"
     },
@@ -747,210 +1320,741 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "docker inspect exposes a removed container's image and some of its configuration before deletion, but reconstructing ports, volumes, env and restart policy from that output well enough for a real container.docker.run to recreate it is parsing this pass does not take on. A partial inverse that silently dropped that configuration would be worse than refusing to record one, the same call pkg.upgrade makes for a package version a repository may no longer offer."
+      "notes": "It reads and changes nothing, so there is nothing to undo.",
+      "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Removes a Docker container from the target.",
-      "description": "Makes sure a container named name does not exist, removing it if present. Container state is read from docker inspect before anything is sent, so a container already absent reports no change and no command reaches the device. A check reads the same state and removes nothing; a container that is not stopped, with force unset, makes the call unchecked rather than failed, since docker rm refuses one unless an earlier task in the same run stops it. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
+      "summary": "Reports images on the engine.",
+      "description": "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
-          "name": "name",
+          "name": "images",
+          "type": "list",
+          "description": "The images to report, by reference or ID. Absent means every image."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "images",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "One entry per image: id, tags, digests, created, size, labels, and os and architecture for an image named."
+        },
+        {
+          "name": "missing",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The images named that the engine does not have."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Is the release here",
+          "runbookYaml": "- name: Read the release image\n  container.image.info:\n    images: [registry.example.com/app:1.4.2]\n  register: release\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.pull",
+        "container.image.resolve"
+      ]
+    }
+  },
+  "container.image.load": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A load can move tags the archive names from the images they named before, which the engine does not report, so what to put back is not known."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Loads images from an archive, refusing one whose digest differs.",
+      "description": "Loads the archive at path, as container.image.save or docker save wrote it, into the engine. With digest, an archive with any other digest is refused before the engine reads it: the archive is copied to a private temporary file on the machine running the task, hashed on the way, and the engine loads that copy, so what it loads is what was checked. Loading always reports a change, and has no undo, since a load can move tags from the images they named and the engine does not say which. A check reads and hashes the archive, and loads nothing. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "path",
           "type": "string",
           "required": true,
-          "description": "The container to remove."
+          "description": "The archive's path on the machine the engine runs on: absolute and clean."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "description": "The archive's digest, sha256:<hex>, as container.image.save returned it. An archive with any other digest is refused before the engine reads a byte of it."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's path."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's digest, sha256:<hex>."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "The archive's size in bytes."
+        },
+        {
+          "name": "images",
+          "type": "list of string",
+          "returned": "when it ran",
+          "description": "The images the engine said it loaded, by tag or ID."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Load the saved build",
+          "runbookYaml": "- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.save",
+        "container.image.import"
+      ]
+    }
+  },
+  "container.image.prune": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A pruned tag, and an image whose last tag it was, is gone from the engine; container.image.pull brings an image back from its registry."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Keeps each repository's newest tags and removes the rest.",
+      "description": "For each repository on the engine whose name matches repositories, orders its tags as versions, as `sort -V` does (1.10 after 1.9; a word such as latest after every number), keeps the keep_newest newest and removes the rest. A tag of an image a container uses, in any state, is never removed, and does not count toward keep_newest. Removing a tag removes the image only when it was the image's last name. Nothing is forced, so a container that starts using an image meanwhile stops the prune there. A prune has no undo. A check reads the images and containers and removes nothing, returning what a run would remove. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "repositories",
+          "type": "string",
+          "required": true,
+          "description": "A pattern over repository names as the engine shows them (app, ghcr.io/org/app): * matches any run of characters but /, ? one character, [...] a set."
+        },
+        {
+          "name": "keep_newest",
+          "type": "int",
+          "required": true,
+          "description": "How many of each repository's newest tags to keep, from 0 to 1000."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "kept",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The tags kept as the newest."
+        },
+        {
+          "name": "kept_in_use",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The older tags kept because a container uses their image."
+        },
+        {
+          "name": "removed",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The tags removed (by a check, that would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep the last three builds",
+          "runbookYaml": "- name: Prune old builds\n  container.image.prune:\n    repositories: registry.example.com/app\n    keep_newest: 3\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.remove"
+      ]
+    }
+  },
+  "container.image.pull": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial when the run also pulled, since the pulled image stays (container.image.prune removes it); one that pulled an absent image under a new tag records its removal, by ID; one that pointed a new tag at an image already there records removing the tag, unless it is the image's only name; one that found both as asked records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.image.remove",
+          "record": [
+            "image",
+            "id",
+            "engine"
+          ]
+        },
+        {
+          "fqcn": "container.image.tag",
+          "record": [
+            "source",
+            "tag",
+            "id",
+            "engine"
+          ],
+          "mayBePartial": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Pulls an image by digest and names it by its tag.",
+      "description": "Makes the image a reference names present on the engine. A tag is resolved through its registry to the digest it names now (a multi-platform image's index, so it means the same on every machine), the image is pulled by that digest when absent, and the tag is then pointed at it on the engine; an image named by digest is pulled as named. The registry credential bound for the image's registry is used when there is one. Present and tagged is no change. A run that moved an existing tag records moving it back as the undo, guarded by the image it names now; when the run also pulled, that undo is partial, since the pulled image stays for container.image.prune. A run that pulled an absent image under a new tag records its removal (nothing can be using an image that was not there), and one that added a tag to an image already there records removing the tag, unless it is the image's only name. A pull whose tagging then fails removes the image it pulled. A check resolves the digest and reads the engine, and pulls and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image: a reference by tag (resolved to its digest), or by digest."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image by digest."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The image's digest."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "pulled",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image had to be pulled (by a check, would be)."
+        },
+        {
+          "name": "tagged",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the tag had to be pointed at the image (by a check, would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Pull a pinned web server",
+          "runbookYaml": "- name: Pull nginx\n  container.image.pull:\n    image: nginx:1.28.1-alpine\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.resolve",
+        "container.image.remove",
+        "container.run"
+      ]
+    }
+  },
+  "container.image.push": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A push changes the registry, which the engine has no operation to undo: a tag it moved cannot be moved back, nor a pushed image deleted, through the engine."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Pushes an image to its registry.",
+      "description": "Pushes the local image a tag names to the registry the tag names, with the registry credential bound for that registry when there is one. The registry is asked first what the tag names there; when that is already the local image, nothing is sent and there is no change. A registry that cannot say (a repository not yet created) is pushed to. A push has no undo: the engine has no operation that deletes from a registry. A check reads the image and asks the registry, and sends nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image by tag, registry included (ghcr.io/org/app:1.2). A reference by digest is refused: a registry is pushed to by tag."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image's reference."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "when the registry holds the image",
+          "description": "The digest the registry's tag names, after the push."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Push a release",
+          "runbookYaml": "- name: Publish\n  container.image.push:\n    image: registry.example.com/app:1.4.2\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.tag",
+        "container.registry.login"
+      ]
+    }
+  },
+  "container.image.remove": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A removed image's content is gone from the engine; container.image.pull brings an image from a registry back, and container.image.load one from a saved archive."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes an image or one of its tags.",
+      "description": "Removes the reference image names: a tag is removed, and the image with it when it was the image's last name; an image ID removes the image and every name it has. An absent image is no change. An image a container uses, in any state, is refused unless force is set. With id, a reference that now names another image is refused, so an undo never removes an image that took the tag since. A removal has no undo. A check reads the image and the containers, and removes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image: a reference, or an image ID."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The image ID the reference must still name."
         },
         {
           "name": "force",
           "type": "bool",
           "default": "false",
-          "description": "Remove the container even if it is still running (docker rm -f). Left false, removing a running container fails rather than stopping it first."
-        },
-        {
-          "name": "id",
-          "type": "string",
-          "description": "When set, the container named name must be this one, by its full id, or the task is refused and nothing is removed. A rollback sets it, so undoing the task that created a container never removes a different container run later under the same name."
+          "description": "Remove an image a stopped container uses; the engine still refuses one a running container uses. On Podman, force also deletes the stopped containers using the image, which Docker leaves."
         },
         {
           "name": "insecure_skip_host_key_verify",
           "type": "bool",
           "default": "false",
-          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
+      ],
+      "fragments": [
+        "container_engine"
       ],
       "returns": [
-        {
-          "name": "name",
-          "type": "string",
-          "returned": "always",
-          "description": "The container this task acted on."
-        },
-        {
-          "name": "diff",
-          "type": "dict",
-          "returned": "always",
-          "description": "What docker inspect reported about the container before this task and after it. After always reports exists: false on a successful run."
-        }
-      ],
-      "examples": [
-        {
-          "name": "Remove a stopped container",
-          "runbookYaml": "- name: Remove web\n  container.docker.remove:\n    name: web\n"
-        },
-        {
-          "name": "Force-remove a running container",
-          "runbookYaml": "- name: Remove web even if it is still running\n  container.docker.remove:\n    name: web\n    force: true\n"
-        }
-      ],
-      "seeAlso": [
-        "container.docker.run",
-        "container.docker.stop"
-      ]
-    }
-  },
-  "container.docker.run": {
-    "supportedTransports": [
-      "ssh"
-    ],
-    "requiredCapabilities": [
-      "DockerCapable"
-    ],
-    "executionContext": {
-      "requiresElevation": true,
-      "site": "target",
-      "device": "required"
-    },
-    "engineVersion": ">=0.2.0",
-    "status": "implemented",
-    "reversibility": {
-      "reversible": true,
-      "notes": "A run that created an absent container emits a container.docker.remove naming it, with force: true since a freshly started container is very likely still running. A run that started an existing stopped container emits a container.docker.stop naming it by id. A run that found the container already running emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing container's configuration against what was requested.",
-      "inverses": [
-        {
-          "fqcn": "container.docker.remove",
-          "record": [
-            "name",
-            "force",
-            "id"
-          ]
-        },
-        {
-          "fqcn": "container.docker.stop",
-          "record": [
-            "name",
-            "id"
-          ]
-        }
-      ]
-    },
-    "supportsCheck": true,
-    "doc": {
-      "summary": "Runs a Docker container on the target.",
-      "description": "Makes sure a container named name exists, creating and starting one from image if no container by that name exists. This is a narrow slice of community.docker.docker_container: idempotency here is existence of the NAME only, not a comparison of the running container's configuration against what this task asked for. A container already present under name is started when it is stopped (exited, or created and never started) unless start is false, and is otherwise left as it is, regardless of whether its image, ports, volumes, env or restart policy match; this method never recreates. A paused, dead or removing container is refused, naming what to do instead. Always runs detached (-d), since this platform has no interactive session to attach one to. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. Secure unless the task says otherwise: the container joins no network (network: none), mounts each volume read-only unless the entry's options say rw, and starts from the image's ID, pulled first when the engine has none of it, so a tag that moves cannot change what runs. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
-      "params": [
-        {
-          "name": "name",
-          "type": "string",
-          "required": true,
-          "description": "The container name to create or leave alone."
-        },
         {
           "name": "image",
           "type": "string",
-          "required": true,
-          "description": "The image to run. It is resolved to the image's ID (pulled first when the engine holds no image by this reference) and the container starts from that ID. Ignored when a container already exists under name."
-        },
-        {
-          "name": "command",
-          "type": "list",
-          "description": "The command and its arguments, as separate list elements rather than one shell string. Overrides the image's own default command."
-        },
-        {
-          "name": "ports",
-          "type": "list",
-          "description": "Port mappings, each \"host:container\" (docker run's own -p syntax). Publishing needs a network, so ports are refused unless network names one."
-        },
-        {
-          "name": "volumes",
-          "type": "list",
-          "description": "Volume mappings, each \"host:container\" or \"host:container:options\" (docker run's own -v syntax). Each is mounted read-only unless its options say rw, as in \"/srv/data:/data:rw\"."
-        },
-        {
-          "name": "pull_timeout",
-          "type": "int",
-          "default": "900",
-          "description": "How long a pull of an image the engine does not hold may take, in seconds. Default 900. A pull is the one docker call whose honest duration depends on the image and the link."
-        },
-        {
-          "name": "start",
-          "type": "bool",
-          "default": "true",
-          "description": "Start a container that exists under name but is stopped. Set false for a one-shot container whose command is meant to run once, since starting it again runs its command again."
-        },
-        {
-          "name": "network",
-          "type": "string",
-          "default": "none",
-          "description": "The network the container joins: none (the default, no network at all), bridge, host (the host's own network, with no isolation), or the name of a network on the host. Required for ports."
-        },
-        {
-          "name": "env",
-          "type": "dict",
-          "description": "Environment variables to set in the container, as a map of name to value."
-        },
-        {
-          "name": "restart_policy",
-          "type": "string",
-          "description": "The restart policy (docker run's own --restart value, e.g. unless-stopped)."
-        },
-        {
-          "name": "insecure_skip_host_key_verify",
-          "type": "bool",
-          "default": "false",
-          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
-        }
-      ],
-      "returns": [
-        {
-          "name": "name",
-          "type": "string",
           "returned": "always",
-          "description": "The container this task acted on."
-        },
-        {
-          "name": "diff",
-          "type": "dict",
-          "returned": "always",
-          "description": "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."
+          "description": "The reference the task named."
         },
         {
           "name": "image_id",
           "type": "string",
-          "returned": "changed",
-          "description": "The image ID the container was started from, when this task created it."
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "used_by",
+          "type": "list of string",
+          "returned": "when the image exists",
+          "description": "The containers using the image, by name."
+        },
+        {
+          "name": "removed",
+          "type": "list of string",
+          "returned": "when it was removed",
+          "description": "The tags the engine removed and the image IDs it deleted."
         }
       ],
       "examples": [
         {
-          "name": "Run a container",
-          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    network: bridge\n    ports:\n      - \"8080:80\"\n"
+          "name": "Remove an old build",
+          "runbookYaml": "- name: Remove build 117\n  container.image.remove:\n    image: app:build-117\n"
         }
       ],
       "seeAlso": [
-        "container.docker.stop",
-        "container.docker.remove"
+        "container.image.prune",
+        "container.remove"
       ]
     }
   },
-  "container.docker.stop": {
+  "container.image.resolve": {
     "supportedTransports": [
-      "ssh"
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
     ],
     "requiredCapabilities": [
-      "DockerCapable"
+      "ContainerEngineCapable"
     ],
     "executionContext": {
-      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads and changes nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Resolves a tag to the digest it names in its registry.",
+      "description": "Asks the registry a reference names, through the engine (so through the device's own network, proxy and mirrors), which digest its tag names now: a multi-platform image's index, as `docker buildx imagetools inspect` reports it, so it means the same on any machine. The registry credential bound for that registry is used when there is one. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image by tag; a missing tag is latest."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image by digest."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The digest the tag names."
+        },
+        {
+          "name": "media_type",
+          "type": "string",
+          "returned": "always",
+          "description": "Whether the digest is an index or a single image's manifest, as its media type."
+        },
+        {
+          "name": "platforms",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The platforms the image is built for, os/arch[/variant]."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Pin a base image",
+          "runbookYaml": "- name: Resolve the base\n  container.image.resolve:\n    image: alpine:3.20\n  register: base\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.pull",
+        "build.digests.refresh"
+      ]
+    }
+  },
+  "container.image.save": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "An archive this task wrote replaces whatever was at the path, which is not kept; file.remove removes the archive when it is no longer needed."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Saves images to an archive and returns its digest.",
+      "description": "Writes the images named, with their tags, as one archive at path, and returns the archive's digest, which container.image.load takes to refuse any other archive: one build's archive serves every later task. The archive is written to a private temporary (mode 0600) beside path and renamed over it, so a reader sees the old file or the new one; a file already holding the same archive is left as it is and is no change. A missing image is refused. The archive replaces what was at path, which is not kept, so a save has no undo. A check reads the images and streams the archive through a hash, writing nothing, so it predicts the digest exactly. The archive is on the machine the engine runs on: this machine's own files when the engine is reached through its local socket, and otherwise the device's, over its SSH login. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "images",
+          "type": "list",
+          "required": true,
+          "description": "The images to save, by reference or ID."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The archive's path on the machine the engine runs on: absolute and clean."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's path."
+        },
+        {
+          "name": "digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The archive's digest, sha256:<hex>."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "The archive's size in bytes."
+        },
+        {
+          "name": "images",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The saved images' IDs."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Save a build for later tasks",
+          "runbookYaml": "- name: Save the build\n  container.image.save:\n    images: [app:build-118]\n    path: /var/lib/builds/app-118.tar\n  register: archive\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.load",
+        "file.remove"
+      ]
+    }
+  },
+  "container.image.search": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads and changes nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Searches a registry for images.",
+      "description": "Runs the registry's search through the engine, anonymously: Docker Hub unless term names another registry. Each result's name, description, stars and whether it is official are returned, with control characters dropped from the registry's text. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "term",
+          "type": "string",
+          "required": true,
+          "description": "What to search for."
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": "25",
+          "description": "The most results to return, from 1 to 100."
+        },
+        {
+          "name": "official_only",
+          "type": "bool",
+          "default": "false",
+          "description": "Return official images only."
+        },
+        {
+          "name": "min_stars",
+          "type": "int",
+          "default": "0",
+          "description": "Return images with at least this many stars only."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "results",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "One entry per image found: name, description, stars, official."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Find an official image",
+          "runbookYaml": "- name: Search\n  container.image.search:\n    term: postgres\n    official_only: true\n    limit: 5\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.pull"
+      ]
+    }
+  },
+  "container.image.tag": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
       "site": "target",
       "device": "required"
     },
@@ -958,64 +2062,2168 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A stop that stopped a running container emits a container.docker.run naming it, from the image the container was created from, with start: true, since run starts an existing stopped container. A stop that found nothing running emits nothing.",
+      "notes": "A run that moved the tag records pointing it back at the image it named before, guarded by the image it names now; one that added a new tag records removing it, by the image's ID, unless the tag is the image's only name, since removing that deletes the image; one that found the tag already there records nothing.",
       "inverses": [
         {
-          "fqcn": "container.docker.run",
+          "fqcn": "container.image.tag",
           "record": [
-            "name",
+            "source",
+            "tag",
+            "id",
+            "engine"
+          ]
+        },
+        {
+          "fqcn": "container.image.remove",
+          "record": [
             "image",
-            "start"
+            "id",
+            "engine"
           ]
         }
       ]
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Stops a running Docker container on the target.",
-      "description": "Makes sure a container named name is not running, stopping it if it is. Container state is read from docker inspect before anything is sent, so a container already stopped, or absent entirely, reports no change and no command reaches the device. It acts only on the Docker engine onboarding pinned for the device, and refuses any other engine the login reaches. It stops the container by the id it inspected, and records container.docker.run, which starts it again, as its undo. Each docker call it makes has a deadline (30 seconds to read the engine or the container, 90 to stop, 60 to remove, 2 minutes to create or start), so a daemon that stops answering fails the task rather than holding it.",
+      "summary": "Names an image by another tag.",
+      "description": "Points tag at the image source names (a reference or an image ID). A tag already naming that image is no change; one naming another image is moved. A missing source is refused. A run that moved the tag records moving it back as the undo, guarded by the image it names now, and one that added a new tag records removing it, unless the tag is the image's only name, since removing that deletes the image. A check reads both and tags nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
-          "name": "name",
+          "name": "source",
           "type": "string",
           "required": true,
-          "description": "The container to stop."
+          "description": "The image to name: a reference or an image ID."
+        },
+        {
+          "name": "tag",
+          "type": "string",
+          "required": true,
+          "description": "The tag to point at it, repository:tag; a missing tag is latest. A reference by digest is refused."
         },
         {
           "name": "id",
           "type": "string",
-          "description": "When set, the container named name must be this one, by its full id, or the task is refused and nothing is stopped. The undo of container.docker.run's start sets it."
+          "description": "The image the tag must name now, by ID; when it names another, or none, the task is refused and nothing is tagged. The undo of a run that moved the tag sets it, so a rollback never moves a tag someone has moved again since."
         },
         {
           "name": "insecure_skip_host_key_verify",
           "type": "bool",
           "default": "false",
-          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
         }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The tag."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Name a build for its registry",
+          "runbookYaml": "- name: Tag for the registry\n  container.image.tag:\n    source: app:build-118\n    tag: registry.example.com/app:1.4.2\n"
+        }
+      ],
+      "seeAlso": [
+        "container.image.push",
+        "container.image.remove"
+      ]
+    }
+  },
+  "container.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads what the engine reports, and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports one container as the engine sees it.",
+      "description": "Reports the container named name: whether it exists, and if so its ID, state, image, command, labels, network, restart policy, privilege, mounts, last exit code and start time, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as not existing, not as a failure. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a container by that name exists."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its state as the engine names it."
+        },
+        {
+          "name": "env_names",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "Its environment variables, by name only."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Is the web server running?",
+          "runbookYaml": "- name: Web state\n  container.info:\n    name: web\n  register: web\n"
+        }
+      ],
+      "seeAlso": [
+        "container.list",
+        "container.logs"
+      ]
+    }
+  },
+  "container.list": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads what the engine reports, and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the engine's containers.",
+      "description": "Lists the engine's running containers, or every container with all, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "all",
+          "type": "bool",
+          "default": "false",
+          "description": "List stopped containers too."
+        },
+        {
+          "name": "match",
+          "type": "string",
+          "description": "Only containers whose name matches this glob (web-*)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "containers",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The containers, each with name, id, state, image_id, image and labels."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Every web container, stopped ones too",
+          "runbookYaml": "- name: Web containers\n  container.list:\n    all: true\n    match: web-*\n  register: webs\n"
+        }
+      ],
+      "seeAlso": [
+        "container.info"
+      ]
+    }
+  },
+  "container.logs": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads what the engine reports, and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Returns a container's last lines of output.",
+      "description": "Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "tail",
+          "type": "int",
+          "default": "100",
+          "description": "How many of the last lines to return, from 1 to 10000."
+        },
+        {
+          "name": "since",
+          "type": "string",
+          "description": "Only lines since this RFC 3339 timestamp, Unix time, or duration (10m)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
       ],
       "returns": [
         {
           "name": "name",
           "type": "string",
           "returned": "always",
-          "description": "The container this task acted on."
+          "description": "The container's name."
         },
         {
-          "name": "diff",
-          "type": "dict",
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "stdout",
+          "type": "string",
           "returned": "always",
-          "description": "What docker inspect reported about the container before this task and after it (exists, status)."
+          "description": "What it wrote to standard output."
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "returned": "always",
+          "description": "What it wrote to standard error."
         }
       ],
       "examples": [
         {
-          "name": "Stop a container",
-          "runbookYaml": "- name: Stop web\n  container.docker.stop:\n    name: web\n"
+          "name": "Why did the job fail?",
+          "runbookYaml": "- name: Job output\n  container.logs:\n    name: backup\n    tail: 50\n  register: out\n"
         }
       ],
       "seeAlso": [
-        "container.docker.run",
-        "container.docker.remove"
+        "container.info",
+        "container.exec"
+      ]
+    }
+  },
+  "container.network.connect": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that connected the container records disconnecting it, by both IDs; one that found it connected as declared records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.network.disconnect",
+          "record": [
+            "network",
+            "container",
+            "network_id",
+            "container_id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Connects a container to a network.",
+      "description": "Connects the container named container to the network named network, with the declared aliases and static IPv4 address. A container already on the network with them is no change; one on it without them is refused, naming each difference, since changing a container's place on a network means disconnecting it. Both must exist. A container whose network mode is none, host or another container's has no network to join, and is refused, naming container.recreate. With network_id or container_id, an object that no longer has that ID is refused. Records disconnecting it, by both IDs, as the undo. A check reads both and connects nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "network",
+          "type": "string",
+          "required": true,
+          "description": "The network's name."
+        },
+        {
+          "name": "container",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "aliases",
+          "type": "list",
+          "description": "Names the container answers to on this network, beside its own."
+        },
+        {
+          "name": "ipv4_address",
+          "type": "string",
+          "description": "A static IPv4 address for the container on this network, inside a subnet the network was created with."
+        },
+        {
+          "name": "network_id",
+          "type": "string",
+          "description": "The network's ID, which the network named must still have: an undo recorded against one network never acts on another that took its name since."
+        },
+        {
+          "name": "container_id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "network",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's name."
+        },
+        {
+          "name": "container",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "network_id",
+          "type": "string",
+          "returned": "when both exist",
+          "description": "The network's ID."
+        },
+        {
+          "name": "container_id",
+          "type": "string",
+          "returned": "when both exist",
+          "description": "The container's ID."
+        },
+        {
+          "name": "connected",
+          "type": "bool",
+          "returned": "when the task succeeds",
+          "description": "Whether the container is on the network after the task (by a check, would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Put the web server on the application network",
+          "runbookYaml": "- name: Join appnet\n  container.network.connect:\n    network: appnet\n    container: web\n    aliases: [shop]\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.disconnect",
+        "container.network.create",
+        "container.run"
+      ]
+    }
+  },
+  "container.network.create": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that created the network records its removal, by ID; one that found it as declared records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.network.remove",
+          "record": [
+            "name",
+            "id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a network exist as declared.",
+      "description": "Makes the network named name exist on the device's engine with the declared driver and settings. An absent network is created; one that matches is no change. One that differs (its driver, internal, enable_ipv6, or a declared subnet, gateway, IP range, MTU, parent or label) is refused, naming each difference, and never replaced, since replacing a network disconnects every container on it. A setting the task leaves out is the engine's choice and is not compared, so a network made with an engine-chosen subnet still matches. The engine's own networks (bridge, host, none, podman) are refused. Records removing the network, by ID, as the undo. A check reads the network and creates nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The network's name."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "default": "bridge",
+          "choices": [
+            "bridge",
+            "macvlan",
+            "ipvlan"
+          ],
+          "description": "The network driver: bridge (a private network on the host), or macvlan or ipvlan (containers on the parent interface's own network)."
+        },
+        {
+          "name": "internal",
+          "type": "bool",
+          "default": "false",
+          "description": "Give the network no route outside the host: its containers reach each other and nothing else."
+        },
+        {
+          "name": "enable_ipv6",
+          "type": "bool",
+          "default": "false",
+          "description": "Give the network IPv6 addresses as well as IPv4 ones. Required for an IPv6 subnet."
+        },
+        {
+          "name": "subnet",
+          "type": "string",
+          "description": "The network's subnet, an address with its prefix length (10.20.0.0/24). Left out, the engine chooses one from its pool."
+        },
+        {
+          "name": "gateway",
+          "type": "string",
+          "description": "The gateway address, inside subnet. Needs subnet."
+        },
+        {
+          "name": "ip_range",
+          "type": "string",
+          "description": "The part of subnet containers are given addresses from, an address with its prefix length. Needs subnet."
+        },
+        {
+          "name": "mtu",
+          "type": "int",
+          "description": "The bridge's MTU, from 68 to 65535. Bridge only: macvlan and ipvlan take their parent's."
+        },
+        {
+          "name": "parent",
+          "type": "string",
+          "description": "The host interface a macvlan or ipvlan network sits on (eth0, or eth0.10 for a VLAN). Left out, the engine makes a network with no way out."
+        },
+        {
+          "name": "labels",
+          "type": "dict",
+          "description": "Labels on the network. Labels it has beyond these are allowed."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the network exists",
+          "description": "The network's ID."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's driver."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A private network for an application",
+          "runbookYaml": "- name: App network\n  container.network.create:\n    name: appnet\n    subnet: 10.20.0.0/24\n    labels:\n      app: shop\n"
+        },
+        {
+          "name": "A network with no way out",
+          "runbookYaml": "- name: Back end\n  container.network.create:\n    name: backend\n    internal: true\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.remove",
+        "container.network.connect",
+        "container.network.info"
+      ]
+    }
+  },
+  "container.network.disconnect": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that disconnected the container records connecting it again, by both IDs, with the aliases and static IPv4 address it had; one that found it not connected records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.network.connect",
+          "record": [
+            "network",
+            "container",
+            "network_id",
+            "container_id",
+            "aliases",
+            "ipv4_address",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Disconnects a container from a network.",
+      "description": "Disconnects the container named container from the network named network. A container not on the network, or a network or container that does not exist, is no change. With network_id or container_id, an object that no longer has that ID is refused, so an undo never acts on another that took the name. Records connecting it again, by both IDs, with the aliases and static IPv4 address it had, as the undo. A check reads both and disconnects nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "network",
+          "type": "string",
+          "required": true,
+          "description": "The network's name."
+        },
+        {
+          "name": "container",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "network_id",
+          "type": "string",
+          "description": "The network's ID, which the network named must still have: an undo recorded against one network never acts on another that took its name since."
+        },
+        {
+          "name": "container_id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "network",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's name."
+        },
+        {
+          "name": "container",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "network_id",
+          "type": "string",
+          "returned": "when both exist",
+          "description": "The network's ID."
+        },
+        {
+          "name": "container_id",
+          "type": "string",
+          "returned": "when both exist",
+          "description": "The container's ID."
+        },
+        {
+          "name": "connected",
+          "type": "bool",
+          "returned": "when the task succeeds",
+          "description": "Whether the container is on the network after the task (by a check, would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Take the web server off the old network",
+          "runbookYaml": "- name: Leave appnet-old\n  container.network.disconnect:\n    network: appnet-old\n    container: web\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.connect",
+        "container.network.remove"
+      ]
+    }
+  },
+  "container.network.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: the method reads one network and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads a network.",
+      "description": "Reads the network named name as the engine reports it: its ID, driver, scope, internal, IPv6, subnets, labels, driver options and the running containers on it. An absent network is reported as exists false rather than refused, so a runbook can branch on it. Reading changes nothing, and a check reads the same way. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The network's name."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's name."
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the network exists."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the network exists",
+          "description": "The network's ID."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "returned": "when the network exists",
+          "description": "The network's driver."
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "returned": "when the network exists",
+          "description": "The network's scope: local, or swarm."
+        },
+        {
+          "name": "internal",
+          "type": "bool",
+          "returned": "when the network exists",
+          "description": "Whether the network has no route outside the host."
+        },
+        {
+          "name": "enable_ipv6",
+          "type": "bool",
+          "returned": "when the network exists",
+          "description": "Whether the network has IPv6 addresses."
+        },
+        {
+          "name": "subnets",
+          "type": "list of dict",
+          "returned": "when the network exists",
+          "description": "Each subnet, with its gateway and IP range when it has them."
+        },
+        {
+          "name": "labels",
+          "type": "dict",
+          "returned": "when the network exists",
+          "description": "The network's labels."
+        },
+        {
+          "name": "options",
+          "type": "dict",
+          "returned": "when the network exists",
+          "description": "The network's driver options, as the engine reports them."
+        },
+        {
+          "name": "containers",
+          "type": "list of string",
+          "returned": "when the network exists",
+          "description": "The names of the running containers on the network. A stopped container that declares it is not listed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a network a later task branches on",
+          "runbookYaml": "- name: Read appnet\n  container.network.info:\n    name: appnet\n  register: appnet\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.create",
+        "container.engine.info"
+      ]
+    }
+  },
+  "container.network.remove": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that removed the network records creating it again with the settings it had: driver, internal, IPv6, its first subnet with its gateway and range, MTU, parent and labels. Labels are not kept in the journal. The undo is partial when the network had an option or a second subnet no parameter sets; a network is a fresh one with a new ID once made again, and the containers that used it are not reconnected.",
+      "inverses": [
+        {
+          "fqcn": "container.network.create",
+          "record": [
+            "name",
+            "driver",
+            "internal",
+            "enable_ipv6",
+            "subnet",
+            "gateway",
+            "ip_range",
+            "mtu",
+            "parent",
+            "engine"
+          ],
+          "withhold": [
+            "labels"
+          ],
+          "mayBePartial": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a network no container uses.",
+      "description": "Removes the network named name; an absent one is no change. A network any container uses, running or stopped, is refused, naming them: a stopped container that declares the network could not start once it is gone. The engine's own networks are refused. With id, a network that no longer has that ID is refused, so an undo never removes another network that took the name. Records creating the network again with the settings it had as the undo: driver, internal, IPv6, its first subnet with its gateway and range, MTU and parent are kept in the journal, and labels are not, so an undo for a labeled network cannot be replayed from the journal. The undo is partial when the network had an option or a second subnet no parameter of container.network.create sets. A check reads the network and the containers using it, and removes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The network's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The network's ID, which the network named must still have: an undo recorded against one network never acts on another that took its name since."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The network's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the network exists",
+          "description": "The network's ID."
+        },
+        {
+          "name": "removed",
+          "type": "bool",
+          "returned": "when the network existed",
+          "description": "Whether the network was removed (by a check, would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove an old network",
+          "runbookYaml": "- name: Remove the old network\n  container.network.remove:\n    name: appnet-old\n"
+        }
+      ],
+      "seeAlso": [
+        "container.network.create",
+        "container.network.disconnect"
+      ]
+    }
+  },
+  "container.prune": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A pruned container's writable layer, image or volume's data, or network is gone."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes unused containers, images, volumes or networks.",
+      "description": "Removes the unused objects of the kind what names: stopped containers (created, exited or dead), dangling images, anonymous volumes no container uses (a named volume holds data someone named, and is never pruned), or networks no container uses (the engine's own bridge, host and none never). labels narrows it to objects carrying each label (key or key=value). The objects are listed first and removed by the IDs that listing found, never forced, so a run removes only what it listed (a check lists the same way, but at its own moment: what is unused can change between the two), and one that came into use since its listing is refused by the engine and reported. More than 500 is refused rather than cut; narrow it with labels. A prune has no undo. A check lists and removes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "what",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "containers",
+            "images",
+            "volumes",
+            "networks"
+          ],
+          "description": "What to prune."
+        },
+        {
+          "name": "labels",
+          "type": "list",
+          "description": "Only objects carrying every one of these labels, key or key=value."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "pruned",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The names (or IDs) removed, or that would be."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Clear finished job containers",
+          "runbookYaml": "- name: Old job containers\n  container.prune:\n    what: containers\n    labels: [\"role=job\"]\n"
+        }
+      ],
+      "seeAlso": [
+        "container.remove"
+      ]
+    }
+  },
+  "container.recreate": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Recreating a container removes the old one, whose writable layer and anonymous volumes are gone; its declaration can make a new one, never the old."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Replaces a container with its declaration.",
+      "description": "Makes the container named name match its declaration by replacing it: an absent one is created and started; one that matches is left alone (started if stopped) unless force is set; one that differs, or any one with force, is removed (forced) and created again from the declaration, then started. The differences found are returned. The old container's writable layer and anonymous volumes are gone, so a recreate has no undo. With id, a container that no longer has that ID is refused. A check reads, resolves and compares, and removes, pulls and creates nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since."
+        },
+        {
+          "name": "force",
+          "type": "bool",
+          "default": "false",
+          "description": "Replace the container even when it matches the declaration."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_spec",
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "when the container existed",
+          "description": "How the old container differed from the declaration, environment values never named."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image by digest: the one the container runs, or would."
+        },
+        {
+          "name": "image_digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The image's digest."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "pulled",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image had to be pulled (by a check, would be)."
+        },
+        {
+          "name": "env_names",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The environment variables the task set, by name only."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Roll the web server onto a new image",
+          "runbookYaml": "- name: Web on 1.28\n  container.recreate:\n    name: web\n    image: nginx:1.28\n    network: appnet\n    ports: [\"127.0.0.1:8080:80\"]\n"
+        }
+      ],
+      "seeAlso": [
+        "container.run",
+        "container.remove"
+      ]
+    }
+  },
+  "container.registry.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the login file and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports the registries the engine's login file holds a login for.",
+      "description": "Reads the engine's login file and reports each registry it holds a login for, with the account name; with registry, also whether that one is logged in and as whom. A password is never read out. It changes nothing; a check is the same read. The login file is on the machine the engine runs on (this machine's own when the engine is reached through its local socket, otherwise the device's, over its SSH login): auth_file, or the engine's own default under the login's home, ~/.docker/config.json for Docker and ~/.config/containers/auth.json for Podman.",
+      "params": [
+        {
+          "name": "registry",
+          "type": "string",
+          "description": "A registry host to report on."
+        },
+        {
+          "name": "auth_file",
+          "type": "string",
+          "description": "The login file, an absolute path on the engine's machine. Absent means the engine's own default."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine or its machine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "auth_file",
+          "type": "string",
+          "returned": "always",
+          "description": "The login file."
+        },
+        {
+          "name": "registries",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "One entry per login: registry and username."
+        },
+        {
+          "name": "logged_in",
+          "type": "bool",
+          "returned": "with registry",
+          "description": "Whether registry has a login."
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "returned": "with registry",
+          "description": "The account registry is logged in as, empty when none."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Is the engine logged in",
+          "runbookYaml": "- name: Read the login\n  container.registry.info:\n    registry: registry.example.com\n  register: login\n"
+        }
+      ],
+      "seeAlso": [
+        "container.registry.login"
+      ]
+    }
+  },
+  "container.registry.login": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that added the registry's login records removing it; one that replaced or found a login records nothing, since the password it replaced is not kept.",
+      "inverses": [
+        {
+          "fqcn": "container.registry.logout",
+          "record": [
+            "registry",
+            "auth_file",
+            "username",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Keeps the bound registry credential in the engine's login file.",
+      "description": "Logs the engine's machine in to registry with the registry credential bound to the run for that host: never a task parameter, and refused when none is bound. The registry is first asked, through the engine, whether it accepts the account; only then is the login written to the engine's login file, mode 0600 from the moment it exists, under a directory made 0700 when missing, keeping the file's other logins and settings. The password stays on that machine, readable by its owner and by root, so every run warns, changed or not. A file that sends the registry's login to a credential helper is refused. A login already holding this account is no change. A run that added the login records removing it as the undo. The password reaches no result, warning, error or journal entry. A check asks the registry and reads the file, and writes nothing. The login file is on the machine the engine runs on (this machine's own when the engine is reached through its local socket, otherwise the device's, over its SSH login): auth_file, or the engine's own default under the login's home, ~/.docker/config.json for Docker and ~/.config/containers/auth.json for Podman.",
+      "params": [
+        {
+          "name": "registry",
+          "type": "string",
+          "required": true,
+          "description": "The registry host, with its port when it has one (ghcr.io, registry.example.com:5000); docker.io for Docker Hub."
+        },
+        {
+          "name": "auth_file",
+          "type": "string",
+          "description": "The login file, an absolute path on the engine's machine. Absent means the engine's own default."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine or its machine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "registry",
+          "type": "string",
+          "returned": "always",
+          "description": "The registry host."
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "returned": "always",
+          "description": "The account logged in as."
+        },
+        {
+          "name": "auth_file",
+          "type": "string",
+          "returned": "always",
+          "description": "The login file."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "always",
+          "description": "That the password is stored on the machine, and where."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Let the engine pull from a private registry",
+          "runbookYaml": "- name: Log in to the registry\n  container.registry.login:\n    registry: registry.example.com\n"
+        }
+      ],
+      "seeAlso": [
+        "container.registry.logout",
+        "container.registry.info",
+        "container.image.pull"
+      ]
+    }
+  },
+  "container.registry.logout": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The removed login's password is not kept, so it cannot be written back; container.registry.login writes the bound credential again."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a registry's login from the engine's login file.",
+      "description": "Removes registry's login from the engine's login file, keeping its other logins and settings, and the file mode 0600. A registry with no login there is no change. A logout has no undo, since the password it removes is not kept. A check reads the file and writes nothing. The login file is on the machine the engine runs on (this machine's own when the engine is reached through its local socket, otherwise the device's, over its SSH login): auth_file, or the engine's own default under the login's home, ~/.docker/config.json for Docker and ~/.config/containers/auth.json for Podman.",
+      "params": [
+        {
+          "name": "registry",
+          "type": "string",
+          "required": true,
+          "description": "The registry host, as container.registry.login named it."
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "description": "The account the login must be for; when it is another's, the task is refused and nothing is removed. The undo of a login sets it, so a rollback never removes a login someone has written since."
+        },
+        {
+          "name": "auth_file",
+          "type": "string",
+          "description": "The login file, an absolute path on the engine's machine. Absent means the engine's own default."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine or its machine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "registry",
+          "type": "string",
+          "returned": "always",
+          "description": "The registry host."
+        },
+        {
+          "name": "auth_file",
+          "type": "string",
+          "returned": "always",
+          "description": "The login file."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a login",
+          "runbookYaml": "- name: Log out of the registry\n  container.registry.logout:\n    registry: registry.example.com\n"
+        }
+      ],
+      "seeAlso": [
+        "container.registry.login"
+      ]
+    }
+  },
+  "container.remove": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A removed container's writable layer, and any anonymous volume removed with it, is gone; container.run makes a new one from its declaration."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a container.",
+      "description": "Removes the container named name; an absent one is no change. A running, restarting or paused container is refused unless force is set, which kills it first. remove_volumes also removes the anonymous volumes the container's image declared; named volumes are never removed here. With id, a container that no longer has that ID is refused, so an undo never removes another container that took the name. A removal has no undo. A check removes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since."
+        },
+        {
+          "name": "force",
+          "type": "bool",
+          "default": "false",
+          "description": "Remove a running container, killing it first."
+        },
+        {
+          "name": "remove_volumes",
+          "type": "bool",
+          "default": "false",
+          "description": "Also remove the anonymous volumes the container's image declared."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove an old container",
+          "runbookYaml": "- name: Remove the old web\n  container.remove:\n    name: web-old\n    force: true\n"
+        }
+      ],
+      "seeAlso": [
+        "container.stop",
+        "container.recreate"
+      ]
+    }
+  },
+  "container.restart": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A restart has no undo: the container runs before and after it, and the processes it ended cannot be brought back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Restarts a container.",
+      "description": "Restarts the container named name, running or stopped: SIGTERM, SIGKILL after timeout seconds, then a start. A paused or dead one is refused. With id, a container that no longer has that ID is refused. A restart has no undo. A check restarts nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "10",
+          "description": "Seconds the container's process has to stop after SIGTERM before it is killed, up to 3600."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart after a configuration change",
+          "runbookYaml": "- name: Restart web\n  container.restart:\n    name: web\n"
+        }
+      ],
+      "seeAlso": [
+        "container.stop",
+        "container.start"
+      ]
+    }
+  },
+  "container.run": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that created the container records its removal, by ID; a run that started an existing stopped one records stopping it, by ID; a run that found it running as declared records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.remove",
+          "record": [
+            "name",
+            "id",
+            "force",
+            "engine"
+          ]
+        },
+        {
+          "fqcn": "container.stop",
+          "record": [
+            "name",
+            "id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a container exist as declared, and running.",
+      "description": "Makes the container named name exist from image as the task declares it, and run. An absent container is created and started; a stopped one that matches is started; a running one that matches is left alone. A container that differs from the declaration (its image by digest, command, entrypoint, the declared environment and labels, user, workdir, network, ports, mounts, devices, restart policy, privilege, added capabilities, read-only root, no-new-privileges) is refused, naming each difference and container.recreate, which replaces it: nothing is ever replaced here. A paused container is refused. Safe by default: no network, read-only bind mounts, restart no, no-new-privileges, and the image pulled and run by digest. A create whose answer was lost is found by a label that create alone set, never by name, so another run's container of the same name is left alone; a start that fails removes what the create made. A check makes every read and refusal a run makes, resolving the image's digest and reading the container, and pulls, creates and starts nothing. With wait, the container is a one-shot: a fresh container (a name in use is refused) runs to its exit, and the task returns its exit code and output (together at most 1 MiB, refused past it), removes it afterwards unless remove is false, and fails on an exit code accept_exit_codes does not name or on its timeout, removing it then whatever remove says, since a failed task records no undo; a one-shot runs its command, so it cannot be checked, and check_mode on one is refused at validation. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "wait",
+          "type": "bool",
+          "default": "false",
+          "description": "Run the container to its exit, as a command: a one-shot."
+        },
+        {
+          "name": "remove",
+          "type": "bool",
+          "default": "true",
+          "description": "With wait, remove the container once it exits. A failed one-shot is removed whatever this says, since a failed task records no undo to remove it by."
+        },
+        {
+          "name": "wait_timeout",
+          "type": "int",
+          "default": "3600",
+          "description": "With wait, seconds the container may run before it is killed and the task fails, up to 86400."
+        },
+        {
+          "name": "accept_exit_codes",
+          "type": "list",
+          "default": "[0]",
+          "description": "With wait, the exit codes that are success."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_spec",
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "always",
+          "description": "The image by digest: the one the container runs, or would."
+        },
+        {
+          "name": "image_digest",
+          "type": "string",
+          "returned": "always",
+          "description": "The image's digest."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when the image is on the engine",
+          "description": "The engine's ID for the image."
+        },
+        {
+          "name": "pulled",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image had to be pulled (by a check, would be)."
+        },
+        {
+          "name": "env_names",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The environment variables the task set, by name only."
+        },
+        {
+          "name": "exit_code",
+          "type": "int",
+          "returned": "with wait",
+          "description": "The container's exit status."
+        },
+        {
+          "name": "timed_out",
+          "type": "bool",
+          "returned": "with wait",
+          "description": "Whether it ran past wait_timeout and was killed."
+        },
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "with wait",
+          "description": "What it wrote to standard output."
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "returned": "with wait",
+          "description": "What it wrote to standard error."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Run a migration image to its exit",
+          "runbookYaml": "- name: Migrate\n  container.run:\n    name: migrate-{{ vars.release }}\n    image: registry.example/app-migrate:2.4.1\n    network: appnet\n    wait: true\n"
+        },
+        {
+          "name": "Run a web server on a network of its own",
+          "runbookYaml": "- name: Web\n  container.run:\n    name: web\n    image: nginx:1.27\n    network: appnet\n    ports: [\"127.0.0.1:8080:80\"]\n    volumes: [\"/srv/web/conf:/etc/nginx/conf.d\"]\n    restart_policy: unless-stopped\n"
+        }
+      ],
+      "seeAlso": [
+        "container.create",
+        "container.recreate",
+        "container.stop",
+        "container.remove"
+      ]
+    }
+  },
+  "container.start": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the container's state records the opposite change, by ID; one that found it already so records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.stop",
+          "record": [
+            "name",
+            "id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a stopped container.",
+      "description": "Starts the container named name when it is created or exited; a running one is left alone, and a paused or dead one is refused. With id, a container that no longer has that ID is refused, so an undo never starts another container that took the name. Records stopping it as the undo. A check reads the container and starts nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start the backup job",
+          "runbookYaml": "- name: Start backup\n  container.start:\n    name: backup\n"
+        }
+      ],
+      "seeAlso": [
+        "container.stop",
+        "container.run"
+      ]
+    }
+  },
+  "container.stop": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the container's state records the opposite change, by ID; one that found it already so records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.start",
+          "record": [
+            "name",
+            "id",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a running container.",
+      "description": "Stops the container named name when it is running, restarting or paused: SIGTERM, then SIGKILL after timeout seconds. A stopped one is left alone. With id, a container that no longer has that ID is refused. Records starting it as the undo. A check stops nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "description": "The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "10",
+          "description": "Seconds the container's process has to stop after SIGTERM before it is killed, up to 3600."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The container's name."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when the container exists",
+          "description": "The container's ID."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when the container exists or would",
+          "description": "The container's state as the engine names it (created, running, exited, paused), after the task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stop the web server",
+          "runbookYaml": "- name: Stop web\n  container.stop:\n    name: web\n    timeout: 30\n"
+        }
+      ],
+      "seeAlso": [
+        "container.start",
+        "container.remove"
+      ]
+    }
+  },
+  "container.volume.create": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that created the volume records its removal, pinned to the moment the engine made it, and records nothing where the engine gives no creation time, since an unpinned removal could delete another volume made under the name since; one that found it as declared records nothing.",
+      "inverses": [
+        {
+          "fqcn": "container.volume.remove",
+          "record": [
+            "name",
+            "created_at",
+            "engine"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a named volume exist as declared.",
+      "description": "Makes the volume named name exist on the device's engine, with the local driver and the declared labels. An absent volume is created; one that matches is no change; one whose driver or a declared label differs is refused, naming each difference, and never replaced, since that would lose its data. Driver options are not offered: a local volume's mount options can carry a password. Records removing the volume as the undo, pinned to the moment the engine made it, so the undo never removes another volume made under the name since. A check reads the volume and creates nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The volume's name."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "default": "local",
+          "choices": [
+            "local"
+          ],
+          "description": "The volume driver: local, the engine's own, which keeps the volume's data on the host."
+        },
+        {
+          "name": "labels",
+          "type": "dict",
+          "description": "Labels on the volume. Labels it has beyond these are allowed."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The volume's name."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "returned": "always",
+          "description": "The volume's driver."
+        },
+        {
+          "name": "created_at",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "When the engine made the volume, as it reports it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A volume for a database's data",
+          "runbookYaml": "- name: Database data\n  container.volume.create:\n    name: pgdata\n    labels:\n      app: shop\n"
+        }
+      ],
+      "seeAlso": [
+        "container.volume.remove",
+        "container.volume.info",
+        "container.run"
+      ]
+    }
+  },
+  "container.volume.info": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: the method reads one volume and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads a volume.",
+      "description": "Reads the volume named name as the engine reports it: its driver, mount point on the host, scope, labels, when it was made, and its driver options by name only, since a local volume's mount options can carry a password. An absent volume is reported as exists false rather than refused, so a runbook can branch on it. Reading changes nothing, and a check reads the same way. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The volume's name."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The volume's name."
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the volume exists."
+        },
+        {
+          "name": "driver",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "The volume's driver."
+        },
+        {
+          "name": "mountpoint",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "Where the volume's data is on the host."
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "The volume's scope: local, or global."
+        },
+        {
+          "name": "created_at",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "When the engine made the volume, as it reports it."
+        },
+        {
+          "name": "labels",
+          "type": "dict",
+          "returned": "when the volume exists",
+          "description": "The volume's labels."
+        },
+        {
+          "name": "option_names",
+          "type": "list of string",
+          "returned": "when the volume exists",
+          "description": "The names of the volume's driver options. Their values are never reported."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a volume a later task branches on",
+          "runbookYaml": "- name: Read pgdata\n  container.volume.info:\n    name: pgdata\n  register: pgdata\n"
+        }
+      ],
+      "seeAlso": [
+        "container.volume.create",
+        "container.network.info"
+      ]
+    }
+  },
+  "container.volume.remove": {
+    "supportedTransports": [
+      "engine_local",
+      "engine_socket",
+      "engine_stdio",
+      "engine_tls"
+    ],
+    "requiredCapabilities": [
+      "ContainerEngineCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A removed volume's data is gone: container.volume.create makes an empty one, and nothing brings the data back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a volume no container uses.",
+      "description": "Removes the volume named name and its data; an absent one is no change. A volume any container mounts, running or stopped, is refused, naming them. With created_at, a volume the engine made at another moment is refused, so an undo never removes another volume made under the name since. A removal has no undo: the data is gone. A check reads the volume and the containers using it, and removes nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The volume's name."
+        },
+        {
+          "name": "created_at",
+          "type": "string",
+          "description": "When the engine made the volume, as container.volume.create returned it, which the volume named must still have."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "fragments": [
+        "container_engine"
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The volume's name."
+        },
+        {
+          "name": "created_at",
+          "type": "string",
+          "returned": "when the volume exists",
+          "description": "When the engine made the volume, as it reports it."
+        },
+        {
+          "name": "removed",
+          "type": "bool",
+          "returned": "when the volume existed",
+          "description": "Whether the volume was removed (by a check, would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a scratch volume",
+          "runbookYaml": "- name: Remove the scratch volume\n  container.volume.remove:\n    name: scratch\n"
+        }
+      ],
+      "seeAlso": [
+        "container.volume.create",
+        "container.remove"
       ]
     }
   },

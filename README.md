@@ -6,7 +6,7 @@ then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 105 of the 115 can predict what they would change before
+whether it can be reversed, and 138 of the 148 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
@@ -30,7 +30,7 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 118 registered methods; 115 are implemented.** Every
+- **The module catalog has 151 registered methods; 148 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only three are

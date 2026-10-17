@@ -61,12 +61,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 118 registered FQCNs; 115 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 151 registered FQCNs; 148 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `virt` 19, `svc` 16,
-  `net` 12, `file` 10, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `container` 4, `win` 4, `build` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
+  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19,
+  `svc` 16, `net` 12, `file` 10, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 4, `build` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
   `pleiades` 2, `facts` 1, `http` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -145,7 +145,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 105 of the 115 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 138 of the 148 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -156,7 +156,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The ten methods with no check (`exec.winrm.shell`, `container.docker.exec`,
+  call. The ten methods with no check (`exec.winrm.shell`, `container.exec`,
   `net.cli.*`, `net.ios.config`, `net.netconf.config`, the four waits) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The

@@ -106,7 +106,8 @@ func (c Config) FunctionName() string {
 
 // Validate reports whether cfg is safe to generate from: Name must have at
 // least two segments (at least one dot, matching pkg/collection.Register's
-// own requirement), every segment must be a valid identifier, every
+// own requirement), every segment must be a valid identifier (the method
+// segment may be a Go keyword, no other may), every
 // capability name must already be registered, and no documented parameter
 // may take a name the engine reads for itself.
 func (c Config) Validate() error {
@@ -114,7 +115,14 @@ func (c Config) Validate() error {
 	if len(segs) < 2 {
 		return fmt.Errorf("collectionscaffold: %q is not namespaced (requires <namespace>.<method>)", c.Name)
 	}
-	if err := genutil.ValidateSegments(segs); err != nil {
+	// Every segment but the last is a directory and a package name, so it
+	// may not be a Go keyword (package import does not compile). The last
+	// is only a file name and, capitalized, an exported function, so it
+	// may be one: container.image.import becomes import.go and Import.
+	if err := genutil.ValidateSegments(segs[:len(segs)-1]); err != nil {
+		return fmt.Errorf("collectionscaffold: invalid name %q: %w", c.Name, err)
+	}
+	if err := genutil.ValidateIdentSegment(c.MethodSegment()); err != nil {
 		return fmt.Errorf("collectionscaffold: invalid name %q: %w", c.Name, err)
 	}
 	for _, name := range c.Capabilities {

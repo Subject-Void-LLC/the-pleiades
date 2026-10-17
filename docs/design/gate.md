@@ -117,7 +117,7 @@ files and operating system are the image's.
   it from a command's output.
 - **`image` checks need a digest-pinned image** and run with no network and a read-only root, unless the entry
   declares `network:` (a named network) or `writable: true`. The image is not pulled implicitly unless the entry
-  says `pull: true`. This is the policy `container.docker.run` follows, for the same reasons.
+  says `pull: true`. This is the policy `container.run` follows, for the same reasons.
 - **No secret reaches a check.** Checks get no environment from the platform and no credential; a check that needs
   one reads it the way the project already does on that device.
 - **Output is kept as a tail, not refused.** A check's output is streamed through a ring buffer of the last 40 lines

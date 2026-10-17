@@ -16,7 +16,6 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/archive": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2": 96.7,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3": 98.0,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file": 99.5,

@@ -23,7 +23,7 @@
 // one instance per RunInstance call, no launch template support, no S3
 // bucket policy/versioning/lifecycle configuration, no pagination beyond
 // what a single DescribeInstances page returns. This is the same
-// restraint container.docker.run and identity.user.* already applied
+// restraint the first container methods and identity.user.* applied
 // against their own upstream's much larger surface.
 package awscloud
 

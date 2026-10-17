@@ -29,6 +29,7 @@ func fullyPopulatedDoc() collection.Doc {
 			Choices:     []string{"present", "absent"},
 			Description: "The package to install.",
 			Format:      collection.ParamFormatCommand,
+			Risk:        collection.ParamRiskHostEscape,
 		}},
 		Fragments: []string{"ssh_connection"},
 		Returns: []collection.ReturnField{{

@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -125,4 +126,61 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 		t.Fatalf("walking %s: %v", root, err)
 	}
 	return out
+}
+
+// TestGenerateModules_RemovesStalePages: a page for a method that is not
+// registered, and the directory it alone was in, are gone after a run; a
+// file that is not a page is left, and every registered method's page is
+// written.
+func TestGenerateModules_RemovesStalePages(t *testing.T) {
+	out := t.TempDir()
+	stale := filepath.Join(out, "modules", "retired", "gone", "method.md")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("# retired.gone.method\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(out, "modules", "notes.txt")
+	if err := os.WriteFile(other, []byte("kept"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := generateModules(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "modules", "retired")); !os.IsNotExist(err) {
+		t.Errorf("the stale page's directory is still there: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("a file that is not a page was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "modules", "container", "run.md")); err != nil {
+		t.Errorf("a registered method's page was not written: %v", err)
+	}
+}
+
+// TestGenerateModules_MarksHostEscapes: a parameter declaring a risk is
+// marked on its method's page, and one declaring none is not.
+func TestGenerateModules_MarksHostEscapes(t *testing.T) {
+	out := t.TempDir()
+	if err := generateModules(out); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(filepath.Join(out, "modules", "container", "run.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(page), "\n") {
+		marked := strings.Contains(line, "**Host escape:**")
+		switch {
+		case strings.HasPrefix(line, "| `privileged` |"), strings.HasPrefix(line, "| `devices` |"):
+			if !marked {
+				t.Errorf("a host escape is not marked: %s", line)
+			}
+		case strings.HasPrefix(line, "| `image` |"):
+			if marked {
+				t.Errorf("a parameter with no risk is marked: %s", line)
+			}
+		}
+	}
 }

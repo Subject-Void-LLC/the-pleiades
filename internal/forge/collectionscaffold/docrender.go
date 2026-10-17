@@ -69,6 +69,16 @@ func renderDoc(doc collection.Doc) string {
 			case collection.ParamFormatKubernetesManifest:
 				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
 			}
+			// Risk likewise, and one with no constant yet is kept by value
+			// rather than dropped: a dropped risk is a host escape the
+			// reference stops marking.
+			switch p.Risk {
+			case "":
+			case collection.ParamRiskHostEscape:
+				fields = append(fields, "Risk: collection.ParamRiskHostEscape")
+			default:
+				fields = append(fields, "Risk: collection.ParamRisk("+strconv.Quote(string(p.Risk))+")")
+			}
 			b.WriteString(strings.Join(fields, ", "))
 			b.WriteString("},\n")
 		}

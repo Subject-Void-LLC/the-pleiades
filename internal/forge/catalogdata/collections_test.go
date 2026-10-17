@@ -56,11 +56,22 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// build Collection added the 107th through 109th: build.digests.check,
 	// build.digests.refresh and build.lock.verify. The db Collection added
 	// the 110th through 115th: db.pg.query, dump, restore, migrate, grants
-	// and rowcounts. The scan Collection added the 116th through 118th:
-	// scan.sbom, scan.secrets and scan.vuln.
+	// and rowcounts. Phase 119e retired the four container.docker.*
+	// methods (115 less 4) into fourteen container.* ones built on the
+	// engine's API (125): run, create, start, stop, restart, remove,
+	// recreate, exec, info, list, logs, prune, copy_in and copy_out. The
+	// container network, volume and engine methods added the 126th
+	// through 134th: container.network.create, remove, connect,
+	// disconnect and info, container.volume.create, remove and info, and
+	// container.engine.info. The image and registry methods added the
+	// 135th through 148th: container.image.pull, push, tag, remove, save,
+	// load, import, prune, info, resolve and search, and
+	// container.registry.login, logout and info. The scan Collection
+	// added the 149th through 151st: scan.sbom, scan.secrets and
+	// scan.vuln.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 118
+	const wantCollections = 151
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

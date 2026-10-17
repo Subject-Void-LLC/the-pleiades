@@ -17,7 +17,22 @@ type Param struct {
 	// at validation (internal/validate's template rule). Empty for every
 	// other parameter.
 	Format ParamFormat `json:"format,omitempty"`
+
+	// Risk marks a parameter whose setting widens what a task can do
+	// beyond its own target: a container's host escapes (privileged, added
+	// capabilities, devices, host mounts, the host's network). Empty for
+	// every other parameter. The generated reference marks the parameter
+	// with it, so whoever reads a method's page before using it sees which
+	// settings reach the host; nothing at run time reads it.
+	Risk ParamRisk `json:"risk,omitempty"`
 }
+
+// ParamRisk is the kind of reach a parameter's setting adds.
+type ParamRisk string
+
+// ParamRiskHostEscape is a setting that lets a container act on its host:
+// root on the host, in effect, for whoever controls the container.
+const ParamRiskHostEscape ParamRisk = "host_escape"
 
 // ParamFormat is where a parameter's text lands.
 type ParamFormat string

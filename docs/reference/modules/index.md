@@ -11,7 +11,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `archive` | 2 | 2 |
 | `build` | 3 | 3 |
 | `cloud` | 4 | 4 |
-| `container` | 4 | 4 |
+| `container` | 37 | 37 |
 | `db` | 6 | 6 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
@@ -29,7 +29,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **118** | **115** |
+| **total** | **151** | **148** |
 
 ## All methods
 
@@ -44,10 +44,43 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | implemented | Terminates an EC2 instance via the AWS API. |
 | [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | implemented | Creates an S3 bucket via the AWS API. |
 | [cloud.aws.s3.delete_bucket](cloud/aws/s3/delete_bucket.md) | implemented | Deletes an S3 bucket via the AWS API. |
-| [container.docker.exec](container/docker/exec.md) | implemented | Runs one command inside a running Docker container, through the engine's own exec endpoints. |
-| [container.docker.remove](container/docker/remove.md) | implemented | Removes a Docker container from the target. |
-| [container.docker.run](container/docker/run.md) | implemented | Runs a Docker container on the target. |
-| [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |
+| [container.copy_in](container/copy_in.md) | implemented | Puts one file into a container. |
+| [container.copy_out](container/copy_out.md) | implemented | Reads one text file out of a container. |
+| [container.create](container/create.md) | implemented | Makes a container exist as declared, without starting it. |
+| [container.engine.info](container/engine/info.md) | implemented | Reads the container engine's own report of itself. |
+| [container.exec](container/exec.md) | implemented | Runs one command inside a running container. |
+| [container.image.import](container/image/import.md) | implemented | Makes an image from a filesystem archive. |
+| [container.image.info](container/image/info.md) | implemented | Reports images on the engine. |
+| [container.image.load](container/image/load.md) | implemented | Loads images from an archive, refusing one whose digest differs. |
+| [container.image.prune](container/image/prune.md) | implemented | Keeps each repository's newest tags and removes the rest. |
+| [container.image.pull](container/image/pull.md) | implemented | Pulls an image by digest and names it by its tag. |
+| [container.image.push](container/image/push.md) | implemented | Pushes an image to its registry. |
+| [container.image.remove](container/image/remove.md) | implemented | Removes an image or one of its tags. |
+| [container.image.resolve](container/image/resolve.md) | implemented | Resolves a tag to the digest it names in its registry. |
+| [container.image.save](container/image/save.md) | implemented | Saves images to an archive and returns its digest. |
+| [container.image.search](container/image/search.md) | implemented | Searches a registry for images. |
+| [container.image.tag](container/image/tag.md) | implemented | Names an image by another tag. |
+| [container.info](container/info.md) | implemented | Reports one container as the engine sees it. |
+| [container.list](container/list.md) | implemented | Lists the engine's containers. |
+| [container.logs](container/logs.md) | implemented | Returns a container's last lines of output. |
+| [container.network.connect](container/network/connect.md) | implemented | Connects a container to a network. |
+| [container.network.create](container/network/create.md) | implemented | Makes a network exist as declared. |
+| [container.network.disconnect](container/network/disconnect.md) | implemented | Disconnects a container from a network. |
+| [container.network.info](container/network/info.md) | implemented | Reads a network. |
+| [container.network.remove](container/network/remove.md) | implemented | Removes a network no container uses. |
+| [container.prune](container/prune.md) | implemented | Removes unused containers, images, volumes or networks. |
+| [container.recreate](container/recreate.md) | implemented | Replaces a container with its declaration. |
+| [container.registry.info](container/registry/info.md) | implemented | Reports the registries the engine's login file holds a login for. |
+| [container.registry.login](container/registry/login.md) | implemented | Keeps the bound registry credential in the engine's login file. |
+| [container.registry.logout](container/registry/logout.md) | implemented | Removes a registry's login from the engine's login file. |
+| [container.remove](container/remove.md) | implemented | Removes a container. |
+| [container.restart](container/restart.md) | implemented | Restarts a container. |
+| [container.run](container/run.md) | implemented | Makes a container exist as declared, and running. |
+| [container.start](container/start.md) | implemented | Starts a stopped container. |
+| [container.stop](container/stop.md) | implemented | Stops a running container. |
+| [container.volume.create](container/volume/create.md) | implemented | Makes a named volume exist as declared. |
+| [container.volume.info](container/volume/info.md) | implemented | Reads a volume. |
+| [container.volume.remove](container/volume/remove.md) | implemented | Removes a volume no container uses. |
 | [db.pg.dump](db/pg/dump.md) | implemented | Dumps a database with the device's pg_dump into a new archive on the device. |
 | [db.pg.grants](db/pg/grants.md) | implemented | Compares the privileges granted to a role with a declared set, and fails naming each extra and each missing one. |
 | [db.pg.migrate](db/pg/migrate.md) | implemented | Applies a directory of numbered SQL files in order, each in its own transaction, recording each in a version table. |

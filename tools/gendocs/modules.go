@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,6 +29,7 @@ func generateModules(outDir string) error {
 
 	byNamespace := map[string][]string{}
 	var missing []string
+	written := map[string]bool{filepath.Join(modulesDir, "index.md"): true}
 
 	for _, cfg := range catalogdata.Collections {
 		desc, ok := collection.Lookup(cfg.Name)
@@ -47,6 +49,7 @@ func generateModules(outDir string) error {
 		if err := writeModulePage(modulesDir, cfg.Name, desc.Manifest, desc.CheckCall != nil); err != nil {
 			return err
 		}
+		written[modulePagePath(modulesDir, cfg.Name)] = true
 	}
 
 	if len(missing) > 0 {
@@ -54,7 +57,62 @@ func generateModules(outDir string) error {
 			len(missing), strings.Join(missing, ", "))
 	}
 
+	if err := removeStalePages(modulesDir, written); err != nil {
+		return err
+	}
 	return writeModulesIndex(modulesDir, byNamespace)
+}
+
+// modulePagePath is where fqcn's reference page is written.
+func modulePagePath(modulesDir, fqcn string) string {
+	return filepath.Join(modulesDir, filepath.Join(strings.Split(fqcn, ".")...)+".md")
+}
+
+// removeStalePages deletes every page under modulesDir this run did not
+// write, and every directory that leaves empty. The directory is this
+// tool's alone, so a page left there is a method that no longer exists,
+// and docs-gen-check, which compares only what a run writes, cannot see
+// it: the retired container.docker.* pages outlived their methods that
+// way.
+func removeStalePages(modulesDir string, written map[string]bool) error {
+	// Every walk and removal goes through a root opened on the directory,
+	// so a symbolic link swapped in mid-walk cannot take one outside it.
+	root, err := os.OpenRoot(modulesDir)
+	if err != nil {
+		return fmt.Errorf("removing stale module pages: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	var dirs []string
+	err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, rel)
+			return nil
+		}
+		if strings.HasSuffix(rel, ".md") && !written[filepath.Join(modulesDir, filepath.FromSlash(rel))] {
+			return root.Remove(rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("removing stale module pages: %w", err)
+	}
+	// Deepest first, so a parent emptied by its children goes too; the
+	// first is the root itself, which stays.
+	for i := len(dirs) - 1; i > 0; i-- {
+		entries, err := fs.ReadDir(root.FS(), dirs[i])
+		if err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			if err := root.Remove(dirs[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // writeModulePage renders one FQCN's reference page in the fixed section
@@ -134,7 +192,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 		writeExamples(&b, m.Doc)
 	}
 
-	path := filepath.Join(modulesDir, filepath.Join(segments...)+".md")
+	path := modulePagePath(modulesDir, fqcn)
 	return os.WriteFile(path, []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
 }
 
@@ -142,6 +200,18 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 // renders every fragment's params ahead of the method's own, so a shared
 // parameter (a credential shape, a pagination knob) always appears first
 // and identically worded everywhere it is used.
+// riskNote is the lead a parameter's description gets in the reference
+// when setting it reaches beyond the task's own target.
+func riskNote(r collection.ParamRisk) string {
+	switch r {
+	case "":
+		return ""
+	case collection.ParamRiskHostEscape:
+		return "**Host escape:** setting this lets the container act on its host. "
+	}
+	return "**Risk (" + string(r) + "):** "
+}
+
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
@@ -157,7 +227,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), p.Description}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + p.Description}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

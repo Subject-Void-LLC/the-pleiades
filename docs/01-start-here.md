@@ -248,7 +248,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 118 registered methods across 21 namespaces; 115 are
+**The module catalog has 151 registered methods across 21 namespaces; 148 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
@@ -256,8 +256,8 @@ that is NOT implemented, all three of them: `file.template`, `net.junos.config` 
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `virt` 19, `svc` 16, `net` 12, `file` 10,
-`pkg` 9, `db` 6, `identity` 6, `cloud` 4, `container` 4, `win` 4, `build` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
+is ever entered. By namespace, implemented: `container` 37, `virt` 19, `svc` 16, `net` 12,
+`file` 10, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 4, `build` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
 `archive` 2, `fs` 2, `gate` 2, `pleiades` 2, `facts` 1, `http` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method
@@ -280,7 +280,7 @@ reports what each task would change and changes nothing. Sixty-nine of the seven
 implemented methods can answer it. Fifty-seven predict a change by reading the device and
 comparing through the same code path their real run takes: every `svc.*` method (systemd,
 Windows and the generic five), every `file.*`, `pkg.*`, `identity.*`, `fw.firewalld.*`,
-`fs.*` and `archive.*` method, `win.feature.*`, `container.docker.run`, `stop` and `remove`,
+`fs.*` and `archive.*` method, `win.feature.*`, every `container.*` method that changes a container,
 and the AWS `ec2` and `s3` methods. A prediction leaves out what only the device decides (a
 new directory's mode, a version the package manager picks, a new instance's ID) rather than
 guessing it. Eight only ever read, so a check runs them for real: `facts.gather`,
@@ -293,7 +293,7 @@ reason, and so is a call whose inputs are missing when the check runs (an archiv
 source, a bucket that is not yet empty), since an earlier task in the same run may be
 what provides them. The nine methods that cannot be checked at all say why on their
 reference pages: an arbitrary command or script (`exec.winrm.shell`,
-`container.docker.exec`, `net.cli.command`), a configuration change only the device's own
+`container.exec`, `net.cli.command`), a configuration change only the device's own
 parser decides (`net.cli.config`, `net.ios.config`, `net.netconf.config`), and the three
 waits, since what they wait for is usually an earlier task's change, which a check never
 makes. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes

@@ -138,8 +138,8 @@ func TestCollectionManifestsNameKnownCapabilities(t *testing.T) {
 // HasCapability check engine.checkMethodCapabilities runs before ever
 // dispatching a task.
 //
-// This is the gap Phase 73 found and closed: container.docker.run/stop/
-// remove shipped StatusImplemented with RequiredCapabilities naming
+// This is the gap Phase 73 found and closed: the since-retired
+// container.docker.run/stop/remove shipped StatusImplemented with RequiredCapabilities naming
 // DockerCapable while zero device types implemented it, so
 // engine.checkMethodCapabilities refused every real invocation.
 // docker_test.go's own suite never caught it, because it builds its

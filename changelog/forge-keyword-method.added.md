@@ -1,0 +1,1 @@
+`pleiades forge new-collection` accepts a Go keyword as a method's last segment, as in `container.image.import`, since that segment becomes only a file name and an exported function; a keyword in any earlier segment is still refused, since those become package names.
