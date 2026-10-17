@@ -18,7 +18,7 @@ import (
 const fqcnRemove = "container.image.remove"
 
 func init() {
-	register(fqcnRemove, manifest(collection.Reversibility{
+	register(fqcnRemove, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "A removed image's content is gone from the engine; container.image.pull brings an image from a registry back, and container.image.load one from a saved archive.",
 	}, removeDoc()), remove)

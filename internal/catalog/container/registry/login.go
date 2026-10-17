@@ -18,7 +18,7 @@ import (
 const fqcnLogin = "container.registry.login"
 
 func init() {
-	register(fqcnLogin, manifest(collection.Reversibility{
+	register(fqcnLogin, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run that added the registry's login records removing it; one that replaced or found a login records nothing, since the password it replaced is not kept.",
 		Inverses:   []sdk.InverseSpec{{FQCN: fqcnLogout, Record: []string{paramRegistry, paramAuthFile, paramEngine}}},

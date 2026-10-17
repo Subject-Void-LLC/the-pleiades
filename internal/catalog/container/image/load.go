@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	register(fqcnLoad, manifest(collection.Reversibility{
+	register(fqcnLoad, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "A load can move tags the archive names from the images they named before, which the engine does not report, so what to put back is not known.",
 	}, loadDoc()), load)

@@ -33,7 +33,7 @@ const (
 )
 
 func init() {
-	register(fqcnPrune, manifest(collection.Reversibility{
+	register(fqcnPrune, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "A pruned tag, and an image whose last tag it was, is gone from the engine; container.image.pull brings an image back from its registry.",
 	}, pruneDoc()), prune)

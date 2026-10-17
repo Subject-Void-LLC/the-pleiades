@@ -19,7 +19,6 @@ import (
 	mobyimage "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -84,21 +83,6 @@ func taggedRef(what, s string) (string, error) {
 		return "", fmt.Errorf("%s: %q names a digest, and this needs a tag", what, s)
 	}
 	return reference.FamiliarString(reference.TagNameOnly(named)), nil
-}
-
-// manifest is the manifest every container.image.* method shares, with its
-// own reversibility and doc.
-func manifest(rev collection.Reversibility, doc collection.Doc) collection.Manifest {
-	return collection.Manifest{
-		SupportedTransports:  capability.EngineTransports(),
-		RequiredCapabilities: []capability.Name{capability.NameContainerEngine},
-		ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-		EngineVersion:        ">=0.2.0",
-		Status:               collection.StatusImplemented,
-		SupportsCheck:        true,
-		Reversibility:        rev,
-		Doc:                  doc,
-	}
 }
 
 // body is a method's one body, run with the mode it is called in.

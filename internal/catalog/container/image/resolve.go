@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	register(fqcnResolve, manifest(readOnly, resolveDoc()), resolve)
+	register(fqcnResolve, containerengine.MethodManifest(readOnly, resolveDoc()), resolve)
 }
 
 // resolve is container.image.resolve's body: what a reference names now,

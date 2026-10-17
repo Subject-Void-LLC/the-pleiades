@@ -63,10 +63,13 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// container network, volume and engine methods added the 126th
 	// through 134th: container.network.create, remove, connect,
 	// disconnect and info, container.volume.create, remove and info, and
-	// container.engine.info.
+	// container.engine.info. The image and registry methods added the
+	// 135th through 148th: container.image.pull, push, tag, remove, save,
+	// load, import_rootfs, prune, info, resolve and search, and
+	// container.registry.login, logout and info.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 134
+	const wantCollections = 148
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	register(fqcnImport, manifest(collection.Reversibility{
+	register(fqcnImport, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run records pointing the tag back at the image it named before, or removing the imported image, by ID, when the tag was new.",
 		Inverses: []sdk.InverseSpec{

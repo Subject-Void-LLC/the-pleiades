@@ -19,7 +19,7 @@ import (
 const fqcnPush = "container.image.push"
 
 func init() {
-	register(fqcnPush, manifest(collection.Reversibility{
+	register(fqcnPush, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "A push changes the registry, which the engine has no operation to undo: a tag it moved cannot be moved back, nor a pushed image deleted, through the engine.",
 	}, pushDoc()), push)

@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -13,7 +14,7 @@ import (
 const fqcnInfo = "container.registry.info"
 
 func init() {
-	register(fqcnInfo, manifest(collection.Reversibility{
+	register(fqcnInfo, containerengine.MethodManifest(collection.Reversibility{
 		ReadOnly: true,
 		Notes:    "It reads the login file and changes nothing.",
 	}, infoDoc()), info)

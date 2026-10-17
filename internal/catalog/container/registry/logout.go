@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -13,7 +14,7 @@ import (
 const fqcnLogout = "container.registry.logout"
 
 func init() {
-	register(fqcnLogout, manifest(collection.Reversibility{
+	register(fqcnLogout, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "The removed login's password is not kept, so it cannot be written back; container.registry.login writes the bound credential again.",
 	}, logoutDoc()), logout)

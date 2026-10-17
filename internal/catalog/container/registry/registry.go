@@ -57,20 +57,6 @@ func registryHost(params map[string]any) (string, error) {
 	return host, nil
 }
 
-// manifest is the manifest every container.registry.* method shares.
-func manifest(rev collection.Reversibility, doc collection.Doc) collection.Manifest {
-	return collection.Manifest{
-		SupportedTransports:  capability.EngineTransports(),
-		RequiredCapabilities: []capability.Name{capability.NameContainerEngine},
-		ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-		EngineVersion:        ">=0.2.0",
-		Status:               collection.StatusImplemented,
-		SupportsCheck:        true,
-		Reversibility:        rev,
-		Doc:                  doc,
-	}
-}
-
 // body is a method's one body, run with the mode it is called in.
 type body func(ctx context.Context, rc sdk.RunbookContext, d inventory.InventoryItem, p map[string]any, mode collection.Mode) (collection.Result, error)
 

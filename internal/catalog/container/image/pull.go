@@ -21,7 +21,7 @@ const fqcnPull = "container.image.pull"
 var pullOps = append([]containerengine.Op{containerengine.OpImageTag}, containerengine.EnsureImageOps...)
 
 func init() {
-	register(fqcnPull, manifest(collection.Reversibility{
+	register(fqcnPull, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run that pulled an absent image records its removal, by ID; one that only pointed the tag at the image records pointing it back, or removing the tag when it was new; one that found both as asked records nothing.",
 		Inverses: []sdk.InverseSpec{

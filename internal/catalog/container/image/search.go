@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	register(fqcnSearch, manifest(readOnly, searchDoc()), search)
+	register(fqcnSearch, containerengine.MethodManifest(readOnly, searchDoc()), search)
 }
 
 // search is container.image.search's body: the registry's search, asked

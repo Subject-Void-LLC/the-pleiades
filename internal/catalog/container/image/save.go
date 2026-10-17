@@ -27,7 +27,7 @@ const (
 var archiveDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func init() {
-	register(fqcnSave, manifest(collection.Reversibility{
+	register(fqcnSave, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: false,
 		Notes:      "An archive this task wrote replaces whatever was at the path, which is not kept; file.remove removes the archive when it is no longer needed.",
 	}, saveDoc()), save)

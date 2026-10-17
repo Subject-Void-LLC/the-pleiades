@@ -17,7 +17,7 @@ import (
 const fqcnTag = "container.image.tag"
 
 func init() {
-	register(fqcnTag, manifest(collection.Reversibility{
+	register(fqcnTag, containerengine.MethodManifest(collection.Reversibility{
 		Reversible: true,
 		Notes:      "A run that moved the tag records pointing it back at the image it named before; one that added a new tag records removing it, by the image's ID; one that found the tag already there records nothing.",
 		Inverses: []sdk.InverseSpec{
