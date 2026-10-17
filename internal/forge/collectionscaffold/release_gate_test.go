@@ -41,7 +41,19 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 	}
 
 	root := repoRoot(t)
-	name := fmt.Sprintf("test.relgate%d.check", os.Getpid())
+	// The second method is a Go keyword, which the method segment may be:
+	// it is a file name and, capitalized, a function, never a package.
+	for _, method := range []string{"check", "import"} {
+		t.Run(method, func(t *testing.T) { releaseGate(t, root, method) })
+	}
+}
+
+// releaseGate generates the method named method in a package of its own,
+// builds it and runs its generated tests.
+func releaseGate(t *testing.T, root, method string) {
+	t.Helper()
+	pkg := fmt.Sprintf("relgate%d%s", os.Getpid(), method)
+	name := "test." + pkg + "." + method
 
 	cfg := collectionscaffold.Config{
 		Name:         name,
@@ -60,7 +72,7 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 		tree.Write(t, f.Path, f.Content)
 	}
 
-	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("relgate%d", os.Getpid())
+	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + pkg
 	tree.Build(t, pkgImportPath)
 	tree.Test(t, pkgImportPath)
 }

@@ -53,6 +53,25 @@ func TestGenerate(t *testing.T) {
 			},
 		},
 		{
+			name: "a Go keyword as the method segment",
+			cfg:  collectionscaffold.Config{Name: "container.image.import"},
+			wantSource: []string{
+				"package image",
+				`Name: "container.image.import"`,
+				"func Import(",
+			},
+		},
+		{
+			name:    "a Go keyword as a package segment rejected",
+			cfg:     collectionscaffold.Config{Name: "net.switch.read"},
+			wantErr: true,
+		},
+		{
+			name:    "a Go keyword as a two segment name's package rejected",
+			cfg:     collectionscaffold.Config{Name: "type.read"},
+			wantErr: true,
+		},
+		{
 			name:    "single segment rejected (not namespaced)",
 			cfg:     collectionscaffold.Config{Name: "install"},
 			wantErr: true,
