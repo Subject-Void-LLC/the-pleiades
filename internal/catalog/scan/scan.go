@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -164,6 +165,8 @@ type runOptions struct {
 	network string
 	timeout time.Duration
 	pull    bool
+	// watch, when set, also reads the scanner's standard error.
+	watch io.Writer
 }
 
 // scannerRun is what a scanner left: its exit status, its report, and the
@@ -206,9 +209,13 @@ func openEngine(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 func run(ctx context.Context, engine *containerengine.Session, o runOptions) (scannerRun, error) {
 	report := &capped{max: maxReportBytes}
 	errs := gate.NewTail(15, 4096)
+	var errsTo io.Writer = errs
+	if o.watch != nil {
+		errsTo = io.MultiWriter(errs, o.watch)
+	}
 	res, err := engine.RunOnce(ctx, containerengine.RunOnceOptions{
 		Image: o.image, Cmd: o.cmd, Mounts: o.mounts, Env: o.env, Network: o.network,
-		Timeout: o.timeout, Pull: o.pull, Output: report, Errors: errs,
+		Timeout: o.timeout, Pull: o.pull, Output: report, Errors: errsTo,
 		Labels: map[string]string{"org.pleiades.scan": path.Base(strings.SplitN(o.image, ":", 2)[0])},
 	})
 	if report.overflow {
@@ -333,8 +340,14 @@ func durationParam(params map[string]any, key string, def, max time.Duration) (t
 // listed is lines for a failed task's error: at most maxListed, the rest
 // counted.
 func listed(lines []string) string {
-	if len(lines) > maxListed {
-		lines = append(lines[:maxListed:maxListed], fmt.Sprintf("... and %d more", len(lines)-maxListed))
+	return listedOf(lines[:min(len(lines), maxListed)], len(lines))
+}
+
+// listedOf is lines for a failed task's error, then how many of total
+// they leave out.
+func listedOf(lines []string, total int) string {
+	if total > len(lines) {
+		lines = append(lines[:len(lines):len(lines)], fmt.Sprintf("... and %d more", total-len(lines)))
 	}
 	return "\n  " + strings.Join(lines, "\n  ")
 }

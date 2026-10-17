@@ -75,7 +75,9 @@ writing, rather than the run itself.
 - **A scan that saw nothing fails.** A wrong path and files the scanner could not read look like a clean tree, so
   OSV-Scanner finding no package to check fails `scan.vuln`, naming what was scanned, and an SBOM holding no
   component but its subject fails `scan.sbom` (it meets every NTIA element and says nothing), each unless
-  `allow_empty` says that is expected (then it warns).
+  `allow_empty` says that is expected (then it warns). Gitleaks skips a file or directory it cannot open with only
+  a warning on standard error and exits 0, so `scan.secrets` reads that log (at warn level every skip it logs is one
+  it could not help; those its rules make are debug lines) and fails naming each path.
 - **No secret value leaves the container in a form this keeps.** Gitleaks runs with `--redact`, and the parser
   drops its `Secret` and `Match` fields regardless, so a finding is file, line, rule and fingerprint. A test plants
   a sentinel credential and requires it absent from the result, the error and every log line.
@@ -117,6 +119,7 @@ untrusted input and each fuzzed.
 | The tree holds the scanner's own configuration (`.gitleaks.toml`, `.gitleaksignore`, `osv-scanner.toml`) | Refused before the scanner runs, naming each file. |
 | The scanner exits with an error (not a finding) | Fails with its last lines, bounded and escaped. |
 | OSV-Scanner finds no package to check, or the SBOM holds nothing but its subject | Fails naming what was scanned, unless `allow_empty`. |
+| Gitleaks skips a path it cannot read | Fails naming each path (up to 50, the rest counted). |
 | The scanner's report is not what this parses | Fails naming the scanner and version; a report is never half-read. |
 | An ignore entry without a reason or `until` | The ignore file is refused whole, naming the entry. |
 | The SBOM misses an NTIA element | Fails naming the element and the first components missing it. |
