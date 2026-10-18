@@ -49,3 +49,33 @@ func TestDelete_AnInaccessibleVMIsUnregisteredOnly(t *testing.T) {
 		t.Errorf("again = %+v, %v", res, err)
 	}
 }
+
+// TestDelete_AnInaccessibleVMsFailures: a list that fails, a stat that cannot
+// be kept and an unregister VirtualBox refuses each fail the task, and the
+// registration is still there after the last two.
+func TestDelete_AnInaccessibleVMsFailures(t *testing.T) {
+	const ghost = "9883f6c3-b17d-4077-aa52-d9c49a6912a5"
+	refused := vboxmanage.Output{ExitCode: 1, Stderr: "VBoxManage.exe: error: E_ACCESSDENIED\r\n"}
+	for name, tc := range map[string]struct {
+		fail   string
+		failOn string
+	}{
+		"the list fails":        {fail: "VBoxManage.exe list vms"},
+		"the stat is refused":   {failOn: statUUID},
+		"unregister is refused": {fail: "VBoxManage.exe unregistervm " + ghost},
+	} {
+		model := vboxmanagetest.New(&vboxmanagetest.VM{Name: "gone", UUID: ghost, State: vboxmanage.StatePoweroff, Inaccessible: true})
+		if tc.fail != "" {
+			model.Fail = map[string]vboxmanage.Output{tc.fail: refused}
+		}
+		onModel(t, model)
+		rc := newRecorder()
+		rc.failOn = tc.failOn
+		if _, err := call(t, "virt.vbox.vm.delete", false, rc, map[string]any{"name": ghost}); err == nil {
+			t.Errorf("%s: the task passed", name)
+		}
+		if tc.fail != "VBoxManage.exe list vms" && model.VM(ghost) == nil {
+			t.Errorf("%s: the registration is gone anyway", name)
+		}
+	}
+}
