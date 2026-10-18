@@ -14,13 +14,14 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `cloud` | 4 | 4 |
 | `container` | 37 | 37 |
 | `db` | 6 | 6 |
+| `edge` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
-| `file` | 11 | 10 |
+| `file` | 13 | 12 |
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
 | `gate` | 2 | 2 |
-| `http` | 1 | 1 |
+| `http` | 2 | 2 |
 | `identity` | 6 | 6 |
 | `net` | 14 | 12 |
 | `pkg` | 9 | 9 |
@@ -29,8 +30,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
-| `win` | 5 | 5 |
-| **total** | **163** | **160** |
+| `win` | 6 | 6 |
+| **total** | **170** | **167** |
 
 ## All methods
 
@@ -99,6 +100,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [db.pg.query](db/pg/query.md) | implemented | Runs one SQL statement and returns its rows as CSV, read-only unless the task says otherwise. |
 | [db.pg.restore](db/pg/restore.md) | implemented | Restores an archive on the device into a database the task names, in one transaction, refusing a live one unless told why. |
 | [db.pg.rowcounts](db/pg/rowcounts.md) | implemented | Counts every table's rows exactly, and with compare fails naming each table whose counts differ from a second database's. |
+| [edge.access](edge/access.md) | implemented | Checks a Cloudflare Access application's audience, issuer, settings and policies against what is expected. |
+| [edge.dns](edge/dns.md) | implemented | Checks a DNS record set in a Cloudflare zone against what is expected. |
+| [edge.tunnel](edge/tunnel.md) | implemented | Checks a Cloudflare Tunnel's status and how many of its connectors are up. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
 | [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM. |
@@ -107,6 +111,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |
 | [file.copy](file/copy.md) | implemented | Writes content, or a file from the project, to a file on the target, only when the bytes there differ. |
 | [file.directory](file/directory.md) | implemented | Makes sure a directory exists on the target, with the mode, owner and group the task asks for. |
+| [file.json](file/json.md) | implemented | Sets, or removes, the value at a key path in a JSON file on the device, keeping the rest of the file. |
 | [file.line.remove](file/line/remove.md) | implemented | Ensures no line matching a pattern remains in a file. |
 | [file.line.set](file/line/set.md) | implemented | Ensures one line matching a pattern is present in a file, replacing or appending it. |
 | [file.permissions](file/permissions.md) | implemented | Sets a file's owner, group, and mode on the target. |
@@ -114,6 +119,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
 | [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
 | [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |
+| [file.yaml](file/yaml.md) | implemented | Sets, or removes, the value at a key path in a YAML file on the device, keeping its comments and the rest of the file. |
 | [fs.mount](fs/mount.md) | implemented | Mounts a filesystem on the target, and optionally persists it to fstab. |
 | [fs.unmount](fs/unmount.md) | implemented | Unmounts a filesystem on the target, and optionally removes it from fstab. |
 | [fw.firewalld.allow](fw/firewalld/allow.md) | implemented | Opens a port or service in firewalld. |
@@ -121,6 +127,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [fw.firewalld.reload](fw/firewalld/reload.md) | implemented | Reloads firewalld to apply pending rule changes. |
 | [gate.list](gate/list.md) | implemented | Validates a project's gate manifest on the device and lists how each check is classified, running nothing. |
 | [gate.run](gate/run.md) | implemented | Runs a project's gate manifest of named checks on the device and reports PASS, FAIL or SKIP for each. |
+| [http.check](http/check.md) | implemented | Checks that a URL answers with the expected status, and optionally body, without ever returning or logging the body. |
 | [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
 | [identity.group.create](identity/group/create.md) | implemented | Makes sure a POSIX group exists on the target. |
 | [identity.group.modify](identity/group/modify.md) | implemented | Changes the gid of an existing POSIX group on the target. |
@@ -199,3 +206,4 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
 | [win.file.copy](win/file/copy.md) | implemented | Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches. |
 | [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |
+| [win.schtask](win/schtask.md) | implemented | Registers, updates or removes a Windows scheduled task over WinRM, or reports one as it is. |

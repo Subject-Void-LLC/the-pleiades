@@ -301,6 +301,19 @@ func (h Host) CloseDVD(ctx context.Context, path string, remove bool) error {
 	return err
 }
 
+// Forget unregisters the machine with uuid and deletes nothing: its
+// settings, logs and disks stay where they are. It is for a machine
+// VirtualBox cannot read (Ref.Inaccessible), whose files Unregister could
+// not find, and which, left registered, makes VirtualBox 7.2's autostart
+// service refuse to start any machine of the account.
+func (h Host) Forget(ctx context.Context, uuid string) error {
+	if !uuidPattern.MatchString(uuid) {
+		return fmt.Errorf("vboxmanage: %q is not a VirtualBox UUID", uuid)
+	}
+	_, err := h.run(ctx, "unregistervm", uuid)
+	return err
+}
+
 // Unregister forgets vm and deletes its settings, logs, saved states and
 // hard disks. VirtualBox refuses when another machine's disk is linked to
 // one of its own.

@@ -473,6 +473,37 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
 469. The reaper test read the job's state on the first delivery to return, which was the one that did nothing
 470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (open)
+471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
+472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
+473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
+474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
+475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
+476. The gate tests ran gate.run's own timeout command on the host, and macOS has none that takes -k (a repeat of 420) (fixed)
+477. A release gate's fake server read its data while the test wrote it, with no lock (a repeat of 6 and 33) (fixed)
+478. The gate's TCP precondition test made its closed endpoint by releasing a port (a repeat of 123, 177 and 183) (fixed)
+479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
+480. The test SSH server's forward dialed with no bound, and Close waited for it (a repeat of 339 and 444) (fixed)
+481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (open)
+482. A test of a package pkg/external reaches imported internal/testsupport, putting testcontainers-go into every external author's go.sum (fixed)
+483. testcontainers' reaper container never became ready within its 60 s wait on a CI containers shard (open)
+484. A Cargo.toml nested a megabyte deep ended the process: go-toml recurses with no limit (a repeat of 62) (fixed)
+485. Lockfile readers matched keys regardless of case, so a "Resolved" replaced the source npm fetches from (a repeat of 325) (fixed)
+486. The build-file reader saw less than a build does: heredocs at any "<<", one ARG scope, merge keys and aliases unfollowed, duplicate keys kept (a repeat of 473 and 332) (fixed)
+487. A failed refresh dropped the undo record that the files it could not put back needed (a repeat of 452) (fixed)
+488. containerengine's "set engine:" advice named a parameter no method declared, so validate refused it (a repeat of 270 and 324) (fixed)
+489. Fuzz targets fuzzed their selector string, so almost every input stopped at "unknown" and a panic went unfound (a repeat of 35) (fixed)
+490. A line count from the file's start for every reference made a 1 MiB Compose file take 53 s (a repeat of 48) (fixed)
+491. The release gate's checked refresh asserted only what it left alone (a repeat of 467) (fixed)
+492. ReadText's output bound also held standard error, so an unreadable file was reported as too large (fixed)
+493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
+494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
+495. The reaper's end-to-end test failed on a shared-cache test database the Controller does not use (a repeat of 469) (fixed)
+496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
+497. pg_restore read the database name as a connection string, so a name could send the restore and its password to another host (a repeat of 450 and 148) (fixed)
+498. The additive-only lint read string literals one way and the server another, so a DROP ran inside what the lint saw as one INSERT (fixed)
+499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
+500. remoteexec's stdin-closing test helper assumed a harness that waited for input, written in the same commit that made it stop waiting (a repeat of 460) (fixed)
+501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

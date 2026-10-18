@@ -1,0 +1,15 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# app-1 is a Linux server you reach over SSH that runs the application
+# whose configuration the runbook sets. Point host and port at it, then:
+#   pleiades add-credential app-1 --username <you> --password-stdin
+# Credentials are never stored here or anywhere in this directory.
+hosts:
+  - id: app-1
+    name: app-1
+    type: linux_server
+    tags:
+      - app
+    properties:
+      host: 127.0.0.1
+      port: 2222

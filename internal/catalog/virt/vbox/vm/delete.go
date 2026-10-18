@@ -40,13 +40,14 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a stopped VirtualBox VM and its disks.",
-				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
+				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "uuid", Type: "string", Description: "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when a VM was deleted", Description: "The VM deleted."},
+					{Name: "inaccessible", Type: "bool", Returned: "when the VM was inaccessible", Description: "The VM was a registration VirtualBox could not read; it was unregistered and nothing was deleted."},
 					{Name: "diff", Type: "dict", Returned: "always", Description: "Whether a VM of the name existed before this task and after it."},
 				},
 				Examples: []collection.Example{
@@ -77,6 +78,14 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	h, name, err := target(rc, device, params, fqcn)
 	if err != nil {
 		return collection.Result{}, err
+	}
+	// A registration VirtualBox cannot read has no name and refuses every
+	// read, so it is found by the UUID list vms shows for it, and only
+	// unregistered.
+	if ref, found, err := inaccessibleRef(ctx, h, name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	} else if found {
+		return forgetInaccessible(ctx, rc, h, ref, params, mode)
 	}
 	m, exists, err := read(ctx, h, name)
 	if err != nil {
@@ -110,6 +119,51 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	return collection.Result{Changed: true}, recordExists(rc, fqcn, true, false)
 }
+
+// inaccessibleRef is the inaccessible registration name is the UUID of, if
+// it is one; a name that is not a UUID is never one.
+func inaccessibleRef(ctx context.Context, h vboxmanage.Host, name string) (vboxmanage.Ref, bool, error) {
+	if len(name) != 36 || strings.Count(name, "-") != 4 {
+		return vboxmanage.Ref{}, false, nil
+	}
+	refs, err := h.List(ctx)
+	if err != nil {
+		return vboxmanage.Ref{}, false, err
+	}
+	for _, r := range refs {
+		if r.Inaccessible() && strings.EqualFold(r.UUID, name) {
+			return r, true, nil
+		}
+	}
+	return vboxmanage.Ref{}, false, nil
+}
+
+// forgetInaccessible unregisters an inaccessible registration and deletes
+// nothing: VirtualBox cannot read where its disks are, so there is nothing
+// this could safely delete. Left registered, it makes VirtualBox 7.2's
+// autostart service refuse to start any of the account's VMs.
+func forgetInaccessible(ctx context.Context, rc sdk.RunbookContext, h vboxmanage.Host, ref vboxmanage.Ref, params map[string]any, mode collection.Mode) (collection.Result, error) {
+	const fqcn = "virt.vbox.vm.delete"
+	if want := sdk.StringParam(params, paramUUID); want != "" && !strings.EqualFold(want, ref.UUID) {
+		return collection.Result{}, fmt.Errorf("%s: %s is not %s; nothing was unregistered", fqcn, ref.UUID, want)
+	}
+	for k, v := range map[string]any{statUUID: ref.UUID, statInaccessible: true} {
+		if err := rc.SetStat(k, v); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+	if mode == collection.ModeCheck {
+		return collection.Result{Changed: true}, recordExists(rc, fqcn, true, false)
+	}
+	if err := h.Forget(ctx, ref.UUID); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return collection.Result{Changed: true}, recordExists(rc, fqcn, true, false)
+}
+
+// statInaccessible says the VM was a registration VirtualBox could not
+// read, unregistered with nothing deleted.
+const statInaccessible = "inaccessible"
 
 // deleteVM deletes a VM that is not running. Each DVD image is detached,
 // and deleted only when it is in the VM's own folder, since one anywhere

@@ -6138,6 +6138,294 @@
       ]
     }
   },
+  "edge.access": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a Cloudflare Access application's audience, issuer, settings and policies against what is expected.",
+      "description": "Reads an Access application by id, or by its domain (one two applications share is refused, naming both), its policies, and the issuer of the tokens Access signs for it (https:// and the account's team domain). Each field expect names is compared: audience, issuer and domain (domain and issuer without regard to case), type and session_duration. Policies are compared by name: a policy expected and absent is missing; one whose decision, precedence or include, exclude or require rules differ is changed, rules compared as JSON with their keys sorted; and with exact_policies one present and not expected is extra. The task fails listing every difference. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "app",
+          "type": "string",
+          "required": true,
+          "description": "The application's id, or its domain."
+        },
+        {
+          "name": "expect",
+          "type": "dict",
+          "description": "What the application must be: any of audience, issuer, domain, type, session_duration, and policies (a list of {name, decision, precedence, include, exclude, require}, each field optional but name)."
+        },
+        {
+          "name": "exact_policies",
+          "type": "bool",
+          "default": "false",
+          "description": "Fail on a policy the application has and expect.policies does not name."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The application's id."
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "Its domain."
+        },
+        {
+          "name": "audience",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "Its audience tag (aud), which an origin validating Access tokens must expect."
+        },
+        {
+          "name": "issuer",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The issuer of its tokens."
+        },
+        {
+          "name": "policies",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each policy's name, decision and precedence."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Only staff reach the admin site",
+          "runbookYaml": "- name: Access\n  hosts: prod-cf\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.tunnel",
+        "edge.dns"
+      ]
+    }
+  },
+  "edge.dns": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a DNS record set in a Cloudflare zone against what is expected.",
+      "description": "Reads a zone by id, or by name within the account (a zone of another account is refused, even where the token reaches it), and its records of one name and type. The set of contents is compared with expect.content, addresses in their canonical form and names in lower case without the final dot; proxied and ttl are compared on every record when expected; and absent requires there be none. With no expect, the task fails only when there is no such record. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "zone",
+          "type": "string",
+          "required": true,
+          "description": "The zone's id, or its name."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The record's full name (www.example.com)."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "A",
+            "AAAA",
+            "CNAME",
+            "TXT",
+            "MX",
+            "NS",
+            "SRV",
+            "CAA",
+            "HTTPS",
+            "SVCB",
+            "PTR"
+          ],
+          "description": "The record type."
+        },
+        {
+          "name": "expect",
+          "type": "dict",
+          "description": "What the records must be: content (one value or a list, compared as a set), proxied, ttl (1 is automatic), or absent: true."
+        }
+      ],
+      "returns": [
+        {
+          "name": "zone",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The zone's name."
+        },
+        {
+          "name": "records",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each record's content, proxied and ttl."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
+        }
+      ],
+      "examples": [
+        {
+          "name": "www points at the two load balancers, proxied",
+          "runbookYaml": "- name: DNS\n  hosts: prod-cf\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.tunnel",
+        "edge.access"
+      ]
+    }
+  },
+  "edge.tunnel": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CloudflareAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the account through Cloudflare's API and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
+      "description": "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a live connection (one pending reconnect has dropped, and is only still tracked, so it does not count). It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "params": [
+        {
+          "name": "tunnel",
+          "type": "string",
+          "required": true,
+          "description": "The tunnel's id, or its name."
+        },
+        {
+          "name": "expect_status",
+          "type": "string",
+          "default": "healthy",
+          "choices": [
+            "healthy",
+            "degraded",
+            "down",
+            "inactive",
+            "any"
+          ],
+          "description": "The status the tunnel must have; any accepts every status."
+        },
+        {
+          "name": "min_connectors",
+          "type": "int",
+          "default": "1",
+          "description": "The fewest connectors that must have a connection to Cloudflare's edge, 0 to 1000."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The tunnel's id."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The tunnel's name."
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "healthy, degraded, down or inactive, as Cloudflare reports it."
+        },
+        {
+          "name": "connectors",
+          "type": "list of dict",
+          "returned": "success or difference",
+          "description": "Each connector's id, version, architecture, connection count and colos."
+        },
+        {
+          "name": "connectors_up",
+          "type": "int",
+          "returned": "success or difference",
+          "description": "How many connectors have a connection."
+        },
+        {
+          "name": "connections",
+          "type": "int",
+          "returned": "success or difference",
+          "description": "How many live connections the connectors hold in all, not counting those pending reconnect."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
+        }
+      ],
+      "examples": [
+        {
+          "name": "The production tunnel is healthy on two connectors",
+          "runbookYaml": "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"
+        }
+      ],
+      "seeAlso": [
+        "edge.access",
+        "edge.dns"
+      ]
+    }
+  },
   "exec.command": {
     "supportedTransports": [
       "ssh"
@@ -7088,6 +7376,131 @@
       ]
     }
   },
+  "file.json": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "POSIXFileSystemCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed an existing file emits a file.copy writing back the whole text it held, with its mode, owner and group; that text is withheld from the journal, so a rollback replays it only from the task's own rollback: list. A run that created the file emits a file.remove. A run that changed nothing emits nothing. The modification time is not restored.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        },
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or removes, the value at a key path in a JSON file on the device, keeping the rest of the file.",
+      "description": "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized, and line endings are written as LF. A key already holding the value (by value, however it is spelled) is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The JSON file on the device, an absolute path."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
+        },
+        {
+          "name": "value",
+          "type": "any",
+          "description": "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present sets the value; absent removes the key, which is no change when it is not there."
+        },
+        {
+          "name": "create",
+          "type": "bool",
+          "default": "false",
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "returned": "always",
+          "description": "The key path, dotted."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the run created the file (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The key's value before and after, as the format writes it; empty where there is none. Masked as every diff is."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Move the service to another port",
+          "runbookYaml": "- name: Port\n  file.json:\n    path: /etc/app/config.json\n    key: server.port\n    value: 8443\n"
+        },
+        {
+          "name": "Drop a deprecated setting",
+          "runbookYaml": "- name: Remove the old flag\n  file.json:\n    path: /etc/app/config.json\n    key: [features, \"legacy.mode\"]\n    state: absent\n"
+        }
+      ],
+      "seeAlso": [
+        "file.yaml",
+        "file.line",
+        "file.copy"
+      ]
+    }
+  },
   "file.line.remove": {
     "supportedTransports": [
       "ssh"
@@ -7706,6 +8119,126 @@
         "file.remove",
         "file.permissions",
         "file.copy"
+      ]
+    }
+  },
+  "file.yaml": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "POSIXFileSystemCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed an existing file emits a file.copy writing back the whole text it held, with its mode, owner and group; that text is withheld from the journal, so a rollback replays it only from the task's own rollback: list. A run that created the file emits a file.remove. A run that changed nothing emits nothing. The modification time is not restored.",
+      "inverses": [
+        {
+          "fqcn": "file.copy",
+          "record": [
+            "dest",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "withhold": [
+            "content"
+          ]
+        },
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or removes, the value at a key path in a YAML file on the device, keeping its comments and the rest of the file.",
+      "description": "Reads the file (at most 4 MiB of UTF-8, one document; refused when it holds a duplicate key) and sets the value at the key path, or removes it with state absent, keeping comments and key order, and a replaced value's own comments. The rest of the document is written back in go.yaml.in/yaml/v3's style at the indent the file used, so quoting and spacing may be normalized; it is not a byte-for-byte edit. A path through an alias is refused, since one edit would change every place the alias is used. A key already holding the value is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The YAML file on the device, an absolute path."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
+        },
+        {
+          "name": "value",
+          "type": "any",
+          "description": "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present sets the value; absent removes the key, which is no change when it is not there."
+        },
+        {
+          "name": "create",
+          "type": "bool",
+          "default": "false",
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "returned": "always",
+          "description": "The key path, dotted."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the run created the file (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The key's value before and after, as the format writes it; empty where there is none. Masked as every diff is."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Raise the replica count",
+          "runbookYaml": "- name: Replicas\n  file.yaml:\n    path: /srv/app/values.yaml\n    key: web.replicas\n    value: 3\n"
+        }
+      ],
+      "seeAlso": [
+        "file.json",
+        "file.line"
       ]
     }
   },
@@ -8356,6 +8889,136 @@
       "seeAlso": [
         "gate.list",
         "exec.command"
+      ]
+    }
+  },
+  "http.check": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It sends a GET or a HEAD, which HTTP defines as safe, and changes nothing a later task could undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks that a URL answers with the expected status, and optionally body, without ever returning or logging the body.",
+      "description": "Sends a GET (or a HEAD) to the URL, following at most max_redirects redirects and refusing one from https to http, since the check would then vouch for a page anyone on the path could have served. It fails when the status is not one of status_code, or when the body does not contain body_contains or match body_matches (RE2). The body is read, at most 4 MiB, only to match it: what is returned is the status, the final URL and each redirect (scheme, host and path, never a query or fragment, which can carry a token), the time taken, and the body's size and SHA-256, and a failure names the same. A URL carrying a user name or password is refused. Certificates are verified unless validate_certs is false, which is per task and loud. It only reads, so a check of it is the task itself, and it runs once with no target device.",
+      "params": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "The http or https URL to request."
+        },
+        {
+          "name": "status_code",
+          "type": "int or list of int",
+          "default": "200",
+          "description": "The status, or statuses, that pass."
+        },
+        {
+          "name": "body_contains",
+          "type": "string",
+          "description": "Text the body must contain."
+        },
+        {
+          "name": "body_matches",
+          "type": "string",
+          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."
+        },
+        {
+          "name": "method",
+          "type": "string",
+          "default": "GET",
+          "choices": [
+            "GET",
+            "HEAD"
+          ],
+          "description": "GET, or HEAD for the status alone."
+        },
+        {
+          "name": "max_redirects",
+          "type": "int",
+          "default": "5",
+          "description": "How many redirects to follow, 0 to 10. A redirect past them is the answer checked, so max_redirects: 0 with status_code: 301 checks a redirect itself."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "30",
+          "description": "Seconds the whole check may take, redirects included."
+        },
+        {
+          "name": "validate_certs",
+          "type": "bool",
+          "default": "true",
+          "description": "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "status",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "The final answer's status."
+        },
+        {
+          "name": "final_url",
+          "type": "string",
+          "returned": "when the server answered",
+          "description": "The URL that answered last, without query or fragment."
+        },
+        {
+          "name": "redirects",
+          "type": "list of string",
+          "returned": "when the server answered",
+          "description": "Each redirect followed, in order, without query or fragment."
+        },
+        {
+          "name": "elapsed_ms",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "How long the check took, in milliseconds."
+        },
+        {
+          "name": "body_bytes",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "How many bytes of body were read, at most 4 MiB."
+        },
+        {
+          "name": "body_sha256",
+          "type": "string",
+          "returned": "when the server answered",
+          "description": "The SHA-256 of the bytes read, in hex."
+        },
+        {
+          "name": "body_over_limit",
+          "type": "bool",
+          "returned": "when the server answered",
+          "description": "Whether the body was longer than 4 MiB."
+        },
+        {
+          "name": "matched",
+          "type": "bool",
+          "returned": "with body_contains or body_matches",
+          "description": "Whether the body matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "The release answers healthy",
+          "runbookYaml": "- name: Health\n  http.check:\n    url: https://app.example.com/healthz\n    body_contains: \"\\\"status\\\":\\\"ok\\\"\"\n"
+        }
+      ],
+      "seeAlso": [
+        "http.request",
+        "wait.port"
       ]
     }
   },
@@ -12670,7 +13333,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Deletes a stopped VirtualBox VM and its disks.",
-      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
+      "description": "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
       "params": [
         {
           "name": "name",
@@ -12690,6 +13353,12 @@
           "type": "string",
           "returned": "when a VM was deleted",
           "description": "The VM deleted."
+        },
+        {
+          "name": "inaccessible",
+          "type": "bool",
+          "returned": "when the VM was inaccessible",
+          "description": "The VM was a registration VirtualBox could not read; it was unregistered and nothing was deleted."
         },
         {
           "name": "diff",
@@ -14438,6 +15107,181 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova"
+      ]
+    }
+  },
+  "win.schtask": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A task this run registered is removed by its undo. A task it changed or removed is registered again from the XML definition it had, read before the change; that XML is withheld from the journal, so a rollback replays it only from the task's own rollback: list. The task's run history is not restored.",
+      "inverses": [
+        {
+          "fqcn": "win.schtask",
+          "record": [
+            "name",
+            "state"
+          ],
+          "withhold": [
+            "xml"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Registers, updates or removes a Windows scheduled task over WinRM, or reports one as it is.",
+      "description": "Reads the task first (Get-ScheduledTask, its XML definition and its last and next run), then: with state present, registers it with one action, one trigger and its principal when it is missing or differs in any of them, its description or whether it is enabled, and is no change when it matches; with absent, removes it; with query, only reports it. The script is a constant and every value reaches it as JSON on standard input, so a value can never be PowerShell syntax; every name is held to a strict pattern first. run_as SYSTEM, LOCAL SERVICE or NETWORK SERVICE runs as that service account; another account runs with S4U logon, so no password is stored with the task, and the task cannot reach the network as that user. A task this run registered undoes to its removal; one it changed or removed undoes to registering its earlier XML definition, withheld from the journal (xml, which also registers a task from a definition you give). A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The task's path: \\Folder\\Name, or Name in the root folder."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent",
+            "query"
+          ],
+          "description": "present registers or updates it; absent removes it; query only reports it."
+        },
+        {
+          "name": "execute",
+          "type": "string",
+          "description": "The program the task runs. Required with state present, unless xml is given."
+        },
+        {
+          "name": "arguments",
+          "type": "string",
+          "description": "Its arguments, as one string."
+        },
+        {
+          "name": "working_directory",
+          "type": "string",
+          "description": "The directory it starts in."
+        },
+        {
+          "name": "trigger",
+          "type": "string",
+          "choices": [
+            "at_startup",
+            "at_logon",
+            "daily",
+            "once"
+          ],
+          "description": "When it runs: at_startup, at_logon, daily (at, HH:MM, the device's local time) or once (at, an RFC 3339 time). Required with state present."
+        },
+        {
+          "name": "at",
+          "type": "string",
+          "description": "The time of a daily or once trigger."
+        },
+        {
+          "name": "run_as",
+          "type": "string",
+          "default": "SYSTEM",
+          "description": "The account it runs as: SYSTEM, LOCAL SERVICE, NETWORK SERVICE, or an account (DOMAIN\\name or name) run with S4U logon and no stored password."
+        },
+        {
+          "name": "run_level",
+          "type": "string",
+          "default": "limited",
+          "choices": [
+            "limited",
+            "highest"
+          ],
+          "description": "Whether it runs with the account's highest privileges."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "default": "true",
+          "description": "Whether the task is enabled."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "description": "The task's description."
+        },
+        {
+          "name": "xml",
+          "type": "string",
+          "description": "A whole task definition, as Export-ScheduledTask writes it, registered as given with state present; what this method's own undo uses."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The task's full path."
+        },
+        {
+          "name": "existed",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the task existed before."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "Its state before (Ready, Running, Disabled), empty when it did not exist."
+        },
+        {
+          "name": "last_run_time",
+          "type": "string",
+          "returned": "always",
+          "description": "When it last ran."
+        },
+        {
+          "name": "last_task_result",
+          "type": "string",
+          "returned": "always",
+          "description": "Its last result code."
+        },
+        {
+          "name": "next_run_time",
+          "type": "string",
+          "returned": "always",
+          "description": "When it runs next."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How it differed from what was asked, empty when it matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A nightly cleanup",
+          "runbookYaml": "- name: Cleanup\n  win.schtask:\n    name: \\Pleiades\\Cleanup\n    execute: C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\n    arguments: -NoProfile -File C:\\ops\\cleanup.ps1\n    trigger: daily\n    at: \"02:30\"\n"
+        },
+        {
+          "name": "Is the backup task healthy",
+          "runbookYaml": "- name: Backup task\n  win.schtask:\n    name: \\Pleiades\\Backup\n    state: query\n  register: backup\n"
+        }
+      ],
+      "seeAlso": [
+        "exec.winrm.shell",
+        "svc.windows.start"
       ]
     }
   }

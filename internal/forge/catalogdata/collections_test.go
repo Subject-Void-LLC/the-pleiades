@@ -71,7 +71,7 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// scan.vuln.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 163
+	const wantCollections = 170
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

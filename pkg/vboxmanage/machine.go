@@ -80,6 +80,14 @@ type Ref struct {
 	UUID string
 }
 
+// InaccessibleName is the name list vms gives a registered machine whose
+// settings VirtualBox cannot read: its folder deleted or unreadable. Such a
+// machine can be named only by its UUID, and every read of it is refused.
+const InaccessibleName = "<inaccessible>"
+
+// Inaccessible reports whether r is a machine VirtualBox cannot read.
+func (r Ref) Inaccessible() bool { return r.Name == InaccessibleName }
+
 // Machine returns name's state. A machine that is not registered is an
 // error wrapping ErrNotFound.
 func (h Host) Machine(ctx context.Context, name string) (Machine, error) {

@@ -1,0 +1,30 @@
+id: app-config
+name: Move the app to TLS on 8443, scale its workers, and check it answers healthy
+hosts: app-1
+tasks:
+  # One key each, the rest of each file kept: JSON's order and numbers,
+  # YAML's comments.
+  - name: The app listens on 8443
+    file.json:
+      path: /etc/app/config.json
+      key: server.port
+      value: 8443
+
+  - name: Without the deprecated flag
+    file.json:
+      path: /etc/app/config.json
+      key: [features, "legacy.mode"]
+      state: absent
+
+  - name: Four workers
+    file.yaml:
+      path: /etc/app/workers.yaml
+      key: pool.size
+      value: 4
+
+  # Runs once, from where the run runs; the body is matched, never kept.
+  - name: The app answers healthy
+    http.check:
+      url: https://app.example.com/healthz
+      body_contains: '"status":"ok"'
+      max_redirects: 2

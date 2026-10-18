@@ -1,0 +1,22 @@
+id: win-schtask
+name: A nightly cleanup task on the lab server, and a report of it
+hosts: win2025
+tasks:
+  # Registered when missing or different, no change when it already
+  # matches. Every value reaches the server as data, never as script.
+  - name: The nightly cleanup is scheduled
+    win.schtask:
+      name: \Pleiades\Cleanup
+      execute: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      arguments: -NoProfile -NonInteractive -File C:\ops\cleanup.ps1
+      trigger: daily
+      at: "02:30"
+      run_as: SYSTEM
+      description: Removes old logs. Managed by The Pleiades.
+
+  # Only reads: when it last ran, its result, and when it runs next.
+  - name: How the cleanup last went
+    win.schtask:
+      name: \Pleiades\Cleanup
+      state: query
+    register: cleanup

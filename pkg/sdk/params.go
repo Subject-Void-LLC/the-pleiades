@@ -24,6 +24,23 @@ func StringParam(params map[string]any, key string) string {
 	return v
 }
 
+// OptionalStringParam reads an optional string task parameter: "" when it
+// is absent or null, and an error when it is present and not text. Where an
+// absent value changes what a method checks or writes, a number read as
+// absent (body_contains: 200 checking nothing) is a silent pass, so a
+// value of the wrong type is refused instead.
+func OptionalStringParam(params map[string]any, key string) (string, error) {
+	raw, present := params[key]
+	if !present || raw == nil {
+		return "", nil
+	}
+	v, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%s is %T, not text; quote it", key, raw)
+	}
+	return v, nil
+}
+
 // BoolParam reads a boolean task parameter, treating a missing or
 // non-boolean value as false.
 //
