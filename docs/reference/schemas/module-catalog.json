@@ -1,4 +1,1183 @@
 {
+  "ai.bench.run": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Each prompt is a counted call the provider has seen and billed; nothing on a device changes. A saved result is a new file under the project's ai/bench, never written over, which the run reports and does not remove."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Asks a provider's model a prompt set, scores each answer, and reports the score with every call's tokens, time and cost.",
+      "description": "Asks the target provider's model each prompt of the set in turn, as ai.chat asks one, and scores each answer with the prompt's scorer; a call that fails counts as failed and the set goes on. It returns each prompt's result (passed, tokens, time, cost, and the error of a failed call), how many passed, the score, and the total cost when every call is priced. Every call's usage record is appended to usage_sink, and with save_as the results, with the answers, are saved under the project's ai/bench. A check makes no call: it validates the set and its scorers and estimates its tokens.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model to ask for, as the provider names it."
+        },
+        {
+          "name": "prompts",
+          "type": "list of dict",
+          "required": true,
+          "description": "The prompt set, up to 200: each {id, text or messages, expect}, where expect is one of exact (the answer, trimmed, equals it), contains, regex (RE2) and json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys)."
+        },
+        {
+          "name": "save_as",
+          "type": "string",
+          "description": "A file name under the project's ai/bench (run1.json) the results are saved to, with each answer cut to 4 KiB; never written over. Crawl tier only."
+        },
+        {
+          "name": "residency",
+          "type": "string",
+          "choices": [
+            "local",
+            "hosted"
+          ],
+          "description": "The use's residency. local refuses a provider whose record says hosted, before contact and at validate; hosted admits either."
+        },
+        {
+          "name": "temperature",
+          "type": "float",
+          "description": "Sampling temperature, 0 to 2. A kind that does not accept a parameter reports it ignored and does not send it."
+        },
+        {
+          "name": "top_p",
+          "type": "float",
+          "description": "Nucleus sampling, 0 to 1."
+        },
+        {
+          "name": "max_tokens",
+          "type": "int",
+          "description": "The most tokens the answer may take, 1 to 1000000. A check prices the answer at this many; without it the answer's cost is unbounded."
+        },
+        {
+          "name": "stop",
+          "type": "list of string",
+          "description": "A sequence, or a list of up to 8, that ends the answer."
+        },
+        {
+          "name": "thinking",
+          "type": "int",
+          "description": "A token budget for a model that thinks before it answers (Ollama turns thinking on); a kind without thinking ignores it."
+        },
+        {
+          "name": "schema",
+          "type": "dict",
+          "description": "A JSON schema the answer must meet, asked for through the kind's own structured output and checked before the task succeeds. It keeps to type, properties, required, additionalProperties, items, enum, const, minimum, maximum, minLength, maxLength, minItems and maxItems; any other keyword is refused rather than half-checked."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "5m",
+          "description": "How long one call may take, retries included, from 1s to 1h."
+        },
+        {
+          "name": "retries",
+          "type": "int",
+          "default": "3",
+          "description": "How many times a retryable failure (a rate limit, an overloaded or failing server, a provider never reached) is tried again, with exponential backoff and jitter and honoring Retry-After; 0 to 10. Nothing else is retried, and nothing after the answer began."
+        },
+        {
+          "name": "usage_sink",
+          "type": "string",
+          "description": "A file name under the project's ai/usage directory (spend.jsonl) each call's usage record is appended to as one JSON line, proved writable before any call. Crawl tier only."
+        }
+      ],
+      "returns": [
+        {
+          "name": "results",
+          "type": "list of dict",
+          "returned": "success",
+          "description": "Each prompt's id, passed, input and output tokens, duration, cost when priced, and error when its call failed."
+        },
+        {
+          "name": "passed",
+          "type": "int",
+          "returned": "success",
+          "description": "How many prompts passed."
+        },
+        {
+          "name": "count",
+          "type": "int",
+          "returned": "always",
+          "description": "How many prompts the set holds."
+        },
+        {
+          "name": "score",
+          "type": "float",
+          "returned": "success",
+          "description": "passed divided by count."
+        },
+        {
+          "name": "cost",
+          "type": "float",
+          "returned": "when every call is priced",
+          "description": "What the set cost, in currency."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "returned": "when every call is priced",
+          "description": "The price table's currency."
+        },
+        {
+          "name": "saved",
+          "type": "string",
+          "returned": "with save_as",
+          "description": "The results file, relative to the project."
+        },
+        {
+          "name": "estimate",
+          "type": "dict",
+          "returned": "in a check",
+          "description": "The set's estimated input tokens, and each prompt's estimate."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Score a local model",
+          "runbookYaml": "- name: Bench\n  hosts: workstation\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.chat",
+        "ai.provider.probe"
+      ]
+    }
+  },
+  "ai.chat": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A call is made and cannot be unmade: the provider has seen what was sent and counted what it answered. Nothing on a device changes, so there is nothing a later task could put back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Asks the target provider's model and returns its answer with a usage record: tokens, time, retries and cost.",
+      "description": "Sends messages, or a prompt bundle with optional untrusted input, to the model named on the ai_provider device the task targets, through its kind (ollama, anthropic, google, or any server speaking OpenAI's chat completions API), with the device's own key over its own TLS and no redirect followed. Before any call it refuses a use tagged local against a hosted provider, a kind needing a key the device does not have, and a bundle its signing policy does not admit; a parameter the kind does not accept is reported ignored and not sent, and one the provider rejects (a 400 naming it) is reported dropped, the call sent once more without it, and never sent again to that provider for that model in the run. Only rate limits, overload, server errors and a provider never reached are retried, with exponential backoff and jitter and honoring Retry-After, and nothing after the answer began streaming, which could bill twice. With schema the answer is asked for through the kind's structured output and checked against the schema before the task succeeds. Every call ends in a usage record, returned and, with usage_sink, appended to a file in the project; the messages and the answer are never in it. With review rules, an answer crossing a threshold is held for a person before any later task can read it: asked at the terminal when someone is there, otherwise kept in the project's ai/review with the task failing as held until it is decided with pleiades ai review, after which running again reuses the decision with no second call; with nobody to ask at all it fails closed. A signature says who approved a bundle's text and that it is unchanged; it is provenance and integrity, not a promise about what the model does with it. A check makes no call: it validates the key, the residency, the parameters against the kind, the schema and the bundle's signature, and estimates the cost from the prompt's size and max_tokens. It reports changed, since a real run makes a counted call.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model to ask for, as the provider names it."
+        },
+        {
+          "name": "messages",
+          "type": "list of dict",
+          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. One of messages, prompt and prompt_file."
+        },
+        {
+          "name": "prompt",
+          "type": "dict",
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+        },
+        {
+          "name": "prompt_file",
+          "type": "string",
+          "description": "A prompt bundle in the project by name: ai/prompts/<name>.json, with its signature, if any, in <name>.json.sig beside it. Crawl tier only."
+        },
+        {
+          "name": "signature",
+          "type": "dict",
+          "description": "An inline prompt's detached signature, {key, sig}, as pleiades ai prompt sign writes it."
+        },
+        {
+          "name": "input",
+          "type": "string",
+          "description": "Untrusted text for a prompt bundle (a ticket, a file, an earlier answer), placed after the bundle's text between fixed markers as one JSON string, so nothing in it can close the bundle's instructions. The model still reads it: a signature vouches for the bundle, not for what the model does with its input."
+        },
+        {
+          "name": "signing",
+          "type": "string",
+          "default": "optional",
+          "choices": [
+            "off",
+            "optional",
+            "required"
+          ],
+          "description": "The use's signing policy. off checks nothing; optional checks a signature when there is one and records an unsigned bundle as unsigned, never as verified; required refuses an unsigned, invalid, expired, unknown-key, wrong-role or rolled-back bundle before any call."
+        },
+        {
+          "name": "residency",
+          "type": "string",
+          "choices": [
+            "local",
+            "hosted"
+          ],
+          "description": "The use's residency. local refuses a provider whose record says hosted, before contact and at validate; hosted admits either."
+        },
+        {
+          "name": "review",
+          "type": "list of dict",
+          "description": "Review rules (human in the loop): thresholds on the answer, any one of which holds it for a person's decision before a later task can read it. Each is one of cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
+        },
+        {
+          "name": "temperature",
+          "type": "float",
+          "description": "Sampling temperature, 0 to 2. A kind that does not accept a parameter reports it ignored and does not send it."
+        },
+        {
+          "name": "top_p",
+          "type": "float",
+          "description": "Nucleus sampling, 0 to 1."
+        },
+        {
+          "name": "max_tokens",
+          "type": "int",
+          "description": "The most tokens the answer may take, 1 to 1000000. A check prices the answer at this many; without it the answer's cost is unbounded."
+        },
+        {
+          "name": "stop",
+          "type": "list of string",
+          "description": "A sequence, or a list of up to 8, that ends the answer."
+        },
+        {
+          "name": "thinking",
+          "type": "int",
+          "description": "A token budget for a model that thinks before it answers (Ollama turns thinking on); a kind without thinking ignores it."
+        },
+        {
+          "name": "schema",
+          "type": "dict",
+          "description": "A JSON schema the answer must meet, asked for through the kind's own structured output and checked before the task succeeds. It keeps to type, properties, required, additionalProperties, items, enum, const, minimum, maximum, minLength, maxLength, minItems and maxItems; any other keyword is refused rather than half-checked."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "5m",
+          "description": "How long one call may take, retries included, from 1s to 1h."
+        },
+        {
+          "name": "retries",
+          "type": "int",
+          "default": "3",
+          "description": "How many times a retryable failure (a rate limit, an overloaded or failing server, a provider never reached) is tried again, with exponential backoff and jitter and honoring Retry-After; 0 to 10. Nothing else is retried, and nothing after the answer began."
+        },
+        {
+          "name": "usage_sink",
+          "type": "string",
+          "description": "A file name under the project's ai/usage directory (spend.jsonl) each call's usage record is appended to as one JSON line, proved writable before any call. Crawl tier only."
+        }
+      ],
+      "returns": [
+        {
+          "name": "answer",
+          "type": "string",
+          "returned": "success",
+          "description": "The model's answer, whole: every kind streams, and the task sees one answer."
+        },
+        {
+          "name": "json",
+          "type": "any",
+          "returned": "when schema is set",
+          "description": "The answer read as JSON, once it met the schema."
+        },
+        {
+          "name": "stop_reason",
+          "type": "string",
+          "returned": "success",
+          "description": "Why the model stopped, in the provider's own words."
+        },
+        {
+          "name": "usage",
+          "type": "dict",
+          "returned": "success",
+          "description": "The usage record: time, method, provider, kind, residency, model asked for and the model that answered, input and output tokens, duration, retries, the parameters ignored and dropped, the cost and currency when the provider's price table prices the model, the prompt's verdict, and the outcome. It never holds what was sent or answered."
+        },
+        {
+          "name": "prompt",
+          "type": "dict",
+          "returned": "always",
+          "description": "The prompt's verdict: status (verified, unsigned, not checked) and, for a bundle, its name, version, SHA-256 and signing key."
+        },
+        {
+          "name": "ignored",
+          "type": "list of string",
+          "returned": "success",
+          "description": "Parameters the provider's kind does not accept, which were not sent."
+        },
+        {
+          "name": "dropped",
+          "type": "list of string",
+          "returned": "success",
+          "description": "Parameters the provider rejected, removed and never sent to it for that model again in the run."
+        },
+        {
+          "name": "estimate",
+          "type": "dict",
+          "returned": "in a check",
+          "description": "What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and, when the model is priced, input_cost, and max_cost when the output has a cap that is sent, with the currency."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when there is one",
+          "description": "What the provider's record allows that a run must say: a key sent over plain http://, weakened TLS."
+        },
+        {
+          "name": "review",
+          "type": "dict",
+          "returned": "with review rules",
+          "description": "The answer's review: not held, or approved with the key, the rules it matched, who decided and when; in a check, the rules and any decision already on record. A held answer is never returned: the task fails as held."
+        },
+        {
+          "name": "reused",
+          "type": "bool",
+          "returned": "when a decided answer is reused",
+          "description": "True when the answer was approved earlier for this very request and returned from its review with no call; usage is the original call's."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Ask a local model for a structured answer",
+          "runbookYaml": "- name: Classify\n  ai.chat:\n    model: qwen3:14b\n    residency: local\n    messages:\n      - {role: user, content: \"Is 'disk full on /var' a bug or an outage? Answer as JSON.\"}\n    schema:\n      type: object\n      properties: {label: {type: string, enum: [bug, outage]}}\n      required: [label]\n    max_tokens: 200\n    usage_sink: spend.jsonl\n  register: verdict\n"
+        },
+        {
+          "name": "Send a signed prompt with untrusted input",
+          "runbookYaml": "- name: Triage\n  ai.chat:\n    model: claude-haiku-5-5\n    prompt_file: triage\n    signing: required\n    input: \"{{ vars.ticket_text }}\"\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.route",
+        "ai.prompt.verify",
+        "ai.provider.probe"
+      ]
+    }
+  },
+  "ai.model.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It asks the host which models it has on disk and in memory, and changes nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the models an Ollama host has on disk and the ones in memory.",
+      "description": "Asks the Ollama host for its models (GET /api/tags) and the ones loaded in memory (GET /api/ps). It only reads, and needs no host guard, so a check of it is the task itself.",
+      "returns": [
+        {
+          "name": "models",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each model on disk: name (with its tag), size in bytes and digest."
+        },
+        {
+          "name": "resident",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The models in memory."
+        }
+      ],
+      "examples": [
+        {
+          "name": "What the workstation has",
+          "runbookYaml": "- name: Models\n  hosts: workstation\n  ai.model.list: {}\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.model.load",
+        "ai.provider.list"
+      ]
+    }
+  },
+  "ai.model.load": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "The undo loads the model that was in memory before, which unloads this one; when none was, it unloads this one. It restores which model is resident, not how long the host had kept it.",
+      "inverses": [
+        {
+          "fqcn": "ai.model.load",
+          "record": [
+            "model"
+          ]
+        },
+        {
+          "fqcn": "ai.model.unload",
+          "record": [
+            "model"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Loads a model into an Ollama host's memory, unloading every other model first so one is resident at a time.",
+      "description": "Loads the model to stay in memory (keep_alive -1), after unloading every other resident model, so the host never holds two; a model already alone in memory is no change. The model must be on the host already (ai.model.pull). The undo loads the model that was resident before, or unloads this one when none was. A check reports what is in memory and what would change. It runs only against an ai_provider whose kind is ollama and whose record declares ai_host_guard: single_resident, and keeps to it: at most one model in memory. It speaks only Ollama's HTTP API, so it never restarts, stops or signals the host, or the machine or distribution it runs in.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model, as Ollama names it; a name with no tag means :latest."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "10m",
+          "description": "How long the change may take, from 1s to 6h."
+        }
+      ],
+      "returns": [
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "always",
+          "description": "The model, with its tag."
+        },
+        {
+          "name": "resident_before",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The models in memory before."
+        },
+        {
+          "name": "unloaded",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The models unloaded (or, in a check, that would be)."
+        },
+        {
+          "name": "loaded",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the model was loaded (or would be)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make one model resident",
+          "runbookYaml": "- name: Load\n  hosts: workstation\n  ai.model.load:\n    model: \"qwen3:14b\"\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.model.unload",
+        "ai.model.pull"
+      ]
+    }
+  },
+  "ai.model.pull": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "The undo removes a model this pull added, and is recorded only then: a model already on the host is never removed by undoing a pull.",
+      "inverses": [
+        {
+          "fqcn": "ai.model.remove",
+          "record": [
+            "model"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Pulls a model onto an Ollama host when it is not there.",
+      "description": "Pulls the model through Ollama (POST /api/pull, its progress streamed until it says success) and confirms the host then lists it; a model already on the host is no change. The undo removes the model, recorded only when this pull added it, so undoing a pull never removes a model that was there before. A check reports whether the model is present. It runs only against an ai_provider whose kind is ollama and whose record declares ai_host_guard: single_resident, and keeps to it: at most one model in memory. It speaks only Ollama's HTTP API, so it never restarts, stops or signals the host, or the machine or distribution it runs in.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model, as Ollama names it; a name with no tag means :latest."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "10m",
+          "description": "How long the change may take, from 1s to 6h."
+        }
+      ],
+      "returns": [
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "always",
+          "description": "The model, with its tag."
+        },
+        {
+          "name": "present_before",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the model was on the host before."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Have the model",
+          "runbookYaml": "- name: Pull\n  hosts: workstation\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.model.remove",
+        "ai.model.load"
+      ]
+    }
+  },
+  "ai.model.remove": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "The undo pulls the model's name again, which brings back what its tag names at that moment: the same model only while the tag has not moved.",
+      "inverses": [
+        {
+          "fqcn": "ai.model.pull",
+          "record": [
+            "model"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a model from an Ollama host, unloading it first when it is in memory.",
+      "description": "Removes the model from the host's disk (DELETE /api/delete), unloading it first when it is resident; a model not on the host is no change. The undo pulls the name again, which brings back what its tag names at that moment. A check reports whether the model is present. It runs only against an ai_provider whose kind is ollama and whose record declares ai_host_guard: single_resident, and keeps to it: at most one model in memory. It speaks only Ollama's HTTP API, so it never restarts, stops or signals the host, or the machine or distribution it runs in.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model, as Ollama names it; a name with no tag means :latest."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "10m",
+          "description": "How long the change may take, from 1s to 6h."
+        }
+      ],
+      "returns": [
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "always",
+          "description": "The model, with its tag."
+        },
+        {
+          "name": "present_before",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the model was on the host before."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reclaim the disk",
+          "runbookYaml": "- name: Remove\n  hosts: workstation\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.model.pull"
+      ]
+    }
+  },
+  "ai.model.unload": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "The undo loads the model again, which unloads any other loaded since.",
+      "inverses": [
+        {
+          "fqcn": "ai.model.load",
+          "record": [
+            "model"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Unloads a model from an Ollama host's memory.",
+      "description": "Unloads the model (keep_alive 0); a model not in memory is no change. The undo loads it again. A check reports whether it is in memory. It runs only against an ai_provider whose kind is ollama and whose record declares ai_host_guard: single_resident, and keeps to it: at most one model in memory. It speaks only Ollama's HTTP API, so it never restarts, stops or signals the host, or the machine or distribution it runs in.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model, as Ollama names it; a name with no tag means :latest."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "10m",
+          "description": "How long the change may take, from 1s to 6h."
+        }
+      ],
+      "returns": [
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "always",
+          "description": "The model, with its tag."
+        },
+        {
+          "name": "resident_before",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The models in memory before."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Free the memory",
+          "runbookYaml": "- name: Unload\n  hosts: workstation\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.model.load"
+      ]
+    }
+  },
+  "ai.prompt.verify": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the document, its signature, the trusted keys and the version register, and records nothing: a version is recorded as used only by a call that sends it.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Verifies a signed prompt bundle, parameter set or routing table against the project's trusted keys, as a call would.",
+      "description": "Reads a document (inline as prompt with signature, or from the project as prompt_file with its .sig), refusing what two readers could read differently: a duplicate key at any depth, invalid UTF-8, an unpaired surrogate, a number with an exponent or beyond 2^53. It then checks, in order, that a trusted key (ai/trusted-keys.yaml) verifies the Ed25519 signature over its canonical form, that the key's role lists the document's use, that neither key nor document has expired, and that its version is not older than the newest of its name already used (.pleiades/prompt-versions/). Any failure fails the task, naming which. It records nothing, so a check of it is the task itself. A signature is provenance and integrity: it says who approved the text and that it is unchanged, not that what a model does with it is safe.",
+      "params": [
+        {
+          "name": "prompt",
+          "type": "dict",
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+        },
+        {
+          "name": "prompt_file",
+          "type": "string",
+          "description": "A prompt bundle in the project by name: ai/prompts/<name>.json, with its signature, if any, in <name>.json.sig beside it. Crawl tier only."
+        },
+        {
+          "name": "signature",
+          "type": "dict",
+          "description": "An inline prompt's detached signature, {key, sig}, as pleiades ai prompt sign writes it."
+        },
+        {
+          "name": "signing",
+          "type": "string",
+          "default": "required",
+          "choices": [
+            "off",
+            "optional",
+            "required"
+          ],
+          "description": "The use's signing policy. off checks nothing; optional checks a signature when there is one and records an unsigned bundle as unsigned, never as verified; required refuses an unsigned, invalid, expired, unknown-key, wrong-role or rolled-back bundle before any call."
+        },
+        {
+          "name": "use",
+          "type": "string",
+          "description": "The use the document must be for; any when absent."
+        }
+      ],
+      "returns": [
+        {
+          "name": "status",
+          "type": "string",
+          "returned": "success",
+          "description": "verified; or, under a policy that admits them, unsigned or not checked."
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "returned": "success",
+          "description": "prompt, parameters or routes."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "success",
+          "description": "The document's name."
+        },
+        {
+          "name": "version",
+          "type": "int",
+          "returned": "success",
+          "description": "The document's version."
+        },
+        {
+          "name": "use",
+          "type": "string",
+          "returned": "success",
+          "description": "The use the document is for."
+        },
+        {
+          "name": "hash",
+          "type": "string",
+          "returned": "success",
+          "description": "The SHA-256 of its canonical form, in hex."
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "returned": "when signed",
+          "description": "The signing key's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Refuse a release whose prompt is not signed",
+          "runbookYaml": "- name: Verify the triage prompt\n  ai.prompt.verify:\n    prompt_file: triage\n    use: triage\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.chat"
+      ]
+    }
+  },
+  "ai.provider.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads the provider's record and asks it which models it serves, which no provider counts as a call.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports what a provider is and which models it serves: kind, endpoint, residency, prices and host guard.",
+      "description": "Reads the ai_provider device's record (its kind, API base URL, residency, price table and host guard) and asks the provider for the models it serves, with the device's own key over its own TLS: a listing no provider counts as a call. A kind needing a key the device does not have is refused before contact. It only reads, so a check of it is the task itself.",
+      "returns": [
+        {
+          "name": "kind",
+          "type": "string",
+          "returned": "always",
+          "description": "The provider's API: ollama, anthropic, google, openai, or a kind an external Collection registered."
+        },
+        {
+          "name": "api_base",
+          "type": "string",
+          "returned": "always",
+          "description": "The API's base URL."
+        },
+        {
+          "name": "residency",
+          "type": "string",
+          "returned": "always",
+          "description": "local or hosted, as the record says."
+        },
+        {
+          "name": "models",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The models the provider serves, sorted."
+        },
+        {
+          "name": "prices",
+          "type": "dict",
+          "returned": "always",
+          "description": "The record's price table: model to input and output price per million tokens, and currency."
+        },
+        {
+          "name": "host_guard",
+          "type": "string",
+          "returned": "always",
+          "description": "The host guard the record declares (single_resident), or empty."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when there is one",
+          "description": "What the record allows that a run must say: a key over plain http://, weakened TLS."
+        }
+      ],
+      "examples": [
+        {
+          "name": "List every provider",
+          "runbookYaml": "- name: Providers\n  hosts: [claude, workstation]\n  ai.provider.list: {}\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.provider.probe",
+        "ai.model.list"
+      ]
+    }
+  },
+  "ai.provider.probe": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "AIProviderCapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A probe is a counted call: the provider has seen it and billed it, and nothing on a device changed that could be put back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes one counted call of a few tokens to a provider's model and reports its latency and usage.",
+      "description": "Asks the model for a one-word answer, at most 8 tokens at temperature 0 and with no retry, so a failure is the provider's answer as it stands: proof that the key, the endpoint, the TLS and the model all work, and what one call costs in time. The call is counted, its usage record returned and, with usage_sink, appended to the project. A check makes no call and reports the call it would make, with its estimate.",
+      "params": [
+        {
+          "name": "model",
+          "type": "string",
+          "required": true,
+          "description": "The model to ask for, as the provider names it."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "5m",
+          "description": "How long one call may take, retries included, from 1s to 1h."
+        },
+        {
+          "name": "usage_sink",
+          "type": "string",
+          "description": "A file name under the project's ai/usage directory (spend.jsonl) each call's usage record is appended to as one JSON line, proved writable before any call. Crawl tier only."
+        }
+      ],
+      "returns": [
+        {
+          "name": "latency_ms",
+          "type": "int",
+          "returned": "success",
+          "description": "How long the call took, in milliseconds."
+        },
+        {
+          "name": "answered_by",
+          "type": "string",
+          "returned": "success",
+          "description": "The model the provider says answered."
+        },
+        {
+          "name": "usage",
+          "type": "dict",
+          "returned": "success",
+          "description": "The call's usage record, as ai.chat returns one."
+        },
+        {
+          "name": "estimate",
+          "type": "dict",
+          "returned": "in a check",
+          "description": "The call a run would make, and what it would cost."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Prove a provider answers",
+          "runbookYaml": "- name: Probe\n  hosts: claude\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.provider.list",
+        "ai.chat"
+      ]
+    }
+  },
+  "ai.route": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A call is made and cannot be unmade: the provider has seen what was sent and counted what it answered. Nothing on a device changes, so there is nothing a later task could put back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Asks a use's providers in fallback order and returns the first answer, refusing any provider the use's residency forbids.",
+      "description": "Routes a call by use: the routing table names, for each use, its residency (local or hosted), its signing policy and its providers in fallback order, each an ai_provider device with the model to ask it for. Before any call it resolves every provider in the use's order (each must be an onboarded ai_provider, with a key when its kind needs one) and refuses the route as a whole when one would take a local use's data to a hosted provider, which pleiades validate refuses already for a literal table. The use, not the task, decides the signing policy and the residency, so the task may set neither, nor model; a prompt bundle must be for the routed use. It then calls the providers in order, as ai.chat calls one, and moves to the next only when a provider could not be reached or kept failing in a way only time mends (rate limits, overload, server errors) after its retries, before any answer began; a refused request, a refused key or an answer missing its schema fails the task instead, since the next provider would be asked the same wrong thing or hide a broken credential. Every attempt's usage record is appended to usage_sink. It runs once, with no target device (no hosts:), and reaches providers through the project, so it runs on the Crawl tier; on the Walk tier target the provider and use ai.chat. A check makes no call: it resolves the route and estimates each provider's cost.",
+      "params": [
+        {
+          "name": "use",
+          "type": "string",
+          "required": true,
+          "description": "The use to route: a key of routes."
+        },
+        {
+          "name": "routes",
+          "type": "dict",
+          "required": true,
+          "description": "The routing table: each use's residency (local or hosted, required), signing policy, review rules (as review takes them; a task's add to the use's), and providers in fallback order, as {provider: <ai_provider device>, model}. A literal table is checked against the inventory at validate."
+        },
+        {
+          "name": "review",
+          "type": "list of dict",
+          "description": "Review rules (human in the loop): thresholds on the answer, any one of which holds it for a person's decision before a later task can read it. Each is one of cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
+        },
+        {
+          "name": "messages",
+          "type": "list of dict",
+          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. One of messages, prompt and prompt_file."
+        },
+        {
+          "name": "prompt",
+          "type": "dict",
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+        },
+        {
+          "name": "prompt_file",
+          "type": "string",
+          "description": "A prompt bundle in the project by name: ai/prompts/<name>.json, with its signature, if any, in <name>.json.sig beside it. Crawl tier only."
+        },
+        {
+          "name": "signature",
+          "type": "dict",
+          "description": "An inline prompt's detached signature, {key, sig}, as pleiades ai prompt sign writes it."
+        },
+        {
+          "name": "input",
+          "type": "string",
+          "description": "Untrusted text for a prompt bundle (a ticket, a file, an earlier answer), placed after the bundle's text between fixed markers as one JSON string, so nothing in it can close the bundle's instructions. The model still reads it: a signature vouches for the bundle, not for what the model does with its input."
+        },
+        {
+          "name": "temperature",
+          "type": "float",
+          "description": "Sampling temperature, 0 to 2. A kind that does not accept a parameter reports it ignored and does not send it."
+        },
+        {
+          "name": "top_p",
+          "type": "float",
+          "description": "Nucleus sampling, 0 to 1."
+        },
+        {
+          "name": "max_tokens",
+          "type": "int",
+          "description": "The most tokens the answer may take, 1 to 1000000. A check prices the answer at this many; without it the answer's cost is unbounded."
+        },
+        {
+          "name": "stop",
+          "type": "list of string",
+          "description": "A sequence, or a list of up to 8, that ends the answer."
+        },
+        {
+          "name": "thinking",
+          "type": "int",
+          "description": "A token budget for a model that thinks before it answers (Ollama turns thinking on); a kind without thinking ignores it."
+        },
+        {
+          "name": "schema",
+          "type": "dict",
+          "description": "A JSON schema the answer must meet, asked for through the kind's own structured output and checked before the task succeeds. It keeps to type, properties, required, additionalProperties, items, enum, const, minimum, maximum, minLength, maxLength, minItems and maxItems; any other keyword is refused rather than half-checked."
+        },
+        {
+          "name": "timeout",
+          "type": "string",
+          "default": "5m",
+          "description": "How long one call may take, retries included, from 1s to 1h."
+        },
+        {
+          "name": "retries",
+          "type": "int",
+          "default": "3",
+          "description": "How many times a retryable failure (a rate limit, an overloaded or failing server, a provider never reached) is tried again, with exponential backoff and jitter and honoring Retry-After; 0 to 10. Nothing else is retried, and nothing after the answer began."
+        },
+        {
+          "name": "usage_sink",
+          "type": "string",
+          "description": "A file name under the project's ai/usage directory (spend.jsonl) each call's usage record is appended to as one JSON line, proved writable before any call. Crawl tier only."
+        }
+      ],
+      "returns": [
+        {
+          "name": "answer",
+          "type": "string",
+          "returned": "success",
+          "description": "The model's answer, whole: every kind streams, and the task sees one answer."
+        },
+        {
+          "name": "json",
+          "type": "any",
+          "returned": "when schema is set",
+          "description": "The answer read as JSON, once it met the schema."
+        },
+        {
+          "name": "stop_reason",
+          "type": "string",
+          "returned": "success",
+          "description": "Why the model stopped, in the provider's own words."
+        },
+        {
+          "name": "usage",
+          "type": "dict",
+          "returned": "success",
+          "description": "The usage record: time, method, provider, kind, residency, model asked for and the model that answered, input and output tokens, duration, retries, the parameters ignored and dropped, the cost and currency when the provider's price table prices the model, the prompt's verdict, and the outcome. It never holds what was sent or answered."
+        },
+        {
+          "name": "prompt",
+          "type": "dict",
+          "returned": "always",
+          "description": "The prompt's verdict: status (verified, unsigned, not checked) and, for a bundle, its name, version, SHA-256 and signing key."
+        },
+        {
+          "name": "ignored",
+          "type": "list of string",
+          "returned": "success",
+          "description": "Parameters the provider's kind does not accept, which were not sent."
+        },
+        {
+          "name": "dropped",
+          "type": "list of string",
+          "returned": "success",
+          "description": "Parameters the provider rejected, removed and never sent to it for that model again in the run."
+        },
+        {
+          "name": "estimate",
+          "type": "dict",
+          "returned": "in a check",
+          "description": "What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and, when the model is priced, input_cost, and max_cost when the output has a cap that is sent, with the currency."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when there is one",
+          "description": "What the provider's record allows that a run must say: a key sent over plain http://, weakened TLS."
+        },
+        {
+          "name": "review",
+          "type": "dict",
+          "returned": "with review rules",
+          "description": "The answer's review: not held, or approved with the key, the rules it matched, who decided and when; in a check, the rules and any decision already on record. A held answer is never returned: the task fails as held."
+        },
+        {
+          "name": "reused",
+          "type": "bool",
+          "returned": "when a decided answer is reused",
+          "description": "True when the answer was approved earlier for this very request and returned from its review with no call; usage is the original call's."
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "returned": "success",
+          "description": "The provider that answered."
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "success",
+          "description": "The model it was asked for."
+        },
+        {
+          "name": "use",
+          "type": "string",
+          "returned": "always",
+          "description": "The use routed."
+        },
+        {
+          "name": "attempts",
+          "type": "list of dict",
+          "returned": "success",
+          "description": "Each provider tried, in order, with its model, outcome and, for a failure, why."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Summarize locally, falling back to a second local server",
+          "runbookYaml": "- name: Summarize\n  ai.route:\n    use: summarize\n    routes:\n      summarize:\n        residency: local\n        signing: optional\n        providers:\n          - {provider: workstation, model: \"qwen3:14b\"}\n          - {provider: lab-vllm, model: qwen3-14b}\n    messages:\n      - {role: user, content: \"Summarize the release notes in three lines.\"}\n    max_tokens: 300\n"
+        }
+      ],
+      "seeAlso": [
+        "ai.chat",
+        "ai.provider.list"
+      ]
+    }
+  },
   "archive.create": {
     "supportedTransports": [
       "ssh"

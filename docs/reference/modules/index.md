@@ -8,6 +8,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 
 | Namespace | Methods | Implemented |
 | --- | --- | --- |
+| `ai` | 11 | 11 |
 | `archive` | 2 | 2 |
 | `build` | 3 | 3 |
 | `cloud` | 4 | 4 |
@@ -29,12 +30,23 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 4 | 4 |
-| **total** | **151** | **148** |
+| **total** | **162** | **159** |
 
 ## All methods
 
 | FQCN | Status | Summary |
 | --- | --- | --- |
+| [ai.bench.run](ai/bench/run.md) | implemented | Asks a provider's model a prompt set, scores each answer, and reports the score with every call's tokens, time and cost. |
+| [ai.chat](ai/chat.md) | implemented | Asks the target provider's model and returns its answer with a usage record: tokens, time, retries and cost. |
+| [ai.model.list](ai/model/list.md) | implemented | Lists the models an Ollama host has on disk and the ones in memory. |
+| [ai.model.load](ai/model/load.md) | implemented | Loads a model into an Ollama host's memory, unloading every other model first so one is resident at a time. |
+| [ai.model.pull](ai/model/pull.md) | implemented | Pulls a model onto an Ollama host when it is not there. |
+| [ai.model.remove](ai/model/remove.md) | implemented | Removes a model from an Ollama host, unloading it first when it is in memory. |
+| [ai.model.unload](ai/model/unload.md) | implemented | Unloads a model from an Ollama host's memory. |
+| [ai.prompt.verify](ai/prompt/verify.md) | implemented | Verifies a signed prompt bundle, parameter set or routing table against the project's trusted keys, as a call would. |
+| [ai.provider.list](ai/provider/list.md) | implemented | Reports what a provider is and which models it serves: kind, endpoint, residency, prices and host guard. |
+| [ai.provider.probe](ai/provider/probe.md) | implemented | Makes one counted call of a few tokens to a provider's model and reports its latency and usage. |
+| [ai.route](ai/route.md) | implemented | Asks a use's providers in fallback order and returns the first answer, refusing any provider the use's residency forbids. |
 | [archive.create](archive/create.md) | implemented | Creates an archive (tar or tar.gz) from files on the target. |
 | [archive.extract](archive/extract.md) | implemented | Extracts an archive (tar or tar.gz) on the target. |
 | [build.digests.check](build/digests/check.md) | implemented | Lists every container image reference in a build's files that is not pinned by both tag and digest. |

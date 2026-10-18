@@ -72,7 +72,7 @@ func runAddCredential(args []string) error {
 		"read the private key's or the bundle's passphrase as one line on standard input")
 	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
-	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster)")
+	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
 
 	if err := fs.Parse(rest); err != nil {
 		return err

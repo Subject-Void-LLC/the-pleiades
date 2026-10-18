@@ -41,7 +41,7 @@ func TestReachedBy_TheRows(t *testing.T) {
 		capability.TransportSSH:          {capability.NameSSHTransport},
 		capability.TransportWinRM:        {capability.NameWinRM},
 		capability.TransportNetconf:      {capability.NameNetconf},
-		capability.TransportHTTPS:        {capability.NameHTTPAPI, capability.NameCatalystAPI},
+		capability.TransportHTTPS:        {capability.NameHTTPAPI, capability.NameCatalystAPI, capability.NameAIProvider},
 		capability.TransportEngineLocal:  {capability.NameEngineLocal},
 		capability.TransportEngineSocket: {capability.NameEngineSocket},
 		capability.TransportEngineStdio:  {capability.NameEngineStdio},

@@ -148,7 +148,7 @@ var Root = Command{
 				{Name: "passphrase-stdin", Type: "bool", Default: "false", Doc: "read the private key's or the bundle's passphrase as one line on standard input"},
 				{Name: "generate", Type: "bool", Default: "false", Doc: "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "with --generate, replace a credential already stored for the device"},
-				{Name: "token-stdin", Type: "bool", Default: "false", Doc: "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster)"},
+				{Name: "token-stdin", Type: "bool", Default: "false", Doc: "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)"},
 			},
 			Examples: []string{
 				"pleiades add-credential web01 --username admin",
@@ -411,6 +411,83 @@ var Root = Command{
 					Name:     "list",
 					Synopsis: "list every approved build, who approved it and when",
 					Examples: []string{"pleiades collection list"},
+				},
+			},
+		},
+		{
+			Name:     "ai",
+			Synopsis: "sign prompts and decide answers a run held for review: what the ai collection needs a person for (see 'pleiades ai --help')",
+			Subcommands: []Command{
+				{
+					Name:     "prompt",
+					Synopsis: "make a prompt signing key, and sign a prompt bundle with it, at a terminal",
+					Subcommands: []Command{
+						{
+							Name:     "keygen",
+							Synopsis: "write an Ed25519 signing key outside the project and print the trusted keys entry for it; needs a person at a terminal",
+							Flags: []Flag{
+								{Name: "out", Type: "string", Default: "", Doc: "the private key file to write (mode 0600), outside the project"},
+								{Name: "uses", Type: "string", Default: "", Doc: "the uses the key may sign for, comma separated, for the printed entry"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+							},
+							Examples: []string{"pleiades ai prompt keygen --out ~/.config/pleiades/prompts.key --uses triage"},
+						},
+						{
+							Name:       "sign",
+							Positional: "<bundle.json>",
+							Synopsis:   "show a prompt bundle, parameter set or routing table and, once you type sign, write its detached signature as <bundle.json>.sig; needs a person at a terminal",
+							Flags: []Flag{
+								{Name: "key", Type: "string", Default: "", Doc: "the private key file, as keygen writes it; refused when others can read it"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory, whose ai/trusted-keys.yaml is checked for the key"},
+							},
+							Examples: []string{"pleiades ai prompt sign ai/prompts/triage.json --key ~/.config/pleiades/prompts.key"},
+						},
+					},
+				},
+				{
+					Name:     "review",
+					Synopsis: "list, show, approve and deny the answers runs held for review (ai/review)",
+					Subcommands: []Command{
+						{
+							Name:     "list",
+							Synopsis: "list every review, newest held first, and any file that fails its own checks",
+							Flags: []Flag{
+								{Name: "json", Type: "bool", Default: "false", Doc: "print JSON"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+							},
+							Examples: []string{"pleiades ai review list", "pleiades ai review list --json"},
+						},
+						{
+							Name:       "show",
+							Positional: "<key>",
+							Synopsis:   "show one review whole: what was asked of whom, why it was held, and the answer, escaped",
+							Flags: []Flag{
+								{Name: "json", Type: "bool", Default: "false", Doc: "print JSON"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+							},
+							Examples: []string{"pleiades ai review show 3f2a9c1e"},
+						},
+						{
+							Name:       "approve",
+							Positional: "<key>",
+							Synopsis:   "show a pending review and, once you type approve, release its answer to the next run that asks the same thing; needs a person at a terminal",
+							Flags: []Flag{
+								{Name: "comment", Type: "string", Default: "", Doc: "why, recorded with the decision"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+							},
+							Examples: []string{"pleiades ai review approve 3f2a9c1e --comment \"checked against the ticket\""},
+						},
+						{
+							Name:       "deny",
+							Positional: "<key>",
+							Synopsis:   "show a pending review and, once you type deny, fail every run that asks the same thing; needs a person at a terminal",
+							Flags: []Flag{
+								{Name: "comment", Type: "string", Default: "", Doc: "why, recorded with the decision"},
+								{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+							},
+							Examples: []string{"pleiades ai review deny 3f2a9c1e"},
+						},
+					},
 				},
 			},
 		},

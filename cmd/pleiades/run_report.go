@@ -31,6 +31,11 @@ const (
 	statusCheckedOnly taskStatus = "checked_only"
 	// statusFailed ended with an error.
 	statusFailed taskStatus = "failed"
+	// statusHeld ended holding its result for a person's decision
+	// (sdk.HeldError): it failed the run closed, and is told apart from a
+	// failure because running again after the decision continues it.
+	// Phase 27 turns it into a pause (internal/engine's pause.go).
+	statusHeld taskStatus = "held"
 	// statusSkipped did not run, for the reason given.
 	statusSkipped taskStatus = "skipped"
 	// statusUnchecked could not say what it would change.
@@ -251,6 +256,9 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 			t.AllowedUnchecked = allowUnchecked[t.Method]
 		case node.Err != nil:
 			t.Status, t.Error = statusFailed, redact.Text(result.Secrets, node.Err.Error())
+			if _, held := engine.HoldOf(node.Err); held {
+				t.Status = statusHeld
+			}
 		case node.Skipped:
 			t.Status, t.Reason = statusSkipped, redact.Text(result.Secrets, node.SkipReason)
 		case node.Changed && (checking || node.Checked):

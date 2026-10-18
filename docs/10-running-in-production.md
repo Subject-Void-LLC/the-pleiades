@@ -2229,6 +2229,70 @@ its own transaction, and a second run waits on that claim and then reads the rec
 in a transaction (`CREATE INDEX CONCURRENTLY`) has its claim recorded unfinished until it succeeds; a run that
 died midway leaves that row, and later runs name it rather than guess.
 
+### Language model providers
+
+The `ai` methods call a language model as a step of a run. A provider is an `ai_provider` device, and its record
+says:
+- its kind: `ollama`, `anthropic`, `google`, or `openai` for anything speaking OpenAI's chat completions API;
+- its `api_base`;
+- its `residency`: `local` for hardware you run, `hosted` otherwise. It is required, with no default.
+
+Its key is its own stored credential (`pleiades add-credential claude --token-stdin`). It is sent only to its own
+`api_base`, and no redirect is followed. A template's machine credential is never sent as one. A hosted provider
+is reached over https only. A provider is onboarded before any task targets it, by listing its models, which
+calls no model and costs nothing.
+
+**Residency.** A use tagged `local` never sends anything to a `hosted` provider:
+- `pleiades validate` refuses a literal routing table, or an `ai.chat` task, that would;
+- every call checks again before contact, so a table rendered from a variable is held to the same rule.
+
+**Usage.** Every call ends in a usage record:
+- what it holds: the provider and model, tokens in and out, time, retries, the parameters ignored or dropped, and
+  the cost from the record's `ai_prices`;
+- what it never holds: what was sent or answered;
+- `usage_sink` appends each record to a file under the project's `ai/usage`, and proves the file writable before
+  the call.
+
+**Signed prompts.** A prompt bundle can carry a detached Ed25519 signature:
+- a person makes it at a terminal with `pleiades ai prompt keygen` and `sign`;
+- runs verify it against `ai/trusted-keys.yaml`, where each key lists the uses it may sign for;
+- a use's `signing` policy is `off`, `optional` or `required`;
+- verification refuses a changed text, an untrusted key or role, an expired key or bundle, and a version older than
+  one already used.
+
+A signature is provenance and integrity: it says who approved the text and that it is unchanged. It is not a
+promise about what the model does. Untrusted text (a ticket, an earlier answer) goes in as `input`, as one JSON
+string between fixed markers, so it cannot close the prompt's own instructions. The model still reads it.
+
+**Human review.** `review` rules on `ai.chat`, `ai.route` or a routing table's use hold an answer that crosses a
+threshold:
+- cost, output tokens, a pattern, a field of a JSON answer, the stop reason, a fallback provider, an unsigned
+  prompt, or always;
+- a rule that cannot be evaluated (an unpriced model, a missing field) holds.
+
+A held answer reaches no later task until a person decides:
+- **A person at the run's terminal** is asked to approve, deny or hold it.
+- **Nobody there** (a schedule, a pipe, an agent): the answer is kept in `ai/review` and the task fails with
+  status `held`. Decide it with `pleiades ai review show`, `approve` or `deny`. Deciding needs a person at a
+  terminal and is refused under an agent. Running again reuses the decided answer with no second call.
+
+On the Crawl tier a decision is a file in the project. It stops an unattended run, or an agent driving the CLI,
+from releasing a held answer. It is not a barrier against a process with your own file access.
+
+**Pausing.** A held task fails the run rather than pausing it, because the engine cannot yet persist a run and
+resume it later. Pause and resume, and approvals by an approver role on the Controller, are planned.
+
+**Ollama hosts.** `ai.model.load`, `unload`, `pull` and `remove` change only a host whose record declares
+`ai_host_guard: single_resident`:
+- a load first unloads every other model, so the host holds one at a time;
+- they only ever call Ollama's HTTP API, so nothing restarts, stops or signals the host or the machine it runs on.
+
+**On the Walk tier** a Runner has no project:
+- give prompts inline;
+- a signed or `required` prompt is refused as uncheckable;
+- `ai.route`, `usage_sink` and `save_as` are refused;
+- an answer crossing a review threshold fails closed and is never released.
+
 ### Kubernetes clusters
 
 A `kubernetes_cluster` device is one cluster, reached through its API server.

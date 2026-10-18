@@ -1,0 +1,43 @@
+# The Pleiades static inventory (Crawl tier).
+#
+# Two model hosts you run (Ollama) and one hosted provider. Point each
+# api_base at yours, then onboard each one, which lists its models with
+# its own key and makes no model call:
+#   pleiades onboard workstation
+#   pleiades onboard lab-ollama
+#   pleiades add-credential claude --token-stdin < key   # a hosted provider's key
+#   pleiades onboard claude
+# Keys are never stored here or anywhere in this directory.
+hosts:
+  - id: workstation
+    name: workstation
+    type: ai_provider
+    tags:
+      - models
+    properties:
+      ai_kind: ollama
+      api_base: http://127.0.0.1:11434
+      residency: local
+      # Lets ai.model.load, unload, pull and remove change this host, one
+      # model in memory at a time. They only ever call Ollama's HTTP API.
+      ai_host_guard: single_resident
+      ai_prices: "qwen3:14b=0/0"
+      ai_price_currency: USD
+  - id: lab-ollama
+    name: lab-ollama
+    type: ai_provider
+    properties:
+      ai_kind: ollama
+      api_base: http://127.0.0.1:11435
+      residency: local
+      ai_prices: "qwen3:14b=0/0"
+      ai_price_currency: USD
+  - id: claude
+    name: claude
+    type: ai_provider
+    properties:
+      ai_kind: anthropic
+      api_base: https://api.anthropic.com
+      residency: hosted
+      ai_prices: "claude-haiku-5-5=1/5"
+      ai_price_currency: USD

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**148 of 151 methods are implemented.**
+**159 of 162 methods are implemented.**
 
 ## Implemented
 
@@ -136,6 +136,17 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [scan.sbom](modules/scan/sbom.md)
 - [scan.secrets](modules/scan/secrets.md)
 - [scan.vuln](modules/scan/vuln.md)
+- [ai.bench.run](modules/ai/bench/run.md)
+- [ai.chat](modules/ai/chat.md)
+- [ai.model.list](modules/ai/model/list.md)
+- [ai.model.load](modules/ai/model/load.md)
+- [ai.model.pull](modules/ai/model/pull.md)
+- [ai.model.remove](modules/ai/model/remove.md)
+- [ai.model.unload](modules/ai/model/unload.md)
+- [ai.prompt.verify](modules/ai/prompt/verify.md)
+- [ai.provider.list](modules/ai/provider/list.md)
+- [ai.provider.probe](modules/ai/provider/probe.md)
+- [ai.route](modules/ai/route.md)
 - [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
 - [virt.vbox.vm.info](modules/virt/vbox/vm/info.md)
 - [virt.vbox.vm.start](modules/virt/vbox/vm/start.md)

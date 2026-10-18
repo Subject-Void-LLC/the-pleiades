@@ -376,7 +376,9 @@ $ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json
 ```
 
 A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`,
-`skipped` and `unchecked`. Everything in the document is masked as the text view is,
+`held`, `skipped` and `unchecked`. `held` is a task that held its result for a person's
+decision (an `ai` method's review): the run fails as it would for `failed`, and running it
+again once the decision is made continues it. Everything in the document is masked as the text view is,
 and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
 the like) reads `$encrypted$` in both. Characters a terminal would act on are written
 as `\u` escapes, so the document is safe to print.

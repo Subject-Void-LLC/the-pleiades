@@ -115,6 +115,8 @@ func printResults(rep *runReport, verbose bool) {
 			continue
 		case statusFailed:
 			fmt.Printf("  %s: FAILED: %v\n", label, termsafe.Escape(t.Error))
+		case statusHeld:
+			fmt.Printf("  %s: HELD FOR REVIEW: %v\n", label, termsafe.Escape(t.Error))
 		case statusSkipped:
 			fmt.Printf("  %s: skipped (%s)\n", label, termsafe.Escape(t.Reason))
 		case statusWouldChange:
@@ -135,7 +137,7 @@ func printResults(rep *runReport, verbose bool) {
 		if verbose && t.Provider != nil {
 			fmt.Printf("    provided by: %s (%s)\n", termsafe.EscapeLine(t.Provider.Program), t.Provider.Digest)
 		}
-		if verbose && t.Status != statusFailed && t.Status != statusSkipped {
+		if verbose && t.Status != statusFailed && t.Status != statusHeld && t.Status != statusSkipped {
 			printNodeStats(t.Stats, nil)
 		}
 	}

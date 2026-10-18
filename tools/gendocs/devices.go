@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory" // registers every built-in device type
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -181,6 +182,7 @@ var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
 	generic.TypeHTTP:       {generic.BaseURLProperty: "https://api.example.com"},
 	generic.TypeGRPC:       {generic.GRPCTargetProperty: "grpc.example.com:443"},
 	kubernetes.TypeCluster: {kubernetes.APIServerProperty: "https://k8s.example.com:6443"},
+	ai.TypeProvider:        {ai.KindProperty: "anthropic", ai.APIBaseProperty: "https://api.anthropic.com", ai.ResidencyProperty: ai.ResidencyHosted},
 }
 
 // onboardedType is a device type that starts discovered and gains its
@@ -196,7 +198,7 @@ func onboardedTypes() []onboardedType {
 	for _, t := range generic.Types() {
 		out = append(out, onboardedType{typeKey: t, vendor: "generic"})
 	}
-	return append(out, onboardedType{typeKey: kubernetes.TypeCluster, vendor: "kubernetes"})
+	return append(out, onboardedType{typeKey: kubernetes.TypeCluster, vendor: "kubernetes"}, onboardedType{typeKey: ai.TypeProvider, vendor: "ai"})
 }
 
 // capabilityNames renders capability names as strings.
