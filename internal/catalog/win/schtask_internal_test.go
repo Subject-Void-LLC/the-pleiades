@@ -7,7 +7,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -221,18 +224,16 @@ func TestSchtask_Refuses(t *testing.T) {
 }
 
 // TestSchtaskScript_Parses: PowerShell's own parser reads the script with
-// no error, where a PowerShell is installed (pwsh, or Windows PowerShell
-// through WSL). Nothing is run: the script is only parsed.
+// no error. Nothing is run: the script is only parsed. It parses on a
+// Windows machine with that machine's own Windows PowerShell, which is
+// where the script runs (make win-check runs this package on the lab's
+// win-check), or with a pwsh installed on this machine. It never starts a
+// Windows program through WSL: that is the workstation the Linux side runs
+// on, which a test has no business reaching (FAILURE_PATTERNS 508).
 func TestSchtaskScript_Parses(t *testing.T) {
-	shell := ""
-	for _, candidate := range []string{"pwsh", "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"} {
-		if p, err := exec.LookPath(candidate); err == nil {
-			shell = p
-			break
-		}
-	}
+	shell := powerShellHere()
 	if shell == "" {
-		t.Skip("needs powershell: no pwsh or Windows PowerShell to parse the script with")
+		t.Skip("needs powershell: none native to this machine (Windows PowerShell on Windows, or a pwsh that is not a Windows host's program reached through WSL)")
 	}
 	parse := `$s = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + base64.StdEncoding.EncodeToString([]byte(schtaskScript)) + `'))
 $e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($s, [ref]$null, [ref]$e)
@@ -245,5 +246,39 @@ $e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($s,
 	out, err := exec.Command(shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", base64.StdEncoding.EncodeToString(raw)).CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "errors=0") {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// powerShellHere is a PowerShell native to the machine the test runs on:
+// Windows PowerShell on Windows, else a pwsh on the PATH that is not a
+// Windows program. WSL appends the Windows host's PATH to its own, so a
+// lookup can resolve to the host's programs, which run on the workstation
+// outside this machine; one that ends in .exe once its links are followed
+// is refused.
+func powerShellHere() string {
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(winrmexec.DefaultPowerShellPath); err == nil {
+			return winrmexec.DefaultPowerShellPath
+		}
+		return ""
+	}
+	p, err := exec.LookPath("pwsh")
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(p); err != nil || strings.HasSuffix(strings.ToLower(real), ".exe") {
+		return ""
+	}
+	return p
+}
+
+// TestSchtaskScript_FitsTheCommandLine: the script, as powershell.exe
+// -EncodedCommand carries it, fits the 8191 characters the WinRM service's
+// cmd.exe accepts. The other tests replace the WinRM call, so none of them
+// built the line, and the script came to 9541 characters: every call was
+// refused before it reached a real host.
+func TestSchtaskScript_FitsTheCommandLine(t *testing.T) {
+	if err := winrmexec.CheckScript(winrmexec.ShellPowerShell, schtaskScript, winrmexec.Options{}); err != nil {
+		t.Fatal(err)
 	}
 }
