@@ -133,21 +133,26 @@ func (x POSIX) Test(ctx context.Context, target, sha string, parallel int, packa
 		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", target)
 	}
 	fmt.Fprintf(stdout, "%s: running on %s; Pleiades returns the output when the run ends, since it does not stream it yet\n", x.Tool, x.Machine)
-	run := func(ctx context.Context) (string, error) {
-		return x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.TestScript(sha, parallel, packages)))
+	run := func(ctx context.Context) (Outcome, error) {
+		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.TestScript(sha, parallel, packages)), fmt.Sprintf("--timeout=%d", TestTimeout))
 	}
 	stop := func(ctx context.Context) error {
 		_, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
 		return err
 	}
-	return RunTests(ctx, target, Marker(x.Tool), run, stop, stdout)
+	return RunTests(ctx, target, run, stop, stdout)
 }
+
+// TestTimeout bounds a test run on the machine, in seconds, as the task's
+// own timeout: go test's own per-package timeout is 30 minutes, and a run
+// is two passes over every package the branch changes.
+const TestTimeout = 4 * 60 * 60
 
 // TestScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass and three strict
 // repeats, under Wrap. Standard error joins standard output so they read
-// in order, and the script always exits 0, ending with the marker and the
-// tests' exit status (see Marker). The tests start as a job of their own
+// in order, and the script exits with the tests' status, which the failed
+// task reports with their output. The tests start as a job of their own
 // (set -m), in a process group whose ID is written to PIDFile, so
 // StopScript can end every process of the run at once; job control is then
 // turned off again, so the shell prints no job notice into the output.
@@ -156,14 +161,13 @@ func (x POSIX) TestScript(sha string, parallel int, packages []string) string {
 	p := fmt.Sprintf("-p %d", parallel)
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
-cd "$HOME/%[2]s/%[3]s" || { echo "%[4]s2"; exit 0; }
+cd "$HOME/%[2]s/%[3]s" || exit 2
 set -m
-%[8]s/bin/sh -c 'go run ./tools/testgate -full %[5]s %[6]s && go run ./tools/testgate -repeat 3 -strict %[5]s %[6]s' &
+%[7]s/bin/sh -c 'go run ./tools/testgate -full %[4]s %[5]s && go run ./tools/testgate -repeat 3 -strict %[4]s %[5]s' &
 job=$!
 set +m
-echo "$job" > %[7]s
-wait "$job"
-echo "%[4]s$?"`, x.Path, x.Dir, sha, Marker(x.Tool), p, pkgs, x.PIDFile(), x.Wrap)
+echo "$job" > %[6]s
+wait "$job"`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap)
 }
 
 // PIDFile is where, in the unpacked tree, TestScript writes its tests'

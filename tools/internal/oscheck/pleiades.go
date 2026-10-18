@@ -40,11 +40,7 @@ func (p Pleiades) Run(args ...string) (string, error) {
 
 // adhocReport is the part of `pleiades adhoc --json` read here.
 type adhocReport struct {
-	Tasks []struct {
-		Status string         `json:"status"`
-		Error  string         `json:"error"`
-		Stats  map[string]any `json:"stats"`
-	} `json:"tasks"`
+	Tasks      []reportTask `json:"tasks"`
 	Validation []struct {
 		Message string `json:"message"`
 	} `json:"validation"`
@@ -64,25 +60,89 @@ func (p Pleiades) Adhoc(ctx context.Context, method string, params ...string) (s
 }
 
 // adhocStdout reads one adhoc --json report: the one task's stdout return,
-// or why there is none.
+// or why there is none, a failed task's own error included.
 func adhocStdout(method string, out []byte) (string, error) {
+	task, failed, err := oneTask(method, out)
+	if err != nil {
+		return "", err
+	}
+	if failed != "" {
+		return "", fmt.Errorf("%s: %s", method, failed)
+	}
+	stdout, _ := task.Stats["stdout"].(string)
+	return stdout, nil
+}
+
+// reportTask is one task of an adhoc --json report.
+type reportTask struct {
+	Status string         `json:"status"`
+	Error  string         `json:"error"`
+	Stats  map[string]any `json:"stats"`
+}
+
+// oneTask reads one adhoc --json report's one task, and why it failed (""
+// when it did not), or why the report has no one task.
+func oneTask(method string, out []byte) (reportTask, string, error) {
 	var report adhocReport
 	if err := json.Unmarshal(out, &report); err != nil {
-		return "", fmt.Errorf("pleiades adhoc %s printed no report: %v", method, err)
+		return reportTask{}, "", fmt.Errorf("pleiades adhoc %s printed no report: %v", method, err)
 	}
 	if len(report.Tasks) != 1 {
 		why := report.Outcome.Message
 		for _, v := range report.Validation {
 			why += "; " + v.Message
 		}
-		return "", fmt.Errorf("pleiades adhoc %s ran %d tasks: %s", method, len(report.Tasks), why)
+		return reportTask{}, "", fmt.Errorf("pleiades adhoc %s ran %d tasks: %s", method, len(report.Tasks), why)
 	}
 	task := report.Tasks[0]
 	if task.Error != "" || report.Outcome.ExitCode != 0 {
-		return "", fmt.Errorf("%s: %s", method, FirstOf(task.Error, report.Outcome.Message))
+		return task, FirstOf(task.Error, report.Outcome.Message), nil
+	}
+	return task, "", nil
+}
+
+// Outcome is a command's answer: what it wrote to standard output, and the
+// exit status it ended with.
+type Outcome struct {
+	Output   string
+	ExitCode int
+}
+
+// AdhocOutcome runs a command method (exec.command, exec.winrm.shell)
+// against the device, its pleiades ended when ctx ends, and returns its
+// output and exit status, a non-zero one included: a failed task keeps
+// the exit status and output its method recorded (rc, or exit_code), so a
+// command that ran and failed is an answer, and only one that did not run
+// is an error.
+func (p Pleiades) AdhocOutcome(ctx context.Context, method string, params ...string) (Outcome, error) {
+	args := append([]string{"adhoc", p.Device, method}, params...)
+	args = append(args, "--json", "--dir", p.Project)
+	out, _ := exec.CommandContext(ctx, p.Binary, args...).Output() // #nosec G204 -- the binary this check built, with arguments it wrote
+	return adhocOutcome(method, out)
+}
+
+// exitStats are the stats a command method records its exit status
+// under: exec.command's rc, and exec.winrm.shell's exit_code.
+var exitStats = []string{"rc", "exit_code"}
+
+// adhocOutcome reads one adhoc --json report: the one task's output and
+// exit status, or why it has none.
+func adhocOutcome(method string, out []byte) (Outcome, error) {
+	task, failed, err := oneTask(method, out)
+	if err != nil {
+		return Outcome{}, err
 	}
 	stdout, _ := task.Stats["stdout"].(string)
-	return stdout, nil
+	if failed == "" {
+		return Outcome{Output: stdout}, nil
+	}
+	for _, key := range exitStats {
+		// JSON gives every number as a float64.
+		if code, ok := task.Stats[key].(float64); ok && code != 0 {
+			return Outcome{Output: stdout, ExitCode: int(code)}, nil
+		}
+	}
+	return Outcome{}, fmt.Errorf("%s: %s", method, failed)
 }
 
 // ArgvYAML is argv as a YAML flow list, for an adhoc key:=yaml parameter

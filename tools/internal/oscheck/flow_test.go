@@ -171,36 +171,34 @@ func TestRun_AnInterruptIsNotTheMachinesFault(t *testing.T) {
 	}
 }
 
-// TestRunTests reads the status after the marker and prints the rest, and
-// stops the run on the machine when ctx ends first, saying whether that
-// worked.
+// TestRunTests prints the run's output and passes on exit status 0 only,
+// and stops the run on the machine when ctx ends first, saying whether
+// that worked.
 func TestRunTests(t *testing.T) {
-	marker := Marker("xcheck")
 	stopped := false
 	stop := func(context.Context) error { stopped = true; return nil }
-	answer := func(out string, err error) func(context.Context) (string, error) {
-		return func(context.Context) (string, error) { return out, err }
+	answer := func(out Outcome, err error) func(context.Context) (Outcome, error) {
+		return func(context.Context) (Outcome, error) { return out, err }
 	}
 	for _, tc := range []struct {
 		name       string
-		out        string
+		out        Outcome
 		err        error
 		wantPassed bool
 		wantErr    string
 		wantPrint  string
 	}{
-		{"passed", "ok a\n" + marker + "0\n", nil, true, "", "ok a"},
-		{"failed", "FAIL a\r\n" + marker + "1", nil, false, "", "FAIL a"},
-		{"no status", "cut off", nil, false, "ended without its exit status", "cut off"},
-		{"the call failed", "", errors.New("exec.command: refused"), false, "refused", ""},
+		{"passed", Outcome{Output: "ok a\n"}, nil, true, "", "ok a"},
+		{"failed", Outcome{Output: "FAIL a\r\n", ExitCode: 1}, nil, false, "", "FAIL a"},
+		{"the call failed", Outcome{}, errors.New("exec.command: refused"), false, "refused", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout bytes.Buffer
-			passed, err := RunTests(context.Background(), "box-1", marker, answer(tc.out, tc.err), stop, &stdout)
+			passed, err := RunTests(context.Background(), "box-1", answer(tc.out, tc.err), stop, &stdout)
 			if passed != tc.wantPassed || (tc.wantErr == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("passed %v, err %v", passed, err)
 			}
-			if !strings.Contains(stdout.String(), tc.wantPrint) || strings.Contains(stdout.String(), marker) {
+			if !strings.Contains(stdout.String(), tc.wantPrint) {
 				t.Errorf("printed %q", &stdout)
 			}
 		})
@@ -211,33 +209,11 @@ func TestRunTests(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := RunTests(ctx, "box-1", marker, answer("", context.Canceled), stop, io.Discard); !stopped || err == nil || !strings.Contains(err.Error(), "interrupted; the tests on box-1 were stopped") {
+	if _, err := RunTests(ctx, "box-1", answer(Outcome{}, context.Canceled), stop, io.Discard); !stopped || err == nil || !strings.Contains(err.Error(), "interrupted; the tests on box-1 were stopped") {
 		t.Fatalf("interrupted: stopped %v, %v", stopped, err)
 	}
 	failStop := func(context.Context) error { return errors.New("no answer") }
-	if _, err := RunTests(ctx, "box-1", marker, answer("", context.Canceled), failStop, io.Discard); err == nil || !strings.Contains(err.Error(), "could not be stopped: no answer") {
+	if _, err := RunTests(ctx, "box-1", answer(Outcome{}, context.Canceled), failStop, io.Discard); err == nil || !strings.Contains(err.Error(), "could not be stopped: no answer") {
 		t.Fatalf("a stop that failed: %v", err)
-	}
-}
-
-// TestSplitMarker reads the exit status from the end of the run's output.
-func TestSplitMarker(t *testing.T) {
-	const m = "maccheck-exit="
-	for out, want := range map[string]struct {
-		output string
-		code   int
-		ok     bool
-	}{
-		"ok pkg\nmaccheck-exit=0":       {"ok pkg", 0, true},
-		"FAIL pkg\nmaccheck-exit=1\n":   {"FAIL pkg", 1, true},
-		"ok\r\nmaccheck-exit=0\r\n":     {"ok", 0, true},
-		"cut off before the end":        {"cut off before the end", 0, false},
-		"maccheck-exit=x":               {"maccheck-exit=x", 0, false},
-		"a maccheck-exit=9 in the text": {"a maccheck-exit=9 in the text", 0, false},
-	} {
-		output, code, ok := SplitMarker(out, m)
-		if output != want.output || code != want.code || ok != want.ok {
-			t.Errorf("SplitMarker(%q) = %q, %d, %v", out, output, code, ok)
-		}
 	}
 }

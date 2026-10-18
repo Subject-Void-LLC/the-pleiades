@@ -4,6 +4,7 @@
 package oscheck
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,23 +19,25 @@ var posix = POSIX{Tool: "maccheck", Machine: "the Mac", Dir: ".pleiades-maccheck
 
 // TestTestScript: the packages run in the commit's tree under Wrap, both
 // passes, as a job of their own whose process group is written down, and
-// the script always ends by printing the exit status.
+// the script exits with the tests' status.
 func TestTestScript(t *testing.T) {
 	s := posix.TestScript("abc123", 2, []string{"github.com/x/a", "github.com/x/b"})
 	for _, w := range []string{
 		"exec 2>&1",
 		`export PATH="$PATH:/opt/homebrew/bin"`,
-		`cd "$HOME/.pleiades-maccheck/abc123" || { echo "maccheck-exit=2"; exit 0; }`,
+		`cd "$HOME/.pleiades-maccheck/abc123" || exit 2`,
 		"set -m",
 		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -p 2 github.com/x/a github.com/x/b' &",
 		`echo "$job" > .maccheck.pid`,
-		`wait "$job"`,
 		"set +m",
-		`echo "maccheck-exit=$?"`,
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("script does not hold %q:\n%s", w, s)
 		}
+	}
+	// The script's own status is the tests': it ends waiting on their job.
+	if !strings.HasSuffix(s, `wait "$job"`) {
+		t.Errorf("script does not end with the tests' status:\n%s", s)
 	}
 	unwrapped := POSIX{Tool: "bsdcheck", Dir: ".b"}.TestScript("abc", 0, []string{"a/b"})
 	if !strings.Contains(unwrapped, "\n/bin/sh -c 'go run ./tools/testgate -full -p 0 a/b") {
@@ -44,7 +47,8 @@ func TestTestScript(t *testing.T) {
 
 // TestTestAndStopScripts_RunUnderSh runs the real scripts in a fake home:
 // a tree that is missing ends with status 2, and a run the stop script
-// reaches ends, all of its processes with it, within seconds.
+// reaches ends, all of its processes with it, within seconds, with a
+// status that is not 0.
 func TestTestAndStopScripts_RunUnderSh(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")
@@ -63,7 +67,8 @@ func TestTestAndStopScripts_RunUnderSh(t *testing.T) {
 	}
 
 	out, err := sh(x.TestScript("missing", 1, []string{"a/b"})).Output()
-	if _, code, ok := SplitMarker(string(out), Marker("xcheck")); err != nil || !ok || code != 2 || !strings.Contains(string(out), "missing") {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "missing") {
 		t.Fatalf("a missing tree: %q, %v", out, err)
 	}
 
@@ -85,15 +90,12 @@ func TestTestAndStopScripts_RunUnderSh(t *testing.T) {
 	if out, err := sh(x.StopScript("abc")).CombinedOutput(); err != nil {
 		t.Fatalf("stop: %v\n%s", err, out)
 	}
-	if err := run.Wait(); err != nil {
-		t.Fatalf("the test script did not exit 0: %v\n%s", err, &output)
+	// A stopped run's status is not 0, so it never reads as a pass.
+	if err := run.Wait(); !errors.As(err, &exit) {
+		t.Fatalf("a stopped run exited %v, want a non-zero status\n%s", err, &output)
 	}
 	if took := time.Since(start); took > 10*time.Second {
 		t.Errorf("the stopped run took %s to end", took)
-	}
-	_, code, ok := SplitMarker(output.String(), Marker("xcheck"))
-	if !ok || code == 0 {
-		t.Errorf("a stopped run reported status %d (%v):\n%s", code, ok, &output)
 	}
 	// Nothing of the run is left: the group the pid file names is gone.
 	pid, err := os.ReadFile(pidFile)

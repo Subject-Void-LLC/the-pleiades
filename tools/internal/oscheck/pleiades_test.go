@@ -39,6 +39,32 @@ func TestAdhocStdout(t *testing.T) {
 	}
 }
 
+// TestAdhocOutcome: a command that ran is an answer whatever its status,
+// read from the failed task's own rc (exec.command) or exit_code
+// (exec.winrm.shell), the shapes `pleiades adhoc --json` printed on the
+// lab's boxes; one that did not run is an error naming why.
+func TestAdhocOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, report string
+		want         Outcome
+		wantErr      string
+	}{
+		{"it passed", `{"tasks":[{"status":"changed","stats":{"rc":0,"stdout":"ok a"}}],"outcome":{"exit_code":0}}`, Outcome{Output: "ok a"}, ""},
+		{"exec.command failed", `{"tasks":[{"status":"failed","error":"exec.command: command exited 1: FAIL","stats":{"rc":1,"stdout":"FAIL a","stderr":""}}],"outcome":{"exit_code":1,"message":"execution failed"}}`, Outcome{Output: "FAIL a", ExitCode: 1}, ""},
+		{"exec.winrm.shell failed", `{"tasks":[{"status":"failed","error":"exec.winrm.shell: script exited 2","stats":{"exit_code":2,"stdout":"no tree","result_known":true}}],"outcome":{"exit_code":1}}`, Outcome{Output: "no tree", ExitCode: 2}, ""},
+		{"it did not run", `{"tasks":[{"status":"failed","error":"remoteexec: dial: connection refused"}],"outcome":{"exit_code":1}}`, Outcome{}, "connection refused"},
+		{"its timeout ran out", `{"tasks":[{"status":"failed","error":"exec.command: context deadline exceeded (its timeout of 4h0m0s ran out)"}],"outcome":{"exit_code":1}}`, Outcome{}, "ran out"},
+		{"no report", "", Outcome{}, "printed no report"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := adhocOutcome("exec.command", []byte(tc.report))
+			if got != tc.want || (tc.wantErr == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("adhocOutcome = %+v, %v", got, err)
+			}
+		})
+	}
+}
+
 // TestYAMLValues: each value reaches the method as it was, newlines,
 // quotes and YAML's own syntax included, as YAML reads it.
 func TestYAMLValues(t *testing.T) {

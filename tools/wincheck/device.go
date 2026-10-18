@@ -33,11 +33,6 @@ const winPath = `C:\go\bin;C:\mingit\cmd;C:\Program Files\Go\bin;C:\Program File
 // in to be sent; each archive is deleted once sent.
 const files = ".wincheck"
 
-// testSeconds bounds the test run on the machine, as exec.winrm.shell's
-// timeout: go test's own per-package timeout is 30 minutes, and a run is
-// two passes over every package the branch changes.
-const testSeconds = 4 * 60 * 60
-
 // windows is the real machine.
 type windows struct {
 	oscheck.Lab
@@ -55,11 +50,18 @@ func newLeg(project, device string) (oscheck.Leg, error) {
 // shell runs script through exec.winrm.shell, under PowerShell, with env's
 // values as $env:PLEIADES_<NAME>, returning its standard output.
 func (w windows) shell(ctx context.Context, script string, env map[string]string, seconds int) (string, error) {
+	return w.Pleiades.Adhoc(ctx, "exec.winrm.shell", shellParams(script, env, seconds)...)
+}
+
+// shellParams are exec.winrm.shell's parameters for script, under
+// PowerShell, with env's values as $env:PLEIADES_<NAME> and seconds as its
+// own timeout.
+func shellParams(script string, env map[string]string, seconds int) []string {
 	params := []string{"shell=powershell", "command=" + script, "timeout:=" + strconv.Itoa(seconds)}
 	if len(env) > 0 {
 		params = append(params, "env:="+oscheck.MapYAML(env))
 	}
-	return w.Pleiades.Adhoc(ctx, "exec.winrm.shell", params...)
+	return params
 }
 
 // Ready builds pleiades from this tree and asks the machine whether it
@@ -164,12 +166,14 @@ func (w windows) Test(ctx context.Context, sha string, parallel int, packages []
 	}
 	fmt.Fprintln(stdout, "wincheck: running on the Windows machine; Pleiades returns the output when the run ends, since it does not stream it yet")
 	env := map[string]string{"SHA": sha, "PARALLEL": strconv.Itoa(parallel), "PACKAGES": strings.Join(packages, " ")}
-	run := func(ctx context.Context) (string, error) { return w.shell(ctx, testScript, env, testSeconds) }
+	run := func(ctx context.Context) (oscheck.Outcome, error) {
+		return w.Pleiades.AdhocOutcome(ctx, "exec.winrm.shell", shellParams(testScript, env, oscheck.TestTimeout)...)
+	}
 	stop := func(ctx context.Context) error {
 		_, err := w.shell(ctx, stopScript, map[string]string{"SHA": sha}, 60)
 		return err
 	}
-	return oscheck.RunTests(ctx, w.Target, oscheck.Marker("wincheck"), run, stop, stdout)
+	return oscheck.RunTests(ctx, w.Target, run, stop, stdout)
 }
 
 // pidFile is where, in the unpacked tree, testScript writes the process
@@ -178,13 +182,13 @@ const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass without the race
-// detector and three strict repeats, and it always exits 0, ending with the
-// marker and the tests' exit status (see oscheck.Marker). Each pass runs
-// under cmd.exe, which joins its standard error to its standard output so
-// they read in order: PowerShell would make each stderr line an error
-// record, and print an empty one as the record's type name. The command
-// line cmd.exe parses holds only the package list, refused here unless it
-// is import paths and spaces (oscheck.Options.Check refused anything else
+// detector and three strict repeats, and it exits with the tests' status,
+// which the failed task reports with their output. Each pass runs under
+// cmd.exe, which joins its standard error to its standard output so they
+// read in order: PowerShell would make each stderr line an error record,
+// and print an empty one as the record's type name. The command line
+// cmd.exe parses holds only the package list, refused here unless it is
+// import paths and spaces (oscheck.Options.Check refused anything else
 // before it was sent), and a number. The script's own process ID is written
 // to pidFile first, so stopScript can end it and everything under it, and
 // the file is removed at the end, so a later stop cannot reach a process
@@ -192,8 +196,8 @@ const pidFile = ".wincheck.pid"
 var testScript = `$ErrorActionPreference = 'Continue'
 $env:Path = '` + winPath + `;' + $env:Path
 $tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
-if (-not (Test-Path -LiteralPath $tree)) { '` + oscheck.Marker("wincheck") + `2'; exit 0 }
-if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { '` + oscheck.Marker("wincheck") + `2'; exit 0 }
+if (-not (Test-Path -LiteralPath $tree)) { "no tree at $tree; run -phase prepare first"; exit 2 }
+if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { 'the package list is not import paths and spaces'; exit 2 }
 Set-Location -LiteralPath $tree
 $pidFile = Join-Path $tree '` + pidFile + `'
 Set-Content -LiteralPath $pidFile -Value $PID
@@ -205,8 +209,7 @@ if ($code -eq 0) {
 	$code = $LASTEXITCODE
 }
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-'` + oscheck.Marker("wincheck") + `' + $code
-exit 0`
+exit $code`
 
 // stopScript ends the test run testScript started in sha's tree, and every
 // process under it, by the process ID in pidFile; it does nothing when

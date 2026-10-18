@@ -15,7 +15,6 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -177,12 +176,11 @@ func (f Flow) Run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 // so a machine that stopped answering cannot hold the interrupted run open.
 const StopGrace = time.Minute
 
-// RunTests runs a test script with run and reads its exit status from the
-// marker its output ends with (see Marker), printing the output to stdout.
-// When ctx ends first, the local pleiades is gone and the tests would run
-// on without it, so stop ends them on the machine, with a context of its
-// own bounded by StopGrace.
-func RunTests(ctx context.Context, target, marker string, run func(context.Context) (string, error), stop func(context.Context) error, stdout io.Writer) (bool, error) {
+// RunTests runs a test script with run, printing its output to stdout,
+// and reports whether it exited 0. When ctx ends first, the local pleiades
+// is gone and the tests would run on without it, so stop ends them on the
+// machine, with a context of its own bounded by StopGrace.
+func RunTests(ctx context.Context, target string, run func(context.Context) (Outcome, error), stop func(context.Context) error, stdout io.Writer) (bool, error) {
 	out, err := run(ctx)
 	if ctx.Err() != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), StopGrace)
@@ -195,31 +193,6 @@ func RunTests(ctx context.Context, target, marker string, run func(context.Conte
 	if err != nil {
 		return false, err
 	}
-	output, code, ok := SplitMarker(out, marker)
-	fmt.Fprintln(stdout, output)
-	if !ok {
-		return false, fmt.Errorf("the run on %s ended without its exit status", target)
-	}
-	return code == 0, nil
-}
-
-// Marker is what a check's test script ends its output with, followed by
-// the tests' exit status ("maccheck-exit="). The script itself always exits
-// 0: exec.command and exec.winrm.shell fail a task on a non-zero exit and
-// keep only an excerpt of its output then, and a failing run's output is
-// the part worth reading.
-func Marker(tool string) string { return tool + "-exit=" }
-
-// SplitMarker splits a test run's output from the exit status its last
-// line carries after marker.
-func SplitMarker(out, marker string) (string, int, bool) {
-	i := strings.LastIndex(out, marker)
-	if i < 0 {
-		return out, 0, false
-	}
-	code, err := strconv.Atoi(strings.TrimSpace(out[i+len(marker):]))
-	if err != nil {
-		return out, 0, false
-	}
-	return strings.TrimRight(out[:i], "\r\n"), code, true
+	fmt.Fprintln(stdout, strings.TrimRight(out.Output, "\r\n"))
+	return out.ExitCode == 0, nil
 }
