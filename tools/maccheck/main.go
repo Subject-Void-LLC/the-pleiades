@@ -8,7 +8,7 @@
 // user@host, user@ip, or a Host alias from ~/.ssh/config. It is driven
 // through this branch's own pleiades binary, as a generic_ssh device in a
 // private project under .git: a Pleiades user's path, so what Pleiades
-// cannot yet do for it shows (docs/design/maccheck.md). Before anything
+// cannot yet do for it shows (docs/design/os-checks.md). Before anything
 // else, maccheck probes the Mac's SSH port; then net.ssh.ping and
 // exec.command check Pleiades reaches it and that it is a Mac with go and
 // caffeinate. Each failure stops it with what to do, including how to

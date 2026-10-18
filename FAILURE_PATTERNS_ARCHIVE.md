@@ -12790,3 +12790,37 @@ Measured with `kern.ipc.somaxconn` 128: 128 sessions passed every run, alone and
 **Lesson.** A stress test's load must fit the platform's own limits or it tests the kernel; size it from the
 platform rather than skip it there, and measure the threshold on the platform before choosing.
 
+## 502. testgate's live tests asked for -race unconditionally, which cannot build on a Windows machine with no C compiler (fixed)
+
+**Symptom.** 2026-10-18, the first `make win-check` run on the lab's `win-check` (Windows Server 2025 Core, Go
+1.26.9, no C toolchain): five of `tools/testgate`'s live tests failed with `go: -race requires cgo; enable cgo by
+setting CGO_ENABLED=1`, and one more failed because the failure it expected never ran. Linux, macOS and FreeBSD
+pass them.
+
+**Root cause.** The live tests build the options of a full pass (`options{full: true}`), which always means
+`-race`, and run a throwaway module through it. The race detector needs cgo; Go turns cgo off by itself where it
+finds no C compiler, so `-race` cannot build there. What the tests check is how testgate judges a run, not the race
+detector.
+
+**Fix.** testgate takes `-race=false` (options.noRace) for a machine that cannot build with it, which
+tools/wincheck passes; the live tests set it whenever `go env CGO_ENABLED` is not 1.
+
+**Lesson.** A test that runs the toolchain inherits every precondition of the flags it passes; one it does not test
+(here the race detector) is read from the machine, not assumed.
+
+## 503. durations.json's times were the gaps between log lines, so each shard's first package carried the shard's whole build (fixed)
+
+**Symptom.** 2026-10-18, the first CI run with balanced shards (pull request #72): its `coverage` job's
+`testgate -durations-check` warned that `cmd/controller` was recorded at 338 seconds and measured 158, and
+`internal/adapters/legacy` at 84 and measured 11.
+
+**Root cause.** The table was first built by reading the containers jobs' logs and taking each package's time as
+the gap since the previous package's result. The first package of each shard therefore carried everything before
+it, the shard's dependency build included. The check reads go test's own elapsed time for each package
+(flakegate.Measurement.Seconds), a different number.
+
+**Fix.** The table was regenerated from #72's own measurements, so it and the check read the same number; the
+four shards now expect 941 to 942 seconds each.
+
+**Lesson.** A table and the check that holds it must measure the same thing in the same way; a time derived from
+the gaps between log lines counts whatever else ran in that gap.

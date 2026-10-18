@@ -504,6 +504,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
 500. remoteexec's stdin-closing test helper assumed a harness that waited for input, written in the same commit that made it stop waiting (a repeat of 460) (fixed)
 501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
+502. testgate's live tests asked for -race unconditionally, which cannot build on a Windows machine with no C compiler (fixed)
+503. durations.json's times were the gaps between log lines, so each shard's first package carried the shard's whole build (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

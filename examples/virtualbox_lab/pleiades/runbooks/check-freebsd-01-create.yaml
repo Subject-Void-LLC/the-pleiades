@@ -1,0 +1,30 @@
+# Make bsd-check, the FreeBSD box `make bsd-check` (tools/bsdcheck) tests a
+# branch on: lean (xsmall, one CPU and 1024 MB), from the never-booted base,
+# its first boot installing git, which the tests that make a repository
+# need, and sudo, which gives the login the root its seed grants it, since
+# FreeBSD's base system has no sudo.
+#
+# Before this: pleiades add-host bsd-check --type generic_ssh --set host=192.168.56.42 --tags lab
+#              pleiades add-credential bsd-check --username pleiades --generate
+# After it:    pleiades trust-host bsd-check --from-console vengeance
+#              pleiades onboard bsd-check
+# Then name it in tests/bsd/.env (PLEIADES_BSD_PROJECT, PLEIADES_BSD_DEVICE).
+id: vbox-lab-check-freebsd-create
+hosts: vengeance
+tasks:
+  - name: make bsd-check from the FreeBSD base's never-booted snapshot
+    virt.vbox.vm.clone:
+      name: bsd-check
+      from: freebsd-base
+      snapshot: base
+      login: bsd-check
+      address: 192.168.56.42/24
+      size: xsmall
+      packages: [git, sudo]
+  - name: start it
+    virt.vbox.vm.start:
+      name: bsd-check
+  - name: wait for its first boot to print its SSH host keys
+    virt.vbox.vm.host_keys:
+      name: bsd-check
+      timeout: 600

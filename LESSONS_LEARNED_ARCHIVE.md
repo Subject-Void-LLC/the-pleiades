@@ -5779,3 +5779,26 @@ hop stress test failed every run while CI's macOS runner passed it. A first gues
 backlog) passed under `-race` and failed in the strict repeat without it; only measuring both modes, alone and
 with the package, found the cap that holds: the listener's backlog itself (FAILURE_PATTERNS 501).
 
+## 294. A failure path keeps what was recorded before the failure, or every caller invents a side channel for it
+
+**Rule.** When an operation fails after recording output (an exit status, a command's stdout), the failure carries
+that output to the caller, on every path it crosses (in process, a subprocess, a plug-in protocol), with the same
+masking a success gets. Leave out only what a failure must not claim, such as an undo for a change that did not
+complete, and anything held back for a person's review.
+
+**Why.** 2026-10-18. The engine dropped a failed task's stats, so a failed `exec.command` reported only its error
+line. Each of the three OS checks (maccheck, bsdcheck, wincheck) therefore ended its test script with `exit 0` and
+printed the real status after a marker, and three gate methods documented "a failed task's returns are not kept"
+as the reason their errors restated everything (Phase 122b). Keeping the stats on failure removed the marker and
+those caveats at once.
+
+## 295. A machine a check depends on gets the tools its tests need; a missing tool is installed, not skipped
+
+**Rule.** When a test machine lacks a tool the tests use (git, a compiler), install it on the machine, through the
+product where it can, before reaching for a skip. A skip on one machine means those tests never run there, while a
+pass elsewhere reads as coverage.
+
+**Why.** 2026-10-18. The first run of the same packages on all four systems failed seven maccheck tests on FreeBSD
+and Windows only, because neither lab box had git. The owner chose to install it on both: MinGit on Windows held to
+its published digest, and on FreeBSD through the clone's first boot (`virt.vbox.vm.clone`'s new `packages`), which
+also gave the login the root it lacked.

@@ -326,6 +326,8 @@ story, per `.AGENTS/AGENTS.md`.
 291. **The failure-pattern check is a read of the code against each class; a passing pr-check says nothing about them (2026-10-16).**
 292. **Load put on someone else's machine is bounded and cleans up after itself, or it is not put there (2026-10-16).**
 293. **A platform limit a test meets is measured on that platform and the test sized to it; neither skipped there nor blamed on the product (2026-10-16).**
+294. **A failure path keeps what was recorded before the failure, or every caller invents a side channel for it (2026-10-18).**
+295. **A machine a check depends on gets the tools its tests need; a missing tool is installed, not skipped (2026-10-18).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
