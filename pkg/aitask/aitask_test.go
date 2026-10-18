@@ -452,3 +452,21 @@ func TestParseRoutes(t *testing.T) {
 		}
 	}
 }
+
+// TestEstimate_AnUnboundedOutputHasNoMaxCost: without a cap that is sent to
+// the provider the input's cost is not a maximum, so only input_cost is
+// reported; with one, max_cost is.
+func TestEstimate_AnUnboundedOutputHasNoMaxCost(t *testing.T) {
+	srv, _ := ollamaServer(t, "")
+	tg := target(t, srv)
+	p := Prompt{Messages: []aiprovider.Message{{Role: "user", Content: strings.Repeat("a", 400)}}}
+	est := Estimate(&project{}, tg, "m", p, Options{})
+	if _, has := est["max_cost"]; has || est["output_unbounded"] != true || est["input_cost"] == nil {
+		t.Errorf("no cap: %v", est)
+	}
+	o, _ := ParseOptions(map[string]any{"max_tokens": 1000})
+	est = Estimate(&project{}, tg, "m", p, o)
+	if est["max_cost"] == nil || est["output_unbounded"] != nil {
+		t.Errorf("with a cap: %v", est)
+	}
+}

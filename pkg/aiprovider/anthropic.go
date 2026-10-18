@@ -93,12 +93,13 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 	defer func() { _ = resp.Body.Close() }()
 	var out Response
 	var text, toolInput answer
+	sawInput, stopped := false, false
 	err = sseEvents(resp.Body, func(event string, data []byte) error {
 		var ev struct {
 			Type    string `json:"type"`
 			Message struct {
 				Model string `json:"model"`
-				Usage struct {
+				Usage *struct {
 					InputTokens int `json:"input_tokens"`
 				} `json:"usage"`
 			} `json:"message"`
@@ -108,7 +109,7 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
-			Usage struct {
+			Usage *struct {
 				OutputTokens int `json:"output_tokens"`
 			} `json:"usage"`
 			Error struct {
@@ -121,7 +122,10 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 		}
 		switch ev.Type {
 		case "message_start":
-			out.Model, out.InputTokens = ev.Message.Model, ev.Message.Usage.InputTokens
+			out.Model = ev.Message.Model
+			if ev.Message.Usage != nil {
+				out.InputTokens, sawInput = ev.Message.Usage.InputTokens, true
+			}
 		case "content_block_delta":
 			switch ev.Delta.Type {
 			case "text_delta":
@@ -129,8 +133,12 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 			case "input_json_delta":
 				return toolInput.add(ev.Delta.PartialJSON)
 			}
+		case "message_stop":
+			stopped = true
 		case "message_delta":
-			out.OutputTokens = ev.Usage.OutputTokens
+			if ev.Usage != nil {
+				out.OutputTokens, out.Reported = ev.Usage.OutputTokens, sawInput
+			}
 			if ev.Delta.StopReason != "" {
 				out.StopReason = ev.Delta.StopReason
 			}
@@ -139,12 +147,15 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 			if ev.Error.Type == "overloaded_error" {
 				status = 529
 			}
-			return &APIError{Status: status, Streamed: true, Message: ev.Error.Message}
+			return &APIError{Status: status, Streamed: true, Message: bound(ev.Error.Message)}
 		}
 		return nil
 	})
 	if err != nil {
 		return Response{}, err
+	}
+	if !stopped {
+		return Response{}, errTruncated()
 	}
 	out.Text = text.b.String()
 	if structured {

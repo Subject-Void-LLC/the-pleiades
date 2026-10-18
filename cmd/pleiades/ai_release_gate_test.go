@@ -385,7 +385,7 @@ func TestCLI_AIExampleChecksWithoutChanging(t *testing.T) {
 			t.Errorf("the check loaded %v", memory)
 		}
 	}
-	for _, p := range []string{"ai/usage", "ai/review", ".pleiades/prompt-versions.json"} {
+	for _, p := range []string{"ai/usage", "ai/review", ".pleiades/prompt-versions/"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
 			t.Errorf("the check wrote %s", p)
 		}

@@ -2,6 +2,7 @@
 package aiprovider_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -43,6 +44,43 @@ func TestSchema_ChecksTheSubsetAndRefusesTheRest(t *testing.T) {
 	} {
 		if _, err := aiprovider.ParseSchema([]byte(schema)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ParseSchema(%s) = %v, want %q", schema, err, want)
+		}
+	}
+}
+
+// TestSchema_RefusesAKeywordOfTheWrongType: a keyword whose value is not
+// the JSON type it takes would be read as absent, so the schema would parse
+// and check nothing for it; it is refused instead.
+func TestSchema_RefusesAKeywordOfTheWrongType(t *testing.T) {
+	for _, schema := range []string{
+		`{"properties":[]}`, `{"items":true}`, `{"items":[{"type":"string"}]}`, `{"required":"x"}`,
+		`{"required":[1]}`, `{"enum":"x"}`, `{"minimum":"1"}`, `{"maxItems":"3"}`,
+		`{"additionalProperties":"no"}`, `{"type":7}`, `{"type":[1]}`,
+		`{"properties":{"a":{"required":"x"}}}`,
+	} {
+		if _, err := aiprovider.ParseSchema([]byte(schema)); err == nil || !strings.Contains(err.Error(), "must be") {
+			t.Errorf("ParseSchema(%s) = %v, want the keyword's type refused", schema, err)
+		}
+	}
+	for _, schema := range []string{`{"type":["string","null"],"enum":["a",null]}`, `{"additionalProperties":{"type":"string"}}`, `{"const":{"a":1}}`} {
+		if _, err := aiprovider.ParseSchema([]byte(schema)); err != nil {
+			t.Errorf("ParseSchema(%s) = %v", schema, err)
+		}
+	}
+}
+
+// TestSchema_AnErrorDoesNotCarryTheAnswerWhole: a long value or key in an
+// answer that breaks the schema is cut in the error that names it.
+func TestSchema_AnErrorDoesNotCarryTheAnswerWhole(t *testing.T) {
+	s, err := aiprovider.ParseSchema([]byte(`{"type":"object","additionalProperties":false,"properties":{"label":{"enum":["bug"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("v", 1<<20)
+	for _, answer := range []string{`{"label":"` + long + `"}`, `{"` + long + `":1}`} {
+		err := s.Validate([]byte(answer))
+		if err == nil || len(err.Error()) > 1024 {
+			t.Errorf("a %d byte answer's error = %d bytes", len(answer), len(fmt.Sprint(err)))
 		}
 	}
 }

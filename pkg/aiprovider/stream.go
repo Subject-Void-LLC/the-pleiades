@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // maxLine bounds one line of a streamed answer.
@@ -97,12 +99,18 @@ func errorMessage(body []byte) string {
 	return bound(strings.TrimSpace(string(body)))
 }
 
-// bound cuts a message for an error.
+// errTruncated is a stream that ended, cleanly, before the provider said the
+// answer was whole: the text so far is part of one, and a caller reading it
+// as the answer would act on a cut-off sentence.
+func errTruncated() error {
+	return &APIError{Streamed: true, Message: "the stream ended before the provider finished the answer"}
+}
+
+// bound makes text a provider sent safe to put in an error, a record or a
+// terminal: cut to a size an error can be, on a rune boundary, with every
+// character that is not printable escaped.
 func bound(s string) string {
-	if len(s) > 1024 {
-		return s[:1024] + "..."
-	}
-	return s
+	return remoteexec.Excerpt(s, 512)
 }
 
 // retryAfter reads a Retry-After header's seconds (a date is ignored).
@@ -140,6 +148,11 @@ func sseEvents(body io.Reader, fn func(event string, data []byte) error) error {
 			event = strings.TrimSpace(string(line[len("event:"):]))
 		case bytes.HasPrefix(line, []byte("data:")):
 			d := bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" "))
+			// An event nothing ends is never handed over, so the answer's own
+			// limit cannot stop it: bound what one event holds the same way.
+			if len(data)+len(d)+1 > maxAnswer {
+				return &APIError{Streamed: true, Message: fmt.Sprintf("an event is over %d bytes", maxAnswer)}
+			}
 			if data != nil {
 				data = append(data, '\n')
 			}

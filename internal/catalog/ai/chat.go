@@ -182,7 +182,7 @@ func reviewGate(rc sdk.RunbookContext, fqcn, target string, p aitask.Prompt, par
 func outcome(t aitask.Target, model string, resp aiprovider.Response, usage aiprovider.Usage, p aitask.Prompt, fallback bool) aitask.Outcome {
 	cost, _, priced := aitask.Cost(t, model, usage)
 	return aitask.Outcome{
-		Answer: resp.Text, StopReason: resp.StopReason, OutputTokens: usage.OutputTokens, Cost: cost, Priced: priced,
+		Answer: resp.Text, StopReason: resp.StopReason, OutputTokens: usage.OutputTokens, Reported: usage.Reported, Cost: cost, Priced: priced,
 		Verified: p.Verdict.Status == promptsign.Verified, Fallback: fallback,
 	}
 }

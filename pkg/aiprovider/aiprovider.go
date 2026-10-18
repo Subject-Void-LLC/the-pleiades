@@ -94,6 +94,9 @@ type Response struct {
 	Text         string
 	InputTokens  int
 	OutputTokens int
+	// Reported is whether the provider said how many tokens the call took;
+	// a figure it never sent is not zero tokens.
+	Reported bool
 	// Model is the model the provider says answered.
 	Model string
 	// StopReason is why the provider stopped, in its own words.

@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // CallOptions are how hard Call tries.
@@ -30,8 +33,12 @@ type Usage struct {
 	Model        string
 	InputTokens  int
 	OutputTokens int
-	Duration     time.Duration
-	Retries      int
+	// Reported is whether the provider said how many tokens the call took.
+	// When it did not, the counts are zero because nothing was said, and the
+	// call is not priced.
+	Reported bool
+	Duration time.Duration
+	Retries  int
 	// Ignored are parameters the kind does not accept, never sent.
 	Ignored []string
 	// Dropped are parameters the provider rejected, sent once and never
@@ -42,7 +49,7 @@ type Usage struct {
 // Map is the usage record as a return value.
 func (u Usage) Map() map[string]any {
 	return map[string]any{
-		"kind": u.Kind, "model": u.Model, "input_tokens": u.InputTokens, "output_tokens": u.OutputTokens,
+		"kind": u.Kind, "model": u.Model, "input_tokens": u.InputTokens, "output_tokens": u.OutputTokens, "usage_reported": u.Reported,
 		"duration_ms": u.Duration.Milliseconds(), "retries": u.Retries,
 		"ignored": strs(u.Ignored), "dropped": strs(u.Dropped),
 	}
@@ -69,12 +76,28 @@ type Drops map[string]bool
 // with backoff up to opts.Retries; anything else fails the call. The usage
 // record is returned with the error too.
 func Call(ctx context.Context, kind Kind, ep Endpoint, req Request, drops Drops, opts CallOptions) (Response, Usage, error) {
+	if drops == nil {
+		drops = Drops{}
+	}
+	var learned []string
+	resp, usage, err := call(ctx, kind, ep, req, drops, opts, &learned)
+	if err != nil {
+		// A drop is kept only by a call that then succeeded: a rejection that
+		// went on failing was not shown to be about the parameter.
+		for _, p := range learned {
+			delete(drops, p)
+			usage.Dropped = slices.DeleteFunc(usage.Dropped, func(d string) bool { return d == p })
+		}
+	}
+	return resp, usage, err
+}
+
+// call is Call, naming in learned each parameter this call dropped that
+// the drops it was given did not already hold.
+func call(ctx context.Context, kind Kind, ep Endpoint, req Request, drops Drops, opts CallOptions, learned *[]string) (Response, Usage, error) {
 	usage := Usage{Kind: kind.Name(), Model: req.Model}
 	if kind.NeedsKey() && ep.Key == "" {
 		return Response{}, usage, fmt.Errorf("a %s provider needs an API key, and the device has no credential", kind.Name())
-	}
-	if drops == nil {
-		drops = Drops{}
 	}
 	omit := map[string]bool{}
 	for _, p := range req.Set() {
@@ -100,7 +123,10 @@ func Call(ctx context.Context, kind Kind, ep Endpoint, req Request, drops Drops,
 	for {
 		resp, err := kind.Chat(ctx, ep, req, omit)
 		if err == nil {
-			usage.InputTokens, usage.OutputTokens = resp.InputTokens, resp.OutputTokens
+			// What the provider says about itself goes into records and review
+			// rules, so it is held to the size and the characters an error is.
+			resp.Model, resp.StopReason = remoteexec.Excerpt(resp.Model, 128), remoteexec.Excerpt(resp.StopReason, 64)
+			usage.InputTokens, usage.OutputTokens, usage.Reported = resp.InputTokens, resp.OutputTokens, resp.Reported
 			if resp.Model != "" {
 				usage.Model = resp.Model
 			}
@@ -114,6 +140,7 @@ func Call(ctx context.Context, kind Kind, ep Endpoint, req Request, drops Drops,
 		if p := rejected(kind, req, omit, apiErr); p != "" {
 			omit[p], drops[p] = true, true
 			usage.Dropped = append(usage.Dropped, p)
+			*learned = append(*learned, p)
 			continue
 		}
 		if !apiErr.Retryable() || usage.Retries >= opts.Retries {
@@ -144,11 +171,30 @@ func rejected(kind Kind, req Request, omit map[string]bool, e *APIError) string 
 		if omit[p] {
 			continue
 		}
-		if wire := strings.ToLower(kind.WireName(p)); wire != "" && strings.Contains(msg, wire) {
+		if wire := strings.ToLower(kind.WireName(p)); wire != "" && mentions(msg, wire) {
 			return p
 		}
 	}
 	return ""
+}
+
+// mentions reports whether msg holds name as a word of its own: "stop"
+// is in "unsupported parameter: stop" and not in "stopped".
+func mentions(msg, name string) bool {
+	word := func(r byte) bool {
+		return r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+	}
+	for from := 0; ; {
+		at := strings.Index(msg[from:], name)
+		if at < 0 {
+			return false
+		}
+		start, end := from+at, from+at+len(name)
+		if (start == 0 || !word(msg[start-1])) && (end == len(msg) || !word(msg[end])) {
+			return true
+		}
+		from = start + 1
+	}
 }
 
 // jitter is a random wait from zero to most, so retries from many runs do
@@ -187,10 +233,10 @@ type Price struct {
 type Prices map[string]Price
 
 // Cost is what usage cost under the table, and false for a model the
-// table does not price.
+// table does not price or a call whose usage the provider did not report.
 func (p Prices) Cost(u Usage) (float64, string, bool) {
 	price, ok := p[u.Model]
-	if !ok {
+	if !ok || !u.Reported {
 		return 0, "", false
 	}
 	return (float64(u.InputTokens)*price.Input + float64(u.OutputTokens)*price.Output) / 1e6, price.Currency, true

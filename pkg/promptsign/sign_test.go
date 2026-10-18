@@ -5,8 +5,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +48,7 @@ func TestVerify_EveryWayASignatureFails(t *testing.T) {
 	otherPub, otherPriv := newKey(t)
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	keys := []promptsign.TrustedKey{{Public: pub, Uses: []string{"triage"}}, {Public: otherPub, Uses: []string{"summarize"}}}
-	versions := &promptsign.FileVersions{Path: filepath.Join(t.TempDir(), "versions.json")}
+	versions := &promptsign.FileVersions{Path: filepath.Join(t.TempDir(), "versions")}
 
 	doc := prompt(t, "3", `"Classify the ticket."`, "")
 	sig := promptsign.Sign(doc, priv)
@@ -160,5 +162,57 @@ func TestParseTrustedKeys(t *testing.T) {
 		if _, err := promptsign.ParseTrustedKeys([]byte(in)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ParseTrustedKeys = %v, want %q", err, want)
 		}
+	}
+}
+
+// TestFileVersions_SeparateProcessesLoseNothing: registers on one directory
+// (as two runs of one project have) each record their own versions at once,
+// and the newest is the highest any recorded, with none lost.
+func TestFileVersions_SeparateProcessesLoseNothing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "versions")
+	var wg sync.WaitGroup
+	for p := 0; p < 8; p++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f := &promptsign.FileVersions{Path: dir}
+			for v := int64(1); v <= 40; v++ {
+				if err := f.Use("prompt", "triage", v*8+int64(p)); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	f := &promptsign.FileVersions{Path: dir}
+	if v, ok, err := f.Newest("prompt", "triage"); err != nil || !ok || v != 40*8+7 {
+		t.Errorf("Newest = %d, %v, %v; want %d", v, ok, err, 40*8+7)
+	}
+	if err := f.Use("prompt", "triage", -1); err == nil {
+		t.Error("a negative version was recorded")
+	}
+	if _, ok, err := f.Newest("prompt", "../../etc"); err != nil || ok {
+		t.Errorf("an unused hostile name = %v, %v", ok, err)
+	}
+	if err := f.Use("prompt", "../../escape", 1); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(dir)); len(entries) != 1 {
+		t.Errorf("a name left the register's directory: %v", entries)
+	}
+}
+
+// TestVerify_ASignatureOverTheBareCanonicalFormIsRefused: the same key's
+// signature over the document's canonical JSON alone, as another use of the
+// key would make, is not a prompt signature.
+func TestVerify_ASignatureOverTheBareCanonicalFormIsRefused(t *testing.T) {
+	pub, priv := newKey(t)
+	doc := prompt(t, "1", `"Classify the ticket."`, "")
+	bare := promptsign.Signature{Key: promptsign.KeyID(pub), Value: base64.StdEncoding.EncodeToString(ed25519.Sign(priv, doc.Canonical))}
+	keys := []promptsign.TrustedKey{{Public: pub, Uses: []string{"triage"}}}
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	versions := &promptsign.FileVersions{Path: filepath.Join(t.TempDir(), "versions")}
+	if _, err := promptsign.Verify(doc, &bare, promptsign.Required, keys, versions, now); err == nil || !strings.Contains(err.Error(), "does not verify") {
+		t.Errorf("a bare-canonical signature = %v, want it refused", err)
 	}
 }

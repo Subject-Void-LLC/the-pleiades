@@ -27,7 +27,7 @@ import (
 const (
 	AITrustedKeysFile = "ai/trusted-keys.yaml"
 	AIPromptsDir      = "ai/prompts"
-	AIVersionsFile    = ".pleiades/prompt-versions.json"
+	AIVersionsDir     = ".pleiades/prompt-versions"
 )
 
 // aiWritable are the directories AIWrite may write into, and the file
@@ -65,7 +65,7 @@ func WithAIProject(dir string, devices providerInventory, credentials credential
 	return func(e *collectionActionExecutor) {
 		e.ai = &aiProject{
 			dir: dir, devices: devices, credentials: credentials,
-			versions: &promptsign.FileVersions{Path: filepath.Join(dir, filepath.FromSlash(AIVersionsFile))},
+			versions: &promptsign.FileVersions{Path: filepath.Join(dir, filepath.FromSlash(AIVersionsDir))},
 		}
 	}
 }

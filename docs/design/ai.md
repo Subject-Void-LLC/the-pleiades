@@ -199,7 +199,7 @@ They live in the project's `ai/trusted-keys.yaml`. `ai.chat`, `ai.route` and `ai
 2. a trusted key verifies the signature;
 3. the key's role lists the bundle's use;
 4. neither the key nor the bundle has expired;
-5. its version is not older than the newest of its name already used (`.pleiades/prompt-versions.json`).
+5. its version is not older than the newest of its name already used (`.pleiades/prompt-versions/`).
 
 A version is recorded as used only once a real call is decided, never by a check or by `verify`.
 

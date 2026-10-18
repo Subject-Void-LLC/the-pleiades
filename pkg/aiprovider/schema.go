@@ -9,6 +9,8 @@ import (
 	"math"
 	"sort"
 	"unicode/utf8"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // schemaKeywords are the JSON Schema keywords this checks; a schema using
@@ -56,6 +58,9 @@ func checkKeywords(s map[string]any, at string) error {
 			return fmt.Errorf("the schema uses %q at %s, which this does not check; keep to type, properties, required, additionalProperties, items, enum, const, minimum, maximum, minLength, maxLength, minItems and maxItems", k, at)
 		}
 	}
+	if err := checkShapes(s, at); err != nil {
+		return err
+	}
 	if props, ok := s["properties"].(map[string]any); ok {
 		for name, sub := range props {
 			m, ok := sub.(map[string]any)
@@ -80,6 +85,64 @@ func checkKeywords(s map[string]any, at string) error {
 	return nil
 }
 
+// checkShapes refuses a keyword whose value is not the JSON type the
+// keyword takes: validation reads such a value as absent, so a schema
+// holding one would parse, be sent to the provider and check nothing.
+func checkShapes(s map[string]any, at string) error {
+	bad := func(k, want string) error {
+		return fmt.Errorf("the schema's %q at %s must be %s", k, at, want)
+	}
+	for k, v := range s {
+		switch k {
+		case "type":
+			switch t := v.(type) {
+			case string:
+			case []any:
+				for _, one := range t {
+					if _, ok := one.(string); !ok {
+						return bad(k, "a type name or a list of them")
+					}
+				}
+			default:
+				return bad(k, "a type name or a list of them")
+			}
+		case "properties":
+			if _, ok := v.(map[string]any); !ok {
+				return bad(k, "an object of schemas")
+			}
+		case "required":
+			list, ok := v.([]any)
+			if !ok {
+				return bad(k, "a list of names")
+			}
+			for _, one := range list {
+				if _, ok := one.(string); !ok {
+					return bad(k, "a list of names")
+				}
+			}
+		case "additionalProperties":
+			switch v.(type) {
+			case bool, map[string]any:
+			default:
+				return bad(k, "true, false or a schema")
+			}
+		case "items":
+			if _, ok := v.(map[string]any); !ok {
+				return bad(k, "a schema")
+			}
+		case "enum":
+			if _, ok := v.([]any); !ok {
+				return bad(k, "a list")
+			}
+		case "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems":
+			if _, ok := number(v); !ok {
+				return bad(k, "a number")
+			}
+		}
+	}
+	return nil
+}
+
 // Validate holds an answer to the schema, naming the first violation.
 func (s *Schema) Validate(answer []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(answer))
@@ -94,40 +157,56 @@ func (s *Schema) Validate(answer []byte) error {
 	return validate(s.raw, v, "$")
 }
 
+// shown is a value from the answer or the schema, cut and made printable
+// so an error never carries the answer whole.
+func shown(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "(unprintable)"
+	}
+	return remoteexec.Excerpt(string(b), 128)
+}
+
+// where is a path into the answer, cut and made printable.
+func where(path string) string { return remoteexec.Excerpt(path, 256) }
+
+// key is a name from the answer, cut and made printable for a path.
+func key(k string) string { return remoteexec.Excerpt(k, 64) }
+
 // validate holds v to schema s at path.
 func validate(s map[string]any, v any, path string) error {
 	if t, ok := s["type"]; ok && !typeMatches(t, v) {
-		return fmt.Errorf("%s is %s, not %v", path, typeOf(v), t)
+		return fmt.Errorf("%s is %s, not %s", where(path), typeOf(v), remoteexec.Excerpt(fmt.Sprint(t), 64))
 	}
 	if enum, ok := s["enum"].([]any); ok && !contains(enum, v) {
-		return fmt.Errorf("%s is %v, not one of %v", path, v, enum)
+		return fmt.Errorf("%s is %s, not one of %s", where(path), shown(v), shown(enum))
 	}
 	if c, ok := s["const"]; ok && !equal(c, v) {
-		return fmt.Errorf("%s is %v, not %v", path, v, c)
+		return fmt.Errorf("%s is %s, not %s", where(path), shown(v), shown(c))
 	}
 	switch v := v.(type) {
 	case json.Number:
 		f, _ := v.Float64()
 		if lim, ok := number(s["minimum"]); ok && f < lim {
-			return fmt.Errorf("%s is %v, below %v", path, v, lim)
+			return fmt.Errorf("%s is %s, below %v", where(path), shown(v), lim)
 		}
 		if lim, ok := number(s["maximum"]); ok && f > lim {
-			return fmt.Errorf("%s is %v, above %v", path, v, lim)
+			return fmt.Errorf("%s is %s, above %v", where(path), shown(v), lim)
 		}
 	case string:
 		n := float64(utf8.RuneCountInString(v))
 		if lim, ok := number(s["minLength"]); ok && n < lim {
-			return fmt.Errorf("%s is shorter than %v", path, lim)
+			return fmt.Errorf("%s is shorter than %v", where(path), lim)
 		}
 		if lim, ok := number(s["maxLength"]); ok && n > lim {
-			return fmt.Errorf("%s is longer than %v", path, lim)
+			return fmt.Errorf("%s is longer than %v", where(path), lim)
 		}
 	case []any:
 		if lim, ok := number(s["minItems"]); ok && float64(len(v)) < lim {
-			return fmt.Errorf("%s has fewer than %v items", path, lim)
+			return fmt.Errorf("%s has fewer than %v items", where(path), lim)
 		}
 		if lim, ok := number(s["maxItems"]); ok && float64(len(v)) > lim {
-			return fmt.Errorf("%s has more than %v items", path, lim)
+			return fmt.Errorf("%s has more than %v items", where(path), lim)
 		}
 		if items, ok := s["items"].(map[string]any); ok {
 			for i, item := range v {
@@ -142,7 +221,7 @@ func validate(s map[string]any, v any, path string) error {
 			for _, r := range req {
 				if name, _ := r.(string); name != "" {
 					if _, present := v[name]; !present {
-						return fmt.Errorf("%s has no %s", path, name)
+						return fmt.Errorf("%s has no %s", where(path), name)
 					}
 				}
 			}
@@ -154,7 +233,7 @@ func validate(s map[string]any, v any, path string) error {
 		sort.Strings(keys)
 		for _, k := range keys {
 			if sub, ok := props[k].(map[string]any); ok {
-				if err := validate(sub, v[k], path+"."+k); err != nil {
+				if err := validate(sub, v[k], path+"."+key(k)); err != nil {
 					return err
 				}
 				continue
@@ -162,10 +241,10 @@ func validate(s map[string]any, v any, path string) error {
 			switch ap := s["additionalProperties"].(type) {
 			case bool:
 				if !ap {
-					return fmt.Errorf("%s has %s, which the schema does not allow", path, k)
+					return fmt.Errorf("%s has %s, which the schema does not allow", where(path), key(k))
 				}
 			case map[string]any:
-				if err := validate(ap, v[k], path+"."+k); err != nil {
+				if err := validate(ap, v[k], path+"."+key(k)); err != nil {
 					return err
 				}
 			}

@@ -6,13 +6,13 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -81,75 +81,71 @@ func ParseTrustedKeys(data []byte) ([]TrustedKey, error) {
 	return out, nil
 }
 
-// FileVersions is a version register kept in one JSON file, written whole
-// and renamed into place, so a run that dies midway leaves the last
-// complete register.
+// FileVersions is a version register kept as a directory: one empty file
+// for each version of each name that was used, created exclusively, so two
+// processes recording versions at once cannot lose each other's (a single
+// file read, changed and renamed would let the later rename drop the
+// earlier). The newest version of a name is the highest one that has a
+// file, found by listing; the names are hex, so nothing a document holds
+// reaches the file system as a path.
 type FileVersions struct {
+	// Path is the directory the register lives in.
 	Path string
-	mu   sync.Mutex
 }
 
-// read reads the register, empty when the file does not exist.
-func (f *FileVersions) read() (map[string]int64, error) {
-	data, err := os.ReadFile(f.Path)
-	if errors.Is(err, os.ErrNotExist) {
-		return map[string]int64{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]int64{}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("%s: %w", f.Path, err)
-	}
-	return out, nil
-}
+// maxVersionDigits is the width a version is written to, so file names sort
+// as the numbers do; versions are bounded below 2^53 by the document parser.
+const maxVersionDigits = 20
 
-// registerKey is one name of one kind in the register.
-func registerKey(kind, name string) string { return kind + "/" + name }
+// dirOf is the directory holding the versions of one name of one kind.
+func (f *FileVersions) dirOf(kind, name string) string {
+	return filepath.Join(f.Path, hex.EncodeToString([]byte(kind)), hex.EncodeToString([]byte(name)))
+}
 
 // Newest implements Versions.
 func (f *FileVersions) Newest(kind, name string) (int64, bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	m, err := f.read()
+	entries, err := os.ReadDir(f.dirOf(kind, name))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
 	if err != nil {
 		return 0, false, err
 	}
-	v, ok := m[registerKey(kind, name)]
-	return v, ok, nil
+	var newest int64
+	found := false
+	for _, e := range entries {
+		v, err := strconv.ParseInt(e.Name(), 10, 64)
+		if err != nil || v < 0 || len(e.Name()) != maxVersionDigits {
+			continue
+		}
+		if !found || v > newest {
+			newest, found = v, true
+		}
+	}
+	return newest, found, nil
 }
 
-// Use records that version of name was used, keeping the newest.
+// Use records that version of name was used. Recording a version already
+// recorded is no change; an older one than the newest is recorded too and
+// changes nothing, since the newest is what counts.
 func (f *FileVersions) Use(kind, name string, version int64) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	m, err := f.read()
-	if err != nil {
+	if version < 0 {
+		return fmt.Errorf("version %d is negative", version)
+	}
+	dir := f.dirOf(kind, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if m[registerKey(kind, name)] >= version {
+	file, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%0*d", maxVersionDigits, version)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, os.ErrExist) {
 		return nil
 	}
-	m[registerKey(kind, name)] = version
-	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(f.Path), ".prompt-versions-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), f.Path)
+	return file.Close()
 }

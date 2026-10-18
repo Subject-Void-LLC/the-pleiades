@@ -23,7 +23,8 @@ func TestAnthropic_StreamsAnAnswerAndAStructuredOne(t *testing.T) {
 				`event: message_start`+"\n"+`data: {"type":"message_start","message":{"model":"claude-x","usage":{"input_tokens":12}}}`,
 				`event: content_block_delta`+"\n"+`data: {"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\"label\":"}}`,
 				`event: content_block_delta`+"\n"+`data: {"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"\"bug\"}"}}`,
-				`event: message_delta`+"\n"+`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}`)
+				`event: message_delta`+"\n"+`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}`,
+				`event: message_stop`+"\n"+`data: {"type":"message_stop"}`)
 			return
 		}
 		stream(w,
@@ -168,5 +169,90 @@ func TestOllama_ChatAndModels(t *testing.T) {
 	reqs := srv.requests()
 	if reqs[3].Body["keep_alive"] != float64(-1) || reqs[4].Body["keep_alive"] != float64(0) || reqs[6].Method != "DELETE" {
 		t.Errorf("model management requests = %+v", reqs[3:])
+	}
+}
+
+// TestKinds_UsageIsReportedOnlyWhenTheProviderSaidSo: a stream carrying no
+// token counts is a call whose usage is unreported, not one of zero tokens;
+// one carrying them is reported.
+func TestKinds_UsageIsReportedOnlyWhenTheProviderSaidSo(t *testing.T) {
+	for _, tc := range []struct {
+		kind     string
+		path     string
+		silent   []string
+		reported []string
+	}{
+		{"openai", "/v1",
+			[]string{`data: {"model":"m","choices":[{"delta":{"content":"hi"}}]}`, `data: [DONE]`},
+			[]string{`data: {"model":"m","choices":[{"delta":{"content":"hi"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`, `data: [DONE]`}},
+		{"anthropic", "/v1",
+			[]string{`data: {"type":"message_start","message":{"model":"m"}}`, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`, `data: {"type":"message_stop"}`},
+			[]string{`data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":1}}}`, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`, `data: {"type":"message_stop"}`}},
+	} {
+		for label, events := range map[string][]string{"silent": tc.silent, "reported": tc.reported} {
+			srv := newServer(t, func(_ int, w http.ResponseWriter, _ seen) { stream(w, events...) })
+			req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}}
+			_, usage, err := aiprovider.Call(context.Background(), kind(t, tc.kind), srv.endpoint(t, tc.path, "k"), req, nil, aiprovider.CallOptions{})
+			if err != nil {
+				t.Fatalf("%s %s: %v", tc.kind, label, err)
+			}
+			if want := label == "reported"; usage.Reported != want {
+				t.Errorf("%s %s: Reported = %v, want %v", tc.kind, label, usage.Reported, want)
+			}
+		}
+	}
+}
+
+// TestKinds_TextTheProviderSendsIsBoundedAndEscaped: a streamed error, the
+// model it names and why it stopped reach the caller cut to a size and with
+// no character that acts on a terminal.
+func TestKinds_TextTheProviderSendsIsBoundedAndEscaped(t *testing.T) {
+	long := strings.Repeat("e", 100000)
+	srv := newServer(t, func(_ int, w http.ResponseWriter, _ seen) {
+		stream(w, `data: {"error":{"message":"`+long+`\u001b]0;pwned\u0007"}}`)
+	})
+	req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}}
+	_, _, err := aiprovider.Call(context.Background(), kind(t, "openai"), srv.endpoint(t, "/v1", "k"), req, nil, aiprovider.CallOptions{})
+	if err == nil || len(err.Error()) > 1024 || strings.ContainsRune(err.Error(), 0x1b) {
+		t.Errorf("a streamed error = %d bytes, %q", len(err.Error()), err)
+	}
+
+	srv = newServer(t, func(_ int, w http.ResponseWriter, _ seen) {
+		stream(w, `data: {"model":"`+long+`\u001b[31m","choices":[{"delta":{"content":"hi"},"finish_reason":"stop\u001b[0m"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`, `data: [DONE]`)
+	})
+	resp, usage, err := aiprovider.Call(context.Background(), kind(t, "openai"), srv.endpoint(t, "/v1", "k"), req, nil, aiprovider.CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{resp.Model, usage.Model, resp.StopReason} {
+		if len(s) > 256 || strings.ContainsRune(s, 0x1b) {
+			t.Errorf("provider text %d bytes, %q", len(s), s)
+		}
+	}
+}
+
+// TestKinds_AStreamThatEndsUnfinishedIsAnError: a stream that ends cleanly
+// without the provider's closing marker holds part of an answer, which is
+// refused rather than returned as the whole of it.
+func TestKinds_AStreamThatEndsUnfinishedIsAnError(t *testing.T) {
+	for name, events := range map[string][]string{
+		"openai":    {`data: {"model":"m","choices":[{"delta":{"content":"half a sen"}}]}`},
+		"anthropic": {`data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":1}}}`, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"half"}}`},
+		"google":    {`data: {"candidates":[{"content":{"parts":[{"text":"half"}]}}]}`},
+	} {
+		srv := newServer(t, func(_ int, w http.ResponseWriter, _ seen) { stream(w, events...) })
+		req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}}
+		resp, _, err := aiprovider.Call(context.Background(), kind(t, name), srv.endpoint(t, "/v1", "k"), req, nil, aiprovider.CallOptions{})
+		if err == nil || !strings.Contains(err.Error(), "before the provider finished") || resp.Text != "" {
+			t.Errorf("%s: a cut-off stream = %q, %v", name, resp.Text, err)
+		}
+	}
+	srv := newServer(t, func(_ int, w http.ResponseWriter, _ seen) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"m","message":{"content":"half"},"done":false}` + "\n"))
+	})
+	req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}}
+	if _, _, err := aiprovider.Call(context.Background(), kind(t, "ollama"), srv.endpoint(t, "", "k"), req, nil, aiprovider.CallOptions{}); err == nil || !strings.Contains(err.Error(), "before the provider finished") {
+		t.Errorf("ollama: a cut-off stream = %v", err)
 	}
 }

@@ -52,7 +52,7 @@ Routes a call by use: the routing table names, for each use, its residency (loca
 | `prompt` | `dict` | always | The prompt's verdict: status (verified, unsigned, not checked) and, for a bundle, its name, version, SHA-256 and signing key. |
 | `ignored` | `list of string` | success | Parameters the provider's kind does not accept, which were not sent. |
 | `dropped` | `list of string` | success | Parameters the provider rejected, removed and never sent to it for that model again in the run. |
-| `estimate` | `dict` | in a check | What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and max_cost with its currency when the model is priced. |
+| `estimate` | `dict` | in a check | What a check reports instead of a call: the prompt's tokens (four characters a token), max_output_tokens or output_unbounded, the parameters that would be ignored and dropped, and, when the model is priced, input_cost, and max_cost when the output has a cap that is sent, with the currency. |
 | `warnings` | `list of string` | when there is one | What the provider's record allows that a run must say: a key sent over plain http://, weakened TLS. |
 | `review` | `dict` | with review rules | The answer's review: not held, or approved with the key, the rules it matched, who decided and when; in a check, the rules and any decision already on record. A held answer is never returned: the task fails as held. |
 | `reused` | `bool` | when a decided answer is reused | True when the answer was approved earlier for this very request and returned from its review with no call; usage is the original call's. |

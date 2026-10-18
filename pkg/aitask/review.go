@@ -201,6 +201,9 @@ type Outcome struct {
 	OutputTokens int
 	Cost         float64
 	Priced       bool
+	// Reported is whether the provider said how many tokens the call took;
+	// when it did not, OutputTokens is not a count.
+	Reported bool
 	// Verified is whether the prompt's signature was verified.
 	Verified bool
 	// Fallback is whether a provider other than the use's first answered.
@@ -218,6 +221,9 @@ func (r Rule) Match(o Outcome) string {
 			return fmt.Sprintf("%s: it cost %v", r.text, o.Cost)
 		}
 	case "output_tokens_over":
+		if !o.Reported {
+			return r.text + ": the provider did not report the call's tokens, so they cannot be checked"
+		}
 		if float64(o.OutputTokens) > r.number {
 			return fmt.Sprintf("%s: it took %d", r.text, o.OutputTokens)
 		}

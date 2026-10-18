@@ -92,11 +92,21 @@ func KeyID(pub ed25519.PublicKey) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// Sign signs a document's canonical form.
+// signDomain is put before the canonical form in what is signed, so a
+// signature a key made over some other JSON for another purpose is never a
+// valid signature of a prompt document.
+const signDomain = "pleiades-prompt-document-v1\n"
+
+// signedBytes are the bytes a signature covers.
+func signedBytes(doc *Parsed) []byte {
+	return append([]byte(signDomain), doc.Canonical...)
+}
+
+// Sign signs a document's canonical form, under the domain prefix.
 func Sign(doc *Parsed, key ed25519.PrivateKey) Signature {
 	return Signature{
 		Key:   KeyID(key.Public().(ed25519.PublicKey)),
-		Value: base64.StdEncoding.EncodeToString(ed25519.Sign(key, doc.Canonical)),
+		Value: base64.StdEncoding.EncodeToString(ed25519.Sign(key, signedBytes(doc))),
 	}
 }
 
@@ -214,7 +224,7 @@ func Verify(doc *Parsed, sig *Signature, policy Policy, keys []TrustedKey, versi
 		return refuse(fmt.Sprintf("%s %s v%d is signed by key %s, which is not trusted", doc.Kind, doc.Name, doc.Version, sig.Key))
 	}
 	raw, err := base64.StdEncoding.DecodeString(sig.Value)
-	if err != nil || len(raw) != ed25519.SignatureSize || !ed25519.Verify(key.Public, doc.Canonical, raw) {
+	if err != nil || len(raw) != ed25519.SignatureSize || !ed25519.Verify(key.Public, signedBytes(doc), raw) {
 		return refuse(fmt.Sprintf("%s %s v%d's signature does not verify against key %s: the document changed, or another key signed it", doc.Kind, doc.Name, doc.Version, sig.Key))
 	}
 	if !key.mayFor(doc.Use) {

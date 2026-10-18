@@ -110,14 +110,63 @@ func TestCall_AFailureMidStreamIsNotRetried(t *testing.T) {
 // TestPrices and EstimateTokens.
 func TestPrices(t *testing.T) {
 	p := aiprovider.Prices{"m": {Input: 3, Output: 15, Currency: "USD"}}
-	cost, cur, ok := p.Cost(aiprovider.Usage{Model: "m", InputTokens: 1000, OutputTokens: 200})
+	cost, cur, ok := p.Cost(aiprovider.Usage{Model: "m", InputTokens: 1000, OutputTokens: 200, Reported: true})
 	if !ok || cur != "USD" || cost < 0.005999 || cost > 0.006001 {
 		t.Errorf("Cost = %v %s %v", cost, cur, ok)
 	}
-	if _, _, ok := p.Cost(aiprovider.Usage{Model: "other"}); ok {
+	if _, _, ok := p.Cost(aiprovider.Usage{Model: "other", Reported: true}); ok {
 		t.Error("an unpriced model was priced")
+	}
+	// A provider that said nothing about tokens took zero of them by no
+	// one's account, and costs nothing by no one's.
+	if c, _, ok := p.Cost(aiprovider.Usage{Model: "m"}); ok {
+		t.Errorf("a call with no reported usage was priced at %v", c)
 	}
 	if n := aiprovider.EstimateTokens("abcdefgh"); n != 2 {
 		t.Errorf("EstimateTokens = %d", n)
+	}
+}
+
+// TestCall_AnUnrelatedRejectionDropsNothing: a 400 whose text holds a
+// parameter's name inside another word ("stopped" is not "stop") names no
+// parameter, so nothing is dropped and the call fails once.
+func TestCall_AnUnrelatedRejectionDropsNothing(t *testing.T) {
+	srv := newServer(t, func(n int, w http.ResponseWriter, s seen) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"error":{"message":"the request was stopped by a content policy"}}`))
+	})
+	k, ep := kind(t, "openai"), srv.endpoint(t, "/v1", "k")
+	drops := aiprovider.Drops{}
+	req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}, Params: aiprovider.Params{Stop: []string{"END"}, MaxTokens: i(50)}}
+	_, usage, err := aiprovider.Call(context.Background(), k, ep, req, drops, aiprovider.CallOptions{})
+	if err == nil {
+		t.Fatal("a rejected call succeeded")
+	}
+	if len(drops) != 0 || len(usage.Dropped) != 0 || len(srv.requests()) != 1 {
+		t.Errorf("drops = %v, usage.Dropped = %v after %d request(s); want nothing dropped after one", drops, usage.Dropped, len(srv.requests()))
+	}
+}
+
+// TestCall_ADropIsKeptOnlyWhenTheCallSucceeds: a parameter dropped on the
+// way to a call that still fails is not remembered, since the rejection
+// was not shown to be about it.
+func TestCall_ADropIsKeptOnlyWhenTheCallSucceeds(t *testing.T) {
+	srv := newServer(t, func(n int, w http.ResponseWriter, s seen) {
+		w.WriteHeader(400)
+		if n == 0 {
+			_, _ = w.Write([]byte(`{"error":{"message":"Unsupported parameter: 'temperature'"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"error":{"message":"the model is unavailable"}}`))
+	})
+	k, ep := kind(t, "openai"), srv.endpoint(t, "/v1", "k")
+	drops := aiprovider.Drops{}
+	req := aiprovider.Request{Model: "m", Messages: []aiprovider.Message{{Role: "user", Content: "x"}}, Params: aiprovider.Params{Temperature: f64(0.5)}}
+	_, usage, err := aiprovider.Call(context.Background(), k, ep, req, drops, aiprovider.CallOptions{})
+	if err == nil {
+		t.Fatal("a rejected call succeeded")
+	}
+	if len(drops) != 0 || len(usage.Dropped) != 0 {
+		t.Errorf("drops = %v, usage.Dropped = %v after a call that failed; want none remembered", drops, usage.Dropped)
 	}
 }

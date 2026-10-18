@@ -62,8 +62,10 @@ func (o openai) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	defer func() { _ = resp.Body.Close() }()
 	var out Response
 	var text answer
+	finished := false
 	err = sseEvents(resp.Body, func(_ string, data []byte) error {
 		if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
+			finished = true
 			return nil
 		}
 		var chunk struct {
@@ -86,17 +88,17 @@ func (o openai) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 			return &APIError{Streamed: true, Message: "a chunk is not JSON: " + err.Error()}
 		}
 		if chunk.Error != nil {
-			return &APIError{Status: 500, Streamed: true, Message: chunk.Error.Message}
+			return &APIError{Status: 500, Streamed: true, Message: bound(chunk.Error.Message)}
 		}
 		if chunk.Model != "" {
 			out.Model = chunk.Model
 		}
 		if chunk.Usage != nil {
-			out.InputTokens, out.OutputTokens = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
+			out.InputTokens, out.OutputTokens, out.Reported = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, true
 		}
 		for _, c := range chunk.Choices {
 			if c.FinishReason != "" {
-				out.StopReason = c.FinishReason
+				out.StopReason, finished = c.FinishReason, true
 			}
 			if err := text.add(c.Delta.Content); err != nil {
 				return err
@@ -106,6 +108,9 @@ func (o openai) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	})
 	if err != nil {
 		return Response{}, err
+	}
+	if !finished {
+		return Response{}, errTruncated()
 	}
 	out.Text = text.b.String()
 	return out, nil

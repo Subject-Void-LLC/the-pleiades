@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/aiprovider"
@@ -149,17 +150,21 @@ func Estimate(rc sdk.RunbookContext, t Target, model string, p Prompt, o Options
 	}
 	est["ignored"], est["dropped"] = list(ignored), list(dropped)
 	price, priced := t.Prices[model]
-	if o.Params.MaxTokens != nil {
+	// The cap bounds the output only where the provider is sent it.
+	bounded := o.Params.MaxTokens != nil && !slices.Contains(ignored, aiprovider.ParamMaxTokens) && !slices.Contains(dropped, aiprovider.ParamMaxTokens)
+	if bounded {
 		est["max_output_tokens"] = *o.Params.MaxTokens
 	} else {
 		est["output_unbounded"] = true
 	}
+	// A cost ceiling exists only for an output that has one; without it the
+	// input's cost alone would read as a maximum.
+	if priced && bounded {
+		est["max_cost"] = (float64(in)*price.Input + float64(*o.Params.MaxTokens)*price.Output) / 1e6
+		est["currency"] = price.Currency
+	}
 	if priced {
-		out := 0
-		if o.Params.MaxTokens != nil {
-			out = *o.Params.MaxTokens
-		}
-		est["max_cost"] = (float64(in)*price.Input + float64(out)*price.Output) / 1e6
+		est["input_cost"] = float64(in) * price.Input / 1e6
 		est["currency"] = price.Currency
 	}
 	return est

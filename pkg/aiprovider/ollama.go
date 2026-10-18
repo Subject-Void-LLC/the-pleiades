@@ -71,6 +71,7 @@ func (o ollama) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	defer func() { _ = resp.Body.Close() }()
 	var out Response
 	var text answer
+	finished := false
 	err = ndjson(resp.Body, func(line []byte) error {
 		var chunk struct {
 			Model   string `json:"model"`
@@ -87,16 +88,20 @@ func (o ollama) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 			return &APIError{Streamed: true, Message: "a line is not JSON: " + err.Error()}
 		}
 		if chunk.Error != "" {
-			return &APIError{Status: 500, Streamed: true, Message: chunk.Error}
+			return &APIError{Status: 500, Streamed: true, Message: bound(chunk.Error)}
 		}
 		out.Model = chunk.Model
 		if chunk.Done {
-			out.InputTokens, out.OutputTokens, out.StopReason = chunk.PromptEvalCount, chunk.EvalCount, chunk.DoneReason
+			finished = true
+			out.InputTokens, out.OutputTokens, out.StopReason, out.Reported = chunk.PromptEvalCount, chunk.EvalCount, chunk.DoneReason, true
 		}
 		return text.add(chunk.Message.Content)
 	})
 	if err != nil {
 		return Response{}, err
+	}
+	if !finished {
+		return Response{}, errTruncated()
 	}
 	out.Text = text.b.String()
 	return out, nil
@@ -186,7 +191,7 @@ func OllamaPull(ctx context.Context, ep Endpoint, model string) error {
 			return &APIError{Streamed: true, Message: "a line is not JSON: " + err.Error()}
 		}
 		if st.Error != "" {
-			return &APIError{Status: 500, Streamed: true, Message: st.Error}
+			return &APIError{Status: 500, Streamed: true, Message: bound(st.Error)}
 		}
 		success = success || st.Status == "success"
 		return nil
