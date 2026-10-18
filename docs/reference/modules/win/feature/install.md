@@ -44,6 +44,7 @@ Note that no rollback engine reads this yet. What exists today is the recording,
 ## See also
 
 - `win.feature.remove`
+- `win.reboot`
 
 ## Examples
 
@@ -55,12 +56,9 @@ Enable IIS:
     name: IIS-WebServerRole
   register: iis
 
-- name: Reboot if DISM asked for one
-  exec.winrm.shell:
-    shell: powershell
-    command: Restart-Computer -Force
-    expect_disconnect: true
+- name: Restart if DISM asked for one
+  win.reboot: {}
   when:
-    - iis.reboot_required
+    - result.iis.reboot_required
 ```
 

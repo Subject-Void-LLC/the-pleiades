@@ -2,7 +2,8 @@
 // registered, updated, removed or inspected over WinRM
 // (docs/design/small-methods.md). The script it runs is a constant
 // (schtaskScript) and every value reaches it as JSON on standard input,
-// so nothing a task names can become PowerShell syntax.
+// so nothing a task names can become PowerShell syntax. It also holds
+// win.reboot (reboot.go), a restart waited for until the host is back.
 package win
 
 import (

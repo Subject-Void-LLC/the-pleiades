@@ -55,10 +55,10 @@ func installDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Enable IIS",
-				RunbookYAML: "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  exec.winrm.shell:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n",
+				RunbookYAML: "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Restart if DISM asked for one\n  win.reboot: {}\n  when:\n    - result.iis.reboot_required\n",
 			},
 		},
-		[]string{"win.feature.remove"},
+		[]string{"win.feature.remove", "win.reboot"},
 	)
 }
 

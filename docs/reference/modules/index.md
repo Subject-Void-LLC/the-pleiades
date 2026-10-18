@@ -30,8 +30,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
-| `win` | 6 | 6 |
-| **total** | **170** | **167** |
+| `win` | 9 | 9 |
+| **total** | **173** | **170** |
 
 ## All methods
 
@@ -201,9 +201,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
+| [win.capability.install](win/capability/install.md) | implemented | Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it. |
+| [win.capability.remove](win/capability/remove.md) | implemented | Removes a Windows capability (a feature on demand) with DISM, run as SYSTEM. |
 | [win.cpu.topology](win/cpu/topology.md) | implemented | Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group. |
 | [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
 | [win.file.copy](win/file/copy.md) | implemented | Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches. |
 | [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |
+| [win.reboot](win/reboot.md) | implemented | Restarts a Windows host over WinRM and waits until it is back, as ansible.windows.win_reboot does. |
 | [win.schtask](win/schtask.md) | implemented | Registers, updates or removes a Windows scheduled task over WinRM, or reports one as it is. |

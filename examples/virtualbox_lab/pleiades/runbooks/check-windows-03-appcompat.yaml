@@ -1,0 +1,18 @@
+# Server Core's application compatibility feature on demand on win-check,
+# which adds parts of the Desktop Experience to Server Core so more
+# programs run on it, then the restart that finishes it. Its payload comes
+# from Windows Update, which refuses a WinRM logon, so
+# win.capability.install runs DISM as SYSTEM; on the one-CPU box it took 23
+# minutes. A second run finds it installed and changes nothing.
+id: vbox-lab-check-windows-appcompat
+hosts: win-check
+tasks:
+  - name: install Server Core's application compatibility feature
+    win.capability.install:
+      name: ServerCore.AppCompatibility~~~~0.0.1.0
+    register: appcompat
+  - name: restart to finish it
+    win.reboot:
+      reboot_timeout: 900
+    when:
+      - result.appcompat.reboot_required

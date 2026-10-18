@@ -68,10 +68,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// load, import, prune, info, resolve and search, and
 	// container.registry.login, logout and info. The scan Collection
 	// added the 149th through 151st: scan.sbom, scan.secrets and
-	// scan.vuln.
+	// scan.vuln. Preparing a Windows host added the 171st through 173rd:
+	// win.capability.install and remove, and win.reboot.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 170
+	const wantCollections = 173
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

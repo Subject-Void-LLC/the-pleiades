@@ -14727,6 +14727,165 @@
       ]
     }
   },
+  "win.capability.install": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsFeatureCapable"
+    ],
+    "executionContext": {
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that installed the capability emits a win.capability.remove naming it; one that found it installed, or pending a restart to finish installing, emits nothing. Either direction may need the restart reboot_required reports before it is complete.",
+      "inverses": [
+        {
+          "fqcn": "win.capability.remove",
+          "record": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it.",
+      "description": "Makes sure a Windows capability, what Get-WindowsCapability lists and Windows calls a feature on demand, is installed: ServerCore.AppCompatibility, OpenSSH.Server and the like. Its state is read first with dism.exe /get-capabilityinfo, so a capability already installed, or installed and waiting only for a restart, reports no change and nothing is sent; a name DISM does not recognize is refused. The payload comes from Windows Update unless source names a folder or mounted image holding the host's features on demand, and then Windows Update is left alone. The Windows Update agent refuses a WinRM logon (Add-WindowsCapability over WinRM answers Access is denied), so the install runs dism.exe as SYSTEM in a one-shot scheduled task in the \\Pleiades\\ folder, which this method registers, waits for and removes. A large capability from Windows Update can take many minutes: ServerCore.AppCompatibility took 23 on a one-CPU host. Many capabilities need a restart to finish, which reboot_required says, both on the run that installed one and on a later run that finds it waiting; win.reboot restarts the host. A run that installed it emits win.capability.remove naming it. A check reads the capability and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The capability's whole identity as DISM lists it, with its four tildes and version, such as ServerCore.AppCompatibility~~~~0.0.1.0 or Language.Basic~~~en-US~0.0.1.0 (Get-WindowsCapability -Online lists them). A name DISM does not recognize is refused rather than reported as already in the asked state, since that is nearly always a typo."
+        },
+        {
+          "name": "source",
+          "type": "string",
+          "description": "A folder or mounted image on the host holding its features on demand, such as D:\\LanguagesAndOptionalFeatures, used instead of Windows Update. It may not hold a %, a quote or a line break."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "3600",
+          "description": "How many seconds DISM may run. Task Scheduler stops it at that limit and the task fails saying so."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The capability this task acted on."
+        },
+        {
+          "name": "reboot_required",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a restart is needed to finish: DISM answered 3010, or the capability was found already waiting for one. win.reboot restarts the host."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What DISM reported about the capability before this task and after it, each holding name, exists and state. Recorded even on a run that changed nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make Server Core run more applications",
+          "runbookYaml": "- name: Install Server Core's application compatibility feature\n  win.capability.install:\n    name: ServerCore.AppCompatibility~~~~0.0.1.0\n  register: appcompat\n\n- name: Restart to finish it\n  win.reboot: {}\n  when:\n    - result.appcompat.reboot_required\n"
+        }
+      ],
+      "seeAlso": [
+        "win.capability.remove",
+        "win.reboot",
+        "win.feature.install"
+      ]
+    }
+  },
+  "win.capability.remove": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsFeatureCapable"
+    ],
+    "executionContext": {
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that removed the capability emits a win.capability.install naming it, which fetches it from Windows Update again: one first installed from a source needs that source in its rollback: list. One found absent, or pending a restart to finish going, emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "win.capability.install",
+          "record": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a Windows capability (a feature on demand) with DISM, run as SYSTEM.",
+      "description": "Makes sure a Windows capability, what Get-WindowsCapability lists, is not installed. Its state is read first with dism.exe /get-capabilityinfo, so a capability that is not present, only staged, or removed and waiting only for a restart reports no change and nothing is sent; a name DISM does not recognize is refused. The removal runs dism.exe as SYSTEM in a one-shot scheduled task in the \\Pleiades\\ folder, as win.capability.install does, which this method registers, waits for and removes. Many capabilities need a restart to finish going, which reboot_required says; win.reboot restarts the host. A run that removed one emits win.capability.install naming it, which fetches it from Windows Update again: a capability first installed from a source needs that source named in its rollback: list. A check reads the capability and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The capability's whole identity as DISM lists it, with its four tildes and version, such as ServerCore.AppCompatibility~~~~0.0.1.0 or Language.Basic~~~en-US~0.0.1.0 (Get-WindowsCapability -Online lists them). A name DISM does not recognize is refused rather than reported as already in the asked state, since that is nearly always a typo."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "3600",
+          "description": "How many seconds DISM may run. Task Scheduler stops it at that limit and the task fails saying so."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The capability this task acted on."
+        },
+        {
+          "name": "reboot_required",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a restart is needed to finish: DISM answered 3010, or the capability was found already waiting for one. win.reboot restarts the host."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What DISM reported about the capability before this task and after it, each holding name, exists and state. Recorded even on a run that changed nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove Steps Recorder",
+          "runbookYaml": "- name: Remove Steps Recorder\n  win.capability.remove:\n    name: App.StepsRecorder~~~~0.0.1.0\n"
+        }
+      ],
+      "seeAlso": [
+        "win.capability.install",
+        "win.reboot",
+        "win.feature.remove"
+      ]
+    }
+  },
   "win.cpu.topology": {
     "supportedTransports": [
       "winrm"
@@ -14874,11 +15033,12 @@
       "examples": [
         {
           "name": "Enable IIS",
-          "runbookYaml": "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  exec.winrm.shell:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"
+          "runbookYaml": "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Restart if DISM asked for one\n  win.reboot: {}\n  when:\n    - result.iis.reboot_required\n"
         }
       ],
       "seeAlso": [
-        "win.feature.remove"
+        "win.feature.remove",
+        "win.reboot"
       ]
     }
   },
@@ -15112,6 +15272,99 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova"
+      ]
+    }
+  },
+  "win.reboot": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "requiresElevation": true,
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A restart cannot be taken back: once the host has restarted there is nothing to put back, so no undo is recorded."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Restarts a Windows host over WinRM and waits until it is back, as ansible.windows.win_reboot does.",
+      "description": "Reads the host's last boot time, has shutdown.exe restart it pre_reboot_delay seconds later (closing applications that do not exit, and recorded as a planned restart for maintenance), then waits until the host answers over WinRM again with a later boot time, which is what shows it restarted rather than only answered, and then post_reboot_delay seconds more. reboot_timeout bounds the wait from the moment the restart is asked for; a try the host refuses, or does not answer within connect_timeout, is made again five seconds later. A restart already scheduled on the host is cancelled and replaced by this one. A run always reports a change, and a restart cannot be undone. A check reads the boot time and sends nothing.",
+      "params": [
+        {
+          "name": "reboot_timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds the host may take to come back, from the moment the restart is asked for."
+        },
+        {
+          "name": "pre_reboot_delay",
+          "type": "int",
+          "default": "2",
+          "description": "How many seconds shutdown.exe waits before restarting, at least 0 and at most 600."
+        },
+        {
+          "name": "post_reboot_delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait once the host is back, for services that start after WinRM does."
+        },
+        {
+          "name": "msg",
+          "type": "string",
+          "default": "Reboot initiated by The Pleiades",
+          "description": "The message shutdown.exe shows signed-in users and records, at most 512 characters on one line."
+        },
+        {
+          "name": "connect_timeout",
+          "type": "int",
+          "default": "20",
+          "description": "How many seconds one try to reach the host may take."
+        }
+      ],
+      "returns": [
+        {
+          "name": "rebooted",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the host restarted: true on a run, false in a check."
+        },
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "on a run",
+          "description": "How many seconds the restart took, from asking for it to the host being back."
+        },
+        {
+          "name": "previous_boot_time",
+          "type": "string",
+          "returned": "always",
+          "description": "When the host last booted before this task, in UTC (RFC 3339)."
+        },
+        {
+          "name": "boot_time",
+          "type": "string",
+          "returned": "on a run",
+          "description": "When the host booted this time, in UTC (RFC 3339)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart after a change that needs it",
+          "runbookYaml": "- name: Install Server Core's application compatibility feature\n  win.capability.install:\n    name: ServerCore.AppCompatibility~~~~0.0.1.0\n  register: appcompat\n\n- name: Restart to finish it\n  win.reboot:\n    reboot_timeout: 900\n  when:\n    - result.appcompat.reboot_required\n"
+        }
+      ],
+      "seeAlso": [
+        "win.capability.install",
+        "win.feature.install",
+        "wait.connection"
       ]
     }
   },
