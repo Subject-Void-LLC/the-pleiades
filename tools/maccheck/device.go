@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Ready builds pleiades, makes the Mac a device of the private project
@@ -220,8 +221,11 @@ func (r pleiadesRemote) Test(ctx context.Context, mac, sha, script string, stdou
 	out, err := r.adhocContext(ctx, "exec.command", "argv:="+argvYAML("/bin/sh", "-c", script))
 	if ctx.Err() != nil {
 		// The local pleiades is gone, and the tests would run on without it:
-		// end them on the Mac, with a session of their own.
-		if _, stopErr := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", stopScript(sha))); stopErr != nil {
+		// end them on the Mac, with a session of their own, bounded so a Mac
+		// that stopped answering cannot hold the interrupted run open.
+		stopCtx, cancel := context.WithTimeout(context.Background(), stopGrace)
+		defer cancel()
+		if _, stopErr := r.adhocContext(stopCtx, "exec.command", "argv:="+argvYAML("/bin/sh", "-c", stopScript(sha))); stopErr != nil {
 			return false, fmt.Errorf("interrupted, and the tests on %s could not be stopped: %v", mac, stopErr)
 		}
 		return false, fmt.Errorf("interrupted; the tests on %s were stopped", mac)
@@ -260,6 +264,9 @@ func argvYAML(argv ...string) string {
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
+
+// stopGrace bounds stopping the tests on the Mac after an interrupt.
+const stopGrace = time.Minute
 
 // loginCheck logs in once with plain ssh, never prompting, so a key the
 // Mac does not hold or a host key this machine does not know is named
