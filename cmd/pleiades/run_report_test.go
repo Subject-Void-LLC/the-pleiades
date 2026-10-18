@@ -56,6 +56,7 @@ func TestPrintResultsPrintsEveryStatus(t *testing.T) {
 			{ID: "tasks[4]", Status: statusFailed, Error: "boom", Stats: map[string]any{"rc": 1}},
 			{ID: "tasks[5]", Status: statusUnchecked, Reason: "no check", AllowedUnchecked: true, Stats: map[string]any{"hidden": true}},
 			{ID: "tasks[6]", Status: statusOK, Provider: &collection.Provider{Program: "ext", Digest: "sha256:ab"}},
+			{ID: "tasks[7]", Status: statusHeld, Error: "held", Stats: map[string]any{"withheld": true}},
 		},
 		Metadata: map[string]any{"summary": map[string]any{"": map[string]any{"count": 3}}},
 		Outcome:  runOutcome{Status: "complete", Message: "run complete"},
@@ -66,9 +67,11 @@ func TestPrintResultsPrintsEveryStatus(t *testing.T) {
 		"  tasks[1]: ok (checked only)\n",
 		"  tasks[2]: would change\n",
 		"  tasks[3]: skipped (when was false)\n",
-		"  tasks[4]: FAILED: boom\n",
+		// A failed task's output is printed, since it is usually why it failed.
+		"  tasks[4]: FAILED: boom\n    rc: 1\n",
 		"  tasks[5]: COULD NOT CHECK (no check) [allowed by --allow-unchecked]\n",
 		"  tasks[6]: ok\n    provided by: ext (sha256:ab)\n",
+		"  tasks[7]: HELD FOR REVIEW: held\n",
 		"metadata:\n  summary:\n    count: 3\n",
 		"\nrun complete\n",
 	} {
@@ -76,13 +79,13 @@ func TestPrintResultsPrintsEveryStatus(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	// A failed task's stats and an unchecked task's stats are not printed.
-	if strings.Contains(out, "rc: 1") || strings.Contains(out, "hidden") {
+	// An unchecked task's stats and a held task's are not printed.
+	if strings.Contains(out, "hidden") || strings.Contains(out, "withheld") {
 		t.Errorf("printed stats it should not have:\n%s", out)
 	}
 
 	rep.Outcome = runOutcome{Status: "incomplete", Message: "check incomplete"}
-	if out := captureStdout(t, func() { printResults(rep, false) }); strings.Contains(out, "rc: 0") || strings.Contains(out, "check incomplete") {
+	if out := captureStdout(t, func() { printResults(rep, false) }); strings.Contains(out, "rc: ") || strings.Contains(out, "check incomplete") {
 		t.Errorf("without --verbose, or for an incomplete run:\n%s", out)
 	}
 }
