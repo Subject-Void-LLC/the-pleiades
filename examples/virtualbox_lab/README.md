@@ -488,7 +488,8 @@ pleiades run runbooks/check-windows-02-tools.yaml    # Go and MinGit, each held 
 
 ### bsd-check
 
-The clone is lean (one CPU and 1024 MB), and its first boot installs `git` and `sudo`
+The clone has one CPU and 4096 MB, since compiling the AWS SDK's `ec2` package peaks at 3.2 GB
+(3.7 GB with `-race`); its first boot installs `git` and `sudo`
 (`virt.vbox.vm.clone`'s `packages`, which nuageinit reads as cloud-init does). With `sudo`, the
 login gets the passwordless root its seed grants it, since FreeBSD's base system has no sudo. Go goes
 in the login's home, so it needs no root: fetch the release here and hold it to the digest go.dev
@@ -509,7 +510,19 @@ pleiades adhoc bsd-check archive.extract src=/home/pleiades/sdk/go.tar.gz dest=/
 ```
 
 Then name each in this repository's `tests/win/.env` and `tests/bsd/.env` (copy each `.env.example`):
-this project's directory, and the device's name.
+this project's directory, the device's name, and `vengeance` as the VirtualBox host
+(`PLEIADES_WIN_VM_HOST`, `PLEIADES_BSD_VM_HOST`). With a host named, a check starts its box when a run
+needs it and saves its state when the run ends (`virt.vbox.vm.stop` `mode: save`), so the two boxes
+hold this host's memory only while a check runs, and `make pr-check` runs them one after the other.
+Shut each down once it is set up; the first check starts it.
+
+win-check also carries Server Core's application compatibility feature, which adds parts of the
+Desktop Experience so more programs run on Server Core. `win.capability.install` puts it on and
+`win.reboot` finishes it:
+
+```bash
+pleiades run runbooks/check-windows-03-appcompat.yaml   # about 25 minutes on one CPU, from Windows Update
+```
 
 ## How it works
 

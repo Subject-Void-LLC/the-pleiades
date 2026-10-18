@@ -47,10 +47,10 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Stops a VirtualBox VM, by its power button or by cutting its power.",
-				Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
-					{Name: "mode", Type: "string", Default: "acpi", Choices: []string{"acpi", "poweroff"}, Description: "acpi asks the guest to shut down; poweroff cuts its power."},
+					{Name: "mode", Type: "string", Default: "acpi", Choices: []string{"acpi", "poweroff", "save"}, Description: "acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume."},
 					{Name: "timeout", Type: "int", Default: "120", Description: "With mode acpi, how many seconds to wait for the guest to shut down before failing."},
 				},
 				Returns: []collection.ReturnField{
@@ -60,6 +60,7 @@ func init() {
 				Examples: []collection.Example{
 					{Name: "Shut a VM down", RunbookYAML: "- name: Shut the lab VM down\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n"},
 					{Name: "Cut a VM's power", RunbookYAML: "- name: Power the lab VM off now\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: poweroff\n"},
+					{Name: "Put a VM away until it is next needed", RunbookYAML: "- name: Save the lab VM's state and free its memory\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: save\n"},
 				},
 				SeeAlso: []string{"virt.vbox.vm.start"},
 			},
@@ -73,6 +74,7 @@ func init() {
 const (
 	modeACPI     = "acpi"
 	modePowerOff = "poweroff"
+	modeSave     = "save"
 )
 
 // pollInterval is how often a stop looks at the VM again; a test shortens
@@ -99,8 +101,8 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if text := sdk.StringParam(params, paramMode); text != "" {
 		stopMode = text
 	}
-	if stopMode != modeACPI && stopMode != modePowerOff {
-		return collection.Result{}, fmt.Errorf("%s: mode %q is not acpi or poweroff", fqcn, stopMode)
+	if stopMode != modeACPI && stopMode != modePowerOff && stopMode != modeSave {
+		return collection.Result{}, fmt.Errorf("%s: mode %q is not acpi, poweroff or save", fqcn, stopMode)
 	}
 	timeout, set, err := sdk.IntParam(params, paramTimeout)
 	if err != nil {
@@ -129,6 +131,9 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		predicted := before
 		if running {
 			predicted.State = vboxmanage.StatePoweroff
+			if stopMode == modeSave {
+				predicted.State = vboxmanage.StateSaved
+			}
 		}
 		predicted.AutostartEnabled = false
 		return collection.Result{Changed: changed}, recordStop(rc, fqcn, before, predicted)
@@ -164,10 +169,15 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 
 // stopVM stops a running VM. With acpi it presses the power button and
 // waits for the guest to shut down, failing rather than cutting the power
-// when it has not within timeout.
+// when it has not within timeout; poweroff and save return once VirtualBox
+// has done it.
 func stopVM(ctx context.Context, h vboxmanage.Host, name, stopMode string, timeout time.Duration) error {
-	if stopMode == modePowerOff {
-		err := h.PowerOff(ctx, name)
+	if stopMode == modePowerOff || stopMode == modeSave {
+		stop := h.PowerOff
+		if stopMode == modeSave {
+			stop = h.SaveState
+		}
+		err := stop(ctx, name)
 		if errors.Is(err, vboxmanage.ErrNotRunning) {
 			return nil
 		}

@@ -59,6 +59,28 @@ func (p Pleiades) Adhoc(ctx context.Context, method string, params ...string) (s
 	return adhocStdout(method, out)
 }
 
+// AdhocStats runs one method against the device, its pleiades ended when
+// ctx ends, and returns the task's stats, or its error.
+func (p Pleiades) AdhocStats(ctx context.Context, method string, params ...string) (map[string]any, error) {
+	args := append([]string{"adhoc", p.Device, method}, params...)
+	args = append(args, "--json", "--dir", p.Project)
+	out, _ := exec.CommandContext(ctx, p.Binary, args...).Output() // #nosec G204 -- the binary this check built, with arguments it wrote
+	return adhocTaskStats(method, out)
+}
+
+// adhocTaskStats reads one adhoc --json report: the one task's stats, or
+// why there are none, a failed task's own error included.
+func adhocTaskStats(method string, out []byte) (map[string]any, error) {
+	task, failed, err := oneTask(method, out)
+	if err != nil {
+		return nil, err
+	}
+	if failed != "" {
+		return nil, fmt.Errorf("%s: %s", method, failed)
+	}
+	return task.Stats, nil
+}
+
 // adhocStdout reads one adhoc --json report: the one task's stdout return,
 // or why there is none, a failed task's own error included.
 func adhocStdout(method string, out []byte) (string, error) {

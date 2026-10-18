@@ -49,6 +49,8 @@ var check = oscheck.LabCheck{
 	EnvFile:    "tests/win/.env",
 	ProjectKey: "PLEIADES_WINRM_PROJECT",
 	DeviceKey:  "PLEIADES_WINRM_DEVICE",
+	VMHostKey:  "PLEIADES_WIN_VM_HOST",
+	VMKey:      "PLEIADES_WIN_VM",
 }
 
 func main() {

@@ -284,7 +284,7 @@ make ci-fast         # every container-free package, tolerant, then test-repeat:
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
 make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
 make mac-check       # the branch's container-free packages on a real Mac (PLEIADES_MAC in tests/mac/.env), through pleiades; pr-check runs it when a Mac is named
-make bsd-check       # the same on a FreeBSD machine a project manages (tests/bsd/.env), and make win-check on a Windows one (tests/win/.env, no -race); pr-check runs each beside the Linux passes
+make bsd-check       # the same on a FreeBSD machine a project manages (tests/bsd/.env), and make win-check on a Windows one (tests/win/.env, no -race); a VM one is started and saved again around the run, and pr-check runs them one at a time beside the Linux passes
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target

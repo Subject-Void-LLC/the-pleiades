@@ -450,7 +450,7 @@ func (h *Host) startvm(name string) vboxmanage.Output {
 	return vboxmanage.Output{Stdout: waiting + fmt.Sprintf("VM %q has been successfully started.\r\n", vm.Name)}
 }
 
-// controlvm answers poweroff and acpipowerbutton.
+// controlvm answers poweroff, savestate and acpipowerbutton.
 func (h *Host) controlvm(name, action string) vboxmanage.Output {
 	vm := h.find(name)
 	if vm == nil {
@@ -462,6 +462,9 @@ func (h *Host) controlvm(name, action string) vboxmanage.Output {
 	switch action {
 	case "poweroff":
 		vm.State = vboxmanage.StatePoweroff
+		return vboxmanage.Output{Stderr: progress}
+	case "savestate":
+		vm.State = vboxmanage.StateSaved
 		return vboxmanage.Output{Stderr: progress}
 	case "acpipowerbutton":
 		vm.pressed = true

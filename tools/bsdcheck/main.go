@@ -46,6 +46,8 @@ var check = oscheck.LabCheck{
 	EnvFile:    "tests/bsd/.env",
 	ProjectKey: "PLEIADES_BSD_PROJECT",
 	DeviceKey:  "PLEIADES_BSD_DEVICE",
+	VMHostKey:  "PLEIADES_BSD_VM_HOST",
+	VMKey:      "PLEIADES_BSD_VM",
 }
 
 func main() {

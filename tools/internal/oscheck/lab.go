@@ -94,6 +94,20 @@ type LabCheck struct {
 	EnvFile string
 	// ProjectKey and DeviceKey name the project and the device in it.
 	ProjectKey, DeviceKey string
+	// VMHostKey and VMKey, both optional, name the machine as a VirtualBox
+	// VM: the host in the same project, and the VM's name there (the
+	// device's when unset). With a host named, a run starts the VM when it
+	// is not running and saves its state when the run ends (LabBox, Box).
+	VMHostKey, VMKey string
+}
+
+// keys is every setting c reads.
+func (c LabCheck) keys() []string {
+	keys := []string{c.ProjectKey, c.DeviceKey}
+	if c.VMHostKey != "" {
+		keys = append(keys, c.VMHostKey, c.VMKey)
+	}
+	return keys
 }
 
 // Run is a lab check's main, with its arguments, its output and the
@@ -111,7 +125,7 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
 		return 2
 	}
-	s, err := Load(c.EnvFile, c.ProjectKey, c.DeviceKey)
+	s, err := Load(c.EnvFile, c.keys()...)
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
 		return 2
@@ -130,13 +144,43 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "%[1]s: no %[2]s is configured. Name one, then run this again:\n  cp %[3]s.example %[3]s, and set %[4]s and %[5]s in it\n", c.Tool, c.Kind, c.EnvFile, c.ProjectKey, c.DeviceKey)
 		return 2
 	}
+	host, vm, err := LabBox(s, c.VMHostKey, c.VMKey, device)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n%s\n", c.Tool, err, advice)
+		return 2
+	}
 	l, err := leg(project, device)
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
 		return 2
 	}
 	flow := Flow{Tool: c.Tool, Machine: "the " + c.Kind, OS: c.OS, Target: device, Advice: advice}
-	return flow.Run(ctx, o, stdout, stderr, l)
+	if host == "" || len(o.Packages) == 0 {
+		return flow.Run(ctx, o, stdout, stderr, l)
+	}
+	box, err := c.box(project, device, host, vm)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
+		return 2
+	}
+	return runWithBox(ctx, o, flow, l, box, stdout, stderr)
+}
+
+// box is the VM vm on host, driven by the pleiades c builds for device in
+// project, which it builds first when this worktree has none yet.
+func (c LabCheck) box(project, device, host, vm string) (Box, error) {
+	lab, err := NewLab(c.Tool, project, device)
+	if err != nil {
+		return Box{}, err
+	}
+	if !FileExists(lab.Pleiades.Binary) {
+		if err := lab.Pleiades.Build(); err != nil {
+			return Box{}, err
+		}
+	}
+	onHost := lab.Pleiades
+	onHost.Device = host
+	return Box{Host: onHost, Device: lab.Pleiades, VM: vm}, nil
 }
 
 // LabAdvice is what ends a lab check's refusals: how to point it at
