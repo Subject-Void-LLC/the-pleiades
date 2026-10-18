@@ -40,6 +40,10 @@ func load(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	defer cancel()
 	if !has(disk, model) {
+		if check {
+			// An earlier task in the run may pull it; a check cannot know that.
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcnLoad, collection.CannotCheck(fmt.Sprintf("%s is not on %s yet; a real run fails on it unless an earlier task pulls it (ai.model.pull)", model, h.name)))
+		}
 		return fail(fmt.Errorf("%s is not on %s: pull it first (ai.model.pull)", model, h.name))
 	}
 	var others []string
@@ -57,14 +61,16 @@ func load(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{Changed: changed}, nil
 	}
 	// Every other model leaves memory first, so the host never holds two.
+	var unloaded []string
 	for _, m := range others {
 		if err := aiprovider.OllamaUnload(ctx, h.ep, m); err != nil {
-			return fail(fmt.Errorf("unloading %s: %w", m, err))
+			return fail(restore(ctx, h, unloaded, fmt.Errorf("unloading %s: %w", m, err)))
 		}
+		unloaded = append(unloaded, m)
 	}
 	if loading {
 		if err := aiprovider.OllamaLoad(ctx, h.ep, model); err != nil {
-			return fail(fmt.Errorf("loading %s: %w", model, err))
+			return fail(restore(ctx, h, unloaded, fmt.Errorf("loading %s: %w", model, err)))
 		}
 	}
 	undo := inverse(fqcnUnload, model)

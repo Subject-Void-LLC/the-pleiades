@@ -37,6 +37,10 @@ type Ollama struct {
 	Reject string
 	// FailStatus, when set, is the status every chat fails with.
 	FailStatus int
+	// FailLoad, when set, is a model whose loading into memory the host
+	// refuses (it unloads fine); FailDelete refuses every delete.
+	FailLoad   string
+	FailDelete bool
 	requests   []string
 	chats      int
 }
@@ -100,6 +104,11 @@ func (o *Ollama) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"model not found"}`))
 			return
 		}
+		if keep, _ := req["keep_alive"].(float64); keep != 0 && model == o.FailLoad {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"model requires more system memory"}`))
+			return
+		}
 		o.Memory = slices.DeleteFunc(o.Memory, func(m string) bool { return m == model })
 		if keep, _ := req["keep_alive"].(float64); keep != 0 {
 			o.Memory = append(o.Memory, model)
@@ -111,6 +120,11 @@ func (o *Ollama) serve(w http.ResponseWriter, r *http.Request) {
 			o.Disk = append(o.Disk, model)
 		}
 	case "DELETE /api/delete":
+		if o.FailDelete {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"disk error"}`))
+			return
+		}
 		o.Disk = slices.DeleteFunc(o.Disk, func(m string) bool { return m == model })
 	case "POST /api/chat":
 		o.chats++

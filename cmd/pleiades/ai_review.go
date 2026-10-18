@@ -110,7 +110,7 @@ func runAIReviewList(args []string) error {
 		return nil
 	}
 	for _, r := range reviews {
-		fmt.Printf("%s  %-8s  %s %s/%s  held %s  %s\n", r.Key[:12], r.Status, r.Method, termsafe.EscapeLine(r.Provider), termsafe.EscapeLine(r.Model), r.HeldAt, termsafe.EscapeLine(strings.Join(r.Reasons, "; ")))
+		fmt.Printf("%s  %-8s  %s %s/%s  held %s  %s\n", r.Key[:12], termsafe.EscapeLine(string(r.Status)), termsafe.EscapeLine(r.Method), termsafe.EscapeLine(r.Provider), termsafe.EscapeLine(r.Model), termsafe.EscapeLine(r.HeldAt), termsafe.EscapeLine(strings.Join(r.Reasons, "; ")))
 	}
 	for k, e := range broken {
 		fmt.Printf("%s  UNREADABLE  %s\n", k[:12], termsafe.EscapeLine(e.Error()))
@@ -148,17 +148,17 @@ func runAIReviewShow(args []string) error {
 // printReview prints what a person decides on: what was asked of whom,
 // why it was held, what it cost, and the answer, every value escaped.
 func printReview(w *os.File, r sdk.Review) {
-	fmt.Fprintf(w, "review %s: %s\n", r.Key, r.Status)
-	fmt.Fprintf(w, "%s to %s, model %s, held %s\n", r.Method, termsafe.EscapeLine(r.Provider), termsafe.EscapeLine(r.Model), r.HeldAt)
+	fmt.Fprintf(w, "review %s: %s\n", termsafe.EscapeLine(r.Key), termsafe.EscapeLine(string(r.Status)))
+	fmt.Fprintf(w, "%s to %s, model %s, held %s\n", termsafe.EscapeLine(r.Method), termsafe.EscapeLine(r.Provider), termsafe.EscapeLine(r.Model), termsafe.EscapeLine(r.HeldAt))
 	if cost, ok := r.Usage["cost"]; ok {
-		fmt.Fprintf(w, "cost %v %v\n", cost, r.Usage["currency"])
+		fmt.Fprintf(w, "cost %s %s\n", termsafe.EscapeLine(fmt.Sprint(cost)), termsafe.EscapeLine(fmt.Sprint(r.Usage["currency"])))
 	}
 	fmt.Fprintln(w, "held because:")
 	for _, why := range r.Reasons {
 		fmt.Fprintf(w, "  - %s\n", termsafe.EscapeLine(why))
 	}
 	if r.DecidedBy != "" {
-		fmt.Fprintf(w, "%s by %s at %s %s\n", r.Status, termsafe.EscapeLine(r.DecidedBy), r.DecidedAt, termsafe.EscapeLine(r.Comment))
+		fmt.Fprintf(w, "%s by %s at %s %s\n", termsafe.EscapeLine(string(r.Status)), termsafe.EscapeLine(r.DecidedBy), termsafe.EscapeLine(r.DecidedAt), termsafe.EscapeLine(r.Comment))
 	}
 	fmt.Fprintf(w, "answer (sha256 %s):\n", r.AnswerSHA256)
 	printEscapedBlock(w, r.Answer)
@@ -198,7 +198,7 @@ func decideReview(verb string, status sdk.ReviewStatus, args []string) error {
 	case !ok:
 		return fmt.Errorf("there is no review %s", key)
 	case r.Status != sdk.ReviewPending:
-		return fmt.Errorf("review %s was already %s by %s at %s", key, r.Status, r.DecidedBy, r.DecidedAt)
+		return fmt.Errorf("review %s was already %s by %s at %s", key, termsafe.EscapeLine(string(r.Status)), termsafe.EscapeLine(r.DecidedBy), termsafe.EscapeLine(r.DecidedAt))
 	}
 	w := term.Out().(*os.File)
 	printReview(w, r)

@@ -4,6 +4,7 @@ package model_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -134,5 +135,46 @@ func TestNormalize(t *testing.T) {
 		if got := model.Normalize(in); got != want {
 			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestLoadAndRemove_AFailureAfterAnUnloadPutsTheHostBack: a load that
+// unloads the resident model and then fails to load, and a remove that
+// unloads and then fails to delete, leave the host holding what it held;
+// the failed task's undo is dropped, so nothing else would put it back.
+func TestLoadAndRemove_AFailureAfterAnUnloadPutsTheHostBack(t *testing.T) {
+	host := aitest.NewOllama(t, "a:latest", "b:latest")
+	host.Memory = []string{"a:latest"}
+	host.FailLoad = "b:latest"
+	dev := aitest.Local(t, "ws", host, true)
+	rc := aitest.NewContext()
+	_, err := model.Load(context.Background(), rc, dev, map[string]any{"model": "b"})
+	if err == nil || !strings.Contains(err.Error(), "loaded again") {
+		t.Fatalf("a load the host refused = %v", err)
+	}
+	if _, memory := host.State(); !slices.Equal(memory, []string{"a:latest"}) {
+		t.Errorf("after the failed load, memory %v; want a:latest back", memory)
+	}
+
+	host.FailDelete = true
+	if _, err := model.Remove(context.Background(), aitest.NewContext(), dev, map[string]any{"model": "a"}); err == nil || !strings.Contains(err.Error(), "loaded again") {
+		t.Fatalf("a delete the host refused = %v", err)
+	}
+	if disk, memory := host.State(); !slices.Equal(memory, []string{"a:latest"}) || !slices.Contains(disk, "a:latest") {
+		t.Errorf("after the failed remove, disk %v memory %v", disk, memory)
+	}
+}
+
+// TestLoad_ACheckOfAModelNotYetPulledCannotBeChecked: a check of a load
+// whose model is not on the host yet is reported as unable to be checked,
+// not as an error, since an earlier task of the run may pull it.
+func TestLoad_ACheckOfAModelNotYetPulledCannotBeChecked(t *testing.T) {
+	host := aitest.NewOllama(t, "a:latest")
+	dev := aitest.Local(t, "ws", host, true)
+	desc, _ := collection.Lookup("ai.model.load")
+	_, err := desc.Check(context.Background(), aitest.NewContext(), dev, map[string]any{"model": "missing"})
+	var cannot *collection.CannotCheckError
+	if !errors.As(err, &cannot) {
+		t.Fatalf("check = %v, want it unable to be checked", err)
 	}
 }

@@ -178,3 +178,23 @@ func undoes(fqcns ...string) []sdk.InverseSpec {
 	}
 	return out
 }
+
+// restoreGrace is how long putting back what a failed task unloaded may take.
+const restoreGrace = 30 * time.Second
+
+// restore loads again the models a task unloaded before it failed, so a
+// failure leaves the host holding what it held (a failed task's undo is
+// dropped, so nothing else would), and returns cause saying how that went.
+func restore(ctx context.Context, h host, unloaded []string, cause error) error {
+	if len(unloaded) == 0 {
+		return cause
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreGrace)
+	defer cancel()
+	for _, m := range unloaded {
+		if err := aiprovider.OllamaLoad(ctx, h.ep, m); err != nil {
+			return fmt.Errorf("%w; %s, which it had unloaded, could not be loaded again: %v", cause, m, err)
+		}
+	}
+	return fmt.Errorf("%w; %s, which it had unloaded, was loaded again", cause, strings.Join(unloaded, ", "))
+}

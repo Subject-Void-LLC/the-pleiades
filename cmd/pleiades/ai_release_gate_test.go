@@ -258,7 +258,7 @@ func TestCLI_AIPromptSigningGate(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
-	keyFile := filepath.Join(keyDir, "prompts.key")
+	keyFile := filepath.Join(keyDir, "config", "pleiades", "prompts.key")
 	if out, err := runPleiadesOnTerminal(t, dir, env, "", "ai", "prompt", "keygen", "--out", filepath.Join(dir, "in-project.key")); err == nil || !strings.Contains(out, "inside the project") {
 		t.Fatalf("a key in the project: %v\n%s", err, out)
 	}

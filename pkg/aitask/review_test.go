@@ -3,8 +3,12 @@
 package aitask
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 func rules(t *testing.T, raw ...map[string]any) []Rule {
@@ -120,4 +124,30 @@ func clone(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// stubReviewer keeps the first review made under a key and returns it for
+// every later one, as the project's reviews do.
+type stubReviewer struct{ kept sdk.Review }
+
+func (s *stubReviewer) Decided(string) (sdk.Review, bool, error) { return s.kept, true, nil }
+func (s *stubReviewer) Hold(_ context.Context, r sdk.Review) (sdk.Review, error) {
+	return s.kept, nil
+}
+
+// TestGate_AnApprovalIsOfTheAnswerShown: a second answer reaching a key
+// whose review a person approved for a first answer is not released under
+// that approval.
+func TestGate_AnApprovalIsOfTheAnswerShown(t *testing.T) {
+	held := rules(t, map[string]any{"always": true})
+	first := sdk.Review{Key: "k", Answer: "first", Status: sdk.ReviewApproved}
+	g := Gate{Rules: held, Key: "k", reviewer: &stubReviewer{kept: first}}
+	if got, err := g.After(context.Background(), sdk.Review{Answer: "first"}, Outcome{}); err != nil || got == nil {
+		t.Fatalf("the approved answer itself = %v, %v", got, err)
+	}
+	got, err := g.After(context.Background(), sdk.Review{Answer: "second, different"}, Outcome{})
+	var heldErr *sdk.HeldError
+	if got != nil || !errors.As(err, &heldErr) {
+		t.Errorf("a different answer under an approval = %v, %v; want it held", got, err)
+	}
 }

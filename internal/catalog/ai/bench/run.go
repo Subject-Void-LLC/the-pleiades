@@ -113,6 +113,12 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		if err := aitask.HasProject(rc); err != nil {
 			return fail(fmt.Errorf("%s: %w", paramSaveAs, err))
 		}
+		// Claim the file before the first call: a name already taken, or a
+		// directory that cannot be written, is found before the set is
+		// billed and not after, when the results could only be lost.
+		if err := rc.(sdk.AIProject).AIWrite("ai/bench/"+saveAs, nil, false); err != nil {
+			return fail(fmt.Errorf("%s %s: %w", paramSaveAs, saveAs, err))
+		}
 	}
 	results, saved, passed, total, priced, currency := make([]any, 0, len(set)), make([]any, 0, len(set)), 0, 0.0, true, ""
 	for _, it := range set {
@@ -160,7 +166,7 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 			return fail(err)
 		}
 		path := "ai/bench/" + saveAs
-		if err := rc.(sdk.AIProject).AIWrite(path, append(data, '\n'), false); err != nil {
+		if err := rc.(sdk.AIProject).AIWrite(path, append(data, '\n'), true); err != nil {
 			return fail(fmt.Errorf("saving the results: %w", err))
 		}
 		stats["saved"] = path

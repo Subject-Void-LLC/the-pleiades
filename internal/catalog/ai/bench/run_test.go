@@ -48,8 +48,12 @@ func TestRun_ScoresEachPrompt(t *testing.T) {
 	if len(rc.UsageLines(t, "ai/usage/bench.jsonl")) != 5 {
 		t.Error("not every call's usage was appended")
 	}
+	calls := host.Chats()
 	if _, err := bench.Run(context.Background(), rc, dev, map[string]any{"model": "m:latest", "prompts": set, "save_as": "run1.json"}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("a result written over: %v", err)
+	}
+	if host.Chats() != calls {
+		t.Errorf("a save_as already taken was found after %d billed calls, not before any", host.Chats()-calls)
 	}
 }
 

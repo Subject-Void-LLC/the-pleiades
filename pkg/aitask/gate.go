@@ -82,6 +82,12 @@ func (g Gate) After(ctx context.Context, r sdk.Review, o Outcome) (*sdk.Review, 
 	if err != nil {
 		return nil, &sdk.HeldError{Key: g.Key, Reason: fmt.Sprintf("the answer matched %v and could not be held for review: %v; it is not released", reasons, err)}
 	}
+	// A review kept under this key holds the answer it was made for; an
+	// approval of that one is no approval of another that arrived while it
+	// was being decided (two calls with one request key in flight).
+	if held.Answer != r.Answer {
+		return nil, &sdk.HeldError{Key: g.Key, Reason: fmt.Sprintf("the answer matched %v, and a review under this request's key already holds a different answer; this one is not released, and an approval is of the answer a person was shown", reasons)}
+	}
 	switch held.Status {
 	case sdk.ReviewApproved:
 		return &held, nil

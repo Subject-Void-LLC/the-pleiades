@@ -57,6 +57,11 @@ func runAIPromptKeygen(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A fresh machine has no ~/.config/pleiades yet; the key's directory is
+	// private to the person, as the key is.
+	if err := os.MkdirAll(filepath.Dir(*out), 0o700); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(*out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("writing the key: %w", err)

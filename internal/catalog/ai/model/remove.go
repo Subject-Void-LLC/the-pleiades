@@ -46,13 +46,15 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if check || !present {
 		return collection.Result{Changed: present}, nil
 	}
+	var unloaded []string
 	if has(memory, model) {
 		if err := aiprovider.OllamaUnload(ctx, h.ep, model); err != nil {
 			return fail(fmt.Errorf("unloading %s first: %w", model, err))
 		}
+		unloaded = append(unloaded, model)
 	}
 	if err := aiprovider.OllamaDelete(ctx, h.ep, model); err != nil {
-		return fail(err)
+		return fail(restore(ctx, h, unloaded, err))
 	}
 	undo := inverse(fqcnPull, model)
 	undo.Description = fmt.Sprintf("Pull %s onto %s again.", model, h.name)
