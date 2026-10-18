@@ -3,6 +3,8 @@
 package main
 
 import (
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -28,8 +30,8 @@ type options struct {
 	// parallel is go test's -p, how many packages run at once; zero leaves
 	// go test's default.
 	parallel int
-	// shard is "k/n": this run owns every package whose position in the
-	// sorted list is k-1 modulo n. Empty means every package.
+	// shard is "k/n": this run owns the k-th of n shards, balanced by how
+	// long each package's tests take (shardOf). Empty means every package.
 	shard string
 	// coverageOut is where the run's per-package coverage is written, as
 	// JSON, for coverage-check -measured. Empty writes nothing.
@@ -92,16 +94,52 @@ func (o options) selected() ([]string, error) {
 	return shardOf(o.packages, o.shard)
 }
 
-// shardOf returns the packages shard ("k/n") owns: after sorting, every
-// package whose index is k-1 modulo n. Sorting first is what makes the
-// assignment the same on every runner whatever order the list arrived in,
-// and dealing round-robin keeps neighbouring packages apart. An empty shard
-// owns everything.
+// durationsJSON is how long each container package's tests took in CI, in
+// seconds, by its path inside the module: measured from the containers
+// jobs' logs (the time from one package's result to the next, packages
+// running one at a time), averaged over runs. A shard's time is the sum of
+// its packages', and a pull request waits for its slowest shard, so this is
+// what shardOf balances on. Refresh it from a recent run when a package's
+// time moves a lot; one missing from it counts as the median.
+//
+//go:embed durations.json
+var durationsJSON []byte
+
+// modulePrefix is how a package's import path starts, before its path in
+// the module.
+const modulePrefix = "github.com/Subject-Void-LLC/the-pleiades/"
+
+// durations is durationsJSON read, by path in the module.
+func durations() map[string]float64 {
+	var d map[string]float64
+	if err := json.Unmarshal(durationsJSON, &d); err != nil {
+		panic(fmt.Sprintf("testgate: durations.json: %v", err))
+	}
+	return d
+}
+
+// shardOf returns the packages shard ("k/n") owns, balanced by the times in
+// durations.json: shardBy with them.
+func shardOf(packages []string, shard string) ([]string, error) {
+	return shardBy(packages, shard, durations())
+}
+
+// shardBy returns the packages shard ("k/n") owns. The packages are taken
+// longest first (by seconds, a package's path in the module mapping to its
+// time; one it lacks counts as the median of those it has), each given to
+// the shard with the least time so far, the lower-numbered on a tie. Every
+// runner computes the same assignment whatever order the list arrived in,
+// since ties are broken by name. With every time equal this deals the
+// sorted list round-robin. The shard's packages come back sorted.
+//
+// Dealing by position alone put the three longest packages in one shard,
+// which then took three times as long as the others (41 minutes against
+// 9 to 16), and a pull request waits for its slowest shard.
 //
 // A shard that owns nothing is an error rather than an empty success, so a
 // workflow asking for more shards than there are packages is told, instead
 // of reporting a green job that tested nothing.
-func shardOf(packages []string, shard string) ([]string, error) {
+func shardBy(packages []string, shard string, seconds map[string]float64) ([]string, error) {
 	sorted := append([]string(nil), packages...)
 	sort.Strings(sorted)
 	if shard == "" {
@@ -113,14 +151,51 @@ func shardOf(packages []string, shard string) ([]string, error) {
 	if !ok || errK != nil || errN != nil || n < 1 || k < 1 || k > n {
 		return nil, fmt.Errorf("-shard %q is not k/n with 1 <= k <= n", shard)
 	}
+	weight := weights(sorted, seconds)
+	byTime := append([]string(nil), sorted...)
+	sort.SliceStable(byTime, func(i, j int) bool { return weight[byTime[i]] > weight[byTime[j]] })
+	load := make([]float64, n)
 	var owned []string
-	for i, pkg := range sorted {
-		if i%n == k-1 {
+	for _, pkg := range byTime {
+		least := 0
+		for i := 1; i < n; i++ {
+			if load[i] < load[least] {
+				least = i
+			}
+		}
+		load[least] += weight[pkg]
+		if least == k-1 {
 			owned = append(owned, pkg)
 		}
 	}
 	if len(owned) == 0 {
 		return nil, fmt.Errorf("shard %s owns none of the %d packages; use fewer shards", shard, len(sorted))
 	}
+	sort.Strings(owned)
 	return owned, nil
+}
+
+// weights is each package's time: its own from seconds, or, for one seconds
+// does not hold, the median of the times of those it does (1 when it holds
+// none, so every package weighs the same).
+func weights(packages []string, seconds map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	var known []float64
+	for _, p := range packages {
+		if t, ok := seconds[strings.TrimPrefix(p, modulePrefix)]; ok && t > 0 {
+			out[p] = t
+			known = append(known, t)
+		}
+	}
+	median := 1.0
+	if len(known) > 0 {
+		sort.Float64s(known)
+		median = known[len(known)/2]
+	}
+	for _, p := range packages {
+		if _, ok := out[p]; !ok {
+			out[p] = median
+		}
+	}
+	return out
 }

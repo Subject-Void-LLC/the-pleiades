@@ -114,6 +114,23 @@ func TestSkips_ReadsEveryShapeOfSkip(t *testing.T) {
 	}
 }
 
+// TestElapsed_TimesEachPackageThatRan: every package whose tests ran has its
+// test binary's time, read from the toolchain's own package event, and no
+// test's time stands in for a package's.
+func TestElapsed_TimesEachPackageThatRan(t *testing.T) {
+	got := Elapsed(liveModule(t))
+	for _, pkg := range []string{"gateproof/cov", "gateproof/nostmt"} {
+		if s, ok := got[pkg]; !ok || s < 0 {
+			t.Errorf("%s: elapsed = %v, %v", pkg, s, ok)
+		}
+	}
+	for pkg := range got {
+		if !strings.HasPrefix(pkg, "gateproof/") {
+			t.Errorf("a time for %q, which is not a package of the run", pkg)
+		}
+	}
+}
+
 // TestSkipLedger_GroupsByReason proves the ledger names every reason, counts
 // each, and caps the tests it lists.
 func TestSkipLedger_GroupsByReason(t *testing.T) {

@@ -596,8 +596,16 @@ push-gate-full:
 # pass above recorded, instead of running the suite a fourth time. A
 # package with a floor and no number fails here: its tests failed or never
 # ran, and "not measured" is not a pass (FAILURE_PATTERNS 397).
+#
+# It also holds tools/testgate/durations.json to the container packages'
+# measured times (testgate -durations-check), since -shard balances the
+# containers jobs by them: a container package with no time there fails,
+# naming the line to add, and one whose time moved far is warned about.
 coverage-measured:
 	go run ./tools/coverage-check -measured $(COVERAGE_DIR)/*.json
+	@if ls $(COVERAGE_DIR)/containers*.json >/dev/null 2>&1; then \
+		go run ./tools/testgate -durations-check $(COVERAGE_DIR)/containers*.json; \
+	fi
 
 # The CI tiers (.github/workflows/ci.yml). Each is a make target so a
 # developer can run exactly what a CI job ran; there is no CI-only step.
@@ -700,6 +708,9 @@ pr-check: ci-remote pr-check-vet
 		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
 	fi; \
 	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
+	if [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
+		go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json || status=1; \
+	fi; \
 	if [ -n "$$mac_pid" ]; then \
 		echo "pr-check: waiting for the Mac's tests"; \
 		wait $$mac_pid || status=1; trap - INT TERM EXIT; \

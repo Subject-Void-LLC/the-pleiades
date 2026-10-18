@@ -35,6 +35,9 @@ type Event struct {
 	Test        string `json:"Test"`
 	Output      string `json:"Output"`
 	FailedBuild string `json:"FailedBuild"`
+	// Elapsed is the seconds a test, or on a package's own pass or fail
+	// event its whole test binary, took.
+	Elapsed float64 `json:"Elapsed"`
 
 	// ImportPath is how a BUILD event names its package, and it is a
 	// different field from Package on purpose. `go help buildjson`: "The
