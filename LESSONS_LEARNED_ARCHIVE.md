@@ -5802,3 +5802,51 @@ pass elsewhere reads as coverage.
 and Windows only, because neither lab box had git. The owner chose to install it on both: MinGit on Windows held to
 its published digest, and on FreeBSD through the clone's first boot (`virt.vbox.vm.clone`'s new `packages`), which
 also gave the login the root it lacked.
+
+## 296. A test on the Linux side of WSL runs nothing on the Windows host behind it
+
+**Rule.** A test that needs a Windows program runs on a Windows machine the project manages (`make win-check`),
+never on the workstation through WSL's interop, and refuses a lookup that resolves to a host program.
+
+**Why.** 2026-10-18 (FAILURE_PATTERNS 508). A parse-only test started the workstation's Windows PowerShell with a
+doubly encoded command, and the owner saw it run on their machine. Their words: "do not run against this
+workstation - run against the server!"
+
+## 297. Whether a vendor supports something is checked before it is built on, and what it calls unsupported is the owner's call
+
+**Rule.** Before designing on a platform feature, read the vendor's own statement of support and test the claim
+live; when the only working way is one the vendor calls unsupported, put that in front of the owner rather than
+building on it.
+
+**Why.** 2026-10-18. Bootstrapping winget on Server 2025 Core: Microsoft's README says winget cannot run on Server
+Core, its tracking issue (winget-cli #4319) is open, and live tests agreed until Server Core's application
+compatibility feature was installed, after which winget run from its extracted bundle installed, listed and
+removed a package over WinRM. Microsoft calls that form experimental and unsupported, and the owner chose not to
+rely on it; the methods that prepared the host (`win.capability.*`, `win.reboot`) were built and kept.
+
+## 298. A box's size is its heaviest job, measured, and a shared host's boxes run only while used
+
+**Rule.** Size a test machine from the peak memory of the heaviest thing it will do, measured, not from what tests
+usually need; and on a host many boxes share, start a box for a run and save its state afterwards.
+
+**Why.** 2026-10-18 (FAILURE_PATTERNS 512). bsd-check at 1 GB could not compile the AWS SDK's ec2 package (3.2 GB,
+3.7 GB with -race) even with swap. At 4 GB it no longer fits beside the other lab VMs on the owner's workstation,
+whose answer was to manage the boxes' states: start on demand, save after, one at a time.
+
+## 299. A record that only grows is enforced as only growing
+
+**Rule.** A file the project only appends to (the record archives) is written with an append, and a gate refuses a
+commit that leaves it shorter.
+
+**Why.** 2026-10-18 (FAILURE_PATTERNS 513). A commit replaced the failure-pattern archive's 12826 lines with the
+four entries it meant to add, and nothing noticed, since the index kept every title.
+
+## 300. A memory cap is sized from what is free when the command starts
+
+**Rule.** Before a command that may use gigabytes, read `free` and cap it below what is available less the margin
+the machine needs, even when the point is to learn how much the command takes; a cap that kills the command is an
+answer, and a cap above what is free is none.
+
+**Why.** 2026-10-18. Measuring the ec2 package's compile with a 6 GB cap while about 3 GB was free coincided with
+the session's environment restarting, losing a background run and the scratch files in progress. The rule was
+already in the agent's notes (WSL limits); it was not applied.

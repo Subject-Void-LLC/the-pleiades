@@ -328,6 +328,11 @@ story, per `.AGENTS/AGENTS.md`.
 293. **A platform limit a test meets is measured on that platform and the test sized to it; neither skipped there nor blamed on the product (2026-10-16).**
 294. **A failure path keeps what was recorded before the failure, or every caller invents a side channel for it (2026-10-18).**
 295. **A machine a check depends on gets the tools its tests need; a missing tool is installed, not skipped (2026-10-18).**
+296. **A test on the Linux side of WSL runs nothing on the Windows host behind it (2026-10-18).**
+297. **Whether a vendor supports something is checked before it is built on, and what it calls unsupported is the owner's call (2026-10-18).**
+298. **A box's size is its heaviest job, measured, and a shared host's boxes run only while used (2026-10-18).**
+299. **A record that only grows is enforced as only growing (2026-10-18).**
+300. **A memory cap is sized from what is free when the command starts (2026-10-18).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

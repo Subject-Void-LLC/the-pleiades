@@ -20,6 +20,7 @@
 //     ships with a migration for both dialects (generated.go).
 //   - Conventional commit subjects, and no trailer crediting a model as an
 //     author (message.go).
+//   - A record archive (*_ARCHIVE.md) is never left shorter (archive.go).
 //
 // Some rules AGENTS.md states softly, or that no static check can settle,
 // warn instead: the ~300-line cap on logic files, error messages that open
@@ -92,14 +93,21 @@ func checkStaged() ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Read before the early return below: a commit that only deletes an
+	// archive stages no content, and is the worst case of the rule.
+	archives, err := archiveChanges()
+	if err != nil {
+		return nil, err
+	}
+	findings := checkArchives(archives)
 	if len(entries) == 0 {
-		return nil, nil
+		return findings, nil
 	}
 
 	// The cross-file rules first: a commit that regenerated nothing is
 	// about the commit as a whole, and a reader should see that before a
 	// list of per-line findings.
-	findings := checkGenerated(entries)
+	findings = append(findings, checkGenerated(entries)...)
 
 	for _, entry := range entries {
 		if isBinary(entry.Content) {
