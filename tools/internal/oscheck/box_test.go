@@ -73,6 +73,7 @@ var testBox = Box{Host: Pleiades{Device: "vengeance"}, Device: Pleiades{Device: 
 // started and waited for before the flow, and saved after it, whatever the
 // tests did; one already running is left as it was.
 func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
+	inRepo(t)
 	for _, passed := range []bool{true, false} {
 		h := &fakeHost{state: "saved"}
 		h.install(t)
@@ -105,6 +106,7 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 // TestRunWithBox_AnInterruptedRunStillPutsItBack: the box is saved after
 // an interrupt too, with a context of its own.
 func TestRunWithBox_AnInterruptedRunStillPutsItBack(t *testing.T) {
+	inRepo(t)
 	h := &fakeHost{state: "poweroff"}
 	h.install(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,6 +122,7 @@ func TestRunWithBox_AnInterruptedRunStillPutsItBack(t *testing.T) {
 // nothing and is left alone; one that started and never answered is put
 // back; and a box that cannot be put back fails a run that passed.
 func TestRunWithBox_WhatGoesWrong(t *testing.T) {
+	inRepo(t)
 	for method, tc := range map[string]struct {
 		code    int
 		putBack bool
@@ -149,6 +152,7 @@ func TestRunWithBox_WhatGoesWrong(t *testing.T) {
 // box leaves it running and says so in its ready file; the test phase given
 // that file puts it back when its tests end.
 func TestRunWithBox_PrepareHandsTheBoxToTest(t *testing.T) {
+	inRepo(t)
 	ready := filepath.Join(t.TempDir(), "ready")
 	h := &fakeHost{state: "saved"}
 	h.install(t)
