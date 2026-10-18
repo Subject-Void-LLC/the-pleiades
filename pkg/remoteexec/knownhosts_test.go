@@ -3,6 +3,7 @@ package remoteexec
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -147,7 +148,7 @@ func TestHostKeyCallback_InsecureSkipBypassesVerification(t *testing.T) {
 // lets a file written after construction still count.
 func TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv(homeEnv(), home)
 	// Cleared explicitly, not assumed absent. The home directory is the
 	// LAST of three sources now, so a machine that happens to export this
 	// variable would otherwise make this test pass against a file it never
@@ -160,8 +161,9 @@ func TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when $HOME has no known_hosts file yet, got nil")
 	}
-	if !strings.Contains(err.Error(), filepath.Join(home, ".ssh", "known_hosts")) {
-		t.Errorf("error = %v, want it to name the path it resolved under $HOME", err)
+	// The error quotes the path (%q), which doubles a Windows backslash.
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", filepath.Join(home, ".ssh", "known_hosts"))) {
+		t.Errorf("error = %v, want it to name the path it resolved under the home directory", err)
 	}
 
 	// Writing the file afterward is enough: nothing cached the earlier
@@ -359,7 +361,8 @@ func TestHostKeyCallback_EnvironmentPathStillFailsClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a missing known_hosts file named by the environment to be refused, not fall back to $HOME")
 	}
-	if !strings.Contains(err.Error(), missing) {
+	// Quoted (%q) in the error, which doubles a Windows backslash.
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", missing)) {
 		t.Errorf("error = %v, want it to name %q", err, missing)
 	}
 }

@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !freebsd && !windows
 
 // How many connections one listener holds before accepting them, where
 // that is no limit a test meets.
