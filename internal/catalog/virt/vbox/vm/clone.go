@@ -66,6 +66,7 @@ func init() {
 					{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count, when size is not given."},
 					{Name: "paravirt_provider", Type: "string", Choices: vboxmanage.ParavirtProviders, Description: "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."},
 					{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
+					{Name: "packages", Type: "list of string", Description: "Packages a Linux or FreeBSD VM's first boot installs as root, from the guest's own repositories over its NAT adapter: cloud-init's packages list, which FreeBSD's nuageinit reads too, bootstrapping pkg first. Each is a package name of letters, digits and . + _ -, at most 64 of them. On FreeBSD, whose base system has no sudo, listing sudo is what gives a login other than root the passwordless sudo the seed grants it. Refused for a Windows VM, whose answer file installs nothing. Like the rest of the seed, it is read at the first boot only, so a VM already under the name is not changed."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also a Linux VM's cloud-init instance ID."},
@@ -94,6 +95,7 @@ const (
 	paramHostname        = "hostname"
 	paramHostOnlyAdapter = "host_only_adapter"
 	paramParavirt        = "paravirt_provider"
+	paramPackages        = "packages"
 
 	statAddress = "address"
 )
@@ -120,6 +122,8 @@ type cloneRequest struct {
 	// sized says the task asked for a size, memory or CPUs, rather than
 	// taking xsmall's by default.
 	sized bool
+	// packages are what a Linux or FreeBSD clone's first boot installs.
+	packages []string
 }
 
 // defaultShape is a clone's shape when the task asks for none: xsmall.
@@ -170,6 +174,9 @@ func readClone(params map[string]any, name string) (cloneRequest, error) {
 			return c, fmt.Errorf("paravirt_provider %v is not one of %s", raw, strings.Join(vboxmanage.ParavirtProviders, ", "))
 		}
 	}
+	if c.packages, _, err = sdk.StringSlice(params, paramPackages); err != nil {
+		return c, err
+	}
 	c.shape, c.sized, err = readShape(params, defaultShape)
 	return c, err
 }
@@ -200,7 +207,7 @@ func runClone(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := login.check(c.hostname, c.address); err != nil {
+	if err := login.check(c.hostname, c.address, c.packages); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if err := rc.SetStat(statAddress, c.address.Addr().String()); err != nil {

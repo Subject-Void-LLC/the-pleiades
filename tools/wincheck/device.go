@@ -24,9 +24,10 @@ import (
 const winDir = ".pleiades-wincheck"
 
 // winPath is put before the PATH a WinRM session starts with, which a
-// machine-wide install of go may not be on yet: where the lab's win-check
-// unpacked it, then where go.dev's installer puts it.
-const winPath = `C:\go\bin;C:\Program Files\Go\bin`
+// machine-wide install of go or git may not be on yet: where the lab's
+// win-check unpacked go and MinGit, then where go.dev's and Git for
+// Windows' installers put them.
+const winPath = `C:\go\bin;C:\mingit\cmd;C:\Program Files\Go\bin;C:\Program Files\Git\cmd`
 
 // files is the directory, relative to the project, the archive is written
 // in to be sent; each archive is deleted once sent.
@@ -74,24 +75,25 @@ func (w windows) Ready() error {
 	return readyAnswer(w.Target, out)
 }
 
-// readyScript prints the platform, then go and tar, or no-go and no-tar
-// when either is not on the PATH, one line each.
+// readyScript prints the platform, then go, git and tar, or no-go, no-git
+// and no-tar when one is not on the PATH, one line each.
 const readyScript = `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
-if (Get-Command go.exe -ErrorAction SilentlyContinue) { 'go' } else { 'no-go' }
-if (Get-Command tar.exe -ErrorAction SilentlyContinue) { 'tar' } else { 'no-tar' }`
+foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }`
 
 // readyAnswer checks readyScript's output.
 func readyAnswer(target, out string) error {
 	lines := strings.Fields(out)
 	switch {
-	case len(lines) != 3:
+	case len(lines) != 4:
 		return fmt.Errorf("%s answered the readiness check with %q", target, out)
 	case lines[0] != "Win32NT":
 		return fmt.Errorf("%s is not a Windows machine: its platform is %s", target, lines[0])
 	case lines[1] != "go":
 		return fmt.Errorf("%s has no go on its PATH (looked in its PATH and %s): install it from https://go.dev/dl, or as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
-	case lines[2] != "tar":
+	case lines[2] != "git":
+		return fmt.Errorf("%s has no git on its PATH (looked in its PATH and %s), which the tests that make a throwaway repository need: install Git for Windows, or MinGit as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
+	case lines[3] != "tar":
 		return fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
 	}
 	return nil

@@ -46,6 +46,7 @@ func (f freebsd) Ready() error {
 	}
 	return f.posix.Ready(f.Target, "FreeBSD", "FreeBSD machine",
 		oscheck.Need{Command: "go", Why: "install it with `pkg install go`, or unpack go.dev's FreeBSD release into ~/sdk (examples/virtualbox_lab does, with no root)"},
+		oscheck.Need{Command: "git", Why: "the tests that make a throwaway repository need it: install it with `pkg install git`, or have the clone's first boot install it (virt.vbox.vm.clone's packages)"},
 		oscheck.Need{Command: "cc", Why: "the race detector builds with it, and FreeBSD's base system has it unless it was left out"})
 }
 

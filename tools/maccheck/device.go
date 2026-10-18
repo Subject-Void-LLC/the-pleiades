@@ -37,6 +37,7 @@ func (r pleiadesRemote) Ready() error {
 	}
 	return r.posix.Ready(r.mac, "Darwin", "Mac",
 		oscheck.Need{Command: "go", Why: "install it with `brew install go`, or from https://go.dev/dl"},
+		oscheck.Need{Command: "git", Why: "the tests that make a throwaway repository need it: install the Command Line Tools with `xcode-select --install`"},
 		oscheck.Need{Command: "caffeinate", Why: "it keeps the Mac awake through the run"})
 }
 

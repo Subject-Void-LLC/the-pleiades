@@ -50,12 +50,16 @@ func readSeedLogin(secrets map[string]string) (seedLogin, error) {
 }
 
 // check validates the seed before anything is made, with stand-ins for
-// what only the new VM can say: its UUID and its adapters' addresses.
-func (l seedLogin) check(hostname string, address netip.Prefix) error {
+// what only the new VM can say: its UUID and its adapters' addresses. A
+// Windows answer file installs nothing, so packages are refused for one.
+func (l seedLogin) check(hostname string, address netip.Prefix, packages []string) error {
 	if l.windows() {
+		if len(packages) > 0 {
+			return fmt.Errorf("packages is for a Linux or FreeBSD VM, whose first boot reads a cloud-init seed; a Windows VM's answer file installs nothing")
+		}
 		return windowsSeed(l, hostname, "080027000002", address).Validate()
 	}
-	probe := cloudinit.Seed{InstanceID: "check", Hostname: hostname, Login: l.linux, Interfaces: interfaces("080027000001", "080027000002", address)}
+	probe := cloudinit.Seed{InstanceID: "check", Hostname: hostname, Login: l.linux, Interfaces: interfaces("080027000001", "080027000002", address), Packages: packages}
 	return probe.Validate()
 }
 
@@ -97,7 +101,7 @@ func (l seedLogin) image(m vboxmanage.Machine, c cloneRequest, at time.Time) ([]
 	if l.windows() {
 		return windowsSeed(l, c.hostname, m.NICs[2].MAC, c.address).ISO(at)
 	}
-	seed := cloudinit.Seed{InstanceID: m.UUID, Hostname: c.hostname, Login: l.linux, Interfaces: interfaces(m.NICs[1].MAC, m.NICs[2].MAC, c.address)}
+	seed := cloudinit.Seed{InstanceID: m.UUID, Hostname: c.hostname, Login: l.linux, Interfaces: interfaces(m.NICs[1].MAC, m.NICs[2].MAC, c.address), Packages: c.packages}
 	if m.FreeBSD() {
 		// nuageinit reads the same seed, and FreeBSD's base system has no bash.
 		seed.Shell = freebsdShell

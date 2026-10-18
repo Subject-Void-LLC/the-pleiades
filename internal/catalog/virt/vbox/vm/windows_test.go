@@ -86,6 +86,21 @@ func TestTheWindowsMethodsAreImplemented(t *testing.T) {
 	}
 }
 
+// TestCloneWindows_RefusesPackages: an answer file installs nothing, so a
+// Windows clone asked for packages is refused before the host is touched.
+func TestCloneWindows_RefusesPackages(t *testing.T) {
+	model := vboxmanagetest.New(windowsBase())
+	onModel(t, model)
+	p := winCloneParams()
+	p["packages"] = []any{"git"}
+	if _, err := call(t, "virt.vbox.vm.clone", false, administrator(), p); err == nil || !strings.Contains(err.Error(), "answer file installs nothing") {
+		t.Fatalf("packages for a Windows VM: %v", err)
+	}
+	if len(changes(model)) != 0 {
+		t.Errorf("a refused clone changed the host: %v", changes(model))
+	}
+}
+
 func TestCloneWindows(t *testing.T) {
 	model := vboxmanagetest.New(windowsBase())
 	onModel(t, model)

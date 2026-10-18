@@ -13262,6 +13262,11 @@
           "type": "string",
           "default": "VirtualBox Host-Only Ethernet Adapter",
           "description": "The host's host-only adapter, as VBoxManage list hostonlyifs names it."
+        },
+        {
+          "name": "packages",
+          "type": "list of string",
+          "description": "Packages a Linux or FreeBSD VM's first boot installs as root, from the guest's own repositories over its NAT adapter: cloud-init's packages list, which FreeBSD's nuageinit reads too, bootstrapping pkg first. Each is a package name of letters, digits and . + _ -, at most 64 of them. On FreeBSD, whose base system has no sudo, listing sudo is what gives a login other than root the passwordless sudo the seed grants it. Refused for a Windows VM, whose answer file installs nothing. Like the rest of the seed, it is read at the first boot only, so a VM already under the name is not changed."
         }
       ],
       "returns": [

@@ -34,6 +34,7 @@ Makes sure a VM of this name exists, creating it as a linked clone of a snapshot
 | `cpus` | `int` | no | `1` | Its virtual CPU count, when size is not given. |
 | `paravirt_provider` | `string` | no | - | The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's. |
 | `host_only_adapter` | `string` | no | `VirtualBox Host-Only Ethernet Adapter` | The host's host-only adapter, as VBoxManage list hostonlyifs names it. |
+| `packages` | `list of string` | no | - | Packages a Linux or FreeBSD VM's first boot installs as root, from the guest's own repositories over its NAT adapter: cloud-init's packages list, which FreeBSD's nuageinit reads too, bootstrapping pkg first. Each is a package name of letters, digits and . + _ -, at most 64 of them. On FreeBSD, whose base system has no sudo, listing sudo is what gives a login other than root the passwordless sudo the seed grants it. Refused for a Windows VM, whose answer file installs nothing. Like the rest of the seed, it is read at the first boot only, so a VM already under the name is not changed. |
 
 ## Returns
 
