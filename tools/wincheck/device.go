@@ -176,27 +176,30 @@ const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass without the race
-// detector and three strict repeats. Each pass's standard error joins its
-// standard output so they read in order (PowerShell makes each stderr line
-// an error record, so errors only continue here and every record is
-// printed as its text), and the script always exits 0, ending with the
-// marker and the tests' exit status (see oscheck.Marker). Its own process
-// ID is written to pidFile first, so stopScript can end it and everything
-// under it, and the file is removed at the end, so a later stop cannot
-// reach a process that reused the number.
+// detector and three strict repeats, and it always exits 0, ending with the
+// marker and the tests' exit status (see oscheck.Marker). Each pass runs
+// under cmd.exe, which joins its standard error to its standard output so
+// they read in order: PowerShell would make each stderr line an error
+// record, and print an empty one as the record's type name. The command
+// line cmd.exe parses holds only the package list, refused here unless it
+// is import paths and spaces (oscheck.Options.Check refused anything else
+// before it was sent), and a number. The script's own process ID is written
+// to pidFile first, so stopScript can end it and everything under it, and
+// the file is removed at the end, so a later stop cannot reach a process
+// that reused the number.
 var testScript = `$ErrorActionPreference = 'Continue'
 $env:Path = '` + winPath + `;' + $env:Path
 $tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
 if (-not (Test-Path -LiteralPath $tree)) { '` + oscheck.Marker("wincheck") + `2'; exit 0 }
+if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { '` + oscheck.Marker("wincheck") + `2'; exit 0 }
 Set-Location -LiteralPath $tree
 $pidFile = Join-Path $tree '` + pidFile + `'
 Set-Content -LiteralPath $pidFile -Value $PID
-$packages = $env:PLEIADES_PACKAGES -split ' '
 $parallel = [int]$env:PLEIADES_PARALLEL
-& go run ./tools/testgate -full -race=false -p $parallel @packages 2>&1 | ForEach-Object { "$_" }
+& cmd.exe /d /c "go run ./tools/testgate -full -race=false -p $parallel $env:PLEIADES_PACKAGES 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {
-	& go run ./tools/testgate -repeat 3 -strict -p $parallel @packages 2>&1 | ForEach-Object { "$_" }
+	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -p $parallel $env:PLEIADES_PACKAGES 2>&1"
 	$code = $LASTEXITCODE
 }
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
