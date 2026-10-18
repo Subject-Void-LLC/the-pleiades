@@ -121,9 +121,15 @@ func main() {
 	// comment for why that distinction is not academic.
 	switch routeFor(os.Args[1:]) {
 	case routeCollectionChild:
-		os.Exit(native.RunCollectionChild(context.Background()))
+		ctx, stop := childContext()
+		code := native.RunCollectionChild(ctx)
+		stop()
+		os.Exit(code)
 	case routeCollectionSession:
-		os.Exit(native.RunCollectionSession(context.Background()))
+		ctx, stop := childContext()
+		code := native.RunCollectionSession(ctx)
+		stop()
+		os.Exit(code)
 	case routeHealthcheck:
 		os.Exit(runHealthcheck(os.Args[1:]))
 	case routeVersion:

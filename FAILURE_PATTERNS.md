@@ -506,6 +506,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
 502. testgate's live tests asked for -race unconditionally, which cannot build on a Windows machine with no C compiler (fixed)
 503. durations.json's times were the gaps between log lines, so each shard's first package carried the shard's whole build (fixed)
+504. The OS checks' stop test put its stand-in go last on the PATH, so the real go failed at once and the test read that as a stop (a repeat of 54) (fixed before push)
+505. Three tests assumed a Linux or macOS host: printf's leftover arguments, /bin/bash, and FreeBSD as the "other" system (a repeat of 420) (fixed)
+506. The Runner's per-task child died on the SIGTERM meant to let it stop, so a timed-out command kept running on the device (fixed)
+507. A failed node's undo was stripped in the collection bridge only, so a refused prediction reported one (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

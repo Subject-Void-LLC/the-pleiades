@@ -40,15 +40,23 @@ func (t *TimeoutSeconds) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// UnmarshalJSON accepts a JSON integer and refuses everything else with
-// what the key takes, exactly as UnmarshalYAML does.
+// UnmarshalJSON accepts a JSON integer, or a string holding one, and
+// refuses everything else with what the key takes, exactly as UnmarshalYAML
+// does.
 func (t *TimeoutSeconds) UnmarshalJSON(data []byte) error {
 	var n int
-	if err := json.Unmarshal(data, &n); err != nil {
-		return fmt.Errorf("timeout %s; %s", string(data), timeoutTakes)
+	if err := json.Unmarshal(data, &n); err == nil {
+		*t = TimeoutSeconds(n)
+		return nil
 	}
-	*t = TimeoutSeconds(n)
-	return nil
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			*t = TimeoutSeconds(n)
+			return nil
+		}
+	}
+	return fmt.Errorf("timeout %s; %s", string(data), timeoutTakes)
 }
 
 // taskLimit is how long one task may run on one device: the smaller of the

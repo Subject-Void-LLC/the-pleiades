@@ -44,10 +44,14 @@ What the three share is in `tools/internal/oscheck`:
 | Ready means | Darwin, with `go`, `git` and `caffeinate` | FreeBSD, with `go`, `git` and `cc` | Windows, with `go`, `git` and `tar.exe` |
 | Tree sent by | `file.copy`, unpacked by `archive.extract` | `file.copy`, unpacked by `archive.extract` | `win.file.copy`, unpacked by `tar.exe` through `exec.winrm.shell` |
 | Tests run by | `exec.command`, under `caffeinate -dims` | `exec.command` | `exec.winrm.shell`, each pass under `cmd.exe` so its streams join in order |
-| Stopped by | the run's process group, written on the machine | the run's process group, written on the machine | `taskkill /T` of the run's process, written on the machine |
+| Stopped by | the run's process group and process tree (`pgrep -P`), written on the machine | the run's process group and process tree, written on the machine | `taskkill /T` of the run's process, written on the machine |
 
 Every value a Windows script needs reaches PowerShell through `exec.winrm.shell`'s `env`, never inside a script's
-text, so each script is a constant.
+text, so each script is a constant. On the Mac and FreeBSD the tests run as a job of their own, which their shells'
+job control puts in a process group; a stop ends that group and then every process under the run, read with
+`pgrep -P`, which also covers a shell with no job control (Linux's dash, without a terminal), where the scripts'
+own tests run. The run's pid file is removed when it ends, so a later stop cannot reach a process that reused the
+number.
 
 The VirtualBox lab's two boxes, both made with Pleiades runbooks:
 
@@ -97,6 +101,6 @@ Each is something a Pleiades user doing the same would meet.
 | The Mac refuses this machine's key, or its host key is unknown or changed | Refused by a plain `ssh` login before Pleiades is involved, with the command that fixes it. |
 | Not the right system, or a tool missing | Refused, naming which and how to install it. |
 | The tests fail | Exit 1, with the machine's output. |
-| The run outlives its timeout | The command is sent `SIGTERM` and the task fails, saying the timeout ran out. |
+| The run outlives its timeout | The script is sent `SIGTERM`, and its trap stops the tests' process group and tree before it exits; the task fails, saying the timeout ran out. On Windows, `exec.winrm.shell`'s own timeout stops the command. |
 | Interrupted while the tests run | The local `pleiades` is ended and the run is stopped on the machine. Exit 2, without advice to change the machine, since nothing about it was wrong. |
 | `-phase test` with no `prepare` before it | Refused: the worktree has no `pleiades` for the machine yet. A tree that is not on the machine ends the run with status 2. |

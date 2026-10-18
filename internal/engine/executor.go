@@ -1026,9 +1026,12 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		// a rollback plans only from changes that completed (journalStats).
 		// A node held for review shows nothing at all: what it holds is for
 		// a person to decide on before anyone reads it (pause.go).
+		// The undo goes whatever produced the stats: the collection bridge
+		// has already left it out, but a success refused here (a prediction
+		// in a real run) or another action executor has not.
 		_, held := HoldOf(err)
-		if !held && len(actionResult.Stats) > 0 && r.markRegisterMask(cmd, actionResult) == nil {
-			result.Stats = actionResult.Stats
+		if stats := failedStats(actionResult.Stats); !held && stats != nil && r.markRegisterMask(cmd, ActionResult{Stats: stats}) == nil {
+			result.Stats = stats
 		}
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())

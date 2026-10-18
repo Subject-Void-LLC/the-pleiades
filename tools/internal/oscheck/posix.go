@@ -153,32 +153,54 @@ const TestTimeout = 4 * 60 * 60
 // repeats, under Wrap. Standard error joins standard output so they read
 // in order, and the script exits with the tests' status, which the failed
 // task reports with their output. The tests start as a job of their own
-// (set -m), in a process group whose ID is written to PIDFile, so
-// StopScript can end every process of the run at once; job control is then
-// turned off again, so the shell prints no job notice into the output.
+// (set -m), which a shell with job control (macOS's, FreeBSD's) puts in a
+// process group of its own; job control is then turned off again, so the
+// shell prints no job notice into the output. The job's ID is written to
+// PIDFile, so StopScript can end the run, and removed when the run ends, so
+// a later stop cannot reach a process that reused the number. A SIGTERM to
+// this shell (the task's timeout running out, which sshd delivers to the
+// command it started) ends the tests the same way, rather than leaving
+// them running behind it.
 func (x POSIX) TestScript(sha string, parallel int, packages []string) string {
 	pkgs := strings.Join(packages, " ")
 	p := fmt.Sprintf("-p %d", parallel)
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
+%[8]s
 set -m
 %[7]s/bin/sh -c 'go run ./tools/testgate -full %[4]s %[5]s && go run ./tools/testgate -repeat 3 -strict %[4]s %[5]s' &
 job=$!
 set +m
 echo "$job" > %[6]s
-wait "$job"`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap)
+trap 'stop_run "$job"; rm -f %[6]s; exit 143' TERM HUP INT
+wait "$job"
+status=$?
+rm -f %[6]s
+exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun)
 }
 
+// stopRun defines the shell function both scripts end a run with: SIGTERM to
+// the run's process group, which a shell with job control gave it, then to
+// every process under the run, read with pgrep -P (macOS, FreeBSD and Linux
+// all have it), for a shell without job control (Linux's dash has none
+// without a terminal) or a process that left the group. Each process is
+// stopped before its children, listed just before it, so a parent (go test)
+// cannot start another child while its current ones are being stopped; the
+// for loop's list is expanded once, so the recursion reusing kids is safe.
+const stopRun = `stop_tree() { kids=$(pgrep -P "$1" 2>/dev/null); kill -TERM "$1" 2>/dev/null; for c in $kids; do stop_tree "$c"; done; }
+stop_run() { kill -TERM -- "-$1" 2>/dev/null; stop_tree "$1"; }`
+
 // PIDFile is where, in the unpacked tree, TestScript writes its tests'
-// process group.
+// job.
 func (x POSIX) PIDFile() string { return "." + x.Tool + ".pid" }
 
 // StopScript ends every process of the test run TestScript started in
-// sha's tree, by its process group.
+// sha's tree (see stopRun), and does nothing when there is no run.
 func (x POSIX) StopScript(sha string) string {
 	return fmt.Sprintf(`pid=$(cat "$HOME/%[1]s/%[2]s/%[3]s" 2>/dev/null) || exit 0
 case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
-kill -TERM -- "-$pid" 2>/dev/null
-exit 0`, x.Dir, sha, x.PIDFile())
+%[4]s
+stop_run "$pid"
+exit 0`, x.Dir, sha, x.PIDFile(), stopRun)
 }

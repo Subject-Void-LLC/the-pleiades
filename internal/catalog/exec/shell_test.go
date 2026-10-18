@@ -165,20 +165,35 @@ func TestShell_HonorsTheExecutableParameter(t *testing.T) {
 	server := startShellSSHServer(t)
 	rc := newStubContext(server)
 
-	// /bin/bash deliberately, NOT /bin/sh. /bin/sh is this method's own
+	// Deliberately NOT /bin/sh by that name. /bin/sh is this method's own
 	// default, so asserting it would pass just as happily against an
 	// implementation that ignored the parameter entirely.
+	shell := otherShell(t)
 	_, err := exec.Shell(context.Background(), rc, newDevice(server, ""), map[string]any{
 		"cmd":                           "echo \"$0\"",
-		"executable":                    "/bin/bash",
+		"executable":                    shell,
 		"insecure_skip_host_key_verify": true,
 	})
 	if err != nil {
 		t.Fatalf("Shell: %v", err)
 	}
-	if got := rc.stats["stdout"]; got != "/bin/bash" {
+	if got := rc.stats["stdout"]; got != shell {
 		t.Errorf("stdout = %q, want the shell named by the task rather than the default", got)
 	}
+}
+
+// otherShell is a shell this method does not default to that every machine
+// the tests run on has: /bin/sh under another name, through a link in a
+// temporary directory. $0 is the name a shell was started by, so it tells
+// the two apart. /bin/bash would serve on Linux and macOS, but FreeBSD's base
+// system has none.
+func otherShell(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "other-sh")
+	if err := os.Symlink("/bin/sh", path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // TestShell_UsesTheDevicesShell proves the device's own declared shell is
@@ -190,9 +205,10 @@ func TestShell_UsesTheDevicesShell(t *testing.T) {
 
 	// A device declaring a shell, through the same accessor a real
 	// linux.Server reads its "shell" property with.
-	// Again not /bin/sh, so this distinguishes "read the device" from
-	// "fell through to the default".
-	device := newShellDevice(server, "/bin/bash")
+	// Again not /bin/sh by that name, so this distinguishes "read the
+	// device" from "fell through to the default".
+	shell := otherShell(t)
+	device := newShellDevice(server, shell)
 
 	_, err := exec.Shell(context.Background(), rc, device, map[string]any{
 		"cmd":                           "echo \"$0\"",
@@ -201,7 +217,7 @@ func TestShell_UsesTheDevicesShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Shell: %v", err)
 	}
-	if got := rc.stats["stdout"]; got != "/bin/bash" {
+	if got := rc.stats["stdout"]; got != shell {
 		t.Errorf("stdout = %q, want the device's declared shell rather than the default", got)
 	}
 }

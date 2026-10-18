@@ -61,6 +61,46 @@ func TestCollectionActionExecutor_AFailureKeepsWhatItRecorded(t *testing.T) {
 	check(t, result, err)
 }
 
+// statsAction is an action executor that answers every task with result
+// and err, standing in for one that is not the collection bridge.
+type statsAction struct {
+	result engine.ActionResult
+	err    error
+}
+
+func (a statsAction) Execute(context.Context, *engine.Task, inventory.InventoryItem) (engine.ActionResult, error) {
+	return a.result, a.err
+}
+
+// TestExecutor_AFailureNeverReportsAnUndo: whatever produced a failed
+// node's stats, its undo is left out: an action executor that fails with
+// one among its stats, and a real run refused because it answered with a
+// prediction (whose stats arrive success-shaped).
+func TestExecutor_AFailureNeverReportsAnUndo(t *testing.T) {
+	device := &inventorytest.Stub{StubID: "dev", StubName: "dev", StubState: inventory.StateActive}
+	undo := map[string]any{"fqcn": "enginetest.undo", "params": map[string]any{}}
+	for name, action := range map[string]statsAction{
+		"a failure with an undo": {engine.ActionResult{Stats: map[string]any{"rc": 3, sdk.StatInverse: undo}}, errors.New("command exited 3")},
+		"a refused prediction":   {engine.ActionResult{Changed: true, Stats: map[string]any{"rc": 0, sdk.StatPredicted: true, sdk.StatInverse: undo}}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dag := buildDAG(t, `{"id": "u", "tasks": [{"name": "t", "fqcn": "noop", "params": {"target": "all"}}]}`)
+			x := engine.NewExecutor(mapResolver{"all": {device}}, action, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+			result, err := x.Run(context.Background(), dag)
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if len(result.Nodes) != 1 || result.Nodes[0].Err == nil {
+				t.Fatalf("nodes %+v, want one failed", result.Nodes)
+			}
+			stats := result.Nodes[0].Stats
+			if _, ok := stats[sdk.StatInverse]; ok || stats["rc"] == nil {
+				t.Errorf("the failed node's stats = %v, want its output without its undo", stats)
+			}
+		})
+	}
+}
+
 // TestExecutor_AFailedTaskReportsItsOutput: through a whole run, the failed
 // node carries the method's output for the caller to print, and the task's
 // register_mask still marks what it protects; a node held for review

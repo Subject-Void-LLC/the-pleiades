@@ -159,22 +159,25 @@ func TestCommand_RunsAndReportsWhatHappened(t *testing.T) {
 	server := startShellSSHServer(t)
 	rc := newStubContext(server)
 
+	// echo, not printf: with no shell, the words after the first are
+	// printf's arguments, and a format with no conversion and arguments
+	// left over is an error on FreeBSD's printf, where GNU's ignores them.
 	result, err := exec.Command(context.Background(), rc, newDevice(server, ""), map[string]any{
-		"cmd":                           "printf 'out\\n'; printf 'err\\n' >&2",
+		"cmd":                           "echo out; echo err >&2",
 		"insecure_skip_host_key_verify": true,
 	})
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
 	// A command that ran always reports changed: nothing can inspect
-	// "printf" and decide whether it altered anything, so claiming
+	// "echo" and decide whether it altered anything, so claiming
 	// otherwise would be a guess dressed as a fact.
 	if !result.Changed {
 		t.Error("a command that ran reported no change")
 	}
 
 	// The command was NOT interpreted by a shell, so the semicolon and
-	// the redirect above are literal arguments to printf rather than
+	// the redirect above are literal arguments to echo rather than
 	// syntax. That is the whole promise of this method, and it is why
 	// stdout carries them back as text.
 	if got := rc.stats["rc"]; got != 0 {

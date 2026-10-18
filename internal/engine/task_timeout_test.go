@@ -37,8 +37,16 @@ func TestBuild_TaskTimeout(t *testing.T) {
 	if err != nil || quoted.Tasks[0].Timeout != 90 {
 		t.Errorf("a quoted number, as Ansible takes one: %v", err)
 	}
-	if _, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": 1.5, "fqcn": "noop"}]}`)); err == nil || !strings.Contains(err.Error(), "timeout 1.5; a timeout is a whole number") {
-		t.Errorf("a fraction in JSON: %v", err)
+	// JSON takes what YAML takes, as the published schema says: a quoted
+	// whole number too, and nothing fractional or wordy.
+	quotedJSON, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": "90", "fqcn": "noop"}]}`))
+	if err != nil || quotedJSON.Tasks[0].Timeout != 90 {
+		t.Errorf("a quoted number in JSON: %v", err)
+	}
+	for _, bad := range []string{`1.5`, `"30m"`, `true`, `[90]`} {
+		if _, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": ` + bad + `, "fqcn": "noop"}]}`)); err == nil || !strings.Contains(err.Error(), "timeout "+bad+"; a timeout is a whole number") {
+			t.Errorf("timeout %s in JSON: %v", bad, err)
+		}
 	}
 	if dag.Tasks[0].Timeout != 90 || jsonDAG.Tasks[0].Timeout != 90 {
 		t.Errorf("timeout = %d (YAML), %d (JSON), want 90", dag.Tasks[0].Timeout, jsonDAG.Tasks[0].Timeout)
@@ -107,8 +115,9 @@ func TestExecutor_TaskTimeoutStopsTheTask(t *testing.T) {
 	}
 }
 
-// TestExecutor_ACancelledRunIsNotATimeout: a run its caller stopped does
-// not blame the task's timeout.
+// TestExecutor_ACancelledRunIsNotATimeout: a run its caller stopped fails
+// its running task with the caller's own reason, and does not blame the
+// task's timeout.
 func TestExecutor_ACancelledRunIsNotATimeout(t *testing.T) {
 	device := &inventorytest.Stub{StubID: "dev", StubName: "dev", StubState: inventory.StateActive}
 	dag := buildDAG(t, `{"id": "timeout", "tasks": [{"name": "hangs", "fqcn": "noop", "timeout": 3600, "params": {"target": "all"}}]}`)
@@ -116,9 +125,11 @@ func TestExecutor_ACancelledRunIsNotATimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	result, _ := x.Run(ctx, dag)
-	for _, n := range result.Nodes {
-		if n.Err != nil && strings.Contains(n.Err.Error(), "ran out") {
-			t.Errorf("a stopped run blamed the task's timeout: %v", n.Err)
-		}
+	if len(result.Nodes) != 1 || result.Nodes[0].Err == nil {
+		t.Fatalf("nodes %+v, want the running task failed by the stop", result.Nodes)
+	}
+	err := result.Nodes[0].Err
+	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "ran out") {
+		t.Errorf("a stopped run's task failed with %v, want the caller's deadline and no word of the task's timeout", err)
 	}
 }
