@@ -95,8 +95,13 @@ func TestCheck_Redirects(t *testing.T) {
 	if hops, _ := rc.stats["redirects"].([]any); len(hops) != 3 || strings.Contains(fmt.Sprint(hops), "secret") {
 		t.Errorf("redirects %v", rc.stats["redirects"])
 	}
-	if _, err := run(t, map[string]any{"url": hop.URL + "/", "max_redirects": 2}); err == nil || !strings.Contains(err.Error(), "more than 2 redirects") {
+	if _, err := run(t, map[string]any{"url": hop.URL + "/", "max_redirects": 2}); err == nil || !strings.Contains(err.Error(), "302") {
 		t.Errorf("past the bound: %v", err)
+	}
+	// With no redirect followed, the redirect is the answer, and a check may
+	// ask for it.
+	if _, err := run(t, map[string]any{"url": hop.URL + "/", "max_redirects": 0, "status_code": 302}); err != nil {
+		t.Errorf("a 302 asked for with max_redirects 0: %v", err)
 	}
 	down := httptest.NewTLSServer(nethttp.RedirectHandler(plain.URL, nethttp.StatusFound))
 	defer down.Close()
@@ -116,9 +121,19 @@ func TestCheck_Refuses(t *testing.T) {
 		"too many redirects":      {"url": "https://example.invalid/", "max_redirects": 11},
 		"a bad pattern":           {"url": "https://example.invalid/", "body_matches": "("},
 		"another scheme":          {"url": "ftp://example.invalid/"},
+		"a number to contain":     {"url": "https://example.invalid/", "body_contains": 200},
+		"a number to match":       {"url": "https://example.invalid/", "body_matches": 2.0},
 	} {
 		if _, err := run(t, params); err == nil {
 			t.Errorf("%s was accepted", name)
+		}
+	}
+	// No refusal quotes the URL as given, whose user part or query can be a
+	// credential: not for a mistyped scheme, nor for a URL that does not parse.
+	for _, raw := range []string{"htps://admin:pw-sentinel@example.invalid/x?token=tok-sentinel", "https://admin:pw-sentinel@exa mple/?token=tok-sentinel", "https://admin:pw-sentinel@example.invalid/?token=tok-sentinel"} {
+		_, err := run(t, map[string]any{"url": raw})
+		if err == nil || strings.Contains(err.Error(), "pw-sentinel") || strings.Contains(err.Error(), "tok-sentinel") {
+			t.Errorf("%q: %v", raw, err)
 		}
 	}
 }

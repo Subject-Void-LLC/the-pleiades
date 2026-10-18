@@ -56,7 +56,16 @@ func parse(params map[string]any) (spec, error) {
 	if s.execute, err = sdk.RequiredStringParam(params, paramExecute); err != nil {
 		return s, fmt.Errorf("%w (or give %s, a task's XML definition)", err, paramXML)
 	}
-	s.arguments, s.workingDir, s.description = sdk.StringParam(params, paramArguments), sdk.StringParam(params, paramWorkingDir), sdk.StringParam(params, paramDescription)
+	// A value of another type is refused, not read as absent: arguments: 5
+	// would register the task without them and report no change after.
+	for _, f := range []struct {
+		name string
+		to   *string
+	}{{paramArguments, &s.arguments}, {paramWorkingDir, &s.workingDir}, {paramDescription, &s.description}} {
+		if *f.to, err = sdk.OptionalStringParam(params, f.name); err != nil {
+			return s, err
+		}
+	}
 	for _, f := range []struct {
 		name, value string
 		max         int

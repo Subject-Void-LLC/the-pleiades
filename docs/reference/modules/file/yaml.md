@@ -27,7 +27,7 @@ Reads the file (at most 4 MiB of UTF-8, one document; refused when it holds a du
 | `key` | `string` | yes | - | The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, "a.b", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends. |
 | `value` | `any` | no | - | The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present. |
 | `state` | `string` | no | `present` | present sets the value; absent removes the key, which is no change when it is not there. |
-| `create` | `bool` | no | `false` | Start from an empty document when the file does not exist; without it a missing file is refused. |
+| `create` | `bool` | no | `false` | Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either). |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

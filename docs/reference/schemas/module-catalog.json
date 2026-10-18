@@ -6213,8 +6213,8 @@
         {
           "name": "differences",
           "type": "list of string",
-          "returned": "always",
-          "description": "Every difference from what was expected; the task fails when there is one."
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
         }
       ],
       "examples": [
@@ -6305,8 +6305,8 @@
         {
           "name": "differences",
           "type": "list of string",
-          "returned": "always",
-          "description": "Every difference from what was expected; the task fails when there is one."
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
         }
       ],
       "examples": [
@@ -6342,7 +6342,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
-      "description": "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a connection. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+      "description": "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a live connection (one pending reconnect has dropped, and is only still tracked, so it does not count). It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
       "params": [
         {
           "name": "tunnel",
@@ -6405,13 +6405,13 @@
           "name": "connections",
           "type": "int",
           "returned": "success or difference",
-          "description": "How many connections the connectors hold in all."
+          "description": "How many live connections the connectors hold in all, not counting those pending reconnect."
         },
         {
           "name": "differences",
           "type": "list of string",
-          "returned": "always",
-          "description": "Every difference from what was expected; the task fails when there is one."
+          "returned": "when the reads succeed",
+          "description": "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."
         }
       ],
       "examples": [
@@ -7416,7 +7416,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Sets, or removes, the value at a key path in a JSON file on the device, keeping the rest of the file.",
-      "description": "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized. A key already holding the value is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+      "description": "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized, and line endings are written as LF. A key already holding the value (by value, however it is spelled) is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
       "params": [
         {
           "name": "path",
@@ -7449,7 +7449,7 @@
           "name": "create",
           "type": "bool",
           "default": "false",
-          "description": "Start from an empty document when the file does not exist; without it a missing file is refused."
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8195,7 +8195,7 @@
           "name": "create",
           "type": "bool",
           "default": "false",
-          "description": "Start from an empty document when the file does not exist; without it a missing file is refused."
+          "description": "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8945,7 +8945,7 @@
           "name": "max_redirects",
           "type": "int",
           "default": "5",
-          "description": "How many redirects to follow, 0 to 10."
+          "description": "How many redirects to follow, 0 to 10. A redirect past them is the answer checked, so max_redirects: 0 with status_code: 301 checks a redirect itself."
         },
         {
           "name": "timeout",

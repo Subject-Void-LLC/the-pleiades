@@ -41,13 +41,17 @@ func (c *ctxStub) EmitFact(k string, v any) error { return c.SetStat(k, v) }
 type fake struct {
 	task  *described
 	calls []map[string]any
+	// scripts and stdins are what each call sent, as sent.
+	scripts, stdins []string
 }
 
 func (f *fake) install(t *testing.T) {
 	t.Helper()
 	old := run
 	t.Cleanup(func() { run = old })
-	run = func(_ context.Context, _ winrmexec.Target, _ winrmexec.Auth, stdin string, _ winrmexec.Options) (winrmexec.Result, error) {
+	run = func(_ context.Context, _ winrmexec.Target, _ winrmexec.Auth, script, stdin string, _ winrmexec.Options) (winrmexec.Result, error) {
+		f.scripts = append(f.scripts, script)
+		f.stdins = append(f.stdins, stdin)
 		var in map[string]any
 		if err := json.Unmarshal([]byte(stdin), &in); err != nil {
 			t.Fatalf("stdin is not JSON: %v", err)
@@ -57,9 +61,10 @@ func (f *fake) install(t *testing.T) {
 		case "register":
 			f.task = &described{Exists: true, XML: "<Task>new</Task>", Enabled: in["enabled"].(bool), Execute: in["execute"].(string),
 				Arguments: in["arguments"].(string), Description: in["description"].(string), Actions: 1, Triggers: 1,
-				User: in["user"].(string), RunLevel: in["run_level"].(string)}
+				User: in["user"].(string), RunLevel: in["run_level"].(string), LogonType: logonTypeOf(in["logon"].(string))}
 			f.task.Trigger.Kind = map[string]string{"daily": "MSFT_TaskDailyTrigger", "at_startup": "MSFT_TaskBootTrigger"}[in["trigger"].(string)]
 			f.task.Trigger.Start = "2026-10-15T" + in["at"].(string) + ":00"
+			f.task.Trigger.Days = "1"
 		case "remove":
 			f.task = nil
 		case "restore":
@@ -124,13 +129,7 @@ func TestSchtask_RegistersOnceAndUndoes(t *testing.T) {
 func TestSchtask_ValuesNeverBecomeScript(t *testing.T) {
 	f := &fake{}
 	f.install(t)
-	var scripts []string
-	inner := run
-	run = func(ctx context.Context, tg winrmexec.Target, a winrmexec.Auth, stdin string, o winrmexec.Options) (winrmexec.Result, error) {
-		scripts = append(scripts, schtaskScript)
-		return inner(ctx, tg, a, stdin, o)
-	}
-	hostile := `x'; Remove-Item -Recurse C:\ #` + "\u2019" + `$(whoami)`
+	hostile := `x'; Remove-Item -Recurse C:\ #` + "\u2019 Jos\u00e9 \U0001F600" + `$(whoami)`
 	if _, err := Schtask(context.Background(), &ctxStub{stats: map[string]any{}}, device(), params(map[string]any{"arguments": hostile, "description": hostile})); err != nil {
 		t.Fatal(err)
 	}
@@ -138,8 +137,59 @@ func TestSchtask_ValuesNeverBecomeScript(t *testing.T) {
 	if last["arguments"] != hostile || last["description"] != hostile {
 		t.Errorf("stdin carried %q", last["arguments"])
 	}
-	if strings.Contains(schtaskScript, "whoami") {
-		t.Error("a value reached the script")
+	for i, script := range f.scripts {
+		if script != schtaskScript || strings.Contains(script, "whoami") {
+			t.Errorf("call %d sent a script other than the constant:\n%s", i, script)
+		}
+	}
+	// Standard input is ASCII whatever the values hold, so the device's
+	// console code page cannot change them on the way.
+	for i, in := range f.stdins {
+		for _, r := range in {
+			if r > 0x7f {
+				t.Errorf("call %d's standard input holds %q, past ASCII", i, r)
+				break
+			}
+		}
+	}
+}
+
+// TestSchtask_DifferencesItOnceMissed: a task matching every compared field
+// but run as an account of another domain, with a stored-password logon, on
+// every third day, or with a once trigger at another instant, differs.
+func TestSchtask_DifferencesItOnceMissed(t *testing.T) {
+	s, err := parse(params(map[string]any{"run_as": `CORP\svc`}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := described{Exists: true, Actions: 1, Triggers: 1, Execute: s.execute, Arguments: s.arguments, User: `CORP\svc`, RunLevel: s.runLevel, Enabled: s.enabled, LogonType: "S4U"}
+	base.Trigger.Kind, base.Trigger.Start, base.Trigger.Days = "MSFT_TaskDailyTrigger", "2026-10-15T02:30:00", "1"
+	if d := base.differences(s); len(d) != 0 {
+		t.Fatalf("the matching task differs: %v", d)
+	}
+	for want, change := range map[string]func(*described){
+		"runs as":      func(d *described) { d.User = `PC1\svc` },
+		"logs on as":   func(d *described) { d.LogonType = "Password" },
+		"every 3 days": func(d *described) { d.Trigger.Days = "3" },
+	} {
+		d := base
+		change(&d)
+		if diffs := d.differences(s); len(diffs) != 1 || !strings.Contains(diffs[0], want) {
+			t.Errorf("%s: %v", want, diffs)
+		}
+	}
+	once, err := parse(params(map[string]any{"run_as": `CORP\svc`, "trigger": "once", "at": "2026-11-01T10:00:00Z"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := base
+	at.Trigger.Kind, at.Trigger.Start, at.Trigger.StartUTC = "MSFT_TaskTimeTrigger", "2026-11-01T02:00:00", "2026-11-01T10:00:00.0000000+00:00"
+	if d := at.differences(once); len(d) != 0 {
+		t.Errorf("a once trigger at the same instant in the device's zone differs: %v", d)
+	}
+	at.Trigger.StartUTC = "2026-11-01T02:00:00.0000000+00:00"
+	if d := at.differences(once); len(d) != 1 || !strings.Contains(d[0], "starts at") {
+		t.Errorf("a once trigger at another instant: %v", d)
 	}
 }
 

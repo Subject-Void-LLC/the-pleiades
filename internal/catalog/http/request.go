@@ -34,6 +34,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -425,17 +426,23 @@ func requestURL(params map[string]any) (string, error) {
 		return "", err
 	}
 
+	// No error quotes the URL as given: its user part or query can carry a
+	// credential, and url.Parse's own error quotes it whole.
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("%s %q cannot be read as a URL: %w", requestParamURL, raw, err)
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return "", fmt.Errorf("%s cannot be read as a URL: %w", requestParamURL, err)
 	}
 	switch parsed.Scheme {
 	case "http", "https":
 	default:
-		return "", fmt.Errorf("%s %q is %q, and this method speaks only http and https", requestParamURL, raw, parsed.Scheme)
+		return "", fmt.Errorf("%s has scheme %q, and this method speaks only http and https", requestParamURL, parsed.Scheme)
 	}
 	if parsed.Host == "" {
-		return "", fmt.Errorf("%s %q names no host", requestParamURL, raw)
+		return "", fmt.Errorf("%s %s names no host", requestParamURL, shown(parsed))
 	}
 	return raw, nil
 }

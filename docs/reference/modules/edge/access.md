@@ -36,7 +36,7 @@ Reads an Access application by id, or by its domain (one two applications share 
 | `audience` | `string` | success or difference | Its audience tag (aud), which an origin validating Access tokens must expect. |
 | `issuer` | `string` | success or difference | The issuer of its tokens. |
 | `policies` | `list of dict` | success or difference | Each policy's name, decision and precedence. |
-| `differences` | `list of string` | always | Every difference from what was expected; the task fails when there is one. |
+| `differences` | `list of string` | when the reads succeed | Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list. |
 
 ## Undoing this
 

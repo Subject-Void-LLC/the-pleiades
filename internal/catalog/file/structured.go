@@ -26,6 +26,9 @@ const (
 	structuredParamCreate = "create"
 )
 
+// createdMode is the mode a file either method creates is given.
+const createdMode = "0644"
+
 // structuredFormat is one document format: how its value at a path is
 // read for a comparison and a diff, and how an edit is made.
 type structuredFormat interface {
@@ -150,6 +153,15 @@ func structuredRun(ctx context.Context, rc sdk.RunbookContext, device inventory.
 		if err := remotefile.Write(ctx, conn, req.path, out); err != nil {
 			return fail(err)
 		}
+		// Write's temporary is 0600, so a file it leaves is the login's alone;
+		// a configuration file is created readable, as a new file usually is.
+		created, err := remotefile.Stat(ctx, conn, req.path)
+		if err != nil {
+			return fail(err)
+		}
+		if _, err := remotefile.Apply(ctx, conn, req.path, remotefile.Attributes{Mode: createdMode}, created); err != nil {
+			return fail(err)
+		}
 		return collection.Result{Changed: true}, sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN: "file.remove", Params: map[string]any{"path": req.path},
 			Description: "Remove " + req.path + ", which this run created.",
@@ -176,7 +188,7 @@ func structuredParams(what string) []collection.Param {
 		{Name: structuredParamKey, Type: "string", Required: true, Description: "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."},
 		{Name: structuredParamValue, Type: "any", Description: "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."},
 		{Name: structuredParamState, Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present sets the value; absent removes the key, which is no change when it is not there."},
-		{Name: structuredParamCreate, Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused."},
+		{Name: structuredParamCreate, Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."},
 		{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 	}
 }

@@ -3,9 +3,10 @@
 package docedit
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -215,13 +216,48 @@ func (v *Value) Delete(path []Segment) (bool, error) {
 	return false, nil
 }
 
-// SameJSON reports whether two values are the same JSON: numbers by their
-// text, members in order.
+// SameJSON reports whether two values are the same JSON value, however
+// each is spelled: numbers by value (1.0 is 1), strings as decoded ("caf\u00e9"
+// is "café"), and an object's members in any order. A key already holding
+// the value it is set to is then no change, as the methods promise.
 func SameJSON(a, b *Value) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return bytes.Equal(EncodeJSON(a, JSONFormat{}), EncodeJSON(b, JSONFormat{}))
+	if a.kind != b.kind {
+		return false
+	}
+	switch a.kind {
+	case kindNumber:
+		x, okX := new(big.Rat).SetString(a.raw)
+		y, okY := new(big.Rat).SetString(b.raw)
+		return okX && okY && x.Cmp(y) == 0
+	case kindString:
+		var x, y string
+		return json.Unmarshal([]byte(a.raw), &x) == nil && json.Unmarshal([]byte(b.raw), &y) == nil && x == y
+	case kindArray:
+		if len(a.items) != len(b.items) {
+			return false
+		}
+		for i := range a.items {
+			if !SameJSON(a.items[i], b.items[i]) {
+				return false
+			}
+		}
+		return true
+	case kindObject:
+		if len(a.members) != len(b.members) {
+			return false
+		}
+		for _, m := range a.members {
+			other, ok := b.child(Segment{Key: m.key})
+			if !ok || !SameJSON(m.val, other) {
+				return false
+			}
+		}
+		return true
+	}
+	return a.raw == b.raw
 }
 
 // keyOf is a segment read as a mapping's key: an index given as a number

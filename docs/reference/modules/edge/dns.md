@@ -34,7 +34,7 @@ Reads a zone by id, or by name within the account (a zone of another account is 
 | --- | --- | --- | --- |
 | `zone` | `string` | success or difference | The zone's name. |
 | `records` | `list of dict` | success or difference | Each record's content, proxied and ttl. |
-| `differences` | `list of string` | always | Every difference from what was expected; the task fails when there is one. |
+| `differences` | `list of string` | when the reads succeed | Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list. |
 
 ## Undoing this
 

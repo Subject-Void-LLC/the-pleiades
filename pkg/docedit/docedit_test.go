@@ -143,6 +143,46 @@ func TestYAML_Refuses(t *testing.T) {
 	}
 }
 
+// TestYAML_AnAnchorAnAliasReadsIsNotEdited: changing or removing a node an
+// alias reads, or one above or under it, would change every alias or leave
+// one naming nothing (a file no reader parses), so each is refused, and a
+// path through a merge key is too; an anchor no alias reads, and a key
+// beside an aliased one, edit as any other.
+func TestYAML_AnAnchorAnAliasReadsIsNotEdited(t *testing.T) {
+	two, _ := ValueNode(2)
+	for doc, path := range map[string]string{
+		"a: &x 1\nb: *x\n":                         "a",
+		"base: &b {port: 80}\nweb: *b\n":           "base.port",
+		"base: &b {inner: {port: 80}}\nweb: *b\n":  "base.inner",
+		"top: {held: &h [1, 2]}\nuse: *h\n":        "top",
+		"defaults: &d {port: 80}\nsvc: {<<: *d}\n": "svc.port",
+	} {
+		d, err := ParseYAML([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.Set(mustPath(t, path), two); err == nil {
+			out, _ := d.Encode()
+			t.Errorf("set %s in %q was allowed, writing %q", path, doc, out)
+		}
+		if _, err := d.Delete(mustPath(t, path)); err == nil {
+			t.Errorf("delete %s in %q was allowed", path, doc)
+		}
+	}
+	d, err := ParseYAML([]byte("a: &x 1\nb: *x\nc: &unused 3\nd: 4\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"c", "d"} {
+		if err := d.Set(mustPath(t, path), two); err != nil {
+			t.Errorf("set %s = %v", path, err)
+		}
+	}
+	if out, err := d.Encode(); err != nil || !strings.Contains(string(out), "b: *x") {
+		t.Errorf("after editing beside the alias: %q, %v", out, err)
+	}
+}
+
 // TestYAMLText_IgnoresComments: a value and the same value with a comment
 // read the same, so setting a commented key to its own value is no change.
 func TestYAMLText_IgnoresComments(t *testing.T) {
@@ -154,5 +194,54 @@ func TestYAMLText_IgnoresComments(t *testing.T) {
 	n, _ := ValueNode(4)
 	if YAMLText(old) != YAMLText(n) || old.LineComment == "" {
 		t.Errorf("%q != %q, or the comment was lost from the document", YAMLText(old), YAMLText(n))
+	}
+}
+
+// TestSame_ComparesValuesNotSpellings: a key already holding the value it
+// is set to is no change, however the file spells it: a number with a
+// fraction of zero, an escaped character, members in another order, and in
+// YAML a flow list beside the same list in block style.
+func TestSame_ComparesValuesNotSpellings(t *testing.T) {
+	parse := func(s string) *Value {
+		v, _, err := ParseJSON([]byte(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for a, b := range map[string]string{
+		`1.0`:             `1`,
+		`1e2`:             `100`,
+		`"caf\u00e9"`:     `"café"`,
+		`{"a":1,"b":[2]}`: `{"b":[2.0],"a":1}`,
+	} {
+		if !SameJSON(parse(a), parse(b)) {
+			t.Errorf("%s and %s read as different values", a, b)
+		}
+	}
+	for a, b := range map[string]string{`1`: `"1"`, `{"a":1}`: `{"a":1,"b":2}`, `[1,2]`: `[2,1]`, `"a"`: `"A"`} {
+		if SameJSON(parse(a), parse(b)) {
+			t.Errorf("%s and %s read as the same value", a, b)
+		}
+	}
+	flow, err := ParseYAML([]byte("l: [a, b]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ParseYAML([]byte("l:\n  - a\n  - b\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, _, _ := flow.Get(mustPath(t, "l"))
+	y, _, _ := block.Get(mustPath(t, "l"))
+	if YAMLText(x) != YAMLText(y) {
+		t.Errorf("a flow list and the same block list differ: %q, %q", YAMLText(x), YAMLText(y))
+	}
+	quoted, _ := ParseYAML([]byte("n: \"1\"\n"))
+	plain, _ := ParseYAML([]byte("n: 1\n"))
+	q, _, _ := quoted.Get(mustPath(t, "n"))
+	p, _, _ := plain.Get(mustPath(t, "n"))
+	if YAMLText(q) == YAMLText(p) {
+		t.Error("the string \"1\" and the number 1 read as one value")
 	}
 }

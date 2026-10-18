@@ -22,13 +22,13 @@ var smallCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Sets, or removes, the value at a key path in a JSON file on the device, keeping the rest of the file.",
-			Description: "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized. A key already holding the value is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
+			Description: "Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, which two readers resolve differently) and sets the value at the key path, or removes it with state absent, keeping every other key in its place and every number and string exactly as written, so a 64-bit id or an escaped character survives. The file is written back at the indent unit it used (tabs, or a number of spaces, or on one line), one member per line, so a hand-aligned layout is normalized, and line endings are written as LF. A key already holding the value (by value, however it is spelled) is no change and nothing is written. The write keeps the file's owner, group and mode. The undo writes back the whole earlier text, withheld from the journal; a file the run created is removed. A check makes the same edit, reports the key's value before and after, and writes nothing.",
 			Params: []collection.Param{
 				{Name: "path", Type: "string", Required: true, Description: "The JSON file on the device, an absolute path."},
 				{Name: "key", Type: "string", Required: true, Description: "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."},
 				{Name: "value", Type: "any", Description: "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."},
 				{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present sets the value; absent removes the key, which is no change when it is not there."},
-				{Name: "create", Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused."},
+				{Name: "create", Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -59,7 +59,7 @@ var smallCollections = []collectionscaffold.Config{
 				{Name: "key", Type: "string", Required: true, Description: "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."},
 				{Name: "value", Type: "any", Description: "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."},
 				{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present sets the value; absent removes the key, which is no change when it is not there."},
-				{Name: "create", Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused."},
+				{Name: "create", Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -88,7 +88,7 @@ var smallCollections = []collectionscaffold.Config{
 				{Name: "body_contains", Type: "string", Description: "Text the body must contain."},
 				{Name: "body_matches", Type: "string", Description: "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."},
 				{Name: "method", Type: "string", Default: "GET", Choices: []string{"GET", "HEAD"}, Description: "GET, or HEAD for the status alone."},
-				{Name: "max_redirects", Type: "int", Default: "5", Description: "How many redirects to follow, 0 to 10."},
+				{Name: "max_redirects", Type: "int", Default: "5", Description: "How many redirects to follow, 0 to 10. A redirect past them is the answer checked, so max_redirects: 0 with status_code: 301 checks a redirect itself."},
 				{Name: "timeout", Type: "int", Default: "30", Description: "Seconds the whole check may take, redirects included."},
 				{Name: "validate_certs", Type: "bool", Default: "true", Description: "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."},
 			},

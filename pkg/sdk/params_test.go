@@ -248,3 +248,17 @@ func TestRequiredStringParam(t *testing.T) {
 		}
 	}
 }
+
+// TestOptionalStringParam: absent and null are "", text is itself, and a
+// value of another type is refused, naming the key.
+func TestOptionalStringParam(t *testing.T) {
+	params := map[string]any{"text": "a", "null": nil, "number": 200}
+	for key, want := range map[string]string{"text": "a", "null": "", "absent": ""} {
+		if got, err := sdk.OptionalStringParam(params, key); err != nil || got != want {
+			t.Errorf("%s = %q, %v", key, got, err)
+		}
+	}
+	if _, err := sdk.OptionalStringParam(params, "number"); err == nil || !strings.Contains(err.Error(), "number is int, not text") {
+		t.Errorf("a number = %v", err)
+	}
+}

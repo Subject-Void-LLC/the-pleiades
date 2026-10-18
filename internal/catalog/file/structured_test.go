@@ -107,6 +107,10 @@ func TestYAML_SetsAKeyAndKeepsComments(t *testing.T) {
 	if got, _ := os.ReadFile(missing); !strings.Contains(string(got), "b:") {
 		t.Errorf("created:\n%s", got)
 	}
+	// Write's temporary is 0600; a created file is given 0644, as documented.
+	if info, err := os.Stat(missing); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("the created file's mode = %v, %v; want 0644", info.Mode().Perm(), err)
+	}
 }
 
 // TestStructured_Refuses: a document with a duplicate key, a YAML alias

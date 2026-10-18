@@ -20,7 +20,7 @@ type YAMLDoc struct {
 
 // ParseYAML reads one YAML document, refusing a stream of several (an
 // edit could not say which it meant), a document over MaxBytes, and a
-// duplicate key, which yaml.v3 refuses itself.
+// duplicate key (depth refuses it: yaml.v3 decoding into nodes does not).
 func ParseYAML(data []byte) (*YAMLDoc, error) {
 	if len(data) > MaxBytes {
 		return nil, fmt.Errorf("the document is over %d bytes", MaxBytes)
@@ -104,7 +104,82 @@ func (d *YAMLDoc) Encode() ([]byte, error) {
 	if err := enc.Close(); err != nil {
 		return nil, err
 	}
+	// yaml.v3 writes an alias by its name whether or not its anchor is still
+	// there; what this writes must read back, or it never reaches a device.
+	var check yaml.Node
+	if err := yaml.Unmarshal(b.Bytes(), &check); err != nil {
+		return nil, fmt.Errorf("the edited document would not read back as YAML (%v), so it is not written", err)
+	}
 	return b.Bytes(), nil
+}
+
+// aliased is every anchor some alias in n refers to.
+func aliased(n *yaml.Node, into map[string]bool) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.AliasNode {
+		if n.Alias != nil {
+			into[n.Alias.Anchor] = true
+		} else {
+			into[n.Value] = true
+		}
+	}
+	for _, c := range n.Content {
+		aliased(c, into)
+	}
+}
+
+// holdsAnchor reports the first anchor in anchors that n or a node under
+// it carries, "" when none does.
+func holdsAnchor(n *yaml.Node, anchors map[string]bool) string {
+	if n == nil {
+		return ""
+	}
+	if n.Anchor != "" && anchors[n.Anchor] {
+		return n.Anchor
+	}
+	for _, c := range n.Content {
+		if a := holdsAnchor(c, anchors); a != "" {
+			return a
+		}
+	}
+	return ""
+}
+
+// guard refuses an edit at path that would change what an alias reads, or
+// that a merge key makes ambiguous: a node on the way to path, or the node
+// at path or one under it, carrying an anchor an alias refers to (changing
+// it changes every alias too, and removing it leaves an alias naming
+// nothing); and a mapping on the way holding a merge key (<<), whose keys
+// some readers take from elsewhere.
+func (d *YAMLDoc) guard(path []Segment) error {
+	anchors := map[string]bool{}
+	aliased(d.root, anchors)
+	cur := d.doc()
+	for i := 0; ; i++ {
+		if cur.Kind == yaml.MappingNode {
+			for j := 0; j+1 < len(cur.Content); j += 2 {
+				if k := cur.Content[j]; k.Kind == yaml.ScalarNode && (k.Value == "<<" || k.Tag == "!!merge") {
+					return fmt.Errorf("%s holds a merge key (<<), whose keys some readers take from another mapping, so an edit there could not say which it changes", orRoot(path[:i]))
+				}
+			}
+		}
+		if i == len(path) {
+			if a := holdsAnchor(cur, anchors); a != "" {
+				return fmt.Errorf("%s holds anchor &%s, which an alias reads, so an edit would change or break that alias too", PathText(path), a)
+			}
+			return nil
+		}
+		if cur.Anchor != "" && anchors[cur.Anchor] {
+			return fmt.Errorf("%s is anchor &%s, which an alias reads, so an edit under it would change that alias too", orRoot(path[:i]), cur.Anchor)
+		}
+		next, ok := yamlChild(cur, path[i])
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
 }
 
 // doc is the document's top node.
@@ -162,6 +237,9 @@ func ValueNode(x any) (*yaml.Node, error) {
 func (d *YAMLDoc) Set(path []Segment, val *yaml.Node) error {
 	if len(path) == 0 {
 		return errors.New("the key path is empty")
+	}
+	if err := d.guard(path); err != nil {
+		return err
 	}
 	cur := d.doc()
 	for i, s := range path {
@@ -249,6 +327,9 @@ func (d *YAMLDoc) Delete(path []Segment) (bool, error) {
 	if len(path) == 0 {
 		return false, errors.New("the key path is empty")
 	}
+	if err := d.guard(path); err != nil {
+		return false, err
+	}
 	parent, ok, err := d.Get(path[:len(path)-1])
 	if err != nil || !ok {
 		return false, err
@@ -285,10 +366,13 @@ func YAMLText(n *yaml.Node) string {
 	return string(bytes.TrimSpace(out))
 }
 
-// uncommented is a deep copy of n with every comment removed.
+// uncommented is a deep copy of n with every comment and every style
+// removed, so a flow list and the same list in block style, or a value
+// quoted and the same value plain, read as one value.
 func uncommented(n *yaml.Node) *yaml.Node {
 	c := *n
 	c.HeadComment, c.LineComment, c.FootComment = "", "", ""
+	c.Style = 0
 	c.Content = make([]*yaml.Node, len(n.Content))
 	for i, child := range n.Content {
 		c.Content[i] = uncommented(child)

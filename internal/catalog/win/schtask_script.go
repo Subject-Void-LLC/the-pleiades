@@ -7,17 +7,24 @@ package win
 // answers one line of JSON describing the task as it then is.
 const schtaskScript = `$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $in = [Console]::In.ReadToEnd() | ConvertFrom-Json
 function Describe {
-  $t = Get-ScheduledTask -TaskPath $in.path -TaskName $in.name -ErrorAction SilentlyContinue
-  if ($null -eq $t) { return @{ exists = $false } }
+  # Only a task that is not there is absent: access denied or a Task
+  # Scheduler failure is an error, never "the task does not exist".
+  try { $t = Get-ScheduledTask -TaskPath $in.path -TaskName $in.name -ErrorAction Stop }
+  catch { if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { return @{ exists = $false } } else { throw } }
   $info = Get-ScheduledTaskInfo -TaskPath $in.path -TaskName $in.name -ErrorAction SilentlyContinue
   $a = @($t.Actions)[0]
   $g = @($t.Triggers)[0]
   $trigger = @{}
   if ($null -ne $g) {
     $kind = $g.CimClass.CimClassName
-    $trigger = @{ kind = $kind; start = [string]$g.StartBoundary; days = [string]$g.DaysInterval }
+    $start = [string]$g.StartBoundary
+    # A boundary written without an offset is the device's local time, so it
+    # is read here, where that offset is known, and answered in UTC.
+    $utc = if ($start -ne '') { ([datetimeoffset]::Parse($start, [Globalization.CultureInfo]::InvariantCulture)).ToUniversalTime().ToString('o') } else { '' }
+    $trigger = @{ kind = $kind; start = $start; start_utc = $utc; days = [string]$g.DaysInterval }
   }
   @{
     exists = $true
@@ -32,6 +39,7 @@ function Describe {
     triggers = @($t.Triggers).Count
     trigger = $trigger
     user = [string]$t.Principal.UserId
+    logon_type = [string]$t.Principal.LogonType
     run_level = [string]$t.Principal.RunLevel
     last_run_time = [string]$info.LastRunTime
     last_task_result = [string]$info.LastTaskResult

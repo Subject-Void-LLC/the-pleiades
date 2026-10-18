@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -57,8 +58,8 @@ var (
 var serviceAccounts = map[string]bool{"SYSTEM": true, "LOCAL SERVICE": true, "NETWORK SERVICE": true}
 
 // run is how the script runs; a test replaces it.
-var run = func(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, stdin string, opts winrmexec.Options) (winrmexec.Result, error) {
-	return winrmexec.RunWithStdin(ctx, target, auth, winrmexec.ShellPowerShell, schtaskScript, stdin, opts)
+var run = func(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, script, stdin string, opts winrmexec.Options) (winrmexec.Result, error) {
+	return winrmexec.RunWithStdin(ctx, target, auth, winrmexec.ShellPowerShell, script, stdin, opts)
 }
 
 func init() {
@@ -102,8 +103,13 @@ type described struct {
 	Trigger     struct {
 		Kind  string `json:"kind"`
 		Start string `json:"start"`
+		// StartUTC is Start read in the device's own time zone, in UTC.
+		StartUTC string `json:"start_utc"`
+		// Days is a daily trigger's interval.
+		Days string `json:"days"`
 	} `json:"trigger"`
 	User           string `json:"user"`
+	LogonType      string `json:"logon_type"`
 	RunLevel       string `json:"run_level"`
 	LastRunTime    string `json:"last_run_time"`
 	LastTaskResult string `json:"last_task_result"`
@@ -135,16 +141,22 @@ func (d described) differences(s spec) []string {
 		if !strings.Contains(d.Trigger.Start, "T"+s.at+":") {
 			out = append(out, fmt.Sprintf("the trigger starts at %q, not at %s", d.Trigger.Start, s.at))
 		}
+		if d.Trigger.Days != "1" {
+			out = append(out, fmt.Sprintf("the trigger runs every %s days, not every day", d.Trigger.Days))
+		}
 	case "once":
+		// The device answers the start in UTC, having read a boundary with no
+		// offset in its own time zone; this machine's zone has no part in it.
 		want, _ := time.Parse(time.RFC3339, s.at)
-		if got, err := time.Parse(time.RFC3339, d.Trigger.Start); err != nil || !got.Equal(want) {
-			if got, err := time.ParseInLocation("2006-01-02T15:04:05", d.Trigger.Start, time.Local); err != nil || !got.Equal(want) {
-				out = append(out, fmt.Sprintf("the trigger starts at %q, not at %s", d.Trigger.Start, s.at))
-			}
+		if got, err := time.Parse(time.RFC3339Nano, d.Trigger.StartUTC); err != nil || !got.Equal(want) {
+			out = append(out, fmt.Sprintf("the trigger starts at %q, not at %s", d.Trigger.Start, s.at))
 		}
 	}
-	if !strings.EqualFold(lastPart(d.User), lastPart(s.user)) {
+	if !sameAccount(d.User, s.user) {
 		out = append(out, fmt.Sprintf("it runs as %q, not %q", d.User, s.user))
+	}
+	if want := logonTypeOf(s.logon); !strings.EqualFold(d.LogonType, want) {
+		out = append(out, fmt.Sprintf("it logs on as %q, not %q", d.LogonType, want))
 	}
 	add(paramRunLevel, d.RunLevel, s.runLevel)
 	if d.Enabled != s.enabled {
@@ -166,6 +178,44 @@ func triggerOf(class string) string {
 		return "once"
 	}
 	return class
+}
+
+// sameAccount reports whether two accounts are one: by their full names
+// when both name a domain (CORP\svc is not PC1\svc), else by the name
+// alone, since Task Scheduler answers a local or built-in account with or
+// without its machine's.
+func sameAccount(a, b string) bool {
+	if strings.Contains(a, `\`) && strings.Contains(b, `\`) {
+		return strings.EqualFold(a, b)
+	}
+	return strings.EqualFold(lastPart(a), lastPart(b))
+}
+
+// logonTypeOf is the logon type a task registered with logon has.
+func logonTypeOf(logon string) string {
+	if logon == "service" {
+		return "ServiceAccount"
+	}
+	return "S4U"
+}
+
+// asciiJSON is JSON with every character past ASCII written as a \u escape,
+// so the script reads it the same whatever code page the device's console
+// decodes standard input with.
+func asciiJSON(in []byte) []byte {
+	var b strings.Builder
+	for _, r := range string(in) {
+		switch {
+		case r < 0x80:
+			b.WriteRune(r)
+		case r > 0xFFFF:
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+		default:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		}
+	}
+	return []byte(b.String())
 }
 
 // lastPart is an account without its domain.
@@ -199,7 +249,7 @@ func call(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, opt
 	if err != nil {
 		return described{}, err
 	}
-	res, err := run(ctx, target, auth, string(in), opts)
+	res, err := run(ctx, target, auth, schtaskScript, string(asciiJSON(in)), opts)
 	if err != nil {
 		return described{}, err
 	}

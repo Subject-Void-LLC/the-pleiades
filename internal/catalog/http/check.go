@@ -104,8 +104,14 @@ func checkParse(params map[string]any) (checkSpec, error) {
 	if s.validateCerts, err = sdk.BoolParamOr(params, requestParamValidateCerts, requestDefaultValidateCerts); err != nil {
 		return s, err
 	}
-	s.contains = sdk.StringParam(params, checkParamBodyContains)
-	if pattern := sdk.StringParam(params, checkParamBodyMatches); pattern != "" {
+	if s.contains, err = sdk.OptionalStringParam(params, checkParamBodyContains); err != nil {
+		return s, err
+	}
+	pattern, err := sdk.OptionalStringParam(params, checkParamBodyMatches)
+	if err != nil {
+		return s, err
+	}
+	if pattern != "" {
 		if s.contains != "" {
 			return s, fmt.Errorf("give one of %s and %s", checkParamBodyContains, checkParamBodyMatches)
 		}
@@ -161,11 +167,13 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 	}
 	var hops []any
 	client := &nethttp.Client{Transport: transport, CheckRedirect: func(req *nethttp.Request, via []*nethttp.Request) error {
-		if len(via) > s.maxRedirects {
-			return fmt.Errorf("more than %d redirects", s.maxRedirects)
-		}
 		if via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("a redirect from https to http (%s), which this does not follow", shown(req.URL))
+		}
+		// At the bound the redirect itself is the answer checked, so a check
+		// can ask for a 301 with max_redirects: 0.
+		if len(via) > s.maxRedirects {
+			return nethttp.ErrUseLastResponse
 		}
 		hops = append(hops, shown(req.URL))
 		return nil
@@ -241,7 +249,7 @@ func checkDoc() collection.Doc {
 			{Name: checkParamBodyContains, Type: "string", Description: "Text the body must contain."},
 			{Name: checkParamBodyMatches, Type: "string", Description: "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."},
 			{Name: requestParamMethod, Type: "string", Default: "GET", Choices: []string{"GET", "HEAD"}, Description: "GET, or HEAD for the status alone."},
-			{Name: checkParamMaxRedirects, Type: "int", Default: "5", Description: "How many redirects to follow, 0 to 10."},
+			{Name: checkParamMaxRedirects, Type: "int", Default: "5", Description: "How many redirects to follow, 0 to 10. A redirect past them is the answer checked, so max_redirects: 0 with status_code: 301 checks a redirect itself."},
 			{Name: requestParamTimeout, Type: "int", Default: "30", Description: "Seconds the whole check may take, redirects included."},
 			{Name: requestParamValidateCerts, Type: "bool", Default: "true", Description: "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."},
 		},
