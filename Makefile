@@ -647,6 +647,17 @@ ci-containers:
 # PR_CHECK_PARALLELISM bounds how many container-free packages run at
 # once (0 keeps go test's default).
 #
+# With a Mac named (tests/mac/.env), the Mac's tests run beside the Linux
+# ones rather than after them: tools/maccheck -phase prepare checks the Mac,
+# builds pleiades and sends the tree first, the only part that uses this
+# machine, then -phase test runs in the background, on the Mac's CPU and
+# memory, while the Linux passes run here. Its output goes to
+# $(COVERAGE_DIR)/pr/mac.log and is printed whole once the Linux passes end,
+# so the two never interleave, and its result counts as any other step's.
+# An interrupt, or the recipe ending early, stops it, and maccheck then
+# stops the tests on the Mac as well. Nothing it runs changed: the same
+# packages, passes and parallelism as before.
+#
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
 # covers: run it on a committed, clean tree, since a receipt names a
@@ -668,7 +679,14 @@ pr-check: ci-remote pr-check-vet
 	done; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
 	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr; \
-	status=0; \
+	status=0; mac_pid=""; mac_log=$(COVERAGE_DIR)/pr/mac.log; \
+	go build -o $(COVERAGE_DIR)/pr/maccheck ./tools/maccheck || exit 1; \
+	$(COVERAGE_DIR)/pr/maccheck -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/mac.ready -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+	if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
+		$(COVERAGE_DIR)/pr/maccheck -phase test -p $(PR_CHECK_PARALLELISM) $$mine_fast > $$mac_log 2>&1 & mac_pid=$$!; \
+		trap 'kill -TERM $$mac_pid 2>/dev/null; wait $$mac_pid' INT TERM EXIT; \
+		echo "pr-check: the Mac's tests run beside the ones below; their output follows them ($$mac_log)"; \
+	fi; \
 	if [ -n "$$mine_fast" ]; then \
 		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json $$mine_fast || status=1; \
 		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
@@ -676,13 +694,17 @@ pr-check: ci-remote pr-check-vet
 	if [ -n "$$mine_docker" ]; then \
 		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
 	fi; \
-	go run ./tools/maccheck -optional -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
 	if docker info >/dev/null 2>&1; then \
 		go run ./tools/testimages -served $$docker >/dev/null || status=1; \
 	else \
 		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
 	fi; \
 	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
+	if [ -n "$$mac_pid" ]; then \
+		echo "pr-check: waiting for the Mac's tests"; \
+		wait $$mac_pid || status=1; trap - INT TERM EXIT; \
+		cat $$mac_log; \
+	fi; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"

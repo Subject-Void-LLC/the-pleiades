@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -146,9 +147,14 @@ type adhocReport struct {
 // adhoc runs one method against the Mac and returns its stdout return, or
 // the task's error.
 func (r pleiadesRemote) adhoc(method string, params ...string) (string, error) {
+	return r.adhocContext(context.Background(), method, params...)
+}
+
+// adhocContext is adhoc, its pleiades ended when ctx ends.
+func (r pleiadesRemote) adhocContext(ctx context.Context, method string, params ...string) (string, error) {
 	args := append([]string{"adhoc", device, method}, params...)
 	args = append(args, "--json", "--dir", r.project)
-	out, _ := exec.Command(r.binary(), args...).Output() // #nosec G204 -- the binary this run built, with arguments this program wrote
+	out, _ := exec.CommandContext(ctx, r.binary(), args...).Output() // #nosec G204 -- the binary this run built, with arguments this program wrote
 	var report adhocReport
 	if err := json.Unmarshal(out, &report); err != nil {
 		return "", fmt.Errorf("pleiades adhoc %s printed no report: %v", method, err)
@@ -206,9 +212,20 @@ printf '%%s\n' "$HOME"`, checkoutDir, keptCheckouts, sha)))
 
 // Test runs script on the Mac through exec.command and reads its exit
 // status from the marker the script ends its output with.
-func (r pleiadesRemote) Test(mac, sha, script string, stdout, stderr io.Writer) (bool, error) {
+func (r pleiadesRemote) Test(ctx context.Context, mac, sha, script string, stdout, stderr io.Writer) (bool, error) {
+	if !fileExists(r.binary()) {
+		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", mac)
+	}
 	fmt.Fprintln(stdout, "maccheck: running on the Mac; Pleiades returns the output when the run ends, since it does not stream it yet")
-	out, err := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", script))
+	out, err := r.adhocContext(ctx, "exec.command", "argv:="+argvYAML("/bin/sh", "-c", script))
+	if ctx.Err() != nil {
+		// The local pleiades is gone, and the tests would run on without it:
+		// end them on the Mac, with a session of their own.
+		if _, stopErr := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", stopScript(sha))); stopErr != nil {
+			return false, fmt.Errorf("interrupted, and the tests on %s could not be stopped: %v", mac, stopErr)
+		}
+		return false, fmt.Errorf("interrupted; the tests on %s were stopped", mac)
+	}
 	if err != nil {
 		return false, err
 	}

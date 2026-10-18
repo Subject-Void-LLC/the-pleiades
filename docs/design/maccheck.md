@@ -39,6 +39,16 @@ argument-order class on Linux; the rest needs a Mac.
 `pr-check` runs the same check whenever a Mac is named, and says macOS was not checked when none is. A Mac that is
 named but unreachable fails `pr-check`, with the same instructions.
 
+**In pr-check, the Mac runs beside Linux, not after it** (2026-10-17). `-phase prepare` does steps 2 to 4, the
+only part that uses this machine (it builds `pleiades`), and writes `-ready-file` once the tree is on the Mac.
+`-phase test` then does step 5 in the background, its output in `.coverage/pr/mac.log`, while the Linux passes
+run; pr-check prints that log whole when they end and counts its result like any other step's. The tests are
+the same: the same packages, passes and parallelism. Each run prints how long the Mac's tests took. The tests
+start as a job of their own on the Mac (`set -m`), and their process group is written to `.maccheck.pid` in the
+tree, so an interrupt (SIGINT or SIGTERM to maccheck, or pr-check ending early) stops every process of the run
+on the Mac with one more `exec.command`, rather than leaving it running after the local side is gone. Plain
+`-phase all` (the default, and `make mac-check`) is both phases in one run.
+
 ## Gaps found by driving it through The Pleiades
 
 Each is something a Pleiades user doing the same would meet. None is built here.
@@ -62,3 +72,5 @@ Each is something a Pleiades user doing the same would meet. None is built here.
 | The Mac stops answering partway | maccheck's own ssh calls (the login check and sending the tree) send a keepalive every 15 seconds and give up after four unanswered. The test run goes through Pleiades, which has no such bound yet (the timeout gap above). |
 | Not a Mac, or no `go` or `caffeinate` | Refused, naming which. |
 | The tests fail | Exit 1, with the Mac's output. |
+| Interrupted while the tests run | The local `pleiades` is ended and the run's process group on the Mac is killed; exit 2, without advice to change the Mac, since nothing about it was wrong. |
+| `-phase test` with no `prepare` before it | Refused: the worktree has no `pleiades` for the Mac yet. A tree that is not on the Mac ends the script with exit status 2. |

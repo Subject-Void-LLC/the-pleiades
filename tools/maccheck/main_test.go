@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -32,7 +33,7 @@ func (f *fakeRemote) Ship(string, string) error {
 	f.steps = append(f.steps, "ship")
 	return f.ship
 }
-func (f *fakeRemote) Test(_, _, script string, _, _ io.Writer) (bool, error) {
+func (f *fakeRemote) Test(_ context.Context, _, _, script string, _, _ io.Writer) (bool, error) {
 	f.steps = append(f.steps, "test")
 	f.script = script
 	return f.passed, f.testErr
@@ -127,7 +128,7 @@ func TestRun_TheFlow(t *testing.T) {
 				writeEnv(t, dir, "# a comment\n\n"+envKey+"="+tc.configure+"\n")
 			}
 			var stdout, stderr bytes.Buffer
-			code := run(tc.args, &stdout, &stderr, tc.remote)
+			code := run(context.Background(), tc.args, &stdout, &stderr, tc.remote)
 			out := stdout.String() + stderr.String()
 			if code != tc.wantCode || strings.Join(tc.remote.steps, " ") != tc.wantSteps {
 				t.Fatalf("exit %d after steps %v, want %d after %q\n%s", code, tc.remote.steps, tc.wantCode, tc.wantSteps, out)
@@ -153,19 +154,19 @@ func TestRun_AWorktreeReadsTheMainWorktreesSettings(t *testing.T) {
 	pkgs := []string{"github.com/x/a"}
 
 	var stdout, stderr bytes.Buffer
-	if code := run(append([]string{"-optional"}, pkgs...), &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on me@mac") {
+	if code := run(context.Background(), append([]string{"-optional"}, pkgs...), &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on me@mac") {
 		t.Fatalf("exit %d:\n%s%s", code, &stdout, &stderr)
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(pkgs, &stdout, &stderr, &fakeRemote{reachable: errors.New("did not answer")}); code != 2 || !strings.Contains(stderr.String(), "delete "+filepath.Join(realPath(t, dir), envFile)) {
+	if code := run(context.Background(), pkgs, &stdout, &stderr, &fakeRemote{reachable: errors.New("did not answer")}); code != 2 || !strings.Contains(stderr.String(), "delete "+filepath.Join(realPath(t, dir), envFile)) {
 		t.Fatalf("exit %d, not naming the main worktree's file:\n%s%s", code, &stdout, &stderr)
 	}
 
 	writeEnv(t, wt, envKey+"=other@mac2\n")
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(pkgs, &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on other@mac2") {
+	if code := run(context.Background(), pkgs, &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on other@mac2") {
 		t.Fatalf("the worktree's own file did not win: exit %d:\n%s%s", code, &stdout, &stderr)
 	}
 }
@@ -211,7 +212,11 @@ func TestTestScript(t *testing.T) {
 	s := testScript("abc123", 2, []string{"github.com/x/a", "github.com/x/b"})
 	for _, w := range []string{
 		`cd "$HOME/.pleiades-maccheck/abc123"`,
-		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -p 2 github.com/x/a github.com/x/b'",
+		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -p 2 github.com/x/a github.com/x/b' &",
+		"set -m",
+		`echo "$job" > .maccheck.pid`,
+		`wait "$job"`,
+		"set +m",
 		`echo "maccheck-exit=$?"`,
 		"exec 2>&1",
 	} {
@@ -329,5 +334,89 @@ func TestLoginFailure(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("loginFailure(%q) = %v, want it to say %q", said, err, want)
 		}
+	}
+}
+
+// TestStopScript ends the run's whole process group, read from the file
+// testScript wrote in the same tree, and does nothing when there is no
+// such file or it holds anything but a number.
+func TestStopScript(t *testing.T) {
+	s := stopScript("abc123")
+	for _, w := range []string{
+		`cat "$HOME/.pleiades-maccheck/abc123/.maccheck.pid"`,
+		`*[!0-9]*) exit 0`,
+		`kill -TERM -- "-$pid"`,
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("stop script does not hold %q:\n%s", w, s)
+		}
+	}
+}
+
+// TestRun_Phases: prepare checks the Mac and sends the tree and runs
+// nothing; test runs the tests alone, after a liveness probe, and says how
+// long they took; any other phase is refused before anything runs.
+func TestRun_Phases(t *testing.T) {
+	dir := inRepo(t)
+	t.Setenv(envKey, "")
+	writeEnv(t, dir, envKey+"=me@mac\n")
+	pkgs := []string{"github.com/x/a"}
+	for _, tc := range []struct {
+		phase     string
+		wantCode  int
+		wantSteps string
+		want      string
+	}{
+		{"prepare", 0, "reachable ready ship", "-phase test runs its tests"},
+		{"test", 0, "reachable test", "all tests passed on me@mac (macOS) in "},
+		{"all", 0, "reachable ready ship test", "all tests passed on me@mac (macOS) in "},
+		{"later", 2, "", `not "later"`},
+	} {
+		t.Run(tc.phase, func(t *testing.T) {
+			remote := &fakeRemote{passed: true}
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), append([]string{"-phase", tc.phase}, pkgs...), &stdout, &stderr, remote)
+			out := stdout.String() + stderr.String()
+			if code != tc.wantCode || strings.Join(remote.steps, " ") != tc.wantSteps || !strings.Contains(out, tc.want) {
+				t.Errorf("exit %d after %v, want %d after %q saying %q:\n%s", code, remote.steps, tc.wantCode, tc.wantSteps, tc.want, out)
+			}
+		})
+	}
+}
+
+// TestRun_AnInterruptIsNotTheMacsFault: tests stopped from this side end
+// with the remote's word for it and no advice to change or remove the Mac.
+func TestRun_AnInterruptIsNotTheMacsFault(t *testing.T) {
+	dir := inRepo(t)
+	t.Setenv(envKey, "")
+	writeEnv(t, dir, envKey+"=me@mac\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	remote := &fakeRemote{testErr: errors.New("interrupted; the tests on me@mac were stopped")}
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-phase", "test", "github.com/x/a"}, &stdout, &stderr, remote)
+	if code != 2 || !strings.Contains(stderr.String(), "were stopped") || strings.Contains(stderr.String(), "To test on another Mac") {
+		t.Errorf("exit %d:\n%s", code, &stderr)
+	}
+}
+
+// TestRun_ReadyFileOnlyWhenTheTreeWasSent: prepare writes the ready file
+// once the tree is on the Mac, and not when nothing is to run or the Mac
+// is not configured, so a caller starts -phase test only when it has a
+// tree to test.
+func TestRun_ReadyFileOnlyWhenTheTreeWasSent(t *testing.T) {
+	dir := inRepo(t)
+	t.Setenv(envKey, "")
+	ready := filepath.Join(t.TempDir(), "ready")
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-optional", "-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, &fakeRemote{}); code != 0 || fileExists(ready) {
+		t.Fatalf("no Mac configured: exit %d, ready file written %v", code, fileExists(ready))
+	}
+	writeEnv(t, dir, envKey+"=me@mac\n")
+	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready}, &stdout, &stderr, &fakeRemote{}); code != 0 || fileExists(ready) {
+		t.Fatalf("no packages: exit %d, ready file written %v", code, fileExists(ready))
+	}
+	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, &fakeRemote{}); code != 0 || !fileExists(ready) {
+		t.Fatalf("a tree sent: exit %d, ready file written %v\n%s%s", code, fileExists(ready), &stdout, &stderr)
 	}
 }
