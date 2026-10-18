@@ -223,12 +223,19 @@ func yamlChild(n *yaml.Node, s Segment) (*yaml.Node, bool) {
 }
 
 // ValueNode is a decoded YAML or JSON value as a node.
-func ValueNode(x any) (*yaml.Node, error) {
-	var n yaml.Node
-	if err := n.Encode(x); err != nil {
+func ValueNode(x any) (n *yaml.Node, err error) {
+	// yaml.v3 panics, rather than failing, on a type it cannot encode (a
+	// channel, a function); that is an error here, not a crash of the run.
+	defer func() {
+		if r := recover(); r != nil {
+			n, err = nil, fmt.Errorf("the value cannot be written as YAML: %v", r)
+		}
+	}()
+	var node yaml.Node
+	if err := node.Encode(x); err != nil {
 		return nil, fmt.Errorf("the value cannot be written as YAML: %w", err)
 	}
-	return &n, nil
+	return &node, nil
 }
 
 // Set puts val at path, creating a mapping for each missing key on the

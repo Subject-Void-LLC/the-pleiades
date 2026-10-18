@@ -78,13 +78,11 @@ type checkSpec struct {
 // would reach every log the URL does.
 func checkParse(params map[string]any) (checkSpec, error) {
 	var s checkSpec
-	raw, err := requestURL(params)
+	_, parsed, err := requestURL(params)
 	if err != nil {
 		return s, err
 	}
-	if s.url, err = url.Parse(raw); err != nil {
-		return s, err
-	}
+	s.url = parsed
 	if s.url.User != nil {
 		return s, fmt.Errorf("%s carries a user name or password, which would reach every log the URL does", requestParamURL)
 	}
@@ -165,7 +163,9 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 			MinVersion:         tls.VersionTLS12,
 		}
 	}
-	var hops []any
+	// Empty, not nil: an any holding a nil slice is not nil, so a check that
+	// followed no redirect must return an empty list, not a typed nil.
+	hops := []any{}
 	client := &nethttp.Client{Transport: transport, CheckRedirect: func(req *nethttp.Request, via []*nethttp.Request) error {
 		if via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("a redirect from https to http (%s), which this does not follow", shown(req.URL))
@@ -178,10 +178,9 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 		hops = append(hops, shown(req.URL))
 		return nil
 	}}
-	req, err := nethttp.NewRequestWithContext(ctx, s.method, s.url.String(), nil)
-	if err != nil {
-		return fail(err)
-	}
+	// The method and URL were both held to their forms already, so the
+	// request is made from them directly.
+	req := (&nethttp.Request{Method: s.method, URL: s.url, Header: nethttp.Header{}, Host: s.url.Host}).WithContext(ctx)
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -208,9 +207,6 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 		m := !over && ((s.contains != "" && strings.Contains(string(body), s.contains)) || (s.matches != nil && s.matches.Match(body)))
 		matched = &m
 		stats["matched"] = m
-	}
-	if stats["redirects"] == nil {
-		stats["redirects"] = []any{}
 	}
 	for k, v := range stats {
 		if err := rc.SetStat(k, v); err != nil {

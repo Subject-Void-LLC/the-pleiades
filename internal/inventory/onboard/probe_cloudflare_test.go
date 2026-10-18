@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cfapi/cfapitest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // TestCloudflareProbe: the account read with its token proves it, with
@@ -37,6 +38,15 @@ func TestCloudflareProbe(t *testing.T) {
 	}
 	if _, err := (cloudflareProber{}).Probe(context.Background(), build(t, cloudflare.TypeAccount, props("fedcba9876543210fedcba9876543210")), map[string]string{"bearer_token": "tok"}); err == nil {
 		t.Error("another account was proved")
+	}
+	if (cloudflareProber{}).Protocol() != "https" {
+		t.Error("the probe does not speak https")
+	}
+	if _, err := (cloudflareProber{}).Probe(context.Background(), build(t, cloudflare.TypeAccount, props(acct)), map[string]string{}); err == nil || !strings.Contains(err.Error(), "token") {
+		t.Errorf("no token: %v", err)
+	}
+	if _, err := (cloudflareProber{}).Probe(context.Background(), &inventorytest.Stub{StubName: "web"}, map[string]string{"bearer_token": "tok"}); err == nil || !strings.Contains(err.Error(), "not a Cloudflare account") {
+		t.Errorf("another kind of device: %v", err)
 	}
 	// A stand-in API answering success for the account asked about with
 	// another account's object, or none, proves nothing.

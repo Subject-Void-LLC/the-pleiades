@@ -137,3 +137,51 @@ func TestCheck_Refuses(t *testing.T) {
 		}
 	}
 }
+
+// refusingCtx refuses every stat.
+type refusingCtx struct{ checkCtx }
+
+func (refusingCtx) SetStat(string, any) error { return fmt.Errorf("the stats cannot be kept") }
+
+// TestCheck_TheRemainingRefusals: parameters of the wrong kind, a body past
+// the limit with a matcher, an answer cut off partway, and stats that
+// cannot be kept each fail the check.
+func TestCheck_TheRemainingRefusals(t *testing.T) {
+	for name, params := range map[string]map[string]any{
+		"a status code that is a word": {"url": "https://example.invalid/", "status_code": "ok"},
+		"a negative timeout":           {"url": "https://example.invalid/", "timeout": -1},
+		"validate_certs as a word":     {"url": "https://example.invalid/", "validate_certs": "no"},
+		"a pattern over the limit":     {"url": "https://example.invalid/", "body_matches": strings.Repeat("a", 1025)},
+		"max_redirects as a word":      {"url": "https://example.invalid/", "max_redirects": "five"},
+		"a URL that names no host":     {"url": "https:///path"},
+	} {
+		if _, err := run(t, params); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	big := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", 4<<20+10)))
+	}))
+	defer big.Close()
+	if _, err := run(t, map[string]any{"url": big.URL, "body_contains": "x"}); err == nil || !strings.Contains(err.Error(), "is not matched against part of it") {
+		t.Errorf("a body over the limit with a matcher = %v", err)
+	}
+	cut := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("short"))
+	}))
+	defer cut.Close()
+	if _, err := run(t, map[string]any{"url": cut.URL}); err == nil || !strings.Contains(err.Error(), "reading the answer") {
+		t.Errorf("an answer cut off = %v", err)
+	}
+	ok := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) { _, _ = w.Write([]byte("fine")) }))
+	defer ok.Close()
+	// No redirect followed is an empty list, never a nil one typed as a list.
+	rc, err := run(t, map[string]any{"url": ok.URL})
+	if hops, isList := rc.stats["redirects"].([]any); err != nil || !isList || hops == nil || len(hops) != 0 {
+		t.Errorf("redirects with none followed = %#v, %v", rc.stats["redirects"], err)
+	}
+	if _, err := httpcoll.Check(context.Background(), &refusingCtx{checkCtx{stats: map[string]any{}}}, nil, map[string]any{"url": ok.URL}); err == nil {
+		t.Error("a check whose stats could not be kept passed")
+	}
+}

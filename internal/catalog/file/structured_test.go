@@ -142,3 +142,88 @@ func TestStructured_Refuses(t *testing.T) {
 		t.Error("a refused document was written")
 	}
 }
+
+// TestStructured_RunsTheOtherPaths: a check of file.yaml writes nothing; a
+// JSON file is created from nothing, readable; a path that is a directory,
+// and one under a directory that does not exist, are refused; a key already
+// holding its value is no change and records no undo.
+func TestStructured_RunsTheOtherPaths(t *testing.T) {
+	server := startCopyServer(t)
+	dir := t.TempDir()
+	y := filepath.Join(dir, "v.yaml")
+	if err := os.WriteFile(y, []byte("a: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, res, err := structured(t, server, "file.yaml", true, map[string]any{"path": y, "key": "a", "value": 2}); err != nil || !res.Changed {
+		t.Fatalf("a check = %+v, %v", res, err)
+	}
+	if got, _ := os.ReadFile(y); string(got) != "a: 1\n" {
+		t.Errorf("a check wrote %q", got)
+	}
+	created := filepath.Join(dir, "new.json")
+	if _, res, err := structured(t, server, "file.json", false, map[string]any{"path": created, "key": "port", "value": 8080, "create": true}); err != nil || !res.Changed {
+		t.Fatalf("creating JSON = %+v, %v", res, err)
+	}
+	if got, _ := os.ReadFile(created); !strings.Contains(string(got), `"port": 8080`) {
+		t.Errorf("created %q", got)
+	}
+	rc, res, err := structured(t, server, "file.json", false, map[string]any{"path": created, "key": "port", "value": 8080})
+	if err != nil || res.Changed || rc.stats[sdk.StatInverse] != nil {
+		t.Errorf("the same value again = %+v, %v, undo %v", res, err, rc.stats[sdk.StatInverse])
+	}
+	if _, _, err := structured(t, server, "file.json", false, map[string]any{"path": dir, "key": "a", "value": 1}); err == nil {
+		t.Error("a directory was edited as a document")
+	}
+	if _, _, err := structured(t, server, "file.json", false, map[string]any{"path": filepath.Join(dir, "no", "such", "x.json"), "key": "a", "value": 1, "create": true}); err == nil {
+		t.Error("a file under a missing directory was created")
+	}
+	if _, _, err := structured(t, server, "file.json", false, map[string]any{"path": "relative.json", "key": "a", "value": 1}); err == nil {
+		t.Error("a relative path was accepted")
+	}
+}
+
+// TestStructured_FailingPartwayIsAnError: a connection that runs out of
+// sessions at each step of an edit, and a context refusing the diff or the
+// stats, fail the task; none reports success, and with sessions enough the
+// edit lands.
+func TestStructured_FailingPartwayIsAnError(t *testing.T) {
+	desc, _ := collection.Lookup("file.json")
+	for _, create := range []bool{false, true} {
+		landed := false
+		for budget := 0; budget <= 12 && !landed; budget++ {
+			server := startCopyServerWithSessionBudget(t, budget)
+			p := filepath.Join(t.TempDir(), "c.json")
+			if !create {
+				if err := os.WriteFile(p, []byte("{\"a\": 1}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			params := map[string]any{"path": p, "key": "a", "value": 2, "create": create, "insecure_skip_host_key_verify": true}
+			res, err := desc.Invoke(context.Background(), newCopyContext(server), newCopyTarget(server), params)
+			if err == nil {
+				landed = true
+				if !res.Changed {
+					t.Errorf("create %v, %d sessions: no change reported", create, budget)
+				}
+			}
+		}
+		if !landed {
+			t.Errorf("create %v: the edit never landed within 12 sessions", create)
+		}
+	}
+	server := startCopyServer(t)
+	for _, key := range []string{sdk.StatDiff, "path"} {
+		p := filepath.Join(t.TempDir(), "s.json")
+		_ = os.WriteFile(p, []byte("{\"a\": 1}\n"), 0o644)
+		rc := newCopyContext(server)
+		rc.failOn = key
+		if _, err := desc.Invoke(context.Background(), rc, newCopyTarget(server), map[string]any{"path": p, "key": "a", "value": 2, "insecure_skip_host_key_verify": true}); err == nil {
+			t.Errorf("a context refusing %s let the edit succeed", key)
+		}
+	}
+	noLogin := newCopyContext(server)
+	noLogin.secrets = map[string]string{}
+	if _, err := desc.Invoke(context.Background(), noLogin, newCopyTarget(server), map[string]any{"path": "/x.json", "key": "a", "value": 2, "insecure_skip_host_key_verify": true}); err == nil {
+		t.Error("an edit with no login reached the device")
+	}
+}

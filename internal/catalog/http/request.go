@@ -374,7 +374,7 @@ func requestBuild(params map[string]any, device inventory.InventoryItem) (reques
 	if raw := sdk.StringParam(params, requestParamURL); requestIsDevicePath(raw) {
 		target, onDevice, err = requestDeviceURL(device, raw)
 	} else {
-		target, err = requestURL(params)
+		target, _, err = requestURL(params)
 	}
 	if err != nil {
 		return none, err
@@ -420,10 +420,10 @@ func requestBuild(params map[string]any, device inventory.InventoryItem) (reques
 // a file:// or ftp:// URL to net/http produces an error about an
 // unsupported protocol scheme from somewhere deep in the transport, which
 // names neither the task nor what to write instead.
-func requestURL(params map[string]any) (string, error) {
+func requestURL(params map[string]any) (string, *url.URL, error) {
 	raw, err := sdk.RequiredStringParam(params, requestParamURL)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// No error quotes the URL as given: its user part or query can carry a
@@ -434,17 +434,17 @@ func requestURL(params map[string]any) (string, error) {
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return "", fmt.Errorf("%s cannot be read as a URL: %w", requestParamURL, err)
+		return "", nil, fmt.Errorf("%s cannot be read as a URL: %w", requestParamURL, err)
 	}
 	switch parsed.Scheme {
 	case "http", "https":
 	default:
-		return "", fmt.Errorf("%s has scheme %q, and this method speaks only http and https", requestParamURL, parsed.Scheme)
+		return "", nil, fmt.Errorf("%s has scheme %q, and this method speaks only http and https", requestParamURL, parsed.Scheme)
 	}
 	if parsed.Host == "" {
-		return "", fmt.Errorf("%s %s names no host", requestParamURL, shown(parsed))
+		return "", nil, fmt.Errorf("%s %s names no host", requestParamURL, shown(parsed))
 	}
-	return raw, nil
+	return raw, parsed, nil
 }
 
 // requestHeaders reads the optional header mapping, refusing a value that
