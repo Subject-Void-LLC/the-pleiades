@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -67,7 +68,8 @@ func TestScreenshot(t *testing.T) {
 	if err != nil || !strings.HasPrefix(string(picture), pngSignature) || rc.stats[statWidth] != 1024 || rc.stats[statHeight] != 768 || rc.stats[statBytes] != len(picture) {
 		t.Errorf("wrote %d bytes, stats %v, %v", len(picture), rc.stats, err)
 	}
-	if info, _ := os.Stat(dest); info.Mode().Perm() != 0o600 {
+	// Windows keeps no permission bits: Go reports 0666 for any file there.
+	if info, _ := os.Stat(dest); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("the picture is %v, not the owner's alone", info.Mode().Perm())
 	}
 	if _, left := model.Files[`G:\PleiadesLab\win-lab\`+screenFile]; left {

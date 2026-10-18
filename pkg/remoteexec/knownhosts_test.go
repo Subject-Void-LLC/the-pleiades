@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -190,9 +191,9 @@ func TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory(t *testing.T) {
 // reported as a missing file, which would send a reader looking for a
 // file they were never going to find.
 func TestHostKeyCallback_UnresolvableHomeFailsClosed(t *testing.T) {
-	// os.UserHomeDir reads $HOME on this platform and errors when it is
-	// empty, which is the sandboxed-environment case Options documents.
-	t.Setenv("HOME", "")
+	// os.UserHomeDir reads homeEnv and errors when it is empty, which is
+	// the sandboxed-environment case Options documents.
+	t.Setenv(homeEnv(), "")
 	t.Setenv(KnownHostsEnv, "")
 
 	_, err := hostKeyCallback(Options{})
@@ -226,8 +227,14 @@ func TestHostKeyCallback_UnstatableFileIsReported(t *testing.T) {
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatalf("creating %s: %v", notADir, err)
 	}
+	unstatable := filepath.Join(notADir, "known_hosts")
+	if runtime.GOOS == "windows" {
+		// Windows answers that path as one not found, so a name no Windows
+		// file may have stands in: stat refuses it as invalid.
+		unstatable = filepath.Join(t.TempDir(), "known<hosts")
+	}
 
-	_, err := hostKeyCallback(Options{KnownHostsPath: filepath.Join(notADir, "known_hosts")})
+	_, err := hostKeyCallback(Options{KnownHostsPath: unstatable})
 	if err == nil {
 		t.Fatal("expected an unstatable known_hosts path to be refused")
 	}
@@ -236,13 +243,22 @@ func TestHostKeyCallback_UnstatableFileIsReported(t *testing.T) {
 	}
 }
 
-// setHomeKnownHosts points $HOME at a fresh temp directory holding a
-// known_hosts file with one entry for hostPort, the shape a real user's
-// home directory has, and returns the file's path.
+// homeEnv is the variable os.UserHomeDir reads here: USERPROFILE on
+// Windows, HOME on every system these tests run on besides.
+func homeEnv() string {
+	if runtime.GOOS == "windows" {
+		return "USERPROFILE"
+	}
+	return "HOME"
+}
+
+// setHomeKnownHosts points the home directory at a fresh temp directory
+// holding a known_hosts file with one entry for hostPort, the shape a real
+// user's home directory has, and returns the file's path.
 func setHomeKnownHosts(t *testing.T, hostPort string, key ssh.PublicKey) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv(homeEnv(), home)
 
 	sshDir := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
@@ -354,7 +370,7 @@ func TestHostKeyCallback_EnvironmentPathStillFailsClosed(t *testing.T) {
 // it is not. internal/loader relies on the two never disagreeing.
 func TestKnownHostsFile_MatchesWhatAConnectionUses(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv(homeEnv(), home)
 
 	t.Setenv(KnownHostsEnv, "")
 	got, err := KnownHostsFile()

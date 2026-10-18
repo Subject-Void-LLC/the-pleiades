@@ -18,6 +18,7 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
@@ -33,6 +34,7 @@ import (
 // runner_test.go own the dial's own guarantees.
 func startShellServer(t *testing.T, opts remoteexectest.Options) (*remoteexectest.Server, *Conn) {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatalf("starting the in-process SSH server: %v", err)
@@ -378,6 +380,7 @@ func (patternReader) Read(p []byte) (int, error) {
 // stream starts (the context watchdog and the standard error drain),
 // following subsystem_test.go's local-snapshot goleak convention.
 func TestProcess_LeavesNoGoroutinesBehind(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the in-process SSH server: %v", err)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -143,7 +144,8 @@ func TestAIProject_WritesOnlyUsageAndBench(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(dir, "ai/usage/spend.jsonl")); string(data) != "{}\n{}\n" {
 		t.Errorf("usage %q", data)
 	}
-	if info, _ := os.Stat(filepath.Join(dir, "ai/usage/spend.jsonl")); info.Mode().Perm() != 0o600 {
+	// Windows keeps no permission bits: Go reports 0666 for any file there.
+	if info, _ := os.Stat(filepath.Join(dir, "ai/usage/spend.jsonl")); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", info.Mode().Perm())
 	}
 	if err := rc.AIWrite("ai/bench/run1.json", []byte("{}"), false); err != nil {

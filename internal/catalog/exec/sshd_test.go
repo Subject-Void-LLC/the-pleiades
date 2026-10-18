@@ -3,6 +3,7 @@ package exec_test
 import (
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -53,6 +54,7 @@ func startShellSSHServer(t *testing.T) testSSHServer {
 // through a task can produce.
 func startShellSSHServerWithSessionBudget(t *testing.T, budget int) testSSHServer {
 	t.Helper()
+	need.POSIXShell(t)
 
 	// A negative budget is this package's own spelling of "unlimited",
 	// and the harness spells that as an absent limit.

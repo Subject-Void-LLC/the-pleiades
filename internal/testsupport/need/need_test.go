@@ -3,6 +3,7 @@ package need
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -54,5 +55,20 @@ func TestRequire(t *testing.T) {
 				t.Errorf("failure %q does not say the run requires it", r.fatal)
 			}
 		})
+	}
+}
+
+// TestPOSIXShell answers from this machine: no stop where ShellPath
+// exists, and a skip naming posix-shell where it does not.
+func TestPOSIXShell(t *testing.T) {
+	t.Setenv(Env, "")
+	r := &recordingTB{}
+	POSIXShell(r)
+	_, err := os.Stat(ShellPath)
+	if err == nil && (r.skip != "" || r.fatal != "") {
+		t.Fatalf("this machine has %s, and the check stopped: skip %q, fatal %q", ShellPath, r.skip, r.fatal)
+	}
+	if err != nil && !strings.HasPrefix(r.skip, "needs posix-shell: ") {
+		t.Fatalf("this machine has no %s, and the skip is %q", ShellPath, r.skip)
 	}
 }

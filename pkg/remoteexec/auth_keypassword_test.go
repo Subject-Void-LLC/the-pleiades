@@ -9,10 +9,12 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
 func TestAuthFrom_KeyAndPassword(t *testing.T) {
+	need.POSIXShell(t)
 	keyPEM := marshalTestPrivateKey(t, "")
 	signer, err := ssh.ParsePrivateKey(keyPEM)
 	if err != nil {

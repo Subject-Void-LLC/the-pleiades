@@ -41,6 +41,21 @@ func Require(t testing.TB, what string, available bool, why string) {
 	t.Skipf("needs %s: %s", what, why)
 }
 
+// ShellPath is the POSIX shell a test runs commands through, as
+// pkg/remoteexec/remoteexectest's SSH server does for every command it is
+// sent.
+const ShellPath = "/bin/sh"
+
+// POSIXShell stops t through Require("posix-shell") on a machine without
+// ShellPath (Windows), for a test that runs commands through it: such a
+// test stands in for a POSIX device, which a Windows machine is not.
+func POSIXShell(t testing.TB) {
+	t.Helper()
+	_, err := os.Stat(ShellPath)
+	Require(t, "posix-shell", err == nil,
+		"the test runs its commands through "+ShellPath+", as a POSIX device would, and this machine has none")
+}
+
 // required reports whether Env names what, or says all.
 func required(what string) bool {
 	list := strings.Split(os.Getenv(Env), ",")
