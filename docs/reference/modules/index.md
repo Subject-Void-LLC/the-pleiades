@@ -29,8 +29,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
-| `win` | 4 | 4 |
-| **total** | **162** | **159** |
+| `win` | 5 | 5 |
+| **total** | **163** | **160** |
 
 ## All methods
 
@@ -197,4 +197,5 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [win.cpu.topology](win/cpu/topology.md) | implemented | Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group. |
 | [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
+| [win.file.copy](win/file/copy.md) | implemented | Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches. |
 | [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |
