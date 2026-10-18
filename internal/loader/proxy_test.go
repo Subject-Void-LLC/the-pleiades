@@ -192,6 +192,10 @@ func TestProxy_EveryWayAProgramCanMisbehave(t *testing.T) {
 		// what this program describes and below what it answers.
 		{name: "writes a response over the cap", body: `head -c 5000 /dev/zero | tr '\0' ' ' >&3; printf '{}' >&3`, opts: func(o *Options) { o.MaxResponse = 1024 }, want: "over the 1024-byte limit"},
 		{name: "reports its own failure", body: `printf '{"error":"the device said no"}\n' >&3`, want: "the device said no"},
+		// Facts in a frame refused for another reason are never kept: only
+		// the program's own failure carries what it recorded.
+		{name: "writes data after a response holding facts", body: `printf '{"facts":{"rc":3}}\n{}\n' >&3`, want: "data after its response"},
+		{name: "exits with an error after a response holding facts", body: "printf '{\"facts\":{\"rc\":3}}\\n' >&3\nexit 3", want: "exited with an error"},
 	}
 
 	for _, tc := range cases {
@@ -218,6 +222,24 @@ func TestProxy_EveryWayAProgramCanMisbehave(t *testing.T) {
 				t.Errorf("a failed call recorded stats %v", rc.stats)
 			}
 		})
+	}
+}
+
+// TestProxy_AFailureKeepsWhatTheProgramRecorded: a program that reports its
+// own failure with facts (a command's exit status and output) has them
+// recorded as the task's stats, as a built-in method's failure keeps its
+// own, and the failure is still the answer.
+func TestProxy_AFailureKeepsWhatTheProgramRecorded(t *testing.T) {
+	dir := programDir(t)
+	fqcn := "loadertest.failfacts.run"
+	oneMethodProgram(t, dir, fqcn, false, `printf '{"error":"command exited 3","facts":{"rc":3,"stdout":"partial"}}\n' >&3`)
+	d := loadOne(t, dir, fqcn, testOptions())
+	rc := newRecordingContext()
+	if _, err := d.Invoke(t.Context(), rc, newSSHDevice(), nil); err == nil || !strings.Contains(err.Error(), "command exited 3") {
+		t.Fatalf("Invoke = %v, want the program's failure", err)
+	}
+	if rc.stats["rc"] != float64(3) || rc.stats["stdout"] != "partial" {
+		t.Errorf("stats = %v, want the exit status and output the program recorded", rc.stats)
 	}
 }
 

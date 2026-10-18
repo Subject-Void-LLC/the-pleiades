@@ -76,14 +76,27 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	p.logOutput(ctx, fqcn, mode, out, secrets)
 	resp, err := p.interpret(ctx, fqcn, mode, out, secrets)
 	if err != nil {
+		// A method's own failure keeps what it recorded before failing; the
+		// failure is the answer, so a stat the run refuses is not reported
+		// over it.
+		_ = recordFacts(rc, fqcn, resp.Facts)
 		return collection.Result{}, err
 	}
-	for key, value := range resp.Facts {
-		if err := rc.SetStat(key, value); err != nil {
-			return collection.Result{}, fmt.Errorf("external collection method %q returned stat %q, which the run refused: %w", fqcn, truncateForMessage(key), err)
-		}
+	if err := recordFacts(rc, fqcn, resp.Facts); err != nil {
+		return collection.Result{}, err
 	}
 	return collection.Result{Changed: resp.Changed}, nil
+}
+
+// recordFacts records an external method's facts as the task's stats,
+// stopping at the first the run refuses.
+func recordFacts(rc sdk.RunbookContext, fqcn string, facts map[string]any) error {
+	for key, value := range facts {
+		if err := rc.SetStat(key, value); err != nil {
+			return fmt.Errorf("external collection method %q returned stat %q, which the run refused: %w", fqcn, truncateForMessage(key), err)
+		}
+	}
+	return nil
 }
 
 // openVerified re-applies Load's checks to the directory and the
@@ -269,11 +282,13 @@ func (p *program) interpret(ctx context.Context, fqcn string, mode collection.Mo
 	if resp.Error != "" {
 		// The method's own reported failure, returned as a plain error the
 		// way an in-process method's would be, so the engine cannot tell
-		// the two apart.
+		// the two apart, and with the facts it recorded before failing, as
+		// an in-process method's failure keeps them. No other refusal here
+		// carries any.
 		// Escaped onto one line as well as masked: the message is a third
 		// party's text, and it is printed as the task's failure, where a
 		// newline or an escape sequence could fake lines of output.
-		return wire.ChildResponse{}, errors.New(termsafe.EscapeLine(redact.Text(secrets, resp.Error)))
+		return wire.ChildResponse{Facts: resp.Facts}, errors.New(termsafe.EscapeLine(redact.Text(secrets, resp.Error)))
 	}
 	return resp, nil
 }

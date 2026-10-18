@@ -231,7 +231,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
 		if err != nil {
-			return ActionResult{}, methodError(task.FQCN, mode, err)
+			return ActionResult{Stats: failedStats(stats)}, methodError(task.FQCN, mode, err)
 		}
 		if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
 			return ActionResult{}, err
@@ -289,19 +289,37 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if reg, ok := rc.(secretRegistry); ok {
 		secrets = append(secrets, reg.RegisteredSecrets()...)
 	}
-	if err != nil {
-		return ActionResult{Secrets: secrets}, methodError(task.FQCN, mode, err)
-	}
-
 	stats := map[string]interface{}{}
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
+	}
+	if err != nil {
+		return ActionResult{Stats: failedStats(stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}
 	if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
 		return ActionResult{Secrets: secrets}, err
 	}
 
 	return ActionResult{Changed: result.Changed, Stats: stats, Secrets: secrets}, nil
+}
+
+// failedStats is what a failed method recorded before it failed (exec.command
+// records its exit status and output, then fails on a non-zero one), kept so
+// the failed task's report shows them, as Ansible's does. The undo it
+// recorded is left out: a failed task is journaled with none, since a
+// rollback plans only from changes that completed, and a report naming one
+// would say otherwise. Nil when nothing is left.
+func failedStats(stats map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(stats))
+	for key, value := range stats {
+		if key != sdk.StatInverse {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // holdReadOnly fails a built-in method that declares it only reads

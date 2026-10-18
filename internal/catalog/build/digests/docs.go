@@ -19,15 +19,15 @@ var hostKeyParam = collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Ty
 func checkDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Lists every container image reference in a build's files that is not pinned by both tag and digest.",
-		Description: "Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.",
+		Description: "Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
 		Params: []collection.Param{
 			{Name: paramFiles, Type: "list of string", Required: true, Description: filesParamDoc},
 			{Name: paramResolve, Type: "bool", Default: "false", Description: "Also resolve each pinned reference's tag through the device's container engine and report drift. The device must have its engine onboarded."},
 			hostKeyParam,
 		},
 		Returns: []collection.ReturnField{
-			{Name: statReferences, Type: "list of dict", Returned: "on success", Description: "Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted)."},
-			{Name: statOffenders, Type: "int", Returned: "on success", Description: "How many references are offenders, which is zero for a task that succeeded."},
+			{Name: statReferences, Type: "list of dict", Returned: "when the files were read", Description: "Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted)."},
+			{Name: statOffenders, Type: "int", Returned: "when the files were read", Description: "How many references are offenders, which is zero for a task that succeeded."},
 		},
 		Fragments: []string{"container_engine"},
 		Examples: []collection.Example{

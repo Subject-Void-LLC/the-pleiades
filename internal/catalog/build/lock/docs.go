@@ -15,7 +15,7 @@ var hostKeyParam = collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Ty
 func lockDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Checks that a lockfile covers its manifest, carries an integrity hash for every entry, and draws only from allowed sources.",
-		Description: "Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.",
+		Description: "Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
 		Params: []collection.Param{
 			{Name: paramLockfile, Type: "string", Required: true, Description: "The lockfile's path on the device. Its format is recognized by its name (package-lock.json, Cargo.lock) unless format names one."},
 			{Name: paramManifest, Type: "string", Description: "The manifest's path, when it is not the lockfile's sibling of the usual name (package.json, Cargo.toml). A Cargo workspace member is checked by naming its own Cargo.toml with the workspace's Cargo.lock."},
@@ -24,7 +24,7 @@ func lockDoc() collection.Doc {
 			hostKeyParam,
 		},
 		Returns: []collection.ReturnField{
-			{Name: statFindings, Type: "list of dict", Returned: "on success", Description: "Each shortfall: package (with its version where the lockfile has one) and problem; empty for a task that succeeded."},
+			{Name: statFindings, Type: "list of dict", Returned: "when both files were read", Description: "Each shortfall: package (with its version where the lockfile has one) and problem; empty for a task that succeeded."},
 		},
 		Examples: []collection.Example{
 			{Name: "Verify an npm lockfile", RunbookYAML: "- name: Verify the lockfile\n  build.lock.verify:\n    lockfile: /srv/app/package-lock.json\n"},

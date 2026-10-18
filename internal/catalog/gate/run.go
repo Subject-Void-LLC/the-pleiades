@@ -145,8 +145,9 @@ func preflight(ctx context.Context, conn *remoteexec.Conn, device inventory.Inve
 	return strings.ToLower(lines[0]), nil
 }
 
-// record keeps the results as the task's returns. A failed task's returns
-// are not kept, which is why detail carries the same story in its error.
+// record keeps the results as the task's returns, which a failed task
+// reports with its failure; detail tells the same story in the error
+// itself, which is the first thing a person reads.
 func record(rc sdk.RunbookContext, results []gate.Result) error {
 	checks := make([]any, len(results))
 	var skips []gate.SkipEntry

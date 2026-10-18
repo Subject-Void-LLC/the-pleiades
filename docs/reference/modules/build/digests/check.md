@@ -6,7 +6,7 @@ status: beta
 
 Lists every container image reference in a build's files that is not pinned by both tag and digest.
 
-Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.
+Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.
 
 ## Attributes
 
@@ -32,8 +32,8 @@ Reads the named files on the device and checks each image reference in them: pin
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `references` | `list of dict` | on success | Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted). |
-| `offenders` | `int` | on success | How many references are offenders, which is zero for a task that succeeded. |
+| `references` | `list of dict` | when the files were read | Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted). |
+| `offenders` | `int` | when the files were read | How many references are offenders, which is zero for a task that succeeded. |
 
 ## Undoing this
 

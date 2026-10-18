@@ -137,7 +137,10 @@ func printResults(rep *runReport, verbose bool) {
 		if verbose && t.Provider != nil {
 			fmt.Printf("    provided by: %s (%s)\n", termsafe.EscapeLine(t.Provider.Program), t.Provider.Digest)
 		}
-		if verbose && t.Status != statusFailed && t.Status != statusHeld && t.Status != statusSkipped {
+		// A failed task's output is printed too, since it is usually why it
+		// failed; a held task has none to print (the engine keeps nothing
+		// for one).
+		if verbose && t.Status != statusHeld && t.Status != statusSkipped {
 			printNodeStats(t.Stats, nil)
 		}
 	}

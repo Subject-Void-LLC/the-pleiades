@@ -100,7 +100,14 @@ func TestChildAnswer_WhatAChildCanSayBack(t *testing.T) {
 		t.Errorf("a failure = %v, want it with the secret masked", err)
 	}
 
-	result, facts, err := childAnswer("m", collection.ModeExecute, wire.ChildResponse{Changed: true, Facts: map[string]interface{}{"k": "v"}}, secrets)
+	// A failure keeps what the method recorded before it failed, for the
+	// engine to report with it; never a change.
+	result, facts, err := childAnswer("m", collection.ModeExecute, wire.ChildResponse{Changed: true, Error: "command exited 3", Facts: map[string]interface{}{"rc": 3}}, secrets)
+	if err == nil || result.Changed || facts["rc"] != 3 {
+		t.Errorf("a failure with facts = %+v, %v, %v, want the failure and its facts", result, facts, err)
+	}
+
+	result, facts, err = childAnswer("m", collection.ModeExecute, wire.ChildResponse{Changed: true, Facts: map[string]interface{}{"k": "v"}}, secrets)
 	if err != nil || !result.Changed || facts["k"] != "v" {
 		t.Errorf("a success = %+v, %v, %v", result, facts, err)
 	}

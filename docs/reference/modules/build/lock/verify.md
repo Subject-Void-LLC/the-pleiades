@@ -6,7 +6,7 @@ status: beta
 
 Checks that a lockfile covers its manifest, carries an integrity hash for every entry, and draws only from allowed sources.
 
-Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.
+Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.
 
 ## Attributes
 
@@ -33,7 +33,7 @@ Reads a lockfile and its manifest on the device and reports every way the lockfi
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `findings` | `list of dict` | on success | Each shortfall: package (with its version where the lockfile has one) and problem; empty for a task that succeeded. |
+| `findings` | `list of dict` | when both files were read | Each shortfall: package (with its version where the lockfile has one) and problem; empty for a task that succeeded. |
 
 ## Undoing this
 

@@ -130,7 +130,11 @@ type NodeResult struct {
 
 	// Stats is the action's own output (ActionResult.Stats): the stdout,
 	// exit status, resolved paths and diffs a Collection method recorded
-	// with sdk.RunbookContext.SetStat. Nil for a node that never ran.
+	// with sdk.RunbookContext.SetStat. Nil for a node that never ran. A
+	// method that failed keeps what it recorded before failing (a failed
+	// command's exit status and output), less the undo it recorded, which a
+	// failed node never journals; it is never registered, since the run
+	// stops at that level.
 	//
 	// It is carried here in addition to being merged into WorkflowContext
 	// under the task's Register name, because those two answer different
@@ -1014,6 +1018,18 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		err = fmt.Errorf("%w (its timeout of %s ran out)", err, limit)
 	}
 	if err != nil {
+		// What the method recorded before it failed (exit status, output)
+		// is the caller's to print, as a successful task's is, once this
+		// task's register_mask has marked what it protects; when the mask
+		// cannot apply, nothing is printed, as for a successful task. It is
+		// neither registered nor journaled: the run stops at this level, and
+		// a rollback plans only from changes that completed (journalStats).
+		// A node held for review shows nothing at all: what it holds is for
+		// a person to decide on before anyone reads it (pause.go).
+		_, held := HoldOf(err)
+		if !held && len(actionResult.Stats) > 0 && r.markRegisterMask(cmd, actionResult) == nil {
+			result.Stats = actionResult.Stats
+		}
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())
 		return finish(result)

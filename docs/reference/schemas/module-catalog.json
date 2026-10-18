@@ -1376,7 +1376,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Lists every container image reference in a build's files that is not pinned by both tag and digest.",
-      "description": "Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.",
+      "description": "Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
       "params": [
         {
           "name": "files",
@@ -1404,13 +1404,13 @@
         {
           "name": "references",
           "type": "list of dict",
-          "returned": "on success",
+          "returned": "when the files were read",
           "description": "Every reference found: file, line, reference, where (FROM, COPY --from, RUN --mount, ARG NAME, image), pinned, problem (empty when there is none), and current (the digest its tag names now, when it drifted)."
         },
         {
           "name": "offenders",
           "type": "int",
-          "returned": "on success",
+          "returned": "when the files were read",
           "description": "How many references are offenders, which is zero for a task that succeeded."
         }
       ],
@@ -1527,7 +1527,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Checks that a lockfile covers its manifest, carries an integrity hash for every entry, and draws only from allowed sources.",
-      "description": "Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, and since a failed task's returns are not kept, its error names them. Nothing is written.",
+      "description": "Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
       "params": [
         {
           "name": "lockfile",
@@ -1561,7 +1561,7 @@
         {
           "name": "findings",
           "type": "list of dict",
-          "returned": "on success",
+          "returned": "when both files were read",
           "description": "Each shortfall: package (with its version where the lockfile has one) and problem; empty for a task that succeeded."
         }
       ],
@@ -8793,7 +8793,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Runs a project's gate manifest of named checks on the device and reports PASS, FAIL or SKIP for each.",
-      "description": "Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device and runs the checks the task selects, one result per check. A check runs its command in a directory on the device over SSH, or in a fresh container from a digest-pinned image on the device's container engine, with no network unless it names one, a read-only root with a writable /tmp unless it says writable, and no new privileges; the image is pulled only when the check says pull. Every check has a timeout, its own or the manifest's default, and there is no implicit one; a directory check's is enforced on the device with the timeout command, which the device must have, and an image check's by killing its container. Checks run one at a time unless the manifest's defaults.parallelism or the task's parallelism raises it, at most one heavy check runs at a time, and a serial check runs with nothing else. A check skips, rather than runs to fail, when a precondition it declares is not met (a command on the PATH, an environment variable set, a file, the operating system, the container engine, a TCP endpoint the device reaches), or when it exits with a code its skip_exit lists; a check the task did not select, or that the task's deadline or a cancellation reached before it started, is skipped too, saying why. No exit code means skipped unless a check declares it, and a SKIP is never counted as a PASS. Any FAIL fails the task, and with fail_on_skip so does any SKIP. A failed task's error carries each failing check's reason and the end of its output, since a failed task's returns are not kept. The output kept is the last 40 lines and 8 KiB of a failing or skipping check, with anything a terminal would act on escaped. The manifest is refused whole, before anything runs, for a check with no kind, a kind neither built in (pure, db, network, model) nor declared, a check with no timeout, an image not pinned by digest, and every other rule it breaks. A check gets no environment and no credential from the platform. A check is not checkable: whether it passes is known only by running it, so a check of this task reads and validates the manifest and the selection, then reports the task unchecked.",
+      "description": "Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device and runs the checks the task selects, one result per check. A check runs its command in a directory on the device over SSH, or in a fresh container from a digest-pinned image on the device's container engine, with no network unless it names one, a read-only root with a writable /tmp unless it says writable, and no new privileges; the image is pulled only when the check says pull. Every check has a timeout, its own or the manifest's default, and there is no implicit one; a directory check's is enforced on the device with the timeout command, which the device must have, and an image check's by killing its container. Checks run one at a time unless the manifest's defaults.parallelism or the task's parallelism raises it, at most one heavy check runs at a time, and a serial check runs with nothing else. A check skips, rather than runs to fail, when a precondition it declares is not met (a command on the PATH, an environment variable set, a file, the operating system, the container engine, a TCP endpoint the device reaches), or when it exits with a code its skip_exit lists; a check the task did not select, or that the task's deadline or a cancellation reached before it started, is skipped too, saying why. No exit code means skipped unless a check declares it, and a SKIP is never counted as a PASS. Any FAIL fails the task, and with fail_on_skip so does any SKIP. A failed task's error carries each failing check's reason and the end of its output, and its returns are reported with the failure too. The output kept is the last 40 lines and 8 KiB of a failing or skipping check, with anything a terminal would act on escaped. The manifest is refused whole, before anything runs, for a check with no kind, a kind neither built in (pure, db, network, model) nor declared, a check with no timeout, an image not pinned by digest, and every other rule it breaks. A check gets no environment and no credential from the platform. A check is not checkable: whether it passes is known only by running it, so a check of this task reads and validates the manifest and the selection, then reports the task unchecked.",
       "params": [
         {
           "name": "manifest",
@@ -8842,31 +8842,31 @@
         {
           "name": "checks",
           "type": "list of dict",
-          "returned": "on success",
+          "returned": "when the checks ran",
           "description": "One entry per check in the manifest, in its order: name, kind, status (PASS, FAIL or SKIP), reason, duration_ms, exit_code (-1 when it did not run to an exit status) and tail (the end of a failing or skipping check's output)."
         },
         {
           "name": "passed",
           "type": "int",
-          "returned": "on success",
+          "returned": "when the checks ran",
           "description": "How many checks passed."
         },
         {
           "name": "failed",
           "type": "int",
-          "returned": "on success",
+          "returned": "when the checks ran",
           "description": "How many checks failed, which is zero for a task that succeeded."
         },
         {
           "name": "skipped",
           "type": "int",
-          "returned": "on success",
+          "returned": "when the checks ran",
           "description": "How many checks were skipped, for any reason."
         },
         {
           "name": "summary",
           "type": "string",
-          "returned": "on success",
+          "returned": "when the checks ran",
           "description": "The counts for a person, for example \"12 passed, 0 failed, 3 skipped\"."
         },
         {

@@ -298,8 +298,9 @@ register no earlier task registers, fails the check the way it would fail a real
 against a device or a tag, named exactly as a runbook's `hosts:` names one, with its
 parameters after it. It writes the one-task runbook you would have written and runs it
 the way `run` does, so it is validated, checked, journaled and reported the same way,
-and takes the same `--mode`, `--forks`, `--verbose` and `--json`. Captured against the
-lab's Ubuntu VM:
+and takes the same `--mode`, `--forks`, `--verbose` and `--json`, plus `--timeout`,
+the seconds the call may run on each device before it is stopped and fails (a task's
+`timeout:` key). Captured against the lab's Ubuntu VM:
 
 ```console
 $ pleiades adhoc ubuntu-lab exec.command cmd=uptime --verbose
@@ -336,7 +337,8 @@ the device's own from the vault, as it does in a runbook.
 
 **`--json`**, on `run` and on `adhoc`, prints the run as one JSON document on standard
 output instead of text: the plan, each task's status, device and output (every stat,
-whether or not `--verbose` is given), and how the run ended. The exit status is the
+whether or not `--verbose` is given, and a failed task's too: a failed command's exit
+status and output), and how the run ended. The exit status is the
 same as the text view's, and the document says it too, so a program reading it never
 has to tell a failure from an empty answer: a runbook that does not load, a refused
 parameter and a validation failure are all reports, with `outcome.status` set to

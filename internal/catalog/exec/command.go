@@ -206,11 +206,12 @@ func command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 
 	if result.ExitCode != 0 {
 		// The command ran, so it changed whatever it changed before it
-		// failed. Reporting Changed here would be pointless, since the
-		// executor discards the result alongside an error, but the error
-		// message has to carry enough for an operator to act on: the
-		// status, and whichever stream the command actually explained
-		// itself on.
+		// failed. Reporting Changed here would be pointless, since a failed
+		// task counts no change, but the stats recorded above go with the
+		// failure (the executor reports a failed task's stats), and the error
+		// message itself still has to carry enough for an operator to act
+		// on: the status, and whichever stream the command actually
+		// explained itself on.
 		return collection.Result{}, fmt.Errorf("%s: command exited %d: %s",
 			fqcn, result.ExitCode, failureDetail(result))
 	}
