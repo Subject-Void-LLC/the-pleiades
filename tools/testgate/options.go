@@ -27,6 +27,10 @@ type options struct {
 	// strict fails on any failure, with no re-run: what `make ci` and the
 	// nightly CI run judge by.
 	strict bool
+	// noRace leaves -race out of the passes that otherwise use it, for a
+	// machine that cannot build with it: on Windows the race detector needs
+	// cgo and a C toolchain, which tools/wincheck's box does not have.
+	noRace bool
 	// parallel is go test's -p, how many packages run at once; zero leaves
 	// go test's default.
 	parallel int
@@ -56,6 +60,9 @@ func (o options) goTestArgs() []string {
 		return args
 	}
 	args := []string{"-race", "-timeout", goTestTimeout}
+	if o.noRace {
+		args = args[1:]
+	}
 	switch {
 	case o.full:
 		args = append(args, "-tags", "integration", "-cover", "-count=1")
@@ -95,12 +102,13 @@ func (o options) selected() ([]string, error) {
 }
 
 // durationsJSON is how long each container package's tests took in CI, in
-// seconds, by its path inside the module: measured from the containers
-// jobs' logs (the time from one package's result to the next, packages
-// running one at a time), averaged over runs. A shard's time is the sum of
-// its packages', and a pull request waits for its slowest shard, so this is
-// what shardOf balances on. Refresh it from a recent run when a package's
-// time moves a lot; one missing from it counts as the median.
+// seconds, by its path inside the module: go test's own elapsed time for
+// the package, which each containers job records in the measurement it
+// uploads (flakegate.Measurement.Seconds), the same number -durations-check
+// compares with. A shard's time is the sum of its packages', and a pull
+// request waits for its slowest shard, so this is what shardOf balances on.
+// Refresh it from a recent run's measurements when -durations-check warns;
+// a package missing from it counts as the median.
 //
 //go:embed durations.json
 var durationsJSON []byte

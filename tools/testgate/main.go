@@ -30,9 +30,10 @@
 // whatever the outcome: a skipped gate and a passing one print the same
 // nothing, and a job's log needs admin rights to read where its summary does
 // not. What it prints and writes is masked through internal/redact first
-// (mask.go).
+// (mask.go). -race=false leaves the race detector out, for a machine that
+// cannot build with it (tools/wincheck's Windows box).
 //
-// Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-p n]
+// Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-race=false] [-p n]
 // [-shard k/n] [-coverage-out file] [-list] [package ...]
 package main
 
@@ -65,6 +66,7 @@ func main() {
 	flag.BoolVar(&o.integration, "integration", false, "run with -tags integration -count=1, matching the Makefile's test-integration target")
 	flag.BoolVar(&o.full, "full", false, "the one pass: -race, -tags integration, -cover and -count=1")
 	flag.BoolVar(&o.strict, "strict", false, "fail on any failure, with no re-run alone")
+	race := flag.Bool("race", true, "use the race detector in the passes that do (-race=false where it cannot build, as on Windows with no C toolchain)")
 	flag.IntVar(&o.repeat, "repeat", 0, "run every test this many times in one process, untagged and without -race (test-repeat)")
 	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
@@ -73,6 +75,7 @@ func main() {
 	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
 	flag.Parse()
 	o.packages = flag.Args()
+	o.noRace = !*race
 
 	// -durations-check keeps -shard balanced as packages are added and
 	// their tests grow: a package durations.json lacks would be balanced as

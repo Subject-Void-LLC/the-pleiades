@@ -36,6 +36,10 @@ obj/
 # The Mac make mac-check tests on (tools/maccheck): this clone's own, never
 # committed. tests/mac/.env.example shows its one setting.
 /tests/mac/.env
+# The FreeBSD and Windows machines make bsd-check and win-check test on
+# (tools/bsdcheck, tools/wincheck), the same way.
+/tests/bsd/.env
+/tests/win/.env
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
