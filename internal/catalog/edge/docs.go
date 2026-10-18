@@ -7,12 +7,12 @@ import "github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 const readNote = " It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so."
 
 // differencesReturn is every method's list of differences.
-var differencesReturn = collection.ReturnField{Name: statDifferences, Type: "list of string", Returned: "always", Description: "Every difference from what was expected; the task fails when there is one."}
+var differencesReturn = collection.ReturnField{Name: statDifferences, Type: "list of string", Returned: "when the reads succeed", Description: "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."}
 
 func tunnelDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
-		Description: "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a connection." + readNote,
+		Description: "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a live connection (one pending reconnect has dropped, and is only still tracked, so it does not count)." + readNote,
 		Params: []collection.Param{
 			{Name: paramTunnel, Type: "string", Required: true, Description: "The tunnel's id, or its name."},
 			{Name: paramExpectStatus, Type: "string", Default: "healthy", Choices: tunnelStatuses, Description: "The status the tunnel must have; any accepts every status."},
@@ -24,7 +24,7 @@ func tunnelDoc() collection.Doc {
 			{Name: "status", Type: "string", Returned: "success or difference", Description: "healthy, degraded, down or inactive, as Cloudflare reports it."},
 			{Name: "connectors", Type: "list of dict", Returned: "success or difference", Description: "Each connector's id, version, architecture, connection count and colos."},
 			{Name: "connectors_up", Type: "int", Returned: "success or difference", Description: "How many connectors have a connection."},
-			{Name: "connections", Type: "int", Returned: "success or difference", Description: "How many connections the connectors hold in all."},
+			{Name: "connections", Type: "int", Returned: "success or difference", Description: "How many live connections the connectors hold in all, not counting those pending reconnect."},
 			differencesReturn,
 		},
 		Examples: []collection.Example{{Name: "The production tunnel is healthy on two connectors", RunbookYAML: "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"}},

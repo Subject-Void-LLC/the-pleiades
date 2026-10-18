@@ -37,7 +37,10 @@ type Server struct {
 	Fail map[string]int
 	// PerPage, when set, overrides the page size a request asks for, to
 	// make lists page.
-	PerPage  int
+	PerPage int
+	// OmitInfo names result_info fields a list's answer leaves out, as some
+	// of Cloudflare's list endpoints leave out total_pages.
+	OmitInfo map[string]bool
 	mu       sync.Mutex
 	requests []string
 }
@@ -100,7 +103,11 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, items []map[string
 	if end > len(items) {
 		end = len(items)
 	}
-	ok(w, items[start:end], map[string]any{"page": pg, "per_page": per, "count": end - start, "total_count": len(items), "total_pages": total})
+	info := map[string]any{"page": pg, "per_page": per, "count": end - start, "total_count": len(items), "total_pages": total}
+	for k := range s.OmitInfo {
+		delete(info, k)
+	}
+	ok(w, items[start:end], info)
 }
 
 // filter keeps the items whose field equals want, or all when want is "".

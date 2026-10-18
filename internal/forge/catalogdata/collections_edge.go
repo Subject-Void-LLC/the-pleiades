@@ -33,7 +33,7 @@ var edgeCollections = []collectionscaffold.Config{
 				{Name: "audience", Type: "string", Returned: "success or difference", Description: "Its audience tag (aud), which an origin validating Access tokens must expect."},
 				{Name: "issuer", Type: "string", Returned: "success or difference", Description: "The issuer of its tokens."},
 				{Name: "policies", Type: "list of dict", Returned: "success or difference", Description: "Each policy's name, decision and precedence."},
-				{Name: "differences", Type: "list of string", Returned: "always", Description: "Every difference from what was expected; the task fails when there is one."},
+				{Name: "differences", Type: "list of string", Returned: "when the reads succeed", Description: "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."},
 			},
 			Examples: []collection.Example{
 				{Name: "Only staff reach the admin site", RunbookYAML: "- name: Access\n  hosts: prod-cf\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"},
@@ -60,7 +60,7 @@ var edgeCollections = []collectionscaffold.Config{
 			Returns: []collection.ReturnField{
 				{Name: "zone", Type: "string", Returned: "success or difference", Description: "The zone's name."},
 				{Name: "records", Type: "list of dict", Returned: "success or difference", Description: "Each record's content, proxied and ttl."},
-				{Name: "differences", Type: "list of string", Returned: "always", Description: "Every difference from what was expected; the task fails when there is one."},
+				{Name: "differences", Type: "list of string", Returned: "when the reads succeed", Description: "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."},
 			},
 			Examples: []collection.Example{
 				{Name: "www points at the two load balancers, proxied", RunbookYAML: "- name: DNS\n  hosts: prod-cf\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"},
@@ -77,7 +77,7 @@ var edgeCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
-			Description: "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a connection. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
+			Description: "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a live connection (one pending reconnect has dropped, and is only still tracked, so it does not count). It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
 			Params: []collection.Param{
 				{Name: "tunnel", Type: "string", Required: true, Description: "The tunnel's id, or its name."},
 				{Name: "expect_status", Type: "string", Default: "healthy", Choices: []string{"healthy", "degraded", "down", "inactive", "any"}, Description: "The status the tunnel must have; any accepts every status."},
@@ -89,8 +89,8 @@ var edgeCollections = []collectionscaffold.Config{
 				{Name: "status", Type: "string", Returned: "success or difference", Description: "healthy, degraded, down or inactive, as Cloudflare reports it."},
 				{Name: "connectors", Type: "list of dict", Returned: "success or difference", Description: "Each connector's id, version, architecture, connection count and colos."},
 				{Name: "connectors_up", Type: "int", Returned: "success or difference", Description: "How many connectors have a connection."},
-				{Name: "connections", Type: "int", Returned: "success or difference", Description: "How many connections the connectors hold in all."},
-				{Name: "differences", Type: "list of string", Returned: "always", Description: "Every difference from what was expected; the task fails when there is one."},
+				{Name: "connections", Type: "int", Returned: "success or difference", Description: "How many live connections the connectors hold in all, not counting those pending reconnect."},
+				{Name: "differences", Type: "list of string", Returned: "when the reads succeed", Description: "Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list."},
 			},
 			Examples: []collection.Example{
 				{Name: "The production tunnel is healthy on two connectors", RunbookYAML: "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"},

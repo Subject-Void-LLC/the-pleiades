@@ -5,6 +5,7 @@ package cfapi_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -173,5 +174,64 @@ func TestClient_Errors(t *testing.T) {
 	}
 	if _, err := client(srv, token, nil).Zone(ctx, acct, "example.com"); err == nil || !strings.Contains(err.Error(), "more than 50 pages") {
 		t.Errorf("pages: %v", err)
+	}
+}
+
+// TestClient_ListsWithoutTotalPages: an answer that leaves total_pages out
+// (as some of Cloudflare's list endpoints do) is followed by total_count,
+// and one leaving both out by its full pages, so an item on a later page is
+// found rather than judged from the first; a page holding more items than
+// were asked for is refused.
+func TestClient_ListsWithoutTotalPages(t *testing.T) {
+	ctx := context.Background()
+	for label, omit := range map[string]map[string]bool{
+		"no total_pages":          {"total_pages": true},
+		"no total_pages or count": {"total_pages": true, "total_count": true},
+	} {
+		srv := server(t)
+		srv.PerPage = 1
+		srv.OmitInfo = omit
+		srv.Apps = append([]map[string]any{
+			{"id": "11111111-aaaa-aaaa-aaaa-111111111111", "name": "First", "domain": "first.example.com"},
+			{"id": "22222222-aaaa-aaaa-aaaa-222222222222", "name": "Second", "domain": "second.example.com"},
+		}, srv.Apps...)
+		if app, err := client(srv, token, nil).App(ctx, acct, "admin.example.com"); err != nil || app.Audience != "audtag" {
+			t.Errorf("%s: the app on page 3 = %+v, %v", label, app, err)
+		}
+	}
+
+	srv := server(t)
+	srv.PerPage = 60
+	srv.Apps = nil
+	for i := range 60 {
+		srv.Apps = append(srv.Apps, map[string]any{"id": fmt.Sprintf("%08d-aaaa-aaaa-aaaa-000000000000", i), "name": "a", "domain": fmt.Sprintf("a%d.example.com", i)})
+	}
+	if _, err := client(srv, token, nil).App(ctx, acct, "a59.example.com"); err == nil || !strings.Contains(err.Error(), "more than the 50 asked for") {
+		t.Errorf("a page of 60 = %v", err)
+	}
+}
+
+// TestClient_AnswersStayBounded: an id an answer gives is not put into a
+// later request until it has an id's form, and an error naming the many
+// matches of one name quotes only a few of their ids.
+func TestClient_AnswersStayBounded(t *testing.T) {
+	ctx := context.Background()
+	srv := server(t)
+	srv.Apps = []map[string]any{{"id": "../../tunnels", "name": "Odd", "domain": "odd.example.com"}}
+	before := len(srv.Requests())
+	if _, err := client(srv, token, nil).App(ctx, acct, "odd.example.com"); err == nil || !strings.Contains(err.Error(), "not an id") {
+		t.Errorf("an app id that is a path = %v", err)
+	}
+	for _, r := range srv.Requests()[before:] {
+		if strings.Contains(r, "tunnels") {
+			t.Errorf("the answer's id reached a request: %s", r)
+		}
+	}
+	srv.Tunnels = nil
+	for i := range 8 {
+		srv.Tunnels = append(srv.Tunnels, map[string]any{"id": fmt.Sprintf("%08d-0000-0000-0000-000000000000", i), "name": "dup", "status": "healthy"})
+	}
+	if _, err := client(srv, token, nil).Tunnel(ctx, acct, "dup"); err == nil || !strings.Contains(err.Error(), "and 3 more") {
+		t.Errorf("eight tunnels of one name = %v", err)
 	}
 }

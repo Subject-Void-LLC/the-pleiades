@@ -150,6 +150,11 @@ func (c *Client) App(ctx context.Context, account, idOrDomain string) (App, erro
 		}
 	}
 	if len(app.Policies) == 0 {
+		// The id came from an answer; it reaches a request path only once it
+		// has the form an id has.
+		if !uuidID.MatchString(app.ID) {
+			return App{}, fmt.Errorf("the API named Access application %s by %q, which is not an id", bounded(idOrDomain), bounded(app.ID))
+		}
 		policies, err := list[Policy](ctx, c, "/accounts/"+account+"/access/apps/"+app.ID+"/policies", nil)
 		if err != nil {
 			return App{}, err
@@ -284,9 +289,15 @@ func single[T any](found []T, what, named string, id func(T) string) (T, error) 
 	case 1:
 		return found[0], nil
 	}
-	ids := make([]string, len(found))
+	// The ids are the API's; an error quotes a few, each bounded.
+	const quoted = 5
+	var ids []string
 	for i, f := range found {
-		ids[i] = id(f)
+		if i == quoted {
+			ids = append(ids, fmt.Sprintf("and %d more", len(found)-quoted))
+			break
+		}
+		ids = append(ids, bounded(id(f)))
 	}
 	return zero, fmt.Errorf("%d of the account's %ss are named %s (%s); name one by its id", len(found), what, named, strings.Join(ids, ", "))
 }

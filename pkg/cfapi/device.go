@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
+
+// requestTimeout bounds one request, its answer read included, so an API
+// that accepts a connection and then never answers cannot hold a run open
+// (a run has no deadline of its own by default).
+const requestTimeout = time.Minute
 
 // ClientFor builds the client of device, a CloudflareAPICapable device,
 // from its record and its own credential: the stored bearer token, which
@@ -44,6 +50,7 @@ func ClientFor(device any, name string, secrets map[string]string) (*Client, []s
 		Token: token,
 		HTTP: &http.Client{
 			Transport:     transport,
+			Timeout:       requestTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}, settings.Warnings(name), nil

@@ -29,7 +29,7 @@ The account starts `discovered`. Onboarding reads the account (`GET /accounts/{a
 proves the token, the account and the TLS, and records the account's name. It grants `CloudflareAPICapable`,
 bound to `account_id`, `api_base` and the TLS settings, so a repointed record is onboarded again before its token
 goes anywhere new. A token scoped too narrowly for a method is refused by Cloudflare when that method reads (403),
-and the method names the permission it needed.
+and the method names the API path it was reading, so the permission that path needs can be granted.
 
 ## Methods
 
@@ -83,9 +83,9 @@ envelope, errors, pagination and retries), the `cloudflare_account` device type 
 | Failure | Answer |
 |---|---|
 | No token stored | Refused before contact, naming `add-credential --token-stdin`. |
-| The token is refused (401), or lacks a permission (403) | Fails naming the status, Cloudflare's own error codes and messages, and the permission the method reads with. |
+| The token is refused (401), or lacks a permission (403) | Fails naming the status, Cloudflare's own error codes and messages, and the API path it was reading. |
 | A name resolves to none, or to more than one | Refused, naming what was found. |
-| A list longer than 50 pages | Fails rather than judge on part of it. |
+| A list longer than 50 pages, over 16 MiB, or with a page holding more items than asked for | Fails rather than judge on part of it. An answer that leaves `total_pages` out is followed by `total_count`, or by its full pages. |
 | Any difference from what was expected | Fails, listing every difference, with what was read returned. |
 | An answer that is not Cloudflare's envelope, or over 4 MiB | Fails; nothing of a malformed answer is judged. |
 

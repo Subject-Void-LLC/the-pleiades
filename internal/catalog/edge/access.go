@@ -51,6 +51,11 @@ func Access(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return fail(err)
 	}
+	// exact_policies compares against expect.policies; with none it would
+	// compare nothing and pass whatever policies the application has.
+	if exact && wantPolicies == nil {
+		return fail(fmt.Errorf("%s needs %s.policies, the policies the application must hold and no others", paramExactPolicies, paramExpect))
+	}
 	c, acct, err := account(rc, device)
 	if err != nil {
 		return fail(err)
@@ -116,6 +121,11 @@ func expectedPolicies(raw any) (map[string]map[string]any, error) {
 			}
 			if !allowed {
 				return nil, fmt.Errorf("%s.policies[%d].%s is not one of %s", paramExpect, i, k, strings.Join(policyExpect, ", "))
+			}
+		}
+		if d, set := p["decision"]; set {
+			if _, ok := d.(string); !ok {
+				return nil, fmt.Errorf("%s.policies[%d].decision is text (allow, deny, non_identity, bypass)", paramExpect, i)
 			}
 		}
 		if _, dup := out[name]; dup {

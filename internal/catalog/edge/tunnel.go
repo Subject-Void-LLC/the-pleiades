@@ -64,15 +64,23 @@ func Tunnel(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	up, connections := 0, 0
 	listed := make([]any, 0, len(conns))
 	for _, cn := range conns {
+		// A connection pending reconnect has dropped and is only still
+		// tracked, for minutes; it does not make its connector up.
 		var colos []string
+		live, pending := 0, 0
 		for _, x := range cn.Conns {
+			if x.IsPendingReconnect {
+				pending++
+				continue
+			}
+			live++
 			colos = append(colos, x.ColoName)
 		}
-		if len(cn.Conns) > 0 {
+		if live > 0 {
 			up++
 		}
-		connections += len(cn.Conns)
-		listed = append(listed, map[string]any{"id": cn.ID, "version": cn.Version, "arch": cn.Arch, "connections": len(cn.Conns), "colos": strs(colos)})
+		connections += live
+		listed = append(listed, map[string]any{"id": cn.ID, "version": cn.Version, "arch": cn.Arch, "connections": live, "pending_reconnect": pending, "colos": strs(colos)})
 	}
 	var diffs []string
 	if want != "any" && t.Status != want {

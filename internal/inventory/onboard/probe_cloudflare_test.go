@@ -4,6 +4,7 @@ package onboard
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -36,5 +37,15 @@ func TestCloudflareProbe(t *testing.T) {
 	}
 	if _, err := (cloudflareProber{}).Probe(context.Background(), build(t, cloudflare.TypeAccount, props("fedcba9876543210fedcba9876543210")), map[string]string{"bearer_token": "tok"}); err == nil {
 		t.Error("another account was proved")
+	}
+	// A stand-in API answering success for the account asked about with
+	// another account's object, or none, proves nothing.
+	for _, result := range []string{`{"id":"fedcba9876543210fedcba9876543210","name":"Other"}`, `null`} {
+		srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":` + result + `}`))
+		})
+		if _, err := (cloudflareProber{}).Probe(context.Background(), build(t, cloudflare.TypeAccount, props(acct)), map[string]string{"bearer_token": "tok"}); err == nil || !strings.Contains(err.Error(), "answered for account") {
+			t.Errorf("an answer of %s = %v", result, err)
+		}
 	}
 }

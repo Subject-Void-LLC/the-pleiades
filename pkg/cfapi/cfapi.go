@@ -26,12 +26,14 @@ import (
 // DefaultBase is Cloudflare's API.
 const DefaultBase = "https://api.cloudflare.com/client/v4"
 
-// Bounds on what is read.
+// Bounds on what is read: one answer, the pages of one list and their
+// results together, and the items one page may hold.
 const (
-	maxBody  = 4 << 20
-	maxPages = 50
-	perPage  = 50
-	retries  = 2
+	maxBody     = 4 << 20
+	maxListBody = 16 << 20
+	maxPages    = 50
+	perPage     = 50
+	retries     = 2
 )
 
 // Client reads one account's API with one token.
@@ -85,8 +87,12 @@ type envelope struct {
 	Errors  []apiMessage    `json:"errors"`
 	Result  json.RawMessage `json:"result"`
 	Info    *struct {
-		Page       int `json:"page"`
-		TotalPages int `json:"total_pages"`
+		Page    int  `json:"page"`
+		PerPage *int `json:"per_page"`
+		// TotalPages and TotalCount are each absent from some endpoints'
+		// answers; absent is not zero.
+		TotalPages *int `json:"total_pages"`
+		TotalCount *int `json:"total_count"`
 	} `json:"result_info"`
 }
 
@@ -187,6 +193,7 @@ func list[T any](ctx context.Context, c *Client, path string, query url.Values) 
 	}
 	query.Set("per_page", strconv.Itoa(perPage))
 	var out []T
+	read := 0
 	for page := 1; ; page++ {
 		if page > maxPages {
 			return nil, fmt.Errorf("reading %s: more than %d pages, which is not judged from part of a list", path, maxPages)
@@ -196,15 +203,41 @@ func list[T any](ctx context.Context, c *Client, path string, query url.Values) 
 		if err != nil {
 			return nil, err
 		}
+		if read += len(env.Result); read > maxListBody {
+			return nil, fmt.Errorf("reading %s: the list is over %d bytes, which is not judged from part of it", path, maxListBody)
+		}
 		var items []T
 		if err := json.Unmarshal(env.Result, &items); err != nil {
 			return nil, fmt.Errorf("reading %s: the result is not a list: %w", path, err)
 		}
+		if len(items) > perPage {
+			return nil, fmt.Errorf("reading %s: page %d holds %d items, more than the %d asked for", path, page, len(items), perPage)
+		}
 		out = append(out, items...)
-		if env.Info == nil || page >= env.Info.TotalPages || len(items) == 0 {
+		if lastPage(env, page, len(items), len(out)) {
 			return out, nil
 		}
 	}
+}
+
+// lastPage reports whether page, holding n items with total read so far,
+// ends its list: by total_pages when the answer gives it, else by
+// total_count, else by a page shorter than a full one. An answer with no
+// result_info is a list of one page.
+func lastPage(env envelope, page, n, total int) bool {
+	switch {
+	case n == 0 || env.Info == nil:
+		return true
+	case env.Info.TotalPages != nil:
+		return page >= *env.Info.TotalPages
+	case env.Info.TotalCount != nil:
+		return total >= *env.Info.TotalCount
+	}
+	full := perPage
+	if env.Info.PerPage != nil && *env.Info.PerPage > 0 && *env.Info.PerPage < perPage {
+		full = *env.Info.PerPage
+	}
+	return n < full
 }
 
 // one reads path's single result into T.

@@ -9,12 +9,14 @@ package edge
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cfapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -73,12 +75,22 @@ func account(rc sdk.RunbookContext, device inventory.InventoryItem) (*cfapi.Clie
 	return c, dev.CloudflareAccountID(), nil
 }
 
-// finish sets the stats, then fails naming every difference, or succeeds
-// when there is none.
+// Bounds on how a difference is told: each one's length, and how many an
+// error names.
+const (
+	maxDifference       = 512
+	maxNamedDifferences = 20
+)
+
+// finish sets the stats, then fails naming the differences (the first
+// maxNamedDifferences of them), or succeeds when there is none.
 func finish(rc sdk.RunbookContext, fqcn string, stats map[string]any, diffs []string) (collection.Result, error) {
+	// A difference quotes what the API answered (record contents, names), so
+	// each is cut and escaped, and the error names the first few of them.
 	list := make([]any, len(diffs))
 	for i, d := range diffs {
-		list[i] = d
+		diffs[i] = remoteexec.Excerpt(d, maxDifference)
+		list[i] = diffs[i]
 	}
 	stats[statDifferences] = list
 	for k, v := range stats {
@@ -87,7 +99,11 @@ func finish(rc sdk.RunbookContext, fqcn string, stats map[string]any, diffs []st
 		}
 	}
 	if len(diffs) > 0 {
-		return collection.Result{}, fmt.Errorf("%s: %d difference(s) from what was expected: %s", fqcn, len(diffs), strings.Join(diffs, "; "))
+		named := diffs
+		if len(named) > maxNamedDifferences {
+			named = append(slices.Clone(diffs[:maxNamedDifferences]), fmt.Sprintf("and %d more (the differences return value holds them all)", len(diffs)-maxNamedDifferences))
+		}
+		return collection.Result{}, fmt.Errorf("%s: %d difference(s) from what was expected: %s", fqcn, len(diffs), strings.Join(named, "; "))
 	}
 	return collection.Result{}, nil
 }

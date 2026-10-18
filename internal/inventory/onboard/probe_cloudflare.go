@@ -5,6 +5,7 @@ package onboard
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -33,6 +34,10 @@ func (cloudflareProber) Probe(ctx context.Context, device inventory.InventoryIte
 	acct, err := c.Account(ctx, dev.CloudflareAccountID())
 	if err != nil {
 		return Probed{}, err
+	}
+	// An answer for no account, or another one, proves nothing about this.
+	if acct.ID != dev.CloudflareAccountID() {
+		return Probed{}, fmt.Errorf("the API answered for account %s, not %s", factText(acct.ID), dev.CloudflareAccountID())
 	}
 	return Probed{
 		Capabilities: []capability.Name{capability.NameCloudflareAPI},

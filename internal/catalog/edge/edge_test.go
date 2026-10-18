@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/pem"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -13,10 +14,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/cfapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cfapi/cfapitest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 const (
@@ -86,6 +89,24 @@ func TestTunnel(t *testing.T) {
 	}
 	if _, err := edge.Tunnel(context.Background(), newCtx(), dev, map[string]any{"tunnel": tun, "expect_status": "degraded"}); err == nil || !strings.Contains(err.Error(), "healthy, not degraded") {
 		t.Errorf("status: %v", err)
+	}
+}
+
+// TestTunnel_AConnectorPendingReconnectIsNotUp: a second connector whose
+// every connection has dropped and is only still tracked does not make two
+// connectors up, and its connections are not counted.
+func TestTunnel_AConnectorPendingReconnectIsNotUp(t *testing.T) {
+	srv, dev := fixture(t)
+	srv.Mutate(func(s *cfapitest.Server) {
+		s.Connectors[tun] = append(s.Connectors[tun], map[string]any{"id": "c2", "version": "2026.9.0", "arch": "linux_amd64",
+			"conns": []map[string]any{{"colo_name": "lhr01", "is_pending_reconnect": true}, {"colo_name": "cdg01", "is_pending_reconnect": true}}})
+	})
+	rc := newCtx()
+	if _, err := edge.Tunnel(context.Background(), rc, dev, map[string]any{"tunnel": "prod", "min_connectors": 2}); err == nil || !strings.Contains(err.Error(), "1 connector(s) are up, fewer than 2") {
+		t.Errorf("a dropped connector counted as up: %v", err)
+	}
+	if rc.Stats()["connections"] != 2 {
+		t.Errorf("connections = %v, want the 2 live ones", rc.Stats()["connections"])
 	}
 }
 
@@ -196,3 +217,88 @@ func (c *ctxStub) Stats() map[string]any { return c.stats }
 
 // toString is a stat as text, for a search.
 func toString(v any) string { return fmt.Sprint(v) }
+
+// TestClientFor_FollowsNothingAndWaitsBoundedly: the client built from the
+// device follows no redirect (one to the same API, which would answer, is
+// refused rather than followed with the token), uses no proxy, and bounds
+// each request.
+func TestClientFor_FollowsNothingAndWaitsBoundedly(t *testing.T) {
+	srv, dev := fixture(t)
+	c, _, err := cfapi.ClientFor(dev, "prod-cf", map[string]string{wire.SecretBearerToken: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr, ok := c.HTTP.Transport.(*http.Transport); !ok || tr.Proxy != nil {
+		t.Error("the client may send the token through a proxy")
+	}
+	if c.HTTP.Timeout <= 0 {
+		t.Error("a request has no deadline")
+	}
+	serve := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("moved") == "" {
+			http.Redirect(w, r, r.URL.Path+"?moved=1", http.StatusFound)
+			return
+		}
+		serve.ServeHTTP(w, r)
+	})
+	if _, err := c.Account(context.Background(), acct); err == nil || !strings.Contains(err.Error(), "not followed") {
+		t.Errorf("a redirect to the same API = %v, want it refused, not followed", err)
+	}
+}
+
+// TestEdge_AValueOfTheWrongTypeIsRefused: an expectation whose value is not
+// the type it takes is refused rather than read as absent, which could turn
+// a failure into a pass; exact_policies with no policies to compare is
+// refused; a ttl arriving as a JSON number (float64, as on a Walk Runner)
+// is read.
+func TestEdge_AValueOfTheWrongTypeIsRefused(t *testing.T) {
+	_, dev := fixture(t)
+	dns := func(expect map[string]any) error {
+		_, err := edge.DNS(context.Background(), newCtx(), dev, map[string]any{"zone": zone, "name": "www.example.com", "type": "A", "expect": expect})
+		return err
+	}
+	if err := dns(map[string]any{"absent": "yes"}); err == nil || !strings.Contains(err.Error(), "true or false") {
+		t.Errorf("absent: \"yes\" = %v", err)
+	}
+	if err := dns(map[string]any{"ttl": float64(1)}); err != nil {
+		t.Errorf("a ttl of 1 as a JSON number = %v", err)
+	}
+	if err := dns(map[string]any{"ttl": 1.5}); err == nil {
+		t.Error("a ttl of 1.5 was accepted")
+	}
+	access := func(params map[string]any) error {
+		params["app"] = app
+		_, err := edge.Access(context.Background(), newCtx(), dev, params)
+		return err
+	}
+	if err := access(map[string]any{"exact_policies": true}); err == nil || !strings.Contains(err.Error(), "needs expect.policies") {
+		t.Errorf("exact_policies alone = %v", err)
+	}
+	if err := access(map[string]any{"expect": map[string]any{"policies": []any{map[string]any{"name": "staff", "decision": true}}}}); err == nil || !strings.Contains(err.Error(), "decision is text") {
+		t.Errorf("a decision of true = %v", err)
+	}
+}
+
+// TestDNS_AnErrorNamesAFewDifferencesBounded: a record set the API answers
+// with hundreds of records, each with long content, fails with an error that
+// names the first differences only, each cut, while the return value holds
+// every one.
+func TestDNS_AnErrorNamesAFewDifferencesBounded(t *testing.T) {
+	srv, dev := fixture(t)
+	srv.Mutate(func(s *cfapitest.Server) {
+		var many []map[string]any
+		for i := range 300 {
+			many = append(many, map[string]any{"id": fmt.Sprintf("r%d", i), "type": "TXT", "name": "big.example.com", "content": fmt.Sprintf("%d-%s", i, strings.Repeat("x", 2000)), "proxied": false, "ttl": 300})
+		}
+		s.Records[zone] = append(s.Records[zone], many...)
+	})
+	rc := newCtx()
+	_, err := edge.DNS(context.Background(), rc, dev, map[string]any{"zone": zone, "name": "big.example.com", "type": "TXT", "expect": map[string]any{"ttl": 60}})
+	if err == nil || len(err.Error()) > 20000 || !strings.Contains(err.Error(), "and 280 more") {
+		t.Errorf("an error over 300 differences is %d bytes: %.300s", len(fmt.Sprint(err)), err)
+	}
+	if d, _ := rc.Stats()["differences"].([]any); len(d) != 300 {
+		t.Errorf("the return value holds %d differences, want 300", len(d))
+	}
+}

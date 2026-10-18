@@ -51,7 +51,12 @@ func DNS(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return fail(err)
 	}
-	absent, _ := expect["absent"].(bool)
+	// A value of the wrong type is refused, not read as false: absent: "yes"
+	// read as false would pass a check that asked for no records.
+	absent, err := sdk.BoolParamOr(expect, "absent", false)
+	if err != nil {
+		return fail(fmt.Errorf("%s.%w", paramExpect, err))
+	}
 	if absent && wantContent != nil {
 		return fail(fmt.Errorf("%s.absent and %s.content contradict each other", paramExpect, paramExpect))
 	}
@@ -94,10 +99,11 @@ func DNS(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 			}
 		}
 	}
-	if raw, set := expect["ttl"]; set {
-		want, ok := raw.(int)
-		if !ok {
-			return fail(fmt.Errorf("%s.ttl is a whole number of seconds, 1 for automatic", paramExpect))
+	// A number reaches a Walk Runner's method as float64 (JSON), so it is read
+	// as every whole-number parameter is.
+	if want, set, err := sdk.IntParam(expect, "ttl"); set || err != nil {
+		if err != nil {
+			return fail(fmt.Errorf("%s.ttl is a whole number of seconds, 1 for automatic: %w", paramExpect, err))
 		}
 		for _, r := range records {
 			if r.TTL != want {
