@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -53,8 +54,8 @@ type remoteRunner interface {
 	// Ship unpacks commit sha's tree on the Mac.
 	Ship(mac, sha string) error
 	// Test runs script there and reports whether it passed, writing its
-	// output to stdout.
-	Test(mac, sha, script string, stdout, stderr io.Writer) (bool, error)
+	// output to stdout. When ctx ends first it stops the run on the Mac.
+	Test(ctx context.Context, mac, sha, script string, stdout, stderr io.Writer) (bool, error)
 }
 
 // pleiadesRemote is the real Mac end.
