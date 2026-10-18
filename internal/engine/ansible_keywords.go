@@ -6,8 +6,8 @@
 // which is true and useless: the author wrote an Ansible keyword, and the
 // useful answer is that a runbook does not have it. These sets let the
 // parser say that instead. They list only the keywords a native runbook
-// lacks; the ones it shares (name, register, when, check_mode, block,
-// rescue, always, hosts, tasks) are ordinary runbook keys.
+// lacks; the ones it shares (name, register, when, check_mode, timeout,
+// block, rescue, always, hosts, tasks) are ordinary runbook keys.
 package engine
 
 import "strings"
@@ -49,7 +49,6 @@ var ansibleTaskKeywords = map[string]bool{
 	"retries":            true,
 	"run_once":           true,
 	"throttle":           true,
-	"timeout":            true,
 	"until":              true,
 	"vars":               true,
 }

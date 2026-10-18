@@ -257,6 +257,15 @@ type Task struct {
 	// (tags.go).
 	Tags TagList `json:"tags,omitempty" yaml:"tags,omitempty"`
 
+	// Timeout, Ansible's timeout, is how many whole seconds this task may
+	// run on each device before it is stopped and fails, from 1 to
+	// MaxTaskTimeout; zero leaves only the run's own bound. Like the
+	// run-wide bound (WithTaskTimeout) it applies afresh to each device, and
+	// when both are set the smaller wins (taskLimit). A leaf task only:
+	// validateTask refuses it on a block or parallel group, whose children
+	// each carry their own.
+	Timeout TimeoutSeconds `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+
 	// RegisterMask names fields of this task's own ActionResult.Stats (once
 	// computed), dotted paths into nested values allowed, whose values must
 	// be treated as secret from this point on: masked out of every later

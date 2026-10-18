@@ -77,7 +77,7 @@ var codes = map[Code]CodeDoc{
 	"keyword.module_defaults":    {OutcomeBlocked, "module_defaults would change the call's arguments.", ""},
 	"keyword.check_mode_false":   {OutcomeReview, "check_mode: false dropped: the task now respects a check instead of running for real inside one.", ""},
 	"keyword.check_mode":         {OutcomeBlocked, "check_mode: true on a method that cannot be checked.", ""},
-	"keyword.timeout":            {OutcomeBlocked, "A task timeout has no per-task native equivalent.", ""},
+	"keyword.timeout":            {OutcomeBlocked, "A timeout the native task cannot carry: templated or not a whole number of seconds up to a day, or on a play, a block or an import_tasks task, since a native timeout bounds one task.", "Write a literal number of seconds on each task. A literal timeout on a task converts to the runbook's own timeout key."},
 	"keyword.ignore_unreachable": {OutcomeReview, "ignore_unreachable dropped: an unreachable device fails the run.", ""},
 	"keyword.tags":               {OutcomeBlocked, "tags that are templated, or that name all, tagged or untagged, which a runbook task cannot carry.", "Write the tag names."},
 	"keyword.reporting":          {OutcomeInfo, "A reporting-only keyword (diff, debugger) was dropped.", ""},

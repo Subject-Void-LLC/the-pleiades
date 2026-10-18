@@ -63,6 +63,7 @@ func validateRollbackStep(step *Task, label string) error {
 		"secret_mask":      step.SecretMask != nil,
 		"lock_acquisition": step.LockAcquisition != AcquisitionPerDeviceAsReached,
 		"rollback":         len(step.Rollback) > 0,
+		"timeout":          step.Timeout != 0,
 	} {
 		if isSet {
 			set = append(set, key)

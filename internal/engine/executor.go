@@ -964,14 +964,16 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		}()
 	}
 
-	// WithTaskTimeout applies fresh to every task, not once for the whole
-	// Run call: a slow task earlier in the DAG must not shorten how long a
-	// later, independent task is allowed to run. Zero (the default) wraps
-	// nothing, leaving ctx exactly as the caller supplied it.
+	// WithTaskTimeout and the task's own timeout apply fresh to every task,
+	// not once for the whole Run call: a slow task earlier in the DAG must
+	// not shorten how long a later, independent task is allowed to run.
+	// Neither set (the default) wraps nothing, leaving ctx exactly as the
+	// caller supplied it.
 	execCtx := ctx
-	if r.x.taskTimeout > 0 {
+	limit := taskLimit(r.x.taskTimeout, cmd.Task.Timeout)
+	if limit > 0 {
 		var cancel context.CancelFunc
-		execCtx, cancel = context.WithTimeout(ctx, r.x.taskTimeout)
+		execCtx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
 	}
 
@@ -1005,6 +1007,11 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	default:
 		// Never treated as execute: see WithMode.
 		err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
+	}
+	if err != nil && limit > 0 && errors.Is(execCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		// Said in so many words, since the method's own error describes only
+		// the mechanism (a closed session, a cancelled context).
+		err = fmt.Errorf("%w (its timeout of %s ran out)", err, limit)
 	}
 	if err != nil {
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))

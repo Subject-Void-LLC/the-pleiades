@@ -17,7 +17,7 @@ import (
 )
 
 // adhocUsage is adhoc's usage line, for its errors.
-const adhocUsage = "usage: pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [--mode execute|check] [--forks 5] [--persist-connections=false] [--verbose] [--json] [--dir .]"
+const adhocUsage = "usage: pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [--timeout seconds] [--mode execute|check] [--forks 5] [--persist-connections=false] [--verbose] [--json] [--dir .]"
 
 // adhocRunbookID is the id an ad-hoc run is journaled under.
 const adhocRunbookID = "adhoc"
@@ -41,6 +41,7 @@ func runAdhoc(args []string) error {
 	}
 	fs := flag.NewFlagSet("adhoc", flag.ContinueOnError)
 	flags := addRunFlags(fs)
+	timeout := fs.Int("timeout", 0, "seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func runAdhoc(args []string) error {
 	if err != nil {
 		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, adhocUsage))
 	}
-	payload, err := adhocRunbook(hosts, method, params)
+	payload, err := adhocRunbook(hosts, method, params, *timeout)
 	if err != nil {
 		return refuseAdhoc(opts, label, err, err)
 	}
@@ -139,14 +140,16 @@ func declaredTypes(method string) map[string]string {
 }
 
 // adhocRunbook is the runbook an ad-hoc run carries out: one task calling
-// method on hosts with params, written as YAML by an encoder, never by
-// joining strings, so no value can change the runbook's shape.
+// method on hosts with params, and timeout as the task's own timeout key
+// when it is not zero, written as YAML by an encoder, never by joining
+// strings, so no value can change the runbook's shape. The builder holds
+// the timeout to its range, as it would in a file.
 //
 // A method named as one of a task's own keys (name, when, block and the
 // rest) would be read as that key rather than as a method, so it is
 // refused here; every other name is left to the runbook parser and
 // validation, which refuse it exactly as they would in a file.
-func adhocRunbook(hosts, method string, params map[string]any) ([]byte, error) {
+func adhocRunbook(hosts, method string, params map[string]any, timeout int) ([]byte, error) {
 	switch {
 	case hosts == "":
 		return nil, errors.New("adhoc needs a device or a tag to run on")
@@ -158,6 +161,9 @@ func adhocRunbook(hosts, method string, params map[string]any) ([]byte, error) {
 	task := map[string]any{"name": method, method: nil}
 	if len(params) > 0 {
 		task[method] = params
+	}
+	if timeout != 0 {
+		task["timeout"] = timeout
 	}
 	return yaml.Marshal(struct {
 		ID    string           `yaml:"id"`

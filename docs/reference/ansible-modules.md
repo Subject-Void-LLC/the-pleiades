@@ -546,7 +546,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `keyword.run_once` | blocked | run_once: the native task would run on every device. | - |
 | `keyword.tags` | blocked | tags that are templated, or that name all, tagged or untagged, which a runbook task cannot carry. | Write the tag names. |
 | `keyword.throttle` | blocked | throttle has no native equivalent. | - |
-| `keyword.timeout` | blocked | A task timeout has no per-task native equivalent. | - |
+| `keyword.timeout` | blocked | A timeout the native task cannot carry: templated or not a whole number of seconds up to a day, or on a play, a block or an import_tasks task, since a native timeout bounds one task. | Write a literal number of seconds on each task. A literal timeout on a task converts to the runbook's own timeout key. |
 | `keyword.unknown` | blocked | A key this converter does not know. | - |
 | `loop.control` | blocked | A loop_control option this converter does not reproduce. | - |
 | `loop.register` | blocked | A looped task registers its result, whose shape differs from one task's. | - |

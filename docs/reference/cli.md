@@ -268,8 +268,11 @@ run one method against a device or a tag, with no runbook written
 | --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
+| --timeout | `int` | `0` | seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound) |
 
 `pleiades adhoc web01 facts.gather`
+
+`pleiades adhoc build01 exec.command argv:='[make, test]' --timeout 1800`
 
 `pleiades adhoc web exec.command cmd=uptime --verbose`
 

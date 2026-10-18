@@ -80,10 +80,16 @@ func (t *translator) importTasks(spec leafSpec, ctx taskCtx) []*outTask {
 	if blocked == "" {
 		file = t.importPath(file)
 	}
-	if blocked != "" || len(spec.blocks) > 0 || len(ctx.blockers) > 0 {
+	if blocked != "" || len(spec.blocks) > 0 || len(ctx.blockers) > 0 || spec.timeout > 0 {
 		ids := append(append([]string{}, ctx.blockers...), spec.blocks...)
 		if blocked != "" {
 			ids = append(ids, t.raise("import.tasks_missing", spec.modAt, spec.name, blocked))
+		}
+		if spec.timeout > 0 {
+			// The import becomes a block, and a native timeout bounds one
+			// task, so it cannot be carried; dropping it would let every
+			// imported task run longer than its author allowed.
+			ids = append(ids, t.raise("keyword.timeout", spec.at, spec.name, "timeout on import_tasks applies to every imported task"))
 		}
 		return []*outTask{t.placeholder(spec.name, spec.module, spec.at, ctx, append(ids, spec.cites...)...)}
 	}

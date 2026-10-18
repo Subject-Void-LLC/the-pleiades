@@ -3,6 +3,7 @@ package remoteexec
 import (
 	"context"
 	"io"
+	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -132,6 +133,79 @@ func TestConn_RunHonorsContextCancellation(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("expected cancellation to abort the command promptly, took %v", elapsed)
+	}
+}
+
+// TestConn_RunSignalsTheCommandWhenCancelled proves a cancelled command is
+// sent SIGTERM before its session closes, so a task's timeout ends the
+// work on the device too: with no terminal, closing the session alone
+// sends a command nothing, and it runs on unseen.
+func TestConn_RunSignalsTheCommandWhenCancelled(t *testing.T) {
+	signals := make(chan string, 1)
+	hostSigner := generateTestHostKey(t)
+	config := &ssh.ServerConfig{PasswordCallback: func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil }}
+	config.AddHostKey(hostSigner)
+	// A session whose command never ends by itself, which keeps reading
+	// requests while it runs, as sshd does, and reports a signal.
+	serve := func(conn net.Conn) {
+		sConn, chans, reqs, err := ssh.NewServerConn(conn, config)
+		if err != nil {
+			return
+		}
+		defer func() { _ = sConn.Close() }()
+		go ssh.DiscardRequests(reqs)
+		for newChannel := range chans {
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				continue
+			}
+			go func() {
+				defer func() { _ = channel.Close() }()
+				for req := range requests {
+					switch req.Type {
+					case "exec":
+						_ = req.Reply(true, nil)
+					case "signal":
+						var payload struct{ Signal string }
+						_ = ssh.Unmarshal(req.Payload, &payload)
+						signals <- payload.Signal
+						return
+					default:
+						if req.WantReply {
+							_ = req.Reply(false, nil)
+						}
+					}
+				}
+			}()
+		}
+	}
+	dial := func(_ context.Context, addr string, clientConfig *ssh.ClientConfig) (*ssh.Client, error) {
+		clientConn, serverConn := localPipe(t)
+		go serve(serverConn)
+		sshConn, chans, reqs, err := ssh.NewClientConn(clientConn, addr, clientConfig)
+		if err != nil {
+			return nil, err
+		}
+		return ssh.NewClient(sshConn, chans, reqs), nil
+	}
+	conn, err := newTestRunner(dial, Options{}).Connect(context.Background(), nil, testTarget, testAuth)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := conn.Run(ctx, "sleep forever"); err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("Run = %v, want the expired context", err)
+	}
+	select {
+	case got := <-signals:
+		if got != string(ssh.SIGTERM) {
+			t.Errorf("the command was sent %q, want %q", got, ssh.SIGTERM)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled command was sent no signal")
 	}
 }
 
