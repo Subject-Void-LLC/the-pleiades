@@ -69,6 +69,11 @@ type VM struct {
 	// Firmware BIOS or EFI; left empty, each is what the captured
 	// machines had.
 	OSType, Firmware string
+	// Inaccessible is a registration whose settings VirtualBox cannot
+	// read (its folder deleted or unreadable): list vms names it
+	// "<inaccessible>", and every read of it is refused with E_ACCESSDENIED,
+	// as VirtualBox 7.2 answers, measured on the lab host.
+	Inaccessible bool
 
 	pressed     bool
 	currentNode string
@@ -262,6 +267,30 @@ func notFound(name string) vboxmanage.Output {
 		`Context: "FindMachine(Bstr(VMNameOrUuid).raw(), machine.asOutParam())" at line 3249 of file VBoxManageInfo.cpp`)
 }
 
+// limited is VirtualBox's refusal to read an inaccessible machine.
+func limited() vboxmanage.Output {
+	return errorOutput(
+		"The object functionality is limited",
+		"Details: code E_ACCESSDENIED (0x80070005), component MachineWrap, interface IMachine, callee IUnknown")
+}
+
+// forget unregisters a machine by UUID and deletes nothing, as unregistervm
+// without --delete does.
+func (h *Host) forget(uuid string) vboxmanage.Output {
+	vm := h.find(uuid)
+	if vm == nil {
+		return notFound(uuid)
+	}
+	kept := h.vms[:0]
+	for _, other := range h.vms {
+		if other != vm {
+			kept = append(kept, other)
+		}
+	}
+	h.vms = kept
+	return vboxmanage.Output{}
+}
+
 // locked is the answer for a change VirtualBox refuses while a session
 // holds the machine. It is the model's wording, not a captured one.
 func locked(name string) vboxmanage.Output {
@@ -282,6 +311,9 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		vm := h.find(args[1])
 		if vm == nil {
 			return notFound(args[1])
+		}
+		if vm.Inaccessible {
+			return limited()
 		}
 		h.guestShutdown(vm)
 		return vboxmanage.Output{Stdout: vm.showvminfo()}
@@ -334,7 +366,12 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 		}
 		return h.screenshot(vm, args[3])
 	case len(args) == 3 && args[0] == "unregistervm" && args[2] == "--delete":
+		if vm := h.find(args[1]); vm != nil && vm.Inaccessible {
+			return limited()
+		}
 		return h.unregistervm(args[1])
+	case len(args) == 2 && args[0] == "unregistervm":
+		return h.forget(args[1])
 	case len(args) == 3 && args[0] == "getextradata" && args[2] == "enumerate":
 		return h.getextradata(args[1])
 	case (len(args) == 3 || len(args) == 4) && args[0] == "setextradata":
@@ -355,8 +392,12 @@ func (h *Host) list(what string) vboxmanage.Output {
 	}
 	var b strings.Builder
 	for _, vm := range h.vms {
+		name := vm.Name
+		if vm.Inaccessible {
+			name = vboxmanage.InaccessibleName
+		}
 		if what == "vms" || (what == "runningvms" && vm.State == vboxmanage.StateRunning) {
-			fmt.Fprintf(&b, "%q {%s}\r\n", vm.Name, vm.UUID)
+			fmt.Fprintf(&b, "%q {%s}\r\n", name, vm.UUID)
 		}
 	}
 	return vboxmanage.Output{Stdout: b.String()}

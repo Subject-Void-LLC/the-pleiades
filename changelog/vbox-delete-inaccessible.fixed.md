@@ -1,0 +1,1 @@
+`virt.vbox.vm.delete` unregisters a VM VirtualBox lists as `<inaccessible>`, named by its UUID, deleting nothing. Left registered, such a VM made VirtualBox 7.2's autostart service refuse to start any of the account's VMs, so `virt.vbox.vm.start` failed for all of them.
