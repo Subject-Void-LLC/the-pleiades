@@ -30,6 +30,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -687,6 +688,7 @@ func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
 		ai.KindProperty:              "ollama",
 		ai.APIBaseProperty:           "https://archtest.invalid",
 		ai.ResidencyProperty:         ai.ResidencyLocal,
+		cloudflare.AccountIDProperty: "0123456789abcdef0123456789abcdef",
 	}
 	// Bound to these very properties, as onboarding binds a discovery, so
 	// a type that binds its discovery (generic_http, generic_grpc) holds

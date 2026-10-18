@@ -5656,3 +5656,126 @@ missing, a result never recorded) is a real race that load only exposes, in CI o
 whose result had been acknowledged as meaningless because it arrived before its own dispatch's row. The owner's
 correction the same day: CI contends for resources too, so contention is never ruled in or out by which machine
 ran the test.
+
+## 284. Check a gate's result before committing: never chain a commit after a test with `;`
+
+**Rule.** Run a test or a fuzz on its own, read its exit status, and only then commit. A commit chained with `;`
+after a command runs whether that command passed or not.
+
+**Why.** 2026-10-15: `go test -fuzz ...; git add ... && git commit` ran the commit after the fuzz had failed with
+exit 1, and the commit carried the fuzzer's crash file. It was amended before any push. `&&` would have stopped it,
+but a separate step is better still, because it makes the result something read rather than something a shell
+operator decides.
+
+## 285. A fuzz harness allocates nothing per input that outlives the input: one server per fuzz process, not one per call
+
+**Rule.** Start any server, socket or file a fuzz target needs once per fuzz process, and feed each input through
+it. Before believing a bind or "too many open files" failure is the code's, look at `ss -s` and the open file count.
+
+**Why.** FAILURE_PATTERNS 474: a server per input left 31,734 sockets in TIME_WAIT and exhausted the ephemeral
+range, so the fuzz "crash" was the harness. Fuzzing runs millions of inputs, and anything per input that the OS
+reclaims slowly runs out long before the code under test is exercised.
+
+## 286. A human-in-the-loop gate is as strong as where its decision lives: tasks cannot write it, agents cannot make it, and it binds to what was shown
+
+**Rule.** When a run holds a result for a person, three things have to hold:
+- Keep the decision where no task can write: `sdk.AIProject` writes only `ai/usage` and `ai/bench`, and reviews
+  live in `ai/review`.
+- Refuse the decision without a terminal and under an agent (`internal/prompt.OpenPerson`).
+- Bind an approval to the digest of the bytes the person saw, so a changed answer is not approved by an old
+  decision.
+
+Where none of this is possible (a Runner with no reviewer), fail closed. Asking again must reuse the decision
+rather than ask, or bill, twice.
+
+**Why.** The ai collection's review thresholds (2026-10-15). The owner asked for human review on output
+criteria. The engine cannot yet pause a run, so a held answer fails the task, and the decision is applied by running
+again. The design is safe only because each of the three properties holds: without any one of them, an
+unattended run, an agent, or a later edit could release what a person never saw. On the Crawl tier the decision is
+a file in the project. This is a gate against unattended runs and agents, not against a process with the
+operator's own file access, and the docs say so.
+
+## 287. An example whose devices must be onboarded is proved by a gate that onboards them, never by a shipped discovery
+
+**Rule.** Do not ship a fabricated discovery to make an example validate. Prove the example with a release gate
+that onboards its devices against real servers, then validates it and runs it in check mode. Name that gate in
+the examples test's exemption, which must fail if the named test stops existing.
+
+**Why.** `ai_lab` and `edge_lab` (2026-10-15) target `ai_provider` and `cloudflare_account` devices, which start
+`discovered` and run nothing until onboarding proves them. A shipped discovery would claim a proof nobody made.
+The generic examples test could not satisfy the precondition, and the per-example gates can, which makes them the
+stronger check.
+
+## 288. Never edit a worktree a gate is running in; work elsewhere until it ends
+
+**Rule.** While `make pr-check`, `ci-remote` or any gate runs in a worktree, change nothing in it: no edit, no
+commit, no branch switch. Work in another worktree, or wait.
+
+**Why.** 2026-10-15: every check of a `pr-check` on the gate branch passed, and no receipt was written, because I had
+edited files in that checkout while it ran. Twenty minutes went for nothing, and the push waited for a second run.
+A gate that read part of an edited tree has proved nothing about any commit, which is why the receipt is refused.
+
+## 289. Before a pull request, check its whole diff against FAILURE_PATTERNS; pr-check sees only what a Linux run can
+
+**Rule.** Before opening a pull request or pushing to one, read every title in `FAILURE_PATTERNS.md`, open each
+entry whose class could apply to the branch's whole diff (origin/main..branch), and check the diff for it. Fix what
+matches, and list the classes checked in the PR body.
+
+**Why.** 2026-10-15, PR #59. `make pr-check` passed, and CI's `fast-macos` failed on 420's class (476). The owner
+then asked that every PR be checked against the failure patterns first. That check, on the same branch, found three
+more repeats before any of them failed anywhere: a released port (478, of 123), a timing ceiling (479, of 211 and
+422), and a fixture Close with no bound (480, of 339 and 444). Each class had been recorded and fixed where it was
+found, and each came back in code written after its fix. A recorded class only stays fixed if new code is checked
+for it.
+
+## 290. A test import in a package other modules consume is part of their module graph; a warm cache proves nothing about it
+
+**Rule.** Before a test of a `pkg/` package imports something new, ask whether another module reaches that package
+(an external Collection reaches everything `pkg/external` does), because that module's `go mod tidy` loads the test
+and its whole import graph. Keep such tests on the standard library and the light leaves
+(`internal/testsupport/need`, `.../refusing`); `internal/archtest`'s `TestExternalSDKTestsStayLight` enforces it for
+testcontainers-go. A run that passes on a module cache already holding every module is not evidence either way.
+
+**Why.** 2026-10-15, PR #59 (FAILURE_PATTERNS 482). Moving one test onto a shared helper in `internal/testsupport`
+put testcontainers-go into every external author's go.sum. A local `make pr-check` and the Linux `fast` job passed,
+because both caches held the platform-only modules an offline tidy needed; only the macOS runner's did not, and the
+failure read like a cache problem rather than the dependency change it was.
+
+## 291. The failure-pattern check is a read of the code against each class; a passing pr-check says nothing about them
+
+**Rule.** For the pre-PR check (LESSONS 289), open the archive entry of every class that could apply and read the
+branch's code for it, as an adversary would: which input makes this reader disagree with the real consumer, which
+failure path drops what restores the state, which advice cannot be followed. A delegated reader's report is a list
+of claims; prove each with a test on the old code before fixing it, and fix it with that test.
+
+**Why.** 2026-10-16, the build branch. `make pr-check` failed only on one coverage floor. The failure-pattern read,
+done by a delegated agent and verified one claim at a time, found nine repeats of recorded classes in code written
+after their fixes (FAILURE_PATTERNS 484 to 491): a parser that could end the process, lockfile readers a case change
+fooled, a Dockerfile and YAML reader that saw less than the build, an undo dropped when it was needed, advice
+validation refused (in `gate.run`, already merged), fuzz targets that rarely reached the code, a quadratic line count
+and a gate step that asserted nothing. Every one passed the gates, because gates run the tests the author wrote.
+
+## 292. Load put on someone else's machine is bounded and cleans up after itself, or it is not put there
+
+**Rule.** On a machine that is not this one (the owner's Mac, a lab host), run only the real workload, never
+synthetic load; bound every remote command on the remote side, end it with a trap that kills its children and
+removes its files, and run it in the background here so this side's tool timeout cannot cut it off before its
+cleanup. Kill by exact process name (`pkill -x`), never `pkill -f` with a pattern the killing shell's own command
+line contains.
+
+**Why.** 2026-10-16. Reproducing a flaky test on the owner's MacBook, I started twelve `yes` processes for load.
+The ssh command hit my tool's timeout, its `kill` never ran, and the owner found Activity Monitor full of `yes`.
+The first cleanup attempt then used `pkill -f` with a pattern in its own command line and killed itself. The
+reproduction that worked used eight copies of the real test binary instead, bounded and trapped.
+
+## 293. A platform limit a test meets is measured on that platform and the test sized to it; neither skipped there nor blamed on the product
+
+**Rule.** When a test fails on one platform only, find the platform limit it meets by measuring there (vary the
+load, read the kernel's counters), then size the test from that limit read at run time. Do not skip the platform,
+which hides the code there, and do not change the product for a limit only the test's own fake server meets.
+
+**Why.** 2026-10-16. `make mac-check` ran `pkg/remoteexec` on the owner's Mac for the first time and the 300-session
+hop stress test failed every run while CI's macOS runner passed it. A first guess (one and a half times the
+backlog) passed under `-race` and failed in the strict repeat without it; only measuring both modes, alone and
+with the package, found the cap that holds: the listener's backlog itself (FAILURE_PATTERNS 501).
+

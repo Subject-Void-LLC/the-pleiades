@@ -37,6 +37,8 @@ var Collections = concatCollections(
 	containerImageCollections,
 	scanCollections,
 	aiCollections,
+	edgeCollections,
+	smallCollections,
 	sessionCollections,
 	virtCollections,
 	winFileCollections,

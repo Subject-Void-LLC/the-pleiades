@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**159 of 162 methods are implemented.**
+**166 of 169 methods are implemented.**
 
 ## Implemented
 
@@ -147,6 +147,13 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [ai.provider.list](modules/ai/provider/list.md)
 - [ai.provider.probe](modules/ai/provider/probe.md)
 - [ai.route](modules/ai/route.md)
+- [edge.access](modules/edge/access.md)
+- [edge.dns](modules/edge/dns.md)
+- [edge.tunnel](modules/edge/tunnel.md)
+- [file.json](modules/file/json.md)
+- [file.yaml](modules/file/yaml.md)
+- [http.check](modules/http/check.md)
+- [win.schtask](modules/win/schtask.md)
 - [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
 - [virt.vbox.vm.info](modules/virt/vbox/vm/info.md)
 - [virt.vbox.vm.start](modules/virt/vbox/vm/start.md)

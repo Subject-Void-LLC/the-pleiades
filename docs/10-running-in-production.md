@@ -2293,6 +2293,34 @@ resume it later. Pause and resume, and approvals by an approver role on the Cont
 - `ai.route`, `usage_sink` and `save_as` are refused;
 - an answer crossing a review threshold fails closed and is never released.
 
+### Cloudflare accounts
+
+The `edge` methods read a Cloudflare account and fail a run on any difference from what the runbook expects:
+- `edge.tunnel` checks a tunnel's status and how many of its connectors are up;
+- `edge.access` checks an Access application's audience, issuer, settings and policies;
+- `edge.dns` checks a record set.
+
+An account is a `cloudflare_account` device. Its record names its `account_id`, and optionally an https
+`api_base`.
+
+**The token.** The account's API token is its own credential, held by reference:
+`pleiades add-credential prod-cf --token-stdin`. It is sent only to the account's `api_base`, as a bearer
+header, and no redirect is followed. It is never in a parameter, a stat, an error or the journal, and a
+template's machine credential never becomes one.
+
+Give the token read permission for what the runbook checks: Tunnel; Access, meaning applications and policies,
+and the organization for the issuer; and the zone's DNS. A read it lacks permission for is refused by
+Cloudflare, and the task says which.
+
+**Onboarding.** It reads the account with the token, and changes nothing. A record pointed somewhere new is
+onboarded again before its token goes there.
+
+**Names and pages.** A tunnel, application or zone given by name must resolve to exactly one. A zone of another
+account is refused, even when the token reaches that account. Lists are read page by page, up to 50 pages. Past
+that a method fails rather than judge on part of a list.
+
+The methods only read. Changing a tunnel, a policy or a record is not something they do.
+
 ### Kubernetes clusters
 
 A `kubernetes_cluster` device is one cluster, reached through its API server.
