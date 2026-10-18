@@ -132,11 +132,21 @@ func (f *FileVersions) Use(kind, name string, version int64) error {
 	if version < 0 {
 		return fmt.Errorf("version %d is negative", version)
 	}
-	dir := f.dirOf(kind, name)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(f.Path, 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%0*d", maxVersionDigits, version)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	// Opened through a root, so no name or link can take the file outside
+	// the register.
+	root, err := os.OpenRoot(f.Path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	rel := filepath.Join(hex.EncodeToString([]byte(kind)), hex.EncodeToString([]byte(name)))
+	if err := root.MkdirAll(rel, 0o700); err != nil {
+		return err
+	}
+	file, err := root.OpenFile(filepath.Join(rel, fmt.Sprintf("%0*d", maxVersionDigits, version)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrExist) {
 		return nil
 	}
