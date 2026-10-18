@@ -21,6 +21,7 @@ type outTask struct {
 	when      []string
 	tags      []string
 	checkMode bool
+	timeout   int
 	block     []*outTask
 	rescue    []*outTask
 	always    []*outTask

@@ -130,7 +130,11 @@ type NodeResult struct {
 
 	// Stats is the action's own output (ActionResult.Stats): the stdout,
 	// exit status, resolved paths and diffs a Collection method recorded
-	// with sdk.RunbookContext.SetStat. Nil for a node that never ran.
+	// with sdk.RunbookContext.SetStat. Nil for a node that never ran. A
+	// method that failed keeps what it recorded before failing (a failed
+	// command's exit status and output), less the undo it recorded, which a
+	// failed node never journals; it is never registered, since the run
+	// stops at that level.
 	//
 	// It is carried here in addition to being merged into WorkflowContext
 	// under the task's Register name, because those two answer different
@@ -964,14 +968,16 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		}()
 	}
 
-	// WithTaskTimeout applies fresh to every task, not once for the whole
-	// Run call: a slow task earlier in the DAG must not shorten how long a
-	// later, independent task is allowed to run. Zero (the default) wraps
-	// nothing, leaving ctx exactly as the caller supplied it.
+	// WithTaskTimeout and the task's own timeout apply fresh to every task,
+	// not once for the whole Run call: a slow task earlier in the DAG must
+	// not shorten how long a later, independent task is allowed to run.
+	// Neither set (the default) wraps nothing, leaving ctx exactly as the
+	// caller supplied it.
 	execCtx := ctx
-	if r.x.taskTimeout > 0 {
+	limit := taskLimit(r.x.taskTimeout, cmd.Task.Timeout)
+	if limit > 0 {
 		var cancel context.CancelFunc
-		execCtx, cancel = context.WithTimeout(ctx, r.x.taskTimeout)
+		execCtx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
 	}
 
@@ -1006,7 +1012,27 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		// Never treated as execute: see WithMode.
 		err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
 	}
+	if err != nil && limit > 0 && errors.Is(execCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		// Said in so many words, since the method's own error describes only
+		// the mechanism (a closed session, a cancelled context).
+		err = fmt.Errorf("%w (its timeout of %s ran out)", err, limit)
+	}
 	if err != nil {
+		// What the method recorded before it failed (exit status, output)
+		// is the caller's to print, as a successful task's is, once this
+		// task's register_mask has marked what it protects; when the mask
+		// cannot apply, nothing is printed, as for a successful task. It is
+		// neither registered nor journaled: the run stops at this level, and
+		// a rollback plans only from changes that completed (journalStats).
+		// A node held for review shows nothing at all: what it holds is for
+		// a person to decide on before anyone reads it (pause.go).
+		// The undo goes whatever produced the stats: the collection bridge
+		// has already left it out, but a success refused here (a prediction
+		// in a real run) or another action executor has not.
+		_, held := HoldOf(err)
+		if stats := failedStats(actionResult.Stats); !held && stats != nil && r.markRegisterMask(cmd, ActionResult{Stats: stats}) == nil {
+			result.Stats = stats
+		}
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())
 		return finish(result)

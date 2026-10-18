@@ -87,7 +87,12 @@ type ChildResponse struct {
 	Changed bool `json:"changed"`
 
 	// Facts is whatever the method recorded via SetStat/EmitFact during
-	// its one invocation, collected once after Invoke returns.
+	// its one invocation, collected once after Invoke returns. Beside an
+	// Error it is what the method recorded before it failed (a failed
+	// command's exit status and output), which the parent reports with the
+	// failure and never registers or journals; it is never sent with
+	// CannotCheck. A parent that predates this ignores it, as it always
+	// ignored Facts beside an Error.
 	Facts map[string]any `json:"facts,omitempty"`
 
 	// Error is the Collection method's own reported failure, if any. It is

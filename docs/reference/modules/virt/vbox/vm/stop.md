@@ -6,7 +6,7 @@ status: beta
 
 Stops a VirtualBox VM, by its power button or by cutting its power.
 
-Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
+Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
 
 ## Attributes
 
@@ -24,7 +24,7 @@ Makes sure a VM is not running. A VM that is already off, saved or aborted repor
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
-| `mode` | `string` | no | `acpi` | acpi asks the guest to shut down; poweroff cuts its power. |
+| `mode` | `string` | no | `acpi` | acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume. |
 | `timeout` | `int` | no | `120` | With mode acpi, how many seconds to wait for the guest to shut down before failing. |
 
 ## Returns
@@ -63,5 +63,14 @@ Cut a VM's power:
   virt.vbox.vm.stop:
     name: ubuntu-lab
     mode: poweroff
+```
+
+Put a VM away until it is next needed:
+
+```yaml
+- name: Save the lab VM's state and free its memory
+  virt.vbox.vm.stop:
+    name: ubuntu-lab
+    mode: save
 ```
 

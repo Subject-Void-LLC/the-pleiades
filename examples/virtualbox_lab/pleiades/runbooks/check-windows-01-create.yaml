@@ -1,0 +1,28 @@
+# Make win-check, the Windows box `make win-check` (tools/wincheck) tests a
+# branch on, from the Server Core base, and wait for its first boot.
+#
+# Before this: pleiades add-host win-check --type windows_server --set host=192.168.56.31 --tags lab
+#              pleiades add-credential win-check --username Administrator --generate
+# Then name it in tests/win/.env (PLEIADES_WINRM_PROJECT, PLEIADES_WINRM_DEVICE).
+id: vbox-lab-check-windows-create
+hosts: vengeance
+tasks:
+  - name: make win-check from the Server Core base's snapshot (small, one CPU and 2048 MB)
+    virt.vbox.vm.clone:
+      name: win-check
+      from: ws2025-core-base
+      snapshot: base
+      login: win-check
+      address: 192.168.56.31/24
+      size: small
+  - name: start it
+    virt.vbox.vm.start:
+      name: win-check
+  - name: wait for its first boot to let the Administrator in over WinRM
+    wait.connection:
+      target: win-check
+      timeout: 2400
+      sleep: 15
+  - name: take the answer file out, now that the first boot has read it
+    virt.vbox.vm.eject_seed:
+      name: win-check

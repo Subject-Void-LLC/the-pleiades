@@ -59,7 +59,14 @@ type Seed struct {
 	// DefaultShell. A guest must have it: FreeBSD, whose nuageinit reads
 	// this same seed, has /bin/sh and no bash.
 	Shell string
+	// Packages are installed as root at first boot, from the guest's own
+	// repositories: cloud-init's packages key, which FreeBSD's nuageinit
+	// reads too. Each is a package name, at most MaxPackages of them.
+	Packages []string
 }
+
+// MaxPackages is the most packages a seed may install.
+const MaxPackages = 64
 
 // DefaultShell is the shell a login other than root gets when a seed
 // names none: Ubuntu's.
@@ -81,6 +88,11 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 // hashPattern is a crypt(3) hash in the $id$... form.
 var hashPattern = regexp.MustCompile(`^\$[0-9a-z]+\$[./0-9A-Za-z$=,]+$`)
 
+// packagePattern is a package name as APT and FreeBSD's pkg spell one:
+// letters, digits and . + _ -, never a leading - that a package tool would
+// read as an option, nor a space or anything a shell reads.
+var packagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$`)
+
 // Validate refuses a seed that cloud-init would read differently from
 // what it says, or that would leave the machine with no way in.
 func (s Seed) Validate() error {
@@ -101,6 +113,14 @@ func (s Seed) Validate() error {
 	}
 	if s.Shell != "" && !shellPattern.MatchString(s.Shell) {
 		return fmt.Errorf("cloudinit: shell %q is not an absolute path such as /bin/sh", s.Shell)
+	}
+	if len(s.Packages) > MaxPackages {
+		return fmt.Errorf("cloudinit: %d packages is more than the %d a seed may install", len(s.Packages), MaxPackages)
+	}
+	for _, p := range s.Packages {
+		if !packagePattern.MatchString(p) {
+			return fmt.Errorf("cloudinit: package %q is not a package name: letters, digits and . + _ -, starting with a letter or digit", p)
+		}
 	}
 	if len(s.Interfaces) == 0 {
 		return fmt.Errorf("cloudinit: a seed needs at least one network interface")
@@ -140,11 +160,12 @@ func normalMAC(mac string) (string, error) {
 
 // userData is the cloud-config document, in the order it is written.
 type userData struct {
-	Hostname         string `yaml:"hostname"`
-	PreserveHostname bool   `yaml:"preserve_hostname"`
-	SSHPasswordAuth  bool   `yaml:"ssh_pwauth"`
-	DisableRoot      bool   `yaml:"disable_root"`
-	Users            []user `yaml:"users"`
+	Hostname         string   `yaml:"hostname"`
+	PreserveHostname bool     `yaml:"preserve_hostname"`
+	SSHPasswordAuth  bool     `yaml:"ssh_pwauth"`
+	DisableRoot      bool     `yaml:"disable_root"`
+	Users            []user   `yaml:"users"`
+	Packages         []string `yaml:"packages,omitempty"`
 }
 
 // user is one entry of cloud-config's users list.
@@ -157,13 +178,15 @@ type user struct {
 	AuthKeys     []string `yaml:"ssh_authorized_keys"`
 }
 
-// UserData returns the seed's user-data: the login, and nothing else.
+// UserData returns the seed's user-data: the login, and the packages the
+// first boot installs, and nothing else.
 //
 // No default user is created, so the only account with a way in is the
 // login's. SSH takes no password from anyone; a password, when there is
 // one, is for the console. root is allowed to log in by key only when it
 // is the login; any other login may use sudo without a password, since
-// its key is what proves who it is.
+// its key is what proves who it is. FreeBSD's base system has no sudo, so
+// there the rule takes effect once sudo is one of the packages.
 func (s Seed) UserData() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
@@ -185,6 +208,7 @@ func (s Seed) UserData() ([]byte, error) {
 		Hostname:    s.Hostname,
 		DisableRoot: u.Name != "root",
 		Users:       []user{u},
+		Packages:    s.Packages,
 	}
 	return document("#cloud-config\n", doc)
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,6 +54,20 @@ func throwawayModule(t *testing.T, broken bool) {
 	t.Cleanup(func() { _ = os.Chdir(restore) })
 }
 
+// raceOff is whether this machine's go cannot build with -race. The race
+// detector needs cgo, which go turns off where it finds no C compiler (a
+// Windows machine with no toolchain, as tools/wincheck's is), so these tests
+// run their pass without it there, as wincheck does, rather than fail on
+// something they do not test.
+func raceOff(t *testing.T) bool {
+	t.Helper()
+	out, err := exec.Command("go", "env", "CGO_ENABLED").Output()
+	if err != nil {
+		t.Fatalf("go env CGO_ENABLED: %v", err)
+	}
+	return strings.TrimSpace(string(out)) != "1"
+}
+
 // TestRun_TheOnePassMeasuresAndReports runs -full over a passing module:
 // it passes, writes each measured package's coverage, and writes the skip
 // to the job summary when one is set.
@@ -62,7 +77,7 @@ func TestRun_TheOnePassMeasuresAndReports(t *testing.T) {
 	t.Setenv("GITHUB_STEP_SUMMARY", summary)
 	coverage := filepath.Join(t.TempDir(), "coverage.json")
 
-	err := run(options{full: true, strict: true, coverageOut: coverage, packages: []string{"gateproof/good", "gateproof/skipper"}})
+	err := run(options{full: true, noRace: raceOff(t), strict: true, coverageOut: coverage, packages: []string{"gateproof/good", "gateproof/skipper"}})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -101,7 +116,7 @@ func TestRun_ABrokenTestFailsBothWays(t *testing.T) {
 	for _, strict := range []bool{true, false} {
 		summary := filepath.Join(t.TempDir(), "summary.md")
 		t.Setenv("GITHUB_STEP_SUMMARY", summary)
-		err := run(options{full: true, strict: strict, packages: packages})
+		err := run(options{full: true, noRace: raceOff(t), strict: strict, packages: packages})
 		if err == nil || (!strict && !strings.Contains(err.Error(), "confirmed in isolation")) {
 			t.Errorf("strict %v: err = %v, want the broken test to fail the gate", strict, err)
 		}
@@ -125,7 +140,7 @@ func TestRun_ShardsTogetherTestEverything(t *testing.T) {
 	packages := []string{"gateproof/good", "gateproof/skipper"}
 	for i, shard := range []string{"1/2", "2/2"} {
 		out := filepath.Join(dir, "c"+string(rune('0'+i))+".json")
-		if err := run(options{full: true, strict: true, shard: shard, coverageOut: out, packages: packages}); err != nil {
+		if err := run(options{full: true, noRace: raceOff(t), strict: true, shard: shard, coverageOut: out, packages: packages}); err != nil {
 			t.Fatalf("shard %s: %v", shard, err)
 		}
 	}
@@ -192,7 +207,7 @@ func TestFirstRunFails(t *testing.T) {
 	summary := filepath.Join(dir, "summary.md")
 	t.Setenv("GITHUB_STEP_SUMMARY", summary)
 	out := filepath.Join(dir, "coverage.json")
-	if err := run(options{full: true, coverageOut: out, packages: []string{"gateproof/cov"}}); err != nil {
+	if err := run(options{full: true, noRace: raceOff(t), coverageOut: out, packages: []string{"gateproof/cov"}}); err != nil {
 		t.Fatalf("run: %v; a failure that passes alone is contention", err)
 	}
 	// The job summary carries the tolerated failure's own output, which is
@@ -237,7 +252,7 @@ func TestRun_MasksASecretATestPrints(t *testing.T) {
 	t.Setenv("GITHUB_STEP_SUMMARY", summary)
 
 	printed := captureOutput(t, func() {
-		if err := run(options{full: true, strict: true, packages: []string{"gateproof/leak"}}); err == nil {
+		if err := run(options{full: true, noRace: raceOff(t), strict: true, packages: []string{"gateproof/leak"}}); err == nil {
 			t.Error("a failing test passed the gate")
 		}
 	})

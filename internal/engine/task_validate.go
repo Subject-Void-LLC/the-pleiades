@@ -66,6 +66,13 @@ func validateTask(task *Task, id string) error {
 		if task.SecretMask != nil {
 			return fmt.Errorf("task %s sets secret_mask directly on a %s task: this mask compiles but is never applied, since only a leaf task's own id is wired into the executable graph; move it onto the specific child task whose result it should mask", taskLabel(id, task), group)
 		}
+		if task.Timeout != 0 {
+			return fmt.Errorf("task %s sets timeout directly on a %s task: a timeout bounds one task on one device, so set it on each child task inside the %s instead", taskLabel(id, task), group, group)
+		}
+	}
+
+	if task.Timeout < 0 || task.Timeout > MaxTaskTimeout {
+		return fmt.Errorf("task %s sets timeout %d: it is a whole number of seconds from 1 to %d (a day), or left out", taskLabel(id, task), task.Timeout, MaxTaskTimeout)
 	}
 
 	if err := validateTarget(task, id); err != nil {

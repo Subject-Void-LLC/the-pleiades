@@ -141,6 +141,27 @@ func TestInvokeRequest_MethodErrorReported(t *testing.T) {
 	}
 }
 
+// TestInvokeRequest_AFailureKeepsWhatItRecorded: a method that recorded its
+// exit status and output and then failed (exec.command's shape) sends them
+// back with the failure, for the failed task's report, and never a change,
+// whatever its Result said.
+func TestInvokeRequest_AFailureKeepsWhatItRecorded(t *testing.T) {
+	name := registerTestMethod(t, "records-then-fails", collection.StatusImplemented,
+		func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+			_ = rc.SetStat("rc", 3)
+			_ = rc.SetStat("stdout", "partial output")
+			return collection.Result{Changed: true}, errors.New("command exited 3")
+		})
+
+	resp := external.InvokeRequest(context.Background(), collection.Lookup, wire.ChildRequest{FQCN: name})
+	if resp.Error != "command exited 3" || resp.Changed || resp.CannotCheck {
+		t.Fatalf("response = %+v, want the failure, no change and no cannot-check", resp)
+	}
+	if resp.Facts["rc"] != 3 || resp.Facts["stdout"] != "partial output" {
+		t.Errorf("facts = %v, want the exit status and output the method recorded", resp.Facts)
+	}
+}
+
 // TestInvokeRequest_ZeroesSecretsOnEveryPath proves the deferred Zero
 // actually runs, on success, on a method's own failure, and in check mode.
 // The method keeps the context it was handed and the test reads the

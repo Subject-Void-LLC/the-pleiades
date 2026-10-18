@@ -297,7 +297,9 @@ func childAnswer(name string, mode collection.Mode, resp wire.ChildResponse, sec
 		return collection.Result{}, nil, collection.CannotCheck(reason)
 	}
 	if resp.Error != "" {
-		return collection.Result{}, nil, errors.New(redact.Text(secrets, resp.Error))
+		// The facts beside a failure are what the method recorded before it
+		// failed, which the engine keeps for the failed task's report.
+		return collection.Result{}, resp.Facts, errors.New(redact.Text(secrets, resp.Error))
 	}
 	return collection.Result{Changed: resp.Changed}, resp.Facts, nil
 }
@@ -317,7 +319,7 @@ func (e *ipcCollectionExecutor) invokeInProcess(ctx context.Context, desc collec
 
 	result, err := method(ctx, rc, device, params)
 	if err != nil {
-		return collection.Result{}, nil, err
+		return collection.Result{}, rc.Facts(), err
 	}
 	return result, rc.Facts(), nil
 }

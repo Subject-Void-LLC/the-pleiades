@@ -45,7 +45,7 @@ func TestParseAdhocParams(t *testing.T) {
 
 func TestAdhocRunbookBuildsOneTask(t *testing.T) {
 	params := map[string]any{"command": "uptime", "env": map[string]any{"LANG": "C"}}
-	payload, err := adhocRunbook("web", "exec.command", params)
+	payload, err := adhocRunbook("web", "exec.command", params, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +60,32 @@ func TestAdhocRunbookBuildsOneTask(t *testing.T) {
 
 	// No parameters is a method key with nothing under it, as a person
 	// writes `virt.vbox.vm.list:` in a runbook.
-	payload, err = adhocRunbook("lab", "facts.gather", nil)
+	payload, err = adhocRunbook("lab", "facts.gather", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if dag := buildForPrint(t, string(payload), engine.TagFilter{}); dag.Nodes["tasks[0]"].FQCN != "facts.gather" {
 		t.Fatalf("from:\n%s", payload)
+	}
+}
+
+// TestAdhocRunbookCarriesATimeout: --timeout becomes the one task's own
+// timeout key, and the builder holds it to its range, as in a file.
+func TestAdhocRunbookCarriesATimeout(t *testing.T) {
+	payload, err := adhocRunbook("web", "exec.command", map[string]any{"command": "uptime"}, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dag := buildForPrint(t, string(payload), engine.TagFilter{}); dag.Nodes["tasks[0]"].Timeout != 300 {
+		t.Fatalf("timeout %d, from:\n%s", dag.Nodes["tasks[0]"].Timeout, payload)
+	}
+	payload, err = adhocRunbook("web", "exec.command", nil, -5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eval, _ := engine.NewCELEvaluator()
+	if _, err := engine.NewBuilder(eval).BuildFromYAML(payload); err == nil || !strings.Contains(err.Error(), "from 1 to 86400") {
+		t.Fatalf("a negative timeout: %v", err)
 	}
 }
 
@@ -78,7 +98,7 @@ func TestAdhocRunbookRefusals(t *testing.T) {
 		{"web", "block", "task keyword"},
 		{"web", "import_tasks", "task keyword"},
 	} {
-		if _, err := adhocRunbook(c.hosts, c.method, nil); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := adhocRunbook(c.hosts, c.method, nil, 0); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%q %q: %v, want an error naming %q", c.hosts, c.method, err, c.want)
 		}
 	}
@@ -91,7 +111,7 @@ func TestAdhocRunbookRefusals(t *testing.T) {
 func TestAdhocRunbookKeepsItsShape(t *testing.T) {
 	hosts := "web\ntasks:\n  - noop:"
 	value := "x\n  - name: second\n    exec.command:\n      command: rm -rf /"
-	payload, err := adhocRunbook(hosts, "exec.command", map[string]any{"command": value})
+	payload, err := adhocRunbook(hosts, "exec.command", map[string]any{"command": value}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +142,7 @@ func FuzzAdhocParams(f *testing.F) {
 		if err != nil {
 			return
 		}
-		payload, err := adhocRunbook(hosts, method, params)
+		payload, err := adhocRunbook(hosts, method, params, 0)
 		if err != nil {
 			return
 		}

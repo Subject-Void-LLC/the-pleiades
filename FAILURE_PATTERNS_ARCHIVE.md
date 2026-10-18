@@ -12790,3 +12790,218 @@ Measured with `kern.ipc.somaxconn` 128: 128 sessions passed every run, alone and
 **Lesson.** A stress test's load must fit the platform's own limits or it tests the kernel; size it from the
 platform rather than skip it there, and measure the threshold on the platform before choosing.
 
+## 502. testgate's live tests asked for -race unconditionally, which cannot build on a Windows machine with no C compiler (fixed)
+
+**Symptom.** 2026-10-18, the first `make win-check` run on the lab's `win-check` (Windows Server 2025 Core, Go
+1.26.9, no C toolchain): five of `tools/testgate`'s live tests failed with `go: -race requires cgo; enable cgo by
+setting CGO_ENABLED=1`, and one more failed because the failure it expected never ran. Linux, macOS and FreeBSD
+pass them.
+
+**Root cause.** The live tests build the options of a full pass (`options{full: true}`), which always means
+`-race`, and run a throwaway module through it. The race detector needs cgo; Go turns cgo off by itself where it
+finds no C compiler, so `-race` cannot build there. What the tests check is how testgate judges a run, not the race
+detector.
+
+**Fix.** testgate takes `-race=false` (options.noRace) for a machine that cannot build with it, which
+tools/wincheck passes; the live tests set it whenever `go env CGO_ENABLED` is not 1.
+
+**Lesson.** A test that runs the toolchain inherits every precondition of the flags it passes; one it does not test
+(here the race detector) is read from the machine, not assumed.
+
+## 503. durations.json's times were the gaps between log lines, so each shard's first package carried the shard's whole build (fixed)
+
+**Symptom.** 2026-10-18, the first CI run with balanced shards (pull request #72): its `coverage` job's
+`testgate -durations-check` warned that `cmd/controller` was recorded at 338 seconds and measured 158, and
+`internal/adapters/legacy` at 84 and measured 11.
+
+**Root cause.** The table was first built by reading the containers jobs' logs and taking each package's time as
+the gap since the previous package's result. The first package of each shard therefore carried everything before
+it, the shard's dependency build included. The check reads go test's own elapsed time for each package
+(flakegate.Measurement.Seconds), a different number.
+
+**Fix.** The table was regenerated from #72's own measurements, so it and the check read the same number; the
+four shards now expect 941 to 942 seconds each.
+
+**Lesson.** A table and the check that holds it must measure the same thing in the same way; a time derived from
+the gaps between log lines counts whatever else ran in that gap.
+
+## 504. The OS checks' stop test put its stand-in go last on the PATH, so the real go failed at once and the test read that as a stop (a repeat of 54) (fixed before push)
+
+**Symptom.** 2026-10-18, the failure-pattern review of the feat/wincheck branch: `TestTestAndStopScripts_RunUnderSh`
+passed in 0.056 s, where a real stop of a running test takes seconds.
+
+**Root cause.** The test's stand-in `go`, which sleeps so a stop has something to end, sat in the directory the
+script appends to the end of the PATH. The real `go` came first, failed in the empty tree within 20 ms, and the
+test took its non-zero exit for a stop; its "process group is gone" check passed because none had existed. Even
+with the stand-in first, Linux's `/bin/sh` (dash) has no job control without a terminal, so `set -m` gave the
+job no group and the stop script's group kill reached nothing: the stop was tested nowhere. 54's lesson (a
+passing test proved nothing about the feature it exercised) was recorded, but nothing makes a stand-in prove it
+ran, so the class repeated in new code.
+
+**Fix.** The stand-in comes first on the PATH and records its process ID; the test waits until it runs, stops the
+run (once with the stop script, once with a SIGTERM to the script, as a task timeout delivers it), and requires
+every recorded process gone, the pid file removed and a non-zero status. The scripts stop a run's group and then
+its process tree (`pgrep -P`), which works without job control, and the test script traps SIGTERM to do the same.
+Both tests failed against the old scripts and pass against the new.
+
+**Lesson.** A test that uses a stand-in asserts the stand-in ran; a test of a stop asserts something was running
+before it and nothing after.
+
+## 505. Three tests assumed a Linux or macOS host: printf's leftover arguments, /bin/bash, and FreeBSD as the "other" system (a repeat of 420) (fixed)
+
+**Symptom.** 2026-10-18, the first `make bsd-check` over this branch's packages on the lab's FreeBSD 15.1 box:
+`TestCommand_RunsAndReportsWhatHappened` failed with "printf: missing format character",
+`TestShell_HonorsTheExecutableParameter` and `TestShell_UsesTheDevicesShell` with "/bin/bash: not found", and
+`TestRun_ReportsEachOutcomeTruthfully` found its "other-os" check passing instead of skipping.
+
+**Root cause.** The command test ran `printf` with no shell, so its format had no conversion and three arguments
+were left over, which GNU's printf ignores and FreeBSD's refuses. The shell tests used `/bin/bash` as the
+non-default shell, which FreeBSD's base system lacks. The gate test used `freebsd` as an operating system the
+device does not run. 420's fix made the fast tier pass on macOS; no machine ran FreeBSD until bsdcheck.
+
+**Fix.** `echo` in place of `printf`; `/bin/sh` under another name, through a link in a temporary directory, as
+the non-default shell; and the "other" system chosen from the running one.
+
+**Lesson.** A test's host is one of several systems; tools, paths and "some other OS" are chosen from what every
+supported system has, or from the running one, and each system's leg is what proves it.
+
+## 506. The Runner's per-task child died on the SIGTERM meant to let it stop, so a timed-out command kept running on the device (fixed)
+
+**Symptom.** 2026-10-18, the failure-pattern review: on the Walk tier a task timeout could not reach a command
+running on a device, though `pkg/remoteexec` now sends a cancelled command SIGTERM.
+
+**Root cause.** The Runner ends a task's child, when the task's context ends, with SIGTERM and a forced kill after
+`childWaitDelay`, "giving the child a chance to exit cleanly". The child ran its method on `context.Background()`
+and handled no signal, so SIGTERM killed it at once: the method's context never ended, no SSH signal was sent, and
+the dropped connection left a quiet command running.
+
+**Fix.** Both child modes run their method in a context SIGTERM ends (`cmd/runner/child.go`), so the method is
+cancelled and pkg/remoteexec signals the command before the child exits, within the grace.
+
+**Lesson.** A graceful stop has two halves: the side that sends the signal and waits, and the side that handles
+it. Proving the first says nothing about the second.
+
+## 507. A failed node's undo was stripped in the collection bridge only, so a refused prediction reported one (fixed before push)
+
+**Symptom.** 2026-10-18, the failure-pattern review: a real run refused because its method answered with a
+prediction reached the executor's new failure branch with its success-shaped stats, `inverse` included, and printed
+them under `--json` and `--verbose`, against the changelog's "its recorded undo is left out".
+
+**Root cause.** The undo was left out in `collectionActionExecutor` only; the executor's own refusal
+(`refusePrediction`) and any other action executor returning stats with an error went past it.
+
+**Fix.** The executor strips the undo from every failed node's stats before register_mask and before keeping them.
+
+**Lesson.** A rule about what an outcome may carry is enforced where every outcome passes, not where most of them
+are made.
+
+## 508. A test started the Windows PowerShell of the workstation behind WSL to parse a script (fixed)
+
+**Symptom.** 2026-10-18: the owner saw `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ...`
+start on their workstation, a doubly base64-encoded command that reads like obfuscated malware, and asked whether
+the agent ran it.
+
+**Root cause.** `TestSchtaskScript_Parses` looked for a PowerShell to parse `win.schtask`'s script with, and its
+candidates included `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`. WSL's interop runs a Windows
+program on the host, so every run of the package's tests started a process on the workstation outside the test's
+machine. Nothing it ran changed anything (it only parsed), but a test has no business there, and WSL also appends
+the Windows PATH, so even a bare program name can resolve to a host program.
+
+**Fix.** The test parses with Windows PowerShell only when it runs on Windows (`make win-check` runs the package on
+the lab's win-check) and otherwise with a `pwsh` on the PATH whose real path is not a Windows `.exe`; with neither
+it skips, naming the need. A scan of every Go literal and `exec` call in the repository found no other test that
+reaches the host.
+
+**Lesson.** A test on the Linux side of WSL runs nothing on the Windows host behind it; a Windows-only check runs on
+a Windows machine the project manages.
+
+## 509. win.schtask's script was never sent through the real command line, and failed on every Windows host (fixed)
+
+**Symptom.** 2026-10-18, the first live call (to run DISM as SYSTEM): `win.schtask` failed before reaching the host
+with "the command line cmd.exe receives would be 9541 characters and Windows accepts at most 8191". With that fixed,
+registering a task failed again: "Cannot validate argument on parameter 'Description'. The argument is null or
+empty."
+
+**Root cause.** Its constant script, carried as `powershell.exe -EncodedCommand` (UTF-16LE in base64, about 2.7
+characters of line per character of script), had outgrown cmd.exe's limit, and its tests replace the WinRM call,
+so none built the line. The method had never run against a host. The empty description was passed unconditionally.
+
+**Fix.** The script's comments moved to Go and `$q` splats the task's path and name; `winrmexec.CheckScript` builds
+the real line, and a test holds the script to it. `-Description` is passed only when given. The whole lifecycle ran
+live on win-check.
+
+**Lesson.** A constant sent through a transport with a size limit is held to that limit by a test that builds the
+transport's real line; a stand-in for the transport cannot see the limit.
+
+## 510. A Windows run of the branch's packages failed 77 tests that assumed a POSIX host (a repeat of 505) (fixed)
+
+**Symptom.** 2026-10-18, the first `wincheck` run: 77 failures in eight packages.
+
+**Root cause.** 505's class at scale. Tests ran commands through remoteexectest's SSH server, which hands each to
+`/bin/sh`; set `HOME`, which `os.UserHomeDir` does not read on Windows (`USERPROFILE`); required Unix mode bits
+Windows does not keep; matched Linux's "no such file" wording; passed a child file descriptor 3, which `os/exec`
+cannot do there; and looked for a path an error quotes with `%q`, which doubles a Windows backslash. 505's lesson
+said a check of host behavior asks the host, but nothing ran the tests on Windows until now.
+
+**Fix.** `need.POSIXShell` skips a test that runs commands through `/bin/sh` ("needs posix-shell"); the home tests
+set the platform's variable; mode checks skip on Windows; a missing file is `errors.Is(fs.ErrNotExist)`; the fd 3
+test skips on Windows, where the loader runs nothing anyway; quoted paths are matched quoted. The rerun found three
+left, all fixed.
+
+**Lesson.** The machine that finds host assumptions is the host; a branch's packages run there before the claim
+that they pass anywhere.
+
+## 511. The hop stress test's listen-queue bound covered macOS only; FreeBSD and Windows reset and refuse past their backlog (a repeat of 501) (fixed)
+
+**Symptom.** 2026-10-18: 107 of 300 sessions reset on FreeBSD ("Listen queue overflow: 193 already in queue"), 99
+of 300 refused on Windows.
+
+**Root cause.** 501 bounded the test by `kern.ipc.somaxconn` on Darwin and assumed every other kernel drops a SYN
+for the client to resend, as Linux does. FreeBSD and Windows answer as XNU does. On FreeBSD it showed only in the
+faster pass without the race detector.
+
+**Fix.** The bound reads `kern.ipc.somaxconn` on FreeBSD too, and is 128 on Windows.
+
+**Lesson.** A bound measured on one kernel is that kernel's; the others are measured before the default claims them.
+
+## 512. bsd-check was sized at 1 GB by assumption, and could not compile the branch's packages (fixed)
+
+**Symptom.** 2026-10-18: FreeBSD's kernel killed `compile` and `go` ("out of swap space", "failed to reclaim
+memory"), first in the repeat pass and, with a 2 GB swap file added, again after 54 minutes of paging.
+
+**Root cause.** The box was made lean on the expectation that tests need little memory. Compiling the AWS SDK's
+`ec2` package, which `internal/engine` and the catalog reach, peaks at 3.2 GB, 3.7 GB with `-race` (measured
+here). Nobody had measured the heaviest compile before choosing the size.
+
+**Fix.** 4 GB with one CPU, the owner's choice; the checks start the VM when a run needs it and save its state
+afterwards, so the workstation holds the memory only during a check, and pr-check runs the lab VMs one at a time.
+
+**Lesson.** A box's size comes from its heaviest job, measured; a shared host's boxes run only while they are used.
+
+## 513. A commit that meant to append four entries replaced the failure-pattern archive with them (fixed before push)
+
+**Symptom.** 2026-10-18: `FAILURE_PATTERNS_ARCHIVE.md` held entries 504 to 507 and nothing else, 71 lines where
+there had been 12826. Found by reading the archive to append the next entry.
+
+**Root cause.** In commit acc48026 the archive was written whole from the new entries instead of appended to. The
+index still listed every title, nothing reads the archive automatically, and commitgate checks added lines only.
+
+**Fix.** The archive was restored from the commit before it, with the four entries appended. commitgate now fails
+a commit that leaves any `*_ARCHIVE.md` shorter or deletes one, and warns about one edited in place.
+
+**Lesson.** A record that only grows is enforced as only growing; an append is made with an append.
+
+## 514. Twenty methods' documented examples could never run as written (three fixed, seventeen open)
+
+**Symptom.** 2026-10-18: `win.capability.install`'s example failed `pleiades validate` ("undeclared reference to
+'appcompat'"), and a new test that builds every method's examples through the engine found twenty that fail.
+
+**Root cause.** Nothing built the catalog's examples. Nine conditions read a register by its bare name where a
+condition reads `result.<name>`, and some of those read `changed`, which a register never holds (it keeps the
+method's stats only); eleven `ai.*` and `edge.*` examples put a `hosts:` key on a task, which no task accepts.
+
+**Fix.** `win.capability.install`, `win.reboot` and `win.feature.install` read `result.<name>.reboot_required`, and
+`win.feature.install` restarts with `win.reboot`. The test and the other seventeen examples are the next pull
+request: some need a different condition (a `diff` checksum where they read `changed`), not only the root.
+
+**Lesson.** An example is code a reader runs; a test builds every one.

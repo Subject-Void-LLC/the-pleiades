@@ -107,6 +107,29 @@ func TestUserData_AShellTheGuestHas(t *testing.T) {
 	}
 }
 
+// TestUserData_Packages: the packages the first boot installs are
+// cloud-init's packages list, which FreeBSD's nuageinit reads too, written
+// by the encoder as plain names; a seed with none writes no key at all.
+func TestUserData_Packages(t *testing.T) {
+	seed := lab("pleiades")
+	seed.Packages = []string{"git", "sudo", "py311-pip", "libstdc++6", "g++"}
+	doc, err := seed.UserData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := decode(t, doc)["packages"].([]any)
+	if len(got) != 5 || got[0] != "git" || got[3] != "libstdc++6" || got[4] != "g++" {
+		t.Errorf("user-data:\n%s", doc)
+	}
+	doc, err = lab("pleiades").UserData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := decode(t, doc)["packages"]; present {
+		t.Errorf("a seed with no packages names some:\n%s", doc)
+	}
+}
+
 func TestMetaDataAndNetworkConfig(t *testing.T) {
 	seed := lab("root")
 	meta, err := seed.MetaData()
@@ -150,6 +173,11 @@ func TestValidate(t *testing.T) {
 		"an address with no prefix":      func(s *Seed) { s.Interfaces[1].Address = "192.168.56.10" },
 		"a shell that is not a path":     func(s *Seed) { s.Shell = "sh" },
 		"a shell with a space":           func(s *Seed) { s.Shell = "/bin/sh -x" },
+		"a package read as an option":    func(s *Seed) { s.Packages = []string{"-y"} },
+		"a package holding a command":    func(s *Seed) { s.Packages = []string{"git; reboot"} },
+		"a package on two lines":         func(s *Seed) { s.Packages = []string{"git\nruncmd: [reboot]"} },
+		"an empty package":               func(s *Seed) { s.Packages = []string{""} },
+		"too many packages":              func(s *Seed) { s.Packages = make([]string, MaxPackages+1) },
 	} {
 		seed := lab("root")
 		seed.Interfaces = append([]Interface(nil), seed.Interfaces...)

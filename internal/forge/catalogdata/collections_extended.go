@@ -162,9 +162,9 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Enable IIS", RunbookYAML: "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  exec.winrm.shell:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"},
+				{Name: "Enable IIS", RunbookYAML: "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Restart if DISM asked for one\n  win.reboot: {}\n  when:\n    - result.iis.reboot_required\n"},
 			},
-			SeeAlso: []string{"win.feature.remove"},
+			SeeAlso: []string{"win.feature.remove", "win.reboot"},
 		},
 	},
 	{

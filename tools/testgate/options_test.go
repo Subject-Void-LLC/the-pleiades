@@ -19,6 +19,7 @@ func TestGoTestArgs(t *testing.T) {
 		{"integration", options{integration: true}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-count=1"}},
 		{"the one pass", options{full: true}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-cover", "-count=1"}},
 		{"with parallelism", options{full: true, parallel: 1}, []string{"-race", "-timeout", goTestTimeout, "-tags", "integration", "-cover", "-count=1", "-p", "1"}},
+		{"the one pass without the race detector", options{full: true, noRace: true}, []string{"-timeout", goTestTimeout, "-tags", "integration", "-cover", "-count=1"}},
 		{"test-repeat's pass", options{repeat: 3}, []string{"-count=3", "-timeout", goTestTimeout}},
 	}
 	for _, tt := range tests {

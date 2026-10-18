@@ -132,6 +132,20 @@
             }
           ]
         },
+        "timeout": {
+          "description": "Ansible's timeout: whole seconds this task may run on each device before it is stopped and fails; 0 or none is no bound of its own. Only on a method call.",
+          "oneOf": [
+            {
+              "maximum": 86400,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ]
+        },
         "when": {
           "description": "Ansible-compatible conditional, ANDed if a list.",
           "oneOf": [

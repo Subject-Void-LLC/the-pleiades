@@ -61,12 +61,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 170 registered FQCNs; 167 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 173 registered FQCNs; 170 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19, `ai` 11,
-  `svc` 16, `net` 12, `file` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 6, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 12, `file` 12, `pkg` 9, `win` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 2, `pleiades` 2, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -145,7 +145,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 157 of the 167 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 160 of the 170 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -284,6 +284,7 @@ make ci-fast         # every container-free package, tolerant, then test-repeat:
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
 make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
 make mac-check       # the branch's container-free packages on a real Mac (PLEIADES_MAC in tests/mac/.env), through pleiades; pr-check runs it when a Mac is named
+make bsd-check       # the same on a FreeBSD machine a project manages (tests/bsd/.env), and make win-check on a Windows one (tests/win/.env, no -race); a VM one is started and saved again around the run, and pr-check runs them one at a time beside the Linux passes
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target

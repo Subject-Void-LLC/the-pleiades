@@ -70,7 +70,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Starts a VirtualBox VM with no window.",
-			Description: "Makes sure a VM is running, started headless. A VM that is already running reports no change. A paused VM is refused, since starting is not resuming." +
+			Description: "Makes sure a VM is running, started headless. A VM that is already running reports no change. A saved VM (virt.vbox.vm.stop's mode save) resumes where it was, with no boot. A paused VM is refused, since starting is not resuming." +
 				vboxHostParamNote +
 				" On a Windows host, a VM cannot start from the WinRM logon this task uses: Windows' catalog signature check fails for a non-administrator logon that is not interactive, and VirtualBox's hardening then refuses the hypervisor (VirtualBox ticket 20341). So when none of the account's VMs is running, the VM is marked for autostart and started by the account's VirtualBox autostart service, which runs under a service logon; examples/windows_lab/winrm-cert-setup.ps1 -VirtualBoxAutostart installs it. While any of the account's VMs runs, a plain start works, because every client is then handed the VirtualBox server that VM keeps alive. The autostart mark stays on while the VM runs, since VirtualBox refuses to change a running VM's settings, so a host restart in that time starts it again; virt.vbox.vm.stop clears it." +
 				" A VM with more memory than the host has free, less 1024 MB kept for the host itself, is refused rather than started, since the host would page to find it; the host's free memory is read at the start." +
@@ -94,11 +94,11 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Stops a VirtualBox VM, by its power button or by cutting its power.",
-			Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host." +
+			Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host." +
 				vboxHostParamNote + " A check reads the VM and sends nothing.",
 			Params: []collection.Param{
 				vmNameParam,
-				{Name: "mode", Type: "string", Default: "acpi", Choices: []string{"acpi", "poweroff"}, Description: "acpi asks the guest to shut down; poweroff cuts its power."},
+				{Name: "mode", Type: "string", Default: "acpi", Choices: []string{"acpi", "poweroff", "save"}, Description: "acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume."},
 				{Name: "timeout", Type: "int", Default: "120", Description: "With mode acpi, how many seconds to wait for the guest to shut down before failing."},
 			},
 			Returns: []collection.ReturnField{
@@ -108,6 +108,7 @@ var virtCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{Name: "Shut a VM down", RunbookYAML: "- name: Shut the lab VM down\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n"},
 				{Name: "Cut a VM's power", RunbookYAML: "- name: Power the lab VM off now\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: poweroff\n"},
+				{Name: "Put a VM away until it is next needed", RunbookYAML: "- name: Save the lab VM's state and free its memory\n  virt.vbox.vm.stop:\n    name: ubuntu-lab\n    mode: save\n"},
 			},
 			SeeAlso: []string{"virt.vbox.vm.start"},
 		},
@@ -417,6 +418,7 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "cpus", Type: "int", Default: "1", Description: "Its virtual CPU count, when size is not given."},
 				{Name: "paravirt_provider", Type: "string", Choices: []string{"default", "legacy", "minimal", "hyperv", "kvm", "none"}, Description: "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."},
 				{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
+				{Name: "packages", Type: "list of string", Description: "Packages a Linux or FreeBSD VM's first boot installs as root, from the guest's own repositories over its NAT adapter: cloud-init's packages list, which FreeBSD's nuageinit reads too, bootstrapping pkg first. Each is a package name of letters, digits and . + _ -, at most 64 of them. On FreeBSD, whose base system has no sudo, listing sudo is what gives a login other than root the passwordless sudo the seed grants it. Refused for a Windows VM, whose answer file installs nothing. Like the rest of the seed, it is read at the first boot only, so a VM already under the name is not changed."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also a Linux VM's cloud-init instance ID."},

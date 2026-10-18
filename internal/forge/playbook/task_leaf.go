@@ -4,10 +4,12 @@ package playbook
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -25,7 +27,10 @@ type leafSpec struct {
 	register  string
 	tags      []string
 	checkMode bool
-	hasLoop   bool
+	// timeout is a literal timeout in seconds, carried to the native
+	// task's own; zero is none.
+	timeout int
+	hasLoop bool
 	// local is set when the task is written to run on the Ansible
 	// controller (delegate_to: localhost, local_action, connection: local);
 	// localRun decides it once the native methods are known.
@@ -110,6 +115,12 @@ func (t *translator) readLeaf(node *yaml.Node, entries []entry, name string, ctx
 				continue
 			}
 		}
+		if e.key == "timeout" {
+			// A task's timeout carries over; on a block or a play the table's
+			// row still blocks it, since a native timeout bounds one task.
+			t.readTimeout(&spec, e, at)
+			continue
+		}
 		rule := taskKeywords[e.key]
 		switch {
 		case rule.handling == kwDrop && !literalFalse(e.value):
@@ -187,6 +198,21 @@ func (t *translator) readSpecial(spec *leafSpec, e entry, at Position) {
 	case "args":
 		spec.args = e.value
 	}
+}
+
+// readTimeout reads a task's timeout: a literal whole number of seconds up
+// to engine.MaxTaskTimeout becomes the native task's own timeout (0, which
+// is Ansible's "no timeout", carries nothing), and anything else, a
+// template included, blocks the task, since dropping a timeout would let
+// the task run longer than its author allowed.
+func (t *translator) readTimeout(spec *leafSpec, e entry, at Position) {
+	if v := deref(e.value); v != nil && v.Kind == yaml.ScalarNode && !hasTemplate(v.Value) {
+		if n, err := strconv.Atoi(strings.TrimSpace(v.Value)); err == nil && n >= 0 && n <= engine.MaxTaskTimeout {
+			spec.timeout = n
+			return
+		}
+	}
+	spec.blocks = append(spec.blocks, t.raise("keyword.timeout", at, spec.name, fmt.Sprintf("timeout is not a literal whole number of seconds from 0 to %d", engine.MaxTaskTimeout)))
 }
 
 // readModule finds the one module a task runs, from its keys or an

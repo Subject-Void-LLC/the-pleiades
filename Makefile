@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check ci-images workflow-lint doctor test-clean-room
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -655,16 +655,24 @@ ci-containers:
 # PR_CHECK_PARALLELISM bounds how many container-free packages run at
 # once (0 keeps go test's default).
 #
-# With a Mac named (tests/mac/.env), the Mac's tests run beside the Linux
-# ones rather than after them: tools/maccheck -phase prepare checks the Mac,
-# builds pleiades and sends the tree first, the only part that uses this
-# machine, then -phase test runs in the background, on the Mac's CPU and
-# memory, while the Linux passes run here. Its output goes to
-# $(COVERAGE_DIR)/pr/mac.log and is printed whole once the Linux passes end,
-# so the two never interleave, and its result counts as any other step's.
-# An interrupt, or the recipe ending early, stops it, and maccheck then
-# stops the tests on the Mac as well. Nothing it runs changed: the same
-# packages, passes and parallelism as before.
+# The same container-free packages run on each other machine named: a Mac
+# (tests/mac/.env, tools/maccheck), a FreeBSD machine (tests/bsd/.env,
+# tools/bsdcheck) and a Windows one (tests/win/.env, tools/wincheck), each
+# beside the Linux passes rather than after them. The Mac's -phase prepare
+# checks it, builds pleiades and sends the tree first, here; then its
+# -phase test runs in the background, on the Mac's CPU and memory, while
+# the Linux passes run here. The FreeBSD and Windows machines are lab VMs
+# a check starts when it needs one and puts back afterwards, its state
+# saved, so they run in the background one after the other (LAB_CHECKS),
+# each whole, and at most one holds the host's memory at a time. Each
+# one's output goes to $(COVERAGE_DIR)/pr/<mac|bsd|win>.log and is printed
+# whole once the Linux passes end, so none interleave, and each result
+# counts as any other step's. An interrupt, or the recipe ending early,
+# stops them, and each check then stops its tests on its machine and puts
+# back a box it started. A machine not named is said not to have been
+# checked. The Mac runs PR_CHECK_PARALLELISM packages at once; the FreeBSD
+# and Windows machines go test's default for their own CPUs
+# (BSD_CHECK_PARALLELISM, WIN_CHECK_PARALLELISM).
 #
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
@@ -674,6 +682,13 @@ ci-containers:
 # hook: both are deliberate, and both are the developer's to answer for.
 PR_BASE ?= origin/main
 PR_CHECK_PARALLELISM ?= 0
+BSD_CHECK_PARALLELISM ?= 0
+WIN_CHECK_PARALLELISM ?= 0
+# OS_CHECKS are the checks whose machine is always up, each
+# tools/<name>check, and LAB_CHECKS those whose VM a check starts and puts
+# back, which run one at a time.
+OS_CHECKS := mac
+LAB_CHECKS := bsd win
 PR_CHECK_ALWAYS := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
@@ -687,14 +702,24 @@ pr-check: ci-remote pr-check-vet
 	done; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
 	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr; \
-	status=0; mac_pid=""; mac_log=$(COVERAGE_DIR)/pr/mac.log; \
-	go build -o $(COVERAGE_DIR)/pr/maccheck ./tools/maccheck || exit 1; \
-	$(COVERAGE_DIR)/pr/maccheck -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/mac.ready -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
-	if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
-		$(COVERAGE_DIR)/pr/maccheck -phase test -p $(PR_CHECK_PARALLELISM) $$mine_fast > $$mac_log 2>&1 & mac_pid=$$!; \
-		trap 'kill -TERM $$mac_pid 2>/dev/null; wait $$mac_pid' INT TERM EXIT; \
-		echo "pr-check: the Mac's tests run beside the ones below; their output follows them ($$mac_log)"; \
-	fi; \
+	status=0; legs=""; \
+	trap 'for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done' INT TERM EXIT; \
+	for os in $(OS_CHECKS); do \
+		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
+		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
+			$(COVERAGE_DIR)/pr/$${os}check -phase test -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
+			echo "pr-check: the $$os tests run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
+		fi; \
+	done; \
+	for os in $(LAB_CHECKS); do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
+	( for os in $(LAB_CHECKS); do \
+		case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
+		$(COVERAGE_DIR)/pr/$${os}check -optional -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
+		trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
+		wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
+	done ) & legs="$$legs lab:$$!"; \
+	echo "pr-check: the $(LAB_CHECKS) tests run one after another beside the ones below, each box started and put back; their output follows them"; \
 	if [ -n "$$mine_fast" ]; then \
 		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json $$mine_fast || status=1; \
 		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
@@ -711,11 +736,19 @@ pr-check: ci-remote pr-check-vet
 	if [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
 		go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json || status=1; \
 	fi; \
-	if [ -n "$$mac_pid" ]; then \
-		echo "pr-check: waiting for the Mac's tests"; \
-		wait $$mac_pid || status=1; trap - INT TERM EXIT; \
-		cat $$mac_log; \
-	fi; \
+	for leg in $$legs; do \
+		echo "pr-check: waiting for the $${leg%%:*} tests"; \
+		wait $${leg#*:} || status=1; \
+		if [ "$${leg%%:*}" = lab ]; then \
+			for os in $(LAB_CHECKS); do \
+				cat $(COVERAGE_DIR)/pr/$$os.log; \
+				if [ -f $(COVERAGE_DIR)/pr/$$os.failed ]; then status=1; fi; \
+			done; \
+		else \
+			cat $(COVERAGE_DIR)/pr/$${leg%%:*}.log; \
+		fi; \
+	done; \
+	trap - INT TERM EXIT; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
@@ -731,13 +764,31 @@ pr-check: ci-remote pr-check-vet
 # the same check whenever a Mac is named, and says macOS was not checked
 # when none is.
 mac-check:
-	@$(SPLIT_PACKAGES); \
+	@$(call OS_CHECK,maccheck,$(PR_CHECK_PARALLELISM))
+
+# bsd-check and win-check are mac-check for a FreeBSD and a Windows machine:
+# a device of a Pleiades project that already manages it, as the VirtualBox
+# lab's bsd-check and win-check are, named in tests/bsd/.env and
+# tests/win/.env (gitignored; copy each .env.example). tools/bsdcheck runs
+# the packages as pr-check does; tools/wincheck without the race detector,
+# which needs cgo and a C toolchain on Windows. pr-check runs each whenever
+# its machine is named, and says that system was not checked when none is.
+bsd-check:
+	@$(call OS_CHECK,bsdcheck,$(BSD_CHECK_PARALLELISM))
+win-check:
+	@$(call OS_CHECK,wincheck,$(WIN_CHECK_PARALLELISM))
+
+# OS_CHECK runs the branch's container-free packages through tools/$(1),
+# $(2) of them at once on its machine.
+define OS_CHECK
+$(SPLIT_PACKAGES); \
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
 	mine_fast=""; \
 	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
 		if printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
-	go run ./tools/maccheck -p $(PR_CHECK_PARALLELISM) $$mine_fast
+	go run ./tools/$(1) -p $(2) $$mine_fast
+endef
 
 # pr-check-vet vets every package, tests and the integration tag included,
 # as macOS and Windows build them: a file named for one operating system

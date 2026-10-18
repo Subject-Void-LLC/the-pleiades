@@ -148,7 +148,10 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 		if mode == collection.ModeCheck && errors.As(err, &cannot) {
 			return wire.ChildResponse{Error: cannot.Reason, CannotCheck: true}
 		}
-		return wire.ChildResponse{Error: err.Error()}
+		// What it recorded before failing (a failed command's exit status
+		// and output) goes back with the failure, for the failed task's
+		// report; it changed nothing the parent may count on.
+		return wire.ChildResponse{Error: err.Error(), Facts: rc.Facts()}
 	}
 	return wire.ChildResponse{Changed: result.Changed, Facts: rc.Facts()}
 }

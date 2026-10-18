@@ -42,6 +42,7 @@ var ReservedTaskKeys = map[string]bool{
 	"always":           true,
 	"parallel":         true,
 	"tags":             true,
+	"timeout":          true,
 	"rollback":         true,
 }
 

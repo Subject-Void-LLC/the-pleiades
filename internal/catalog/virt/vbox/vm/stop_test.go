@@ -167,3 +167,59 @@ func TestStop_Refusals(t *testing.T) {
 		}
 	}
 }
+
+// TestStop_Save writes a running VM's state to disk, clears its autostart
+// mark, and records the start that resumes it; a check predicts the saved
+// state, and a VM already saved is no change.
+func TestStop_Save(t *testing.T) {
+	vm := startedByTheService()
+	model := vboxmanagetest.New(vm)
+	onModel(t, model)
+	rc := newRecorder()
+	result, err := call(t, "virt.vbox.vm.stop", false, rc, map[string]any{"name": "ubuntu-lab", "mode": "save"})
+	if err != nil || !result.Changed {
+		t.Fatalf("%+v, %v", result, err)
+	}
+	if vm.State != vboxmanage.StateSaved || vm.Autostart || rc.stats["state"] != "saved" {
+		t.Errorf("the VM is %s with autostart %v, stats %v", vm.State, vm.Autostart, rc.stats)
+	}
+	if got := changes(model); !reflect.DeepEqual(got, []string{
+		"VBoxManage.exe controlvm ubuntu-lab savestate",
+		"VBoxManage.exe modifyvm ubuntu-lab --autostart-enabled off --autostart-delay 0",
+	}) {
+		t.Errorf("changes = %v", got)
+	}
+	if inverse, _ := rc.stats[sdk.StatInverse].(map[string]any); inverse["fqcn"] != "virt.vbox.vm.start" {
+		t.Errorf("inverse = %v", rc.stats[sdk.StatInverse])
+	}
+
+	again := newRecorder()
+	if result, err := call(t, "virt.vbox.vm.stop", false, again, map[string]any{"name": "ubuntu-lab", "mode": "save"}); err != nil || result.Changed {
+		t.Errorf("saving a saved VM: %+v, %v", result, err)
+	}
+
+	checked := startedByTheService()
+	model = vboxmanagetest.New(checked)
+	onModel(t, model)
+	rc = newRecorder()
+	if _, err := call(t, "virt.vbox.vm.stop", true, rc, map[string]any{"name": "ubuntu-lab", "mode": "save"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, after := rc.diff(t); !reflect.DeepEqual(after, map[string]any{"state": "saved", "autostart_enabled": false}) || len(changes(model)) != 0 {
+		t.Errorf("predicted %v, changes %v", after, changes(model))
+	}
+}
+
+// TestStart_ResumesASavedVM: start takes a saved VM back to running.
+func TestStart_ResumesASavedVM(t *testing.T) {
+	saved := lab()
+	saved.State = vboxmanage.StateSaved
+	other := lab()
+	other.Name, other.UUID, other.State = "other-lab", "00000000-0000-0000-0000-0000000000aa", vboxmanage.StateRunning
+	onModel(t, vboxmanagetest.New(saved, other))
+	rc := newRecorder()
+	result, err := call(t, "virt.vbox.vm.start", false, rc, map[string]any{"name": "ubuntu-lab"})
+	if err != nil || !result.Changed || saved.State != vboxmanage.StateRunning {
+		t.Fatalf("%+v, %v, the VM is %s", result, err, saved.State)
+	}
+}

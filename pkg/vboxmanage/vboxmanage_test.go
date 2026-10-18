@@ -56,6 +56,7 @@ func TestHost_SendsExactlyTheseArguments(t *testing.T) {
 		"running":   {func(h Host) error { _, err := h.Running(ctx); return err }, "list runningvms"},
 		"start":     {func(h Host) error { return h.Start(ctx, "vm1") }, "startvm vm1 --type headless"},
 		"poweroff":  {func(h Host) error { return h.PowerOff(ctx, "vm1") }, "controlvm vm1 poweroff"},
+		"savestate": {func(h Host) error { return h.SaveState(ctx, "vm1") }, "controlvm vm1 savestate"},
 		"acpi":      {func(h Host) error { return h.ACPIShutdown(ctx, "vm1") }, "controlvm vm1 acpipowerbutton"},
 		"autostart": {func(h Host) error { return h.SetAutostart(ctx, "vm1", true) }, "modifyvm vm1 --autostart-enabled on --autostart-delay 0"},
 		"hostinfo":  {func(h Host) error { _, err := h.HostInfo(ctx); return err }, "list hostinfo"},

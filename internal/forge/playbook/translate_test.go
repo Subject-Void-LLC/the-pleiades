@@ -104,6 +104,20 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// TestTranslate_ATaskTimeoutCarriesOver: Ansible's timeout on a task
+// becomes the runbook's own timeout key, which the engine's builder reads
+// back as the same number of seconds, on each task a loop unrolls into.
+func TestTranslate_ATaskTimeoutCarriesOver(t *testing.T) {
+	res := convert(t, "- hosts: web\n  gather_facts: false\n  tasks:\n    - {command: \"echo {{ item }}\", loop: [a, b], timeout: 90}\n")
+	if len(res.Runbooks) != 1 || res.Runbooks[0].Incomplete {
+		t.Fatalf("runbooks = %+v; findings %v", res.Runbooks, codesOf(res.Report))
+	}
+	dag := build(t, res.Runbooks[0].YAML)
+	if len(dag.Tasks) != 2 || dag.Tasks[0].Timeout != 90 || dag.Tasks[1].Timeout != 90 {
+		t.Fatalf("tasks %+v, want two with a timeout of 90\n%s", dag.Tasks, res.Runbooks[0].YAML)
+	}
+}
+
 // TestReport_EachConstructExactlyOnce proves a construct is reported once
 // however many tasks it lands in: a loop of three items carrying notify
 // and become gives one of each, and no two findings share a code and a

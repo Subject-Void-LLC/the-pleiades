@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -19,6 +20,7 @@ import (
 // the command, and reports the skip the real run would make or predicts
 // the run; and the real run from the same state agrees on changed.
 func TestGuardedChecks(t *testing.T) {
+	need.POSIXShell(t)
 	for _, fqcn := range []string{"exec.command", "exec.shell"} {
 		t.Run(fqcn, func(t *testing.T) {
 			d, ok := collection.Lookup(fqcn)
@@ -102,6 +104,7 @@ func TestGuardedChecks(t *testing.T) {
 // its result, rather than predicting a run with no stats behind it; and
 // the command is never sent.
 func TestGuardedChecks_FailWhenTheyCannotRecord(t *testing.T) {
+	need.POSIXShell(t)
 	for _, fqcn := range []string{"exec.command", "exec.shell"} {
 		t.Run(fqcn, func(t *testing.T) {
 			d, _ := collection.Lookup(fqcn)

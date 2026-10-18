@@ -15,12 +15,14 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
 // startPoolServer starts a real in-process SSH server for one test.
 func startPoolServer(t *testing.T) *remoteexectest.Server {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the in-process SSH server: %v", err)

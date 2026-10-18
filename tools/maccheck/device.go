@@ -1,89 +1,72 @@
 // The Mac as a Pleiades device: the private project that holds it, and the
-// methods that check it and run the tests on it, through this branch's own
-// pleiades binary.
+// checks that it can run the tests, through this branch's own pleiades
+// binary. Sending the tree and running the tests are oscheck.POSIX's.
 package main
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
 // Ready builds pleiades, makes the Mac a device of the private project
 // when the project does not hold this exact target yet, then asks
 // net.ssh.ping whether Pleiades reaches it and exec.command whether it is
 // a Mac with go and caffeinate.
-func (r pleiadesRemote) Ready(mac string) error {
-	t, err := resolve(mac)
+func (r pleiadesRemote) Ready() error {
+	t, err := resolve(r.mac)
 	if err != nil {
 		return err
 	}
-	if err := loginCheck(mac, t); err != nil {
+	if err := loginCheck(r.mac, t); err != nil {
 		return err
 	}
-	if err := r.ensureDevice(mac, t); err != nil {
+	if err := r.ensureDevice(t); err != nil {
 		return err
 	}
-	if _, err := r.adhoc("net.ssh.ping"); err != nil {
-		return fmt.Errorf("pleiades could not reach %s: %v\n  If its host key is new to this machine, run `ssh %s true` once and accept it", mac, err, mac)
+	if _, err := r.posix.Pleiades.Adhoc(context.Background(), "net.ssh.ping"); err != nil {
+		return fmt.Errorf("pleiades could not reach %s: %v\n  If its host key is new to this machine, run `ssh %s true` once and accept it", r.mac, err, r.mac)
 	}
-	out, err := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", readyScript))
-	if err != nil {
-		return fmt.Errorf("checking %s: %v", mac, err)
-	}
-	return readyAnswer(mac, out)
+	return r.posix.Ready(r.mac, "Darwin", "Mac",
+		oscheck.Need{Command: "go", Why: "install it with `brew install go`, or from https://go.dev/dl"},
+		oscheck.Need{Command: "git", Why: "the tests that make a throwaway repository need it: install the Command Line Tools with `xcode-select --install`"},
+		oscheck.Need{Command: "caffeinate", Why: "it keeps the Mac awake through the run"})
 }
 
-// readyScript reports the Mac's kernel and whether go and caffeinate are
-// on its PATH, one line each.
-const readyScript = `export PATH="$PATH:` + macPath + `"
-uname -s
-command -v go >/dev/null 2>&1 && echo go || echo no-go
-command -v caffeinate >/dev/null 2>&1 && echo caffeinate || echo no-caffeinate`
+// Ship unpacks commit sha's tree on the Mac (oscheck.POSIX.Ship).
+func (r pleiadesRemote) Ship(sha string) error { return r.posix.Ship(sha) }
 
-// readyAnswer checks readyScript's output.
-func readyAnswer(mac, out string) error {
-	lines := strings.Fields(out)
-	if len(lines) != 3 {
-		return fmt.Errorf("%s answered the readiness check with %q", mac, out)
-	}
-	switch {
-	case lines[0] != "Darwin":
-		return fmt.Errorf("%s is not a Mac: its kernel is %s", mac, lines[0])
-	case lines[1] != "go":
-		return fmt.Errorf("%s has no go on its PATH (looked in its PATH and %s): install it with `brew install go`, or from https://go.dev/dl", mac, macPath)
-	case lines[2] != "caffeinate":
-		return fmt.Errorf("%s has no caffeinate, which keeps it awake through the run", mac)
-	}
-	return nil
+// Test runs the packages on sha's tree, under caffeinate
+// (oscheck.POSIX.Test).
+func (r pleiadesRemote) Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error) {
+	return r.posix.Test(ctx, r.mac, sha, parallel, packages, stdout)
 }
 
 // ensureDevice (re)creates the private project for t unless it already
 // holds exactly t: built pleiades, init, add-host, add-credential with the
 // first of t's identity files that exists, and onboard.
-func (r pleiadesRemote) ensureDevice(mac string, t sshTarget) error {
+func (r pleiadesRemote) ensureDevice(t sshTarget) error {
 	key := firstKey(t)
 	if key == "" {
-		return fmt.Errorf("ssh names no private key that exists for %s (it looked at %v); make one with ssh-keygen -t ed25519", mac, t.keys)
+		return fmt.Errorf("ssh names no private key that exists for %s (it looked at %v); make one with ssh-keygen -t ed25519", r.mac, t.keys)
 	}
-	stamp := strings.Join([]string{mac, t.host, t.port, t.user, key}, "\n")
-	if data, err := os.ReadFile(filepath.Join(r.project, "target")); err == nil && string(data) == stamp && fileExists(r.binary()) {
-		if err := r.build(); err != nil {
+	p := r.posix.Pleiades
+	stamp := strings.Join([]string{r.mac, t.host, t.port, t.user, key}, "\n")
+	if data, err := os.ReadFile(filepath.Join(r.project, "target")); err == nil && string(data) == stamp && oscheck.FileExists(p.Binary) {
+		if err := p.Build(); err != nil {
 			return err
 		}
 		// Onboarding again records what this branch's binary grants the
 		// Mac, which a binary from another branch may not have.
-		if out, err := r.pleiades("onboard", device, "--dir", r.project); err != nil {
+		if out, err := p.Run("onboard", device, "--dir", r.project); err != nil {
 			return fmt.Errorf("pleiades onboard: %v\n%s", err, strings.TrimSpace(out))
 		}
 		return nil
@@ -94,7 +77,7 @@ func (r pleiadesRemote) ensureDevice(mac string, t sshTarget) error {
 	if err := os.MkdirAll(r.project, 0o700); err != nil {
 		return err
 	}
-	if err := r.build(); err != nil {
+	if err := p.Build(); err != nil {
 		return err
 	}
 	for _, args := range [][]string{
@@ -103,170 +86,12 @@ func (r pleiadesRemote) ensureDevice(mac string, t sshTarget) error {
 		{"add-credential", device, "--username", t.user, "--key", key, "--dir", r.project},
 		{"onboard", device, "--dir", r.project},
 	} {
-		if out, err := r.pleiades(args...); err != nil {
+		if out, err := p.Run(args...); err != nil {
 			return fmt.Errorf("pleiades %s: %v\n%s", args[0], err, strings.TrimSpace(out))
 		}
 	}
 	return os.WriteFile(filepath.Join(r.project, "target"), []byte(stamp), 0o600)
 }
-
-// binary is where this run's pleiades is built.
-func (r pleiadesRemote) binary() string { return filepath.Join(r.project, "pleiades") }
-
-// build builds pleiades from this tree into the project, so the run
-// drives the branch's own binary.
-func (r pleiadesRemote) build() error {
-	out, err := exec.Command("go", "build", "-o", r.binary(), "./cmd/pleiades").CombinedOutput() // #nosec G204 -- this repository's own command
-	if err != nil {
-		return fmt.Errorf("building pleiades: %v\n%s", err, out)
-	}
-	return nil
-}
-
-// pleiades runs the built binary with args, returning its combined output.
-func (r pleiadesRemote) pleiades(args ...string) (string, error) {
-	out, err := exec.Command(r.binary(), args...).CombinedOutput() // #nosec G204 -- the binary this run built, with arguments this program wrote
-	return string(out), err
-}
-
-// adhocReport is the part of `pleiades adhoc --json` read here.
-type adhocReport struct {
-	Tasks []struct {
-		Status string         `json:"status"`
-		Error  string         `json:"error"`
-		Stats  map[string]any `json:"stats"`
-	} `json:"tasks"`
-	Validation []struct {
-		Message string `json:"message"`
-	} `json:"validation"`
-	Outcome struct {
-		ExitCode int    `json:"exit_code"`
-		Message  string `json:"message"`
-	} `json:"outcome"`
-}
-
-// adhoc runs one method against the Mac and returns its stdout return, or
-// the task's error.
-func (r pleiadesRemote) adhoc(method string, params ...string) (string, error) {
-	return r.adhocContext(context.Background(), method, params...)
-}
-
-// adhocContext is adhoc, its pleiades ended when ctx ends.
-func (r pleiadesRemote) adhocContext(ctx context.Context, method string, params ...string) (string, error) {
-	args := append([]string{"adhoc", device, method}, params...)
-	args = append(args, "--json", "--dir", r.project)
-	out, _ := exec.CommandContext(ctx, r.binary(), args...).Output() // #nosec G204 -- the binary this run built, with arguments this program wrote
-	var report adhocReport
-	if err := json.Unmarshal(out, &report); err != nil {
-		return "", fmt.Errorf("pleiades adhoc %s printed no report: %v", method, err)
-	}
-	if len(report.Tasks) != 1 {
-		why := report.Outcome.Message
-		for _, v := range report.Validation {
-			why += "; " + v.Message
-		}
-		return "", fmt.Errorf("pleiades adhoc %s ran %d tasks: %s", method, len(report.Tasks), why)
-	}
-	task := report.Tasks[0]
-	if task.Error != "" || report.Outcome.ExitCode != 0 {
-		return "", fmt.Errorf("%s: %s", method, firstOf(task.Error, report.Outcome.Message))
-	}
-	stdout, _ := task.Stats["stdout"].(string)
-	return stdout, nil
-}
-
-// Ship sends commit sha's tree to the Mac through pleiades: exec.command
-// removes all but the newest trees and answers the Mac's home directory,
-// git archive writes the tree into the private project, file.copy sends
-// it, and archive.extract unpacks it into a directory of its own and
-// deletes the archive.
-func (r pleiadesRemote) Ship(_, sha string) error {
-	out, err := r.adhoc("exec.command", "argv:="+argvYAML("/bin/sh", "-c", fmt.Sprintf(`set -e
-base="$HOME/%[1]s"
-mkdir -p "$base"
-ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
-rm -rf "${base:?}/%[3]s" "${base:?}/%[3]s.tar.gz"
-printf '%%s\n' "$HOME"`, checkoutDir, keptCheckouts, sha)))
-	if err != nil {
-		return fmt.Errorf("preparing the Mac: %v", err)
-	}
-	home := strings.TrimSpace(out)
-	if !strings.HasPrefix(home, "/") {
-		return fmt.Errorf("the Mac named %q as its home directory", home)
-	}
-	files := filepath.Join(r.project, "files")
-	if err := os.MkdirAll(files, 0o700); err != nil {
-		return err
-	}
-	local := filepath.Join(files, sha+".tar.gz")
-	defer func() { _ = os.Remove(local) }()
-	if out, err := exec.Command("git", "archive", "--format=tar.gz", "-o", local, sha).CombinedOutput(); err != nil { // #nosec G204 -- a commit rev-parse resolved
-		return fmt.Errorf("git archive: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	archive := path.Join(home, checkoutDir, sha+".tar.gz")
-	if _, err := r.adhoc("file.copy", "src=files/"+sha+".tar.gz", "dest="+archive, "mode=0600"); err != nil {
-		return err
-	}
-	_, err = r.adhoc("archive.extract", "src="+archive, "dest="+path.Join(home, checkoutDir, sha), "remove:=true")
-	return err
-}
-
-// Test runs script on the Mac through exec.command and reads its exit
-// status from the marker the script ends its output with.
-func (r pleiadesRemote) Test(ctx context.Context, mac, sha, script string, stdout, stderr io.Writer) (bool, error) {
-	if !fileExists(r.binary()) {
-		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", mac)
-	}
-	fmt.Fprintln(stdout, "maccheck: running on the Mac; Pleiades returns the output when the run ends, since it does not stream it yet")
-	out, err := r.adhocContext(ctx, "exec.command", "argv:="+argvYAML("/bin/sh", "-c", script))
-	if ctx.Err() != nil {
-		// The local pleiades is gone, and the tests would run on without it:
-		// end them on the Mac, with a session of their own, bounded so a Mac
-		// that stopped answering cannot hold the interrupted run open.
-		stopCtx, cancel := context.WithTimeout(context.Background(), stopGrace)
-		defer cancel()
-		if _, stopErr := r.adhocContext(stopCtx, "exec.command", "argv:="+argvYAML("/bin/sh", "-c", stopScript(sha))); stopErr != nil {
-			return false, fmt.Errorf("interrupted, and the tests on %s could not be stopped: %v", mac, stopErr)
-		}
-		return false, fmt.Errorf("interrupted; the tests on %s were stopped", mac)
-	}
-	if err != nil {
-		return false, err
-	}
-	output, code, ok := splitMarker(out)
-	fmt.Fprintln(stdout, output)
-	if !ok {
-		return false, fmt.Errorf("the run on %s ended without its exit status", mac)
-	}
-	return code == 0, nil
-}
-
-// splitMarker splits the test run's output from the exit status its last
-// line carries.
-func splitMarker(out string) (string, int, bool) {
-	i := strings.LastIndex(out, exitMarker)
-	if i < 0 {
-		return out, 0, false
-	}
-	code, err := strconv.Atoi(strings.TrimSpace(out[i+len(exitMarker):]))
-	if err != nil {
-		return out, 0, false
-	}
-	return strings.TrimRight(out[:i], "\n"), code, true
-}
-
-// argvYAML is argv as a YAML flow list, for an adhoc key:=yaml parameter.
-func argvYAML(argv ...string) string {
-	quoted := make([]string, len(argv))
-	for i, a := range argv {
-		b, _ := json.Marshal(a) // a JSON string is a YAML double-quoted scalar
-		quoted[i] = string(b)
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
-}
-
-// stopGrace bounds stopping the tests on the Mac after an interrupt.
-const stopGrace = time.Minute
 
 // loginCheck logs in once with plain ssh, never prompting, so a key the
 // Mac does not hold or a host key this machine does not know is named
@@ -300,7 +125,7 @@ func loginFailure(mac, key, said string, err error) error {
 // firstKey is the first of t's identity files that exists, or "".
 func firstKey(t sshTarget) string {
 	for _, k := range t.keys {
-		if expanded := expandHome(k); fileExists(expanded) {
+		if expanded := oscheck.ExpandHome(k); oscheck.FileExists(expanded) {
 			return expanded
 		}
 	}

@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -203,6 +204,9 @@ func echoRequest(t *testing.T, mode, password, digestOf string, params map[strin
 // it through every part of the contract Main wires up, each as a separate
 // run of a real process.
 func TestProgram_RealChildProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a program answers on file descriptor 3, which os/exec cannot hand a child on Windows (no ExtraFiles there), and the loader runs one on Linux only")
+	}
 	bin := buildEchoProgram(t)
 
 	t.Run("describe prints the description on stdout", func(t *testing.T) {

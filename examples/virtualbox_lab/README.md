@@ -29,6 +29,9 @@ examples/virtualbox_lab/
       windows-04-eject.yaml     take its answer file out and delete it
       windows-05-first-run.yaml the first run against it, over WinRM
       windows-look.yaml         a picture of its screen, its log, its addresses
+      check-windows-01-create.yaml  win-check, the box make win-check tests a branch on
+      check-windows-02-tools.yaml   Go and git on it, each held to its published digest
+      check-freebsd-01-create.yaml  bsd-check, the box make bsd-check tests a branch on
 ```
 
 ## What you end up with
@@ -467,6 +470,59 @@ refused, naming the stop's run and `--despite-run`; roll the stop back first (wh
 again), then the scratch run. On this host a FreeBSD VM started moments earlier did not answer the
 power button in the stop's two minutes, so that rollback failed at its first step; run the same
 `pleiades rollback` again once the VM has booted, and it continues from the stop.
+
+## Boxes for testing a branch on FreeBSD and Windows
+
+`make bsd-check` and `make win-check` (and `make pr-check`, whenever one is named) run a branch's
+container-free packages on a FreeBSD and a Windows machine that a Pleiades project already manages
+(docs/design/os-checks.md). This lab makes one of each, kept running, from the bases above.
+
+### win-check
+
+```bash
+pleiades add-host win-check --type windows_server --set host=192.168.56.31 --tags lab
+pleiades add-credential win-check --username Administrator --generate
+pleiades run runbooks/check-windows-01-create.yaml   # clone, start, wait for WinRM, eject the seed
+pleiades run runbooks/check-windows-02-tools.yaml    # Go and MinGit, each held to its published digest
+```
+
+### bsd-check
+
+The clone has one CPU and 4096 MB, since compiling the AWS SDK's `ec2` package peaks at 3.2 GB
+(3.7 GB with `-race`); its first boot installs `git` and `sudo`
+(`virt.vbox.vm.clone`'s `packages`, which nuageinit reads as cloud-init does). With `sudo`, the
+login gets the passwordless root its seed grants it, since FreeBSD's base system has no sudo. Go goes
+in the login's home, so it needs no root: fetch the release here and hold it to the digest go.dev
+publishes, then send and unpack it once the box is onboarded.
+
+```bash
+pleiades add-host bsd-check --type generic_ssh --set host=192.168.56.42 --tags lab
+pleiades add-credential bsd-check --username pleiades --generate
+pleiades run runbooks/check-freebsd-01-create.yaml   # clone with git and sudo, start, read host keys
+pleiades trust-host bsd-check --from-console vengeance
+pleiades onboard bsd-check
+
+curl -fsSLo dist/go1.26.9.freebsd-amd64.tar.gz https://go.dev/dl/go1.26.9.freebsd-amd64.tar.gz
+sha256sum dist/go1.26.9.freebsd-amd64.tar.gz   # 9a2928c12bba7357fd8f24143fb0f400882d3081406bf0ef87b3857635b02fea
+pleiades adhoc bsd-check file.directory path=/home/pleiades/sdk mode=0755
+pleiades adhoc bsd-check file.copy src=dist/go1.26.9.freebsd-amd64.tar.gz dest=/home/pleiades/sdk/go.tar.gz mode=0600
+pleiades adhoc bsd-check archive.extract src=/home/pleiades/sdk/go.tar.gz dest=/home/pleiades/sdk remove:=true
+```
+
+Then name each in this repository's `tests/win/.env` and `tests/bsd/.env` (copy each `.env.example`):
+this project's directory, the device's name, and `vengeance` as the VirtualBox host
+(`PLEIADES_WIN_VM_HOST`, `PLEIADES_BSD_VM_HOST`). With a host named, a check starts its box when a run
+needs it and saves its state when the run ends (`virt.vbox.vm.stop` `mode: save`), so the two boxes
+hold this host's memory only while a check runs, and `make pr-check` runs them one after the other.
+Shut each down once it is set up; the first check starts it.
+
+win-check also carries Server Core's application compatibility feature, which adds parts of the
+Desktop Experience so more programs run on Server Core. `win.capability.install` puts it on and
+`win.reboot` finishes it:
+
+```bash
+pleiades run runbooks/check-windows-03-appcompat.yaml   # about 25 minutes on one CPU, from Windows Update
+```
 
 ## How it works
 

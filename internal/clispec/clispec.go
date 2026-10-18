@@ -294,9 +294,11 @@ var Root = Command{
 				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "with --mode check, a method that may go unchecked without making the check incomplete"},
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
+				{Name: "timeout", Type: "int", Default: "0", Doc: "seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound)"},
 			},
 			Examples: []string{
 				"pleiades adhoc web01 facts.gather",
+				"pleiades adhoc build01 exec.command argv:='[make, test]' --timeout 1800",
 				"pleiades adhoc web exec.command cmd=uptime --verbose",
 				"pleiades adhoc win01 exec.winrm.shell shell=powershell command='Get-Service WinRM' --json",
 				"pleiades adhoc web pkg.apt.install name=nginx --mode check",

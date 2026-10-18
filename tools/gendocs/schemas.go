@@ -87,6 +87,13 @@ func taskSchema() map[string]any {
 			"parallel": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"rollback": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}, "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. Only on a method call; each step is a method and its params, with no target, register, conditions or tags."},
 			"tags":     tagsSchema("Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside."),
+			"timeout": map[string]any{
+				"description": "Ansible's timeout: whole seconds this task may run on each device before it is stopped and fails; 0 or none is no bound of its own. Only on a method call.",
+				"oneOf": []any{
+					map[string]any{"type": "integer", "minimum": 0, "maximum": engine.MaxTaskTimeout},
+					map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+				},
+			},
 		},
 	}
 }

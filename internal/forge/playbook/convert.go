@@ -60,7 +60,7 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 		t.emitted++
 		task := &outTask{
 			name: callName, fqcn: call.call.FQCN, params: call.params, register: spec.register,
-			when: whens, tags: spec.tags, checkMode: spec.checkMode, cites: cites, at: spec.at,
+			when: whens, tags: spec.tags, checkMode: spec.checkMode, timeout: spec.timeout, cites: cites, at: spec.at,
 		}
 		task.result = &TaskResult{
 			At: spec.at, Name: callName, Module: spec.module, Runbook: ctx.runbook, FQCN: call.call.FQCN,

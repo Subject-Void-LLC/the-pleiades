@@ -248,7 +248,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 170 registered methods across 23 namespaces; 167 are
+**The module catalog has 173 registered methods across 23 namespaces; 170 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
@@ -257,7 +257,7 @@ that is NOT implemented, all three of them: `file.template`, `net.junos.config` 
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
 is ever entered. By namespace, implemented: `container` 37, `virt` 19, `ai` 11, `svc` 16, `net` 12,
-`file` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `win` 6, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
+`file` 12, `pkg` 9, `win` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
 `archive` 2, `fs` 2, `gate` 2, `http` 2, `pleiades` 2, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method
@@ -280,7 +280,7 @@ reports what each task would change and changes nothing. Sixty-nine of the seven
 implemented methods can answer it. Fifty-seven predict a change by reading the device and
 comparing through the same code path their real run takes: every `svc.*` method (systemd,
 Windows and the generic five), every `file.*`, `pkg.*`, `identity.*`, `fw.firewalld.*`,
-`fs.*` and `archive.*` method, `win.feature.*`, every `container.*` method that changes a container,
+`fs.*` and `archive.*` method, `win.feature.*` and `win.capability.*`, every `container.*` method that changes a container,
 and the AWS `ec2` and `s3` methods. A prediction leaves out what only the device decides (a
 new directory's mode, a version the package manager picks, a new instance's ID) rather than
 guessing it. Eight only ever read, so a check runs them for real: `facts.gather`,

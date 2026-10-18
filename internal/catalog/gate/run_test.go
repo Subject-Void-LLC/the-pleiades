@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,12 @@ func TestRun_ReportsEachOutcomeTruthfully(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(h.project, "sub"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// An operating system the device does not run, for the os precondition:
+	// FreeBSD, unless the tests are running on FreeBSD.
+	otherOS := "freebsd"
+	if runtime.GOOS == "freebsd" {
+		otherOS = "linux"
+	}
 	manifest := h.manifest(t, `version: 1
 kinds: [{name: browser}]
 defaults: {timeout: 30s}
@@ -54,7 +61,7 @@ checks:
   - {name: no-env, kind: pure, shell: "true", requires: {env: [PLEIADES_GATE_UNSET_VARIABLE]}}
   - {name: no-file, kind: pure, shell: "true", requires: {files: [missing.txt]}}
   - {name: has-file, kind: pure, shell: "true", requires: {files: [gates.yaml]}}
-  - {name: other-os, kind: pure, shell: "true", requires: {os: freebsd}}
+  - {name: other-os, kind: pure, shell: "true", requires: {os: `+otherOS+`}}
   - {name: declared-skip, kind: db, shell: "echo 'no database here'; exit 5", skip_exit: [5]}
   - {name: ui, kind: browser, shell: "true"}
 `)
@@ -75,7 +82,7 @@ checks:
 		"no-tool":       "needs command pleiades-no-such-tool",
 		"no-env":        "needs env PLEIADES_GATE_UNSET_VARIABLE",
 		"no-file":       "needs file missing.txt",
-		"other-os":      "needs os freebsd, and the device runs",
+		"other-os":      "needs os " + otherOS + ", and the device runs",
 		"declared-skip": "exited 5, which it declares means skipped: no database here",
 		"ui":            "its kind, browser, is not among the kinds",
 		"fails":         "exited 3",
@@ -90,7 +97,7 @@ checks:
 	if h.rc.stats["summary"] != "3 passed, 1 failed, 6 skipped" {
 		t.Errorf("summary = %v", h.rc.stats["summary"])
 	}
-	// A failed task's returns are not kept, so the error tells the story.
+	// The error tells the story too, since it is what a person reads first.
 	for _, want := range []string{"the gate failed (3 passed, 1 failed, 6 skipped): fails", "fails (pure): exited 3", "boom", "skipped no-tool: needs command"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v\nwant it to say %q", err, want)

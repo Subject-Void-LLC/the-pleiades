@@ -96,6 +96,17 @@ func commandLine(shell Shell, script string, opts Options) (string, error) {
 	return checkLength(sent, MaxCmdLine, "the command line cmd.exe receives")
 }
 
+// CheckScript reports the error Execute would refuse script with under
+// shell before it contacts anything: text a WS-Man message cannot carry,
+// or a command line longer than MaxCmdLine once it is built and escaped.
+// A method whose script is a constant calls it from a test, since a test
+// that replaces the WinRM call never builds the line: win.schtask's script
+// came to 9541 characters and failed on every real host.
+func CheckScript(shell Shell, script string, opts Options) error {
+	_, err := commandLine(shell, script, opts)
+	return err
+}
+
 // cmdLine builds `cmd.exe /d /v:on /s /c "<script>"`.
 //
 // /c runs the script and exits. /s makes cmd.exe strip exactly the

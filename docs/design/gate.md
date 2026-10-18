@@ -143,5 +143,5 @@ added to `pkg/containerengine`, the one place a container is reached.
 | The SSH session drops mid-check | That check FAILs naming the transport; the rest still run on a fresh session if the device answers. |
 | The engine refuses or the image is absent and not pullable | That check FAILs naming the engine's answer. |
 | The task is canceled | Running checks are stopped; FAIL for those, SKIP ("canceled") for the rest. |
-| The run fails | The engine keeps a task's returns only when it succeeds, so the task's error carries each failing check's reason and its last 15 lines, then the skips, bounded at 16 KiB. |
+| The run fails | The task's error carries each failing check's reason and its last 15 lines, then the skips, bounded at 16 KiB, and the task's returns (every check's result) are reported with the failure. |
 | Output past the tail | Earlier lines dropped, counted in the result ("… 1,204 earlier lines left out"). |

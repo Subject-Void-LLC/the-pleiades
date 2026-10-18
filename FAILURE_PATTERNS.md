@@ -504,6 +504,19 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
 500. remoteexec's stdin-closing test helper assumed a harness that waited for input, written in the same commit that made it stop waiting (a repeat of 460) (fixed)
 501. The hop stress test opened more connections at once than one macOS listener holds, and XNU resets the rest (a repeat of 476's class) (fixed)
+502. testgate's live tests asked for -race unconditionally, which cannot build on a Windows machine with no C compiler (fixed)
+503. durations.json's times were the gaps between log lines, so each shard's first package carried the shard's whole build (fixed)
+504. The OS checks' stop test put its stand-in go last on the PATH, so the real go failed at once and the test read that as a stop (a repeat of 54) (fixed before push)
+505. Three tests assumed a Linux or macOS host: printf's leftover arguments, /bin/bash, and FreeBSD as the "other" system (a repeat of 420) (fixed)
+506. The Runner's per-task child died on the SIGTERM meant to let it stop, so a timed-out command kept running on the device (fixed)
+507. A failed node's undo was stripped in the collection bridge only, so a refused prediction reported one (fixed before push)
+508. A test started the Windows PowerShell of the workstation behind WSL to parse a script (fixed)
+509. win.schtask's script was never sent through the real command line, and failed on every Windows host (fixed)
+510. A Windows run of the branch's packages failed 77 tests that assumed a POSIX host (a repeat of 505) (fixed)
+511. The hop stress test's listen-queue bound covered macOS only; FreeBSD and Windows reset and refuse past their backlog (a repeat of 501) (fixed)
+512. bsd-check was sized at 1 GB by assumption, and could not compile the branch's packages (fixed)
+513. A commit that meant to append four entries replaced the failure-pattern archive with them (fixed before push)
+514. Twenty methods' documented examples could never run as written (three fixed, seventeen open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

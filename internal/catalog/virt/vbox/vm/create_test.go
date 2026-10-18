@@ -151,23 +151,51 @@ func TestClone(t *testing.T) {
 	}
 }
 
+// TestClone_Packages: the packages asked for are the seed's packages list,
+// which the first boot installs; a clone given none writes no such key.
+func TestClone_Packages(t *testing.T) {
+	model := vboxmanagetest.New(base())
+	onModel(t, model)
+	p := cloneParams()
+	p["packages"] = []any{"git", "sudo"}
+	if _, err := call(t, "virt.vbox.vm.clone", false, seeded(), p); err != nil {
+		t.Fatal(err)
+	}
+	iso := string(model.Files[defaultHome+`\ubuntu-lab\seed.iso`])
+	if !strings.Contains(iso, "packages:\n  - git\n  - sudo\n") {
+		t.Errorf("the seed does not install git and sudo:\n%s", iso)
+	}
+
+	plain := vboxmanagetest.New(base())
+	onModel(t, plain)
+	if _, err := call(t, "virt.vbox.vm.clone", false, seeded(), cloneParams()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain.Files[defaultHome+`\ubuntu-lab\seed.iso`]), "packages:") {
+		t.Error("a clone given no packages has a packages list")
+	}
+}
+
 func TestClone_Refusals(t *testing.T) {
 	model := vboxmanagetest.New(base())
 	onModel(t, model)
 	for why, change := range map[string]func(map[string]any){
-		"no from":         func(p map[string]any) { delete(p, "from") },
-		"a bad from":      func(p map[string]any) { p["from"] = "a b" },
-		"no snapshot":     func(p map[string]any) { delete(p, "snapshot") },
-		"a bad snapshot":  func(p map[string]any) { p["snapshot"] = "a/b" },
-		"no login":        func(p map[string]any) { delete(p, "login") },
-		"no address":      func(p map[string]any) { delete(p, "address") },
-		"no prefix":       func(p map[string]any) { p["address"] = "192.168.56.10" },
-		"IPv6":            func(p map[string]any) { p["address"] = "fd00::10/64" },
-		"a /32":           func(p map[string]any) { p["address"] = "192.168.56.10/32" },
-		"a bad host name": func(p map[string]any) { p["hostname"] = "ubuntu_lab" },
-		"a bad adapter":   func(p map[string]any) { p["host_only_adapter"] = `a"b` },
-		"no memory":       func(p map[string]any) { p["memory_mb"] = 0 },
-		"text for CPUs":   func(p map[string]any) { p["cpus"] = "two" },
+		"no from":                     func(p map[string]any) { delete(p, "from") },
+		"a bad from":                  func(p map[string]any) { p["from"] = "a b" },
+		"no snapshot":                 func(p map[string]any) { delete(p, "snapshot") },
+		"a bad snapshot":              func(p map[string]any) { p["snapshot"] = "a/b" },
+		"no login":                    func(p map[string]any) { delete(p, "login") },
+		"no address":                  func(p map[string]any) { delete(p, "address") },
+		"no prefix":                   func(p map[string]any) { p["address"] = "192.168.56.10" },
+		"IPv6":                        func(p map[string]any) { p["address"] = "fd00::10/64" },
+		"a /32":                       func(p map[string]any) { p["address"] = "192.168.56.10/32" },
+		"a bad host name":             func(p map[string]any) { p["hostname"] = "ubuntu_lab" },
+		"a bad adapter":               func(p map[string]any) { p["host_only_adapter"] = `a"b` },
+		"no memory":                   func(p map[string]any) { p["memory_mb"] = 0 },
+		"text for CPUs":               func(p map[string]any) { p["cpus"] = "two" },
+		"a package read as an option": func(p map[string]any) { p["packages"] = []any{"-y"} },
+		"a package holding a command": func(p map[string]any) { p["packages"] = []any{"git; reboot"} },
+		"packages as one string":      func(p map[string]any) { p["packages"] = "git sudo" },
 	} {
 		p := cloneParams()
 		change(p)

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -115,6 +116,7 @@ type harness struct {
 // engine answering through reg.
 func newHarness(t *testing.T, reg *registry) *harness {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

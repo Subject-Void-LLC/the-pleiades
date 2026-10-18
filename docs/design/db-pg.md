@@ -186,4 +186,4 @@ consistent-snapshot reader) and `pkg/sqllint` (the SQL lexer and the additive-on
 | An applied migration's file changed | Refused before anything runs, naming the file and both checksums. |
 | Another run is applying the same version | This run waits on its claim (up to `claim_wait`), then reads its record: applied with the same checksum is a warning, a different checksum or a failed claim is an error. |
 | A no-transaction file's run died midway | Its claim stays unfinished; a later run waits `claim_wait`, then fails naming the row to delete. |
-| The run fails | The engine keeps a task's returns only when it succeeds, so the error carries what a failure needs (the offending rows, privileges, tables or files), bounded. |
+| The run fails | The error carries what a failure needs (the offending rows, privileges, tables or files), bounded, and whatever returns the method recorded before failing are reported with it. |

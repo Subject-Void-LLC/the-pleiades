@@ -184,6 +184,14 @@ func (h Host) PowerOff(ctx context.Context, name string) error {
 	return h.control(ctx, name, "poweroff")
 }
 
+// SaveState writes name's memory to disk and stops it, as VirtualBox's
+// savestate: the host gets the memory back, and the next Start resumes the
+// guest where it was, with no boot. A machine that is not running is an
+// error wrapping ErrNotRunning.
+func (h Host) SaveState(ctx context.Context, name string) error {
+	return h.control(ctx, name, "savestate")
+}
+
 // ACPIShutdown presses name's power button, asking the guest to shut down;
 // it returns once the request is sent, not once the guest is off.
 func (h Host) ACPIShutdown(ctx context.Context, name string) error {

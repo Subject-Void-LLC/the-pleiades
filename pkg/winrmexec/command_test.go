@@ -342,3 +342,21 @@ func TestCheckCmdEnvReads(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckScript_RefusesWhatExecuteWould: CheckScript answers as Execute
+// does before sending anything: a short script passes, a PowerShell script
+// whose encoding outgrows the command line and text a WS-Man message cannot
+// carry are refused, each naming why.
+func TestCheckScript_RefusesWhatExecuteWould(t *testing.T) {
+	if err := CheckScript(ShellPowerShell, "Get-Date", Options{}); err != nil {
+		t.Fatalf("a short script was refused: %v", err)
+	}
+	// About 2.7 characters of line per character of script: 3100 is over.
+	err := CheckScript(ShellPowerShell, strings.Repeat("a", 3100), Options{})
+	if err == nil || !strings.Contains(err.Error(), "accepts at most 8191") {
+		t.Fatalf("an over-long script: %v", err)
+	}
+	if err := CheckScript(ShellCmd, "echo \x00", Options{}); err == nil || !strings.Contains(err.Error(), "U+0000") {
+		t.Fatalf("a NUL: %v", err)
+	}
+}

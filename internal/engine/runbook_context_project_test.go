@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +69,6 @@ func TestReadProjectFile_RefusesWhatIsNotTheProjectsToGive(t *testing.T) {
 		"files/../.pleiades/x":       "holds its credentials",
 		"files":                      "is not a regular file",
 		"files/big":                  "over the 1024 one read takes",
-		"files/absent":               "no such file",
 	} {
 		got, err := c.ReadProjectFile(name, 1024)
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -77,6 +77,11 @@ func TestReadProjectFile_RefusesWhatIsNotTheProjectsToGive(t *testing.T) {
 		if strings.Contains(string(got), "secret-sentinel") || (err != nil && strings.Contains(err.Error(), "secret-sentinel")) {
 			t.Errorf("ReadProjectFile(%q) gave the credential file's content", name)
 		}
+	}
+	// A missing file's error is the system's own, which each system words
+	// its own way ("no such file", "cannot find the file specified").
+	if got, err := c.ReadProjectFile("files/absent", 1024); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ReadProjectFile(files/absent) = %q, %v; want it refused as not there", got, err)
 	}
 	if _, err := (&runbookContext{}).ReadProjectFile("files/ok", 1024); !errors.Is(err, sdk.ErrNoProjectFiles) {
 		t.Errorf("a run with no project = %v, want ErrNoProjectFiles", err)

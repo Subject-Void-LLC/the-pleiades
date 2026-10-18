@@ -187,14 +187,23 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	// that task holds would be pinned behind it. The goroutine exits as
 	// soon as either ctx is done or Run returns, since done is closed by
 	// the defer either way.
+	//
+	// Closing the session alone leaves the command running on the device:
+	// with no terminal, sshd sends it no hangup, so a task's timeout would
+	// end the task and not the work. The command is sent SIGTERM first (an
+	// SSH "signal" request, RFC 4254 section 6.9, which OpenSSH's sshd
+	// delivers to the process it started). Processes that command started
+	// in turn get nothing, and a server that ignores the request ends
+	// nothing; the session is closed either way.
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
 		select {
 		case <-ctx.Done():
-			// The error is not actionable here: this goroutine exists only
+			// The errors are not actionable here: this goroutine exists only
 			// to unblock Run below, which is what reports the failure.
-			_ = session.Close() // #nosec G104 -- intentional, see comment above
+			_ = session.Signal(ssh.SIGTERM) // #nosec G104 -- intentional, see comment above
+			_ = session.Close()             // #nosec G104 -- intentional, see comment above
 		case <-done:
 		}
 	}()

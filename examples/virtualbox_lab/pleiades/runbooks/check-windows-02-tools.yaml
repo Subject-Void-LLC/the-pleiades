@@ -1,0 +1,35 @@
+# The tools tools/wincheck needs on win-check: Go, held to go.dev's digest,
+# and git (MinGit, Git for Windows' portable build), held to the digest its
+# release publishes. Each is unpacked once by tar.exe, which reads a zip but
+# will not make its target folder. Pleiades has no method that unpacks an
+# archive on Windows yet, so exec.winrm.shell runs tar.exe.
+id: vbox-lab-check-windows-tools
+hosts: win-check
+tasks:
+  - name: fetch Go 1.26.9 for Windows
+    win.file.download:
+      url: https://go.dev/dl/go1.26.9.windows-amd64.zip
+      path: C:\Windows\Temp\go1.26.9.windows-amd64.zip
+      sha256: d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59
+  - name: fetch MinGit 2.56.0.2
+    win.file.download:
+      url: https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip
+      path: C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip
+      sha256: da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be
+  - name: unpack Go into C:\go and MinGit into C:\mingit, once each
+    exec.winrm.shell:
+      shell: powershell
+      timeout: 600
+      command: |
+        $ErrorActionPreference = 'Stop'
+        if (-not (Test-Path -LiteralPath 'C:\go\bin\go.exe')) {
+          & tar.exe -xf 'C:\Windows\Temp\go1.26.9.windows-amd64.zip' -C 'C:\'
+          if ($LASTEXITCODE -ne 0) { throw "tar.exe exited $LASTEXITCODE unpacking Go" }
+        }
+        if (-not (Test-Path -LiteralPath 'C:\mingit\cmd\git.exe')) {
+          New-Item -ItemType Directory -Force -Path 'C:\mingit' | Out-Null
+          & tar.exe -xf 'C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip' -C 'C:\mingit'
+          if ($LASTEXITCODE -ne 0) { throw "tar.exe exited $LASTEXITCODE unpacking MinGit" }
+        }
+        & 'C:\go\bin\go.exe' version
+        & 'C:\mingit\cmd\git.exe' --version

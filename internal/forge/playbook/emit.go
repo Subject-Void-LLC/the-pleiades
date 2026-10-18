@@ -160,7 +160,7 @@ func toEngine(tasks []*outTask) []engine.Task {
 	for i, o := range tasks {
 		out[i] = engine.Task{
 			Name: o.name, FQCN: o.fqcn, Params: o.params, Register: o.register,
-			CheckMode: engine.CheckModeFlag(o.checkMode), Tags: engine.TagList(o.tags),
+			CheckMode: engine.CheckModeFlag(o.checkMode), Tags: engine.TagList(o.tags), Timeout: engine.TimeoutSeconds(o.timeout),
 			Block: toEngine(o.block), Rescue: toEngine(o.rescue), Always: toEngine(o.always),
 		}
 		out[i].When = engine.StringList(o.when)

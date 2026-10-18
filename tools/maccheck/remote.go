@@ -1,18 +1,19 @@
-// The Mac end of maccheck: what it is (remoteRunner) and reaching it (ssh
-// -G and the liveness probe). device.go drives it as a Pleiades device,
-// sending the tree and running the tests through pleiades itself.
+// The Mac end of maccheck: what it is (pleiadesRemote) and reaching it
+// (ssh -G and the liveness probe). device.go drives it as a Pleiades
+// device, sending the tree and running the tests through pleiades itself.
 package main
 
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
-	"io"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
 // macPath is added to the Mac's PATH, since a non-interactive SSH session
@@ -20,20 +21,11 @@ import (
 const macPath = "/opt/homebrew/bin:/usr/local/go/bin:/usr/local/bin"
 
 // checkoutDir is where trees are unpacked on the Mac, under its home, one
-// directory per commit; the newest keptCheckouts stay.
-const (
-	checkoutDir   = ".pleiades-maccheck"
-	keptCheckouts = 3
-)
+// directory per commit; the newest oscheck.Kept stay.
+const checkoutDir = ".pleiades-maccheck"
 
 // device is the Mac's name in the private project.
 const device = "mac"
-
-// exitMarker ends the test run's output with its exit status. The run
-// itself always exits 0: exec.command fails a task on a non-zero exit and
-// keeps only an excerpt of its output then, and a failing run's output is
-// the part worth reading.
-const exitMarker = "maccheck-exit="
 
 // sshOptions are the plain login check's: never prompt, give up on a
 // connection in ten seconds, and end one the Mac stops answering (asleep,
@@ -44,25 +36,30 @@ var sshOptions = []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o"
 // so a test can probe an address that never answers without waiting.
 var probeTimeout = 5 * time.Second
 
-// remoteRunner is the Mac end, apart from run so tests can stand in for it.
-type remoteRunner interface {
-	// Reachable probes the Mac's SSH port.
-	Reachable(mac string) error
-	// Ready makes the Mac a device of the private project, if it is not
-	// one already, and checks it can run the tests.
-	Ready(mac string) error
-	// Ship unpacks commit sha's tree on the Mac.
-	Ship(mac, sha string) error
-	// Test runs script there and reports whether it passed, writing its
-	// output to stdout. When ctx ends first it stops the run on the Mac.
-	Test(ctx context.Context, mac, sha, script string, stdout, stderr io.Writer) (bool, error)
-}
-
 // pleiadesRemote is the real Mac end.
 type pleiadesRemote struct {
+	// mac is the target as ssh takes it.
+	mac string
 	// project is the private Pleiades project's directory, under this
 	// worktree's git directory so it is never committed and never shared.
 	project string
+	// posix sends the tree and runs the tests, through the binary built in
+	// the project.
+	posix oscheck.POSIX
+}
+
+// newRemote is the Mac mac, driven from the private project.
+func newRemote(project, mac string) pleiadesRemote {
+	p := oscheck.Pleiades{Binary: filepath.Join(project, "pleiades"), Project: project, Device: device}
+	return pleiadesRemote{mac: mac, project: project, posix: oscheck.POSIX{
+		Pleiades: p,
+		Tool:     "maccheck",
+		Machine:  "the Mac",
+		Dir:      checkoutDir,
+		Path:     macPath,
+		Wrap:     "caffeinate -dims ",
+		Files:    "files",
+	}}
 }
 
 // sshTarget is what ssh -G resolves a target to: an alias's HostName,
@@ -105,15 +102,15 @@ func parseSSHG(out []byte) sshTarget {
 	return t
 }
 
-// Reachable resolves mac as ssh would and opens a TCP connection to its
+// Reachable resolves the Mac as ssh would and opens a TCP connection to its
 // SSH port, so a Mac that is asleep, off the network or not listening is
 // named in seconds, before anything else runs.
-func (pleiadesRemote) Reachable(mac string) error {
-	t, err := resolve(mac)
+func (r pleiadesRemote) Reachable() error {
+	t, err := resolve(r.mac)
 	if err != nil {
 		return err
 	}
-	return probe(mac, t.host, t.port)
+	return probe(r.mac, t.host, t.port)
 }
 
 // probe opens and closes one TCP connection to host:port.

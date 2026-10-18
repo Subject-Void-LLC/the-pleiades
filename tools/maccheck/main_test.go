@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
 // fakeRemote stands in for the Mac, recording which steps ran.
@@ -21,23 +23,24 @@ type fakeRemote struct {
 	passed                 bool
 	testErr                error
 	steps                  []string
-	script                 string
 }
 
-func (f *fakeRemote) Reachable(string) error {
+func (f *fakeRemote) Reachable() error {
 	f.steps = append(f.steps, "reachable")
 	return f.reachable
 }
-func (f *fakeRemote) Ready(string) error { f.steps = append(f.steps, "ready"); return f.ready }
-func (f *fakeRemote) Ship(string, string) error {
+func (f *fakeRemote) Ready() error { f.steps = append(f.steps, "ready"); return f.ready }
+func (f *fakeRemote) Ship(string) error {
 	f.steps = append(f.steps, "ship")
 	return f.ship
 }
-func (f *fakeRemote) Test(_ context.Context, _, _, script string, _, _ io.Writer) (bool, error) {
+func (f *fakeRemote) Test(context.Context, string, int, []string, io.Writer) (bool, error) {
 	f.steps = append(f.steps, "test")
-	f.script = script
 	return f.passed, f.testErr
 }
+
+// the is the stand-in, whatever Mac run asks for.
+func (f *fakeRemote) the(string) oscheck.Leg { return f }
 
 // inRepo runs t from a fresh git repository with one commit, so the
 // flow's git calls (config, rev-parse, status) read a real one.
@@ -128,7 +131,7 @@ func TestRun_TheFlow(t *testing.T) {
 				writeEnv(t, dir, "# a comment\n\n"+envKey+"="+tc.configure+"\n")
 			}
 			var stdout, stderr bytes.Buffer
-			code := run(context.Background(), tc.args, &stdout, &stderr, tc.remote)
+			code := run(context.Background(), tc.args, &stdout, &stderr, tc.remote.the)
 			out := stdout.String() + stderr.String()
 			if code != tc.wantCode || strings.Join(tc.remote.steps, " ") != tc.wantSteps {
 				t.Fatalf("exit %d after steps %v, want %d after %q\n%s", code, tc.remote.steps, tc.wantCode, tc.wantSteps, out)
@@ -154,19 +157,19 @@ func TestRun_AWorktreeReadsTheMainWorktreesSettings(t *testing.T) {
 	pkgs := []string{"github.com/x/a"}
 
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), append([]string{"-optional"}, pkgs...), &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on me@mac") {
+	if code := run(context.Background(), append([]string{"-optional"}, pkgs...), &stdout, &stderr, (&fakeRemote{passed: true}).the); code != 0 || !strings.Contains(stdout.String(), "all tests passed on me@mac") {
 		t.Fatalf("exit %d:\n%s%s", code, &stdout, &stderr)
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(context.Background(), pkgs, &stdout, &stderr, &fakeRemote{reachable: errors.New("did not answer")}); code != 2 || !strings.Contains(stderr.String(), "delete "+filepath.Join(realPath(t, dir), envFile)) {
+	if code := run(context.Background(), pkgs, &stdout, &stderr, (&fakeRemote{reachable: errors.New("did not answer")}).the); code != 2 || !strings.Contains(stderr.String(), "delete "+filepath.Join(realPath(t, dir), envFile)) {
 		t.Fatalf("exit %d, not naming the main worktree's file:\n%s%s", code, &stdout, &stderr)
 	}
 
 	writeEnv(t, wt, envKey+"=other@mac2\n")
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(context.Background(), pkgs, &stdout, &stderr, &fakeRemote{passed: true}); code != 0 || !strings.Contains(stdout.String(), "all tests passed on other@mac2") {
+	if code := run(context.Background(), pkgs, &stdout, &stderr, (&fakeRemote{passed: true}).the); code != 0 || !strings.Contains(stdout.String(), "all tests passed on other@mac2") {
 		t.Fatalf("the worktree's own file did not win: exit %d:\n%s%s", code, &stdout, &stderr)
 	}
 }
@@ -206,26 +209,6 @@ func TestCheckTarget(t *testing.T) {
 	}
 }
 
-// TestTestScript: the packages run in the commit's tree under caffeinate,
-// both passes, and the script always ends by printing the exit status.
-func TestTestScript(t *testing.T) {
-	s := testScript("abc123", 2, []string{"github.com/x/a", "github.com/x/b"})
-	for _, w := range []string{
-		`cd "$HOME/.pleiades-maccheck/abc123"`,
-		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -p 2 github.com/x/a github.com/x/b' &",
-		"set -m",
-		`echo "$job" > .maccheck.pid`,
-		`wait "$job"`,
-		"set +m",
-		`echo "maccheck-exit=$?"`,
-		"exec 2>&1",
-	} {
-		if !strings.Contains(s, w) {
-			t.Errorf("script does not hold %q:\n%s", w, s)
-		}
-	}
-}
-
 // TestProbe_NamesWhatToDo: an address that never answers is refused
 // within the probe's bound, saying what to check.
 func TestProbe_NamesWhatToDo(t *testing.T) {
@@ -248,49 +231,6 @@ func TestParseSSHG(t *testing.T) {
 	got := parseSSHG([]byte("user me\nhostname 10.0.0.9\nport 2222\nidentityfile ~/.ssh/id_ed25519\nidentityfile ~/.ssh/id_rsa\nbatchmode no\n"))
 	if got.host != "10.0.0.9" || got.port != "2222" || got.user != "me" || strings.Join(got.keys, ",") != "~/.ssh/id_ed25519,~/.ssh/id_rsa" {
 		t.Errorf("parseSSHG = %+v", got)
-	}
-}
-
-// TestReadyAnswer accepts only a Mac with go and caffeinate.
-func TestReadyAnswer(t *testing.T) {
-	for out, want := range map[string]string{
-		"Darwin\ngo\ncaffeinate\n":  "",
-		"Linux\ngo\ncaffeinate\n":   "is not a Mac",
-		"Darwin\nno-go\ncaffeinate": "has no go",
-		"Darwin\ngo\nno-caffeinate": "has no caffeinate",
-		"":                          "answered the readiness check",
-	} {
-		err := readyAnswer("me@mac", out)
-		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
-			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want)
-		}
-	}
-}
-
-// TestSplitMarker reads the exit status from the end of the run's output.
-func TestSplitMarker(t *testing.T) {
-	for out, want := range map[string]struct {
-		output string
-		code   int
-		ok     bool
-	}{
-		"ok pkg\nmaccheck-exit=0":       {"ok pkg", 0, true},
-		"FAIL pkg\nmaccheck-exit=1\n":   {"FAIL pkg", 1, true},
-		"cut off before the end":        {"cut off before the end", 0, false},
-		"maccheck-exit=x":               {"maccheck-exit=x", 0, false},
-		"a maccheck-exit=9 in the text": {"a maccheck-exit=9 in the text", 0, false},
-	} {
-		output, code, ok := splitMarker(out)
-		if output != want.output || code != want.code || ok != want.ok {
-			t.Errorf("splitMarker(%q) = %q, %d, %v", out, output, code, ok)
-		}
-	}
-}
-
-// TestArgvYAML quotes each element so the script reaches the Mac whole.
-func TestArgvYAML(t *testing.T) {
-	if got := argvYAML("/bin/sh", "-c", "echo \"a\"\nexit 0"); got != `["/bin/sh", "-c", "echo \"a\"\nexit 0"]` {
-		t.Errorf("argvYAML = %s", got)
 	}
 }
 
@@ -337,22 +277,6 @@ func TestLoginFailure(t *testing.T) {
 	}
 }
 
-// TestStopScript ends the run's whole process group, read from the file
-// testScript wrote in the same tree, and does nothing when there is no
-// such file or it holds anything but a number.
-func TestStopScript(t *testing.T) {
-	s := stopScript("abc123")
-	for _, w := range []string{
-		`cat "$HOME/.pleiades-maccheck/abc123/.maccheck.pid"`,
-		`*[!0-9]*) exit 0`,
-		`kill -TERM -- "-$pid"`,
-	} {
-		if !strings.Contains(s, w) {
-			t.Errorf("stop script does not hold %q:\n%s", w, s)
-		}
-	}
-}
-
 // TestRun_Phases: prepare checks the Mac and sends the tree and runs
 // nothing; test runs the tests alone, after a liveness probe, and says how
 // long they took; any other phase is refused before anything runs.
@@ -375,7 +299,7 @@ func TestRun_Phases(t *testing.T) {
 		t.Run(tc.phase, func(t *testing.T) {
 			remote := &fakeRemote{passed: true}
 			var stdout, stderr bytes.Buffer
-			code := run(context.Background(), append([]string{"-phase", tc.phase}, pkgs...), &stdout, &stderr, remote)
+			code := run(context.Background(), append([]string{"-phase", tc.phase}, pkgs...), &stdout, &stderr, remote.the)
 			out := stdout.String() + stderr.String()
 			if code != tc.wantCode || strings.Join(remote.steps, " ") != tc.wantSteps || !strings.Contains(out, tc.want) {
 				t.Errorf("exit %d after %v, want %d after %q saying %q:\n%s", code, remote.steps, tc.wantCode, tc.wantSteps, tc.want, out)
@@ -394,7 +318,7 @@ func TestRun_AnInterruptIsNotTheMacsFault(t *testing.T) {
 	cancel()
 	remote := &fakeRemote{testErr: errors.New("interrupted; the tests on me@mac were stopped")}
 	var stdout, stderr bytes.Buffer
-	code := run(ctx, []string{"-phase", "test", "github.com/x/a"}, &stdout, &stderr, remote)
+	code := run(ctx, []string{"-phase", "test", "github.com/x/a"}, &stdout, &stderr, remote.the)
 	if code != 2 || !strings.Contains(stderr.String(), "were stopped") || strings.Contains(stderr.String(), "To test on another Mac") {
 		t.Errorf("exit %d:\n%s", code, &stderr)
 	}
@@ -409,14 +333,14 @@ func TestRun_ReadyFileOnlyWhenTheTreeWasSent(t *testing.T) {
 	t.Setenv(envKey, "")
 	ready := filepath.Join(t.TempDir(), "ready")
 	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"-optional", "-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, &fakeRemote{}); code != 0 || fileExists(ready) {
-		t.Fatalf("no Mac configured: exit %d, ready file written %v", code, fileExists(ready))
+	if code := run(context.Background(), []string{"-optional", "-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, (&fakeRemote{}).the); code != 0 || oscheck.FileExists(ready) {
+		t.Fatalf("no Mac configured: exit %d, ready file written %v", code, oscheck.FileExists(ready))
 	}
 	writeEnv(t, dir, envKey+"=me@mac\n")
-	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready}, &stdout, &stderr, &fakeRemote{}); code != 0 || fileExists(ready) {
-		t.Fatalf("no packages: exit %d, ready file written %v", code, fileExists(ready))
+	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready}, &stdout, &stderr, (&fakeRemote{}).the); code != 0 || oscheck.FileExists(ready) {
+		t.Fatalf("no packages: exit %d, ready file written %v", code, oscheck.FileExists(ready))
 	}
-	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, &fakeRemote{}); code != 0 || !fileExists(ready) {
-		t.Fatalf("a tree sent: exit %d, ready file written %v\n%s%s", code, fileExists(ready), &stdout, &stderr)
+	if code := run(context.Background(), []string{"-phase", "prepare", "-ready-file", ready, "github.com/x/a"}, &stdout, &stderr, (&fakeRemote{}).the); code != 0 || !oscheck.FileExists(ready) {
+		t.Fatalf("a tree sent: exit %d, ready file written %v\n%s%s", code, oscheck.FileExists(ready), &stdout, &stderr)
 	}
 }
