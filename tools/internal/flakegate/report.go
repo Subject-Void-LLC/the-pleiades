@@ -137,6 +137,22 @@ func Missing(skips []Skip) map[string][]string {
 type Measurement struct {
 	Coverage map[string]float64  `json:"coverage"`
 	Missing  map[string][]string `json:"missing,omitempty"`
+	// Seconds is how long each package's tests took (Elapsed), which
+	// testgate -shard balances the container packages by.
+	Seconds map[string]float64 `json:"seconds,omitempty"`
+}
+
+// Elapsed returns how long each package's test binary ran, from its own
+// pass or fail event, keyed by import path. A package whose binary never ran
+// is absent.
+func Elapsed(events []Event) map[string]float64 {
+	out := map[string]float64{}
+	for _, evt := range events {
+		if evt.Test == "" && evt.Package != "" && (evt.Action == "pass" || evt.Action == "fail") {
+			out[evt.Package] = evt.Elapsed
+		}
+	}
+	return out
 }
 
 // coveragePercent matches go test's "coverage: 91.5% of statements".

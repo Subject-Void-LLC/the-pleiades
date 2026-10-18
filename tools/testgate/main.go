@@ -70,8 +70,20 @@ func main() {
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
 	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
+	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
 	flag.Parse()
 	o.packages = flag.Args()
+
+	// -durations-check keeps -shard balanced as packages are added and
+	// their tests grow: a package durations.json lacks would be balanced as
+	// the median, whatever it really takes.
+	if *checkDurations {
+		if err := durationsCheck(os.Stdout, flag.Args(), durations()); err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// -list answers "which packages does this shard own?" for a step that
 	// needs the answer without running the tests, such as pulling the
@@ -123,7 +135,7 @@ func run(o options) error {
 	coverage := flakegate.Coverage(events)
 	missing := flakegate.Missing(skips)
 	if o.coverageOut != "" {
-		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
 			return err
 		}
 	}
@@ -164,7 +176,7 @@ func run(o options) error {
 	if o.coverageOut != "" && len(contention) > 0 {
 		failedAgain := remeasure(args, contention, coverage)
 		confirmed = append(confirmed, failedAgain...)
-		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing}); err != nil {
+		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
 			return err
 		}
 	}

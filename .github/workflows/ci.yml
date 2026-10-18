@@ -176,7 +176,9 @@ jobs:
   containers:
     # The container packages, divided four ways. The shards partition the
     # list (tools/testgate -shard), so the four jobs test every container
-    # package exactly once.
+    # package exactly once, and balance it by each package's measured time
+    # (tools/testgate/durations.json, which the coverage job holds to what
+    # these jobs measured), since a pull request waits for the slowest.
     if: github.event_name != 'schedule'
     strategy:
       fail-fast: false

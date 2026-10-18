@@ -14946,6 +14946,85 @@
       ]
     }
   },
+  "win.file.copy": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsShellCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A copy writes a file, and a file it replaces is not kept; nothing here removes a file yet, so neither a new file nor a replaced one can be undone."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches.",
+      "description": "Makes sure path on the host holds the project file src, byte for byte. This is ansible.windows.win_copy for one file. The file is read from the project (at most 128 MiB; never from .pleiades, never through a link) and its SHA-256 worked out here. A file already at path with that digest reports no change and nothing is sent. Otherwise the file travels on the WinRM command's standard input as base64, never on a command line, into a file beside path, and is moved into place only once its digest matches; a mismatch leaves path as it was and fails. A file at path with another digest is replaced. Only the command line reads a project's files, so a Walk-tier Runner refuses src. A check reads path's digest and sends nothing.",
+      "params": [
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path on the host to write, as C:\\pleiades\\tree.tar.gz. Its folder must exist. It may not hold a quote, a wildcard or a control character."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "1800",
+          "description": "How many seconds the copy may take."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file this task made sure of."
+        },
+        {
+          "name": "sha256",
+          "type": "string",
+          "returned": "always",
+          "description": "Its SHA-256, lower case."
+        },
+        {
+          "name": "size_bytes",
+          "type": "int",
+          "returned": "always",
+          "description": "Its size."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The SHA-256 at path before this task and after it, empty where there was no file."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Send a build to a Windows host",
+          "runbookYaml": "- name: Copy the tools archive to the host\n  win.file.copy:\n    src: dist/tools.zip\n    path: C:\\ops\\tools.zip\n"
+        }
+      ],
+      "seeAlso": [
+        "win.file.download",
+        "file.copy"
+      ]
+    }
+  },
   "win.file.download": {
     "supportedTransports": [
       "winrm"
