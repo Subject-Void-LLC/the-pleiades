@@ -13202,3 +13202,21 @@ after it (130, 143). Proven in `sh` by an interrupt and by an early exit: one me
 the missing parts named.
 
 **Lesson.** A trap on a signal and on EXIT runs twice for one signal; a handler that writes must disarm itself first.
+
+## 526. A lab check drove its box with whatever pleiades an earlier run had built (fixed)
+
+**Symptom.** 2026-10-19, this branch's first pr-check: both lab legs stopped at the box step, the steady
+wait.connection refused by validate as passing "backoff", "max_sleep", "steady" and "steady_interval", parameters
+wait.connection "does not declare". This branch declares them.
+
+**Root cause.** `LabCheck.box` built the check's pleiades only when the binary was missing, and the box is waited for
+before the flow builds this tree's pleiades for its own steps. Every lab check since #73 waited for its box with the
+binary some earlier run left, built from another tree. That was invisible while the box's wait used only parameters
+every build knew, and wrong the first time the check asked the box for something new.
+
+**Fix.** The box's pleiades is built from this tree every time (`buildPleiades`), which costs seconds when nothing
+changed. TestLabCheckBox_BuildsThisTreesPleiades puts a stale binary at the path first and failed on the old rule
+with nothing built.
+
+**Lesson.** A cached build is reusable only when it is known to be of this tree; "it exists" says nothing about which
+tree made it. The pr-check report named the cause in one line.
