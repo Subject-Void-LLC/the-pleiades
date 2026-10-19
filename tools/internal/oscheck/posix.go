@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // POSIX is a check's machine when it runs a POSIX shell.
@@ -168,8 +170,9 @@ func (x POSIX) TestScript(sha string, parallel int, packages []string) string {
 export PATH="$PATH:%[1]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
 %[8]s
+rm -f %[9]s %[10]s
 set -m
-%[7]s/bin/sh -c 'go run ./tools/testgate -full %[4]s %[5]s && go run ./tools/testgate -repeat 3 -strict %[4]s %[5]s' &
+%[7]s/bin/sh -c 'go run ./tools/testgate -full -report-out %[9]s %[4]s %[5]s && go run ./tools/testgate -repeat 3 -strict -report-out %[10]s %[4]s %[5]s' &
 job=$!
 set +m
 echo "$job" > %[6]s
@@ -177,7 +180,25 @@ trap 'stop_run "$job"; rm -f %[6]s; exit 143' TERM HUP INT
 wait "$job"
 status=$?
 rm -f %[6]s
-exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun)
+exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1])
+}
+
+// Records reads back the testgate records TestScript's passes wrote in
+// sha's tree (RecordFiles), those that exist.
+func (x POSIX) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
+	out, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.RecordsScript(sha)))
+	if err != nil {
+		return nil, err
+	}
+	return ParseRecords(out)
+}
+
+// RecordsScript prints each of RecordFiles in sha's tree that exists, one
+// after another.
+func (x POSIX) RecordsScript(sha string) string {
+	return fmt.Sprintf(`cd "$HOME/%s/%s" || exit 0
+for f in %s; do [ -f "$f" ] && cat "$f"; done
+exit 0`, x.Dir, sha, strings.Join(RecordFiles, " "))
 }
 
 // stopRun defines the shell function both scripts end a run with: SIGTERM to

@@ -38,8 +38,8 @@ func TestTestScript(t *testing.T) {
 		"exec 2>&1",
 		`export PATH="$PATH:/opt/homebrew/bin"`,
 		`cd "$HOME/.pleiades-maccheck/abc123" || exit 2`,
-		"set -m",
-		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -p 2 github.com/x/a github.com/x/b' &",
+		"rm -f .pleiades-record-full.json .pleiades-record-repeat.json\nset -m",
+		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -report-out .pleiades-record-full.json -p 2 github.com/x/a github.com/x/b && go run ./tools/testgate -repeat 3 -strict -report-out .pleiades-record-repeat.json -p 2 github.com/x/a github.com/x/b' &",
 		`echo "$job" > .maccheck.pid`,
 		"set +m",
 		`trap 'stop_run "$job"; rm -f .maccheck.pid; exit 143' TERM HUP INT`,
@@ -53,7 +53,7 @@ func TestTestScript(t *testing.T) {
 		t.Errorf("script does not end by removing its pid file and exiting with the tests' status:\n%s", s)
 	}
 	unwrapped := POSIX{Tool: "bsdcheck", Dir: ".b"}.TestScript("abc", 0, []string{"a/b"})
-	if !strings.Contains(unwrapped, "\n/bin/sh -c 'go run ./tools/testgate -full -p 0 a/b") {
+	if !strings.Contains(unwrapped, "\n/bin/sh -c 'go run ./tools/testgate -full -report-out .pleiades-record-full.json -p 0 a/b") {
 		t.Errorf("with no Wrap the tests run under sh alone:\n%s", unwrapped)
 	}
 }

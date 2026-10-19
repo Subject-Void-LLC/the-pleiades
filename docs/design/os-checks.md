@@ -96,6 +96,37 @@ Each machine runs beside the Linux passes, not after them:
 - **Parallelism.** The Mac runs `PR_CHECK_PARALLELISM` packages at once. The other two use go test's default for
   their own CPUs (`BSD_CHECK_PARALLELISM`, `WIN_CHECK_PARALLELISM`).
 
+## The record of a run
+
+A pr-check run printed several logs one after another, and reading one meant finding each pass's verdict, each
+failure's output and each machine's outcome in that text. Each part of the run now also leaves a record in
+`.coverage/pr/records`, and `tools/prreport` merges them into `report.json` there:
+
+- **A testgate pass** (`-report-out`) records its arguments, packages, time and verdict, each failure with its
+  outcome (failed, contention or not re-run) and the end of its own output, masked, and every skip with its reason.
+  It writes one however the run ends; a pass whose record cannot be written fails.
+- **A machine's check** (`-report-out`) records its leg: the machine, the commit, how it ended and, when it did not
+  pass, the step it stopped at (settings, box, commit, reachable, ready, ship or test) and why. It reads back the
+  records the machine's own two testgate passes wrote and carries them. A check with no machine named records that,
+  at the settings step, which the report shows as unset rather than failed.
+- **Every other step** (the served-images check, the coverage floors, the durations check) records its exit status,
+  or why it did not run (`prreport step`).
+
+The merge is given pr-check's own exit status, so a report never passes a run the gate failed: a failure no record
+explains is named as one. It prints a line for each pass, leg and step, then each failure that counts with its
+output, the tests that passed when re-run alone, and how many were skipped.
+
+```sh
+go run ./tools/prreport                  # the run again, as text
+go run ./tools/prreport -json            # the same model as JSON
+go run ./tools/prreport -failures        # only the failures that count
+go run ./tools/prreport -skips           # every skip, grouped by reason
+go run ./tools/prreport -leg win -json   # one pass, leg or step
+```
+
+A report for a commit other than HEAD says so. The report decides nothing: pr-check's exit status is still the
+gate.
+
 ## Gaps found by driving them through The Pleiades
 
 Each is something a Pleiades user doing the same would meet.

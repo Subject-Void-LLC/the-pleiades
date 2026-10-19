@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // testOutput is where testgate echoes what tests print. run replaces it
@@ -39,4 +40,15 @@ func maskEnvironment() {
 // writes it to the job summary.
 func scrub(text string) string {
 	return redact.Text(nil, text)
+}
+
+// scrubSkips masks what a test wrote into its skip, its name and its
+// reason, where the run reads them, so everything built from the skips
+// masks them alike: the ledger, the measurement and the run's record, which
+// once carried a reason the ledger beside it masked.
+func scrubSkips(skips []flakegate.Skip) []flakegate.Skip {
+	for i := range skips {
+		skips[i].Test, skips[i].Reason = scrub(skips[i].Test), scrub(skips[i].Reason)
+	}
+	return skips
 }

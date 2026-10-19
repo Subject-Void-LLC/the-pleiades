@@ -40,6 +40,9 @@ type options struct {
 	// coverageOut is where the run's per-package coverage is written, as
 	// JSON, for coverage-check -measured. Empty writes nothing.
 	coverageOut string
+	// reportOut is where the run's record is written (flakegate.Run),
+	// whatever the outcome. Empty writes nothing.
+	reportOut string
 	// packages are the import paths to test; empty means ./...
 	packages []string
 }

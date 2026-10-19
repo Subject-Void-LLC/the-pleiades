@@ -109,7 +109,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, remote fu
 	if mac == "" {
 		if o.Optional {
 			fmt.Fprintf(stdout, "maccheck: no Mac configured (%s in %s), so macOS was NOT checked\n", envKey, envFile)
-			return 0
+			return oscheck.RecordNotConfigured(o, "maccheck", "macOS", fmt.Sprintf("no Mac configured (%s in %s)", envKey, envFile), stderr)
 		}
 		fmt.Fprintf(stderr, "maccheck: no Mac is configured. Name one, then run this again:\n  cp %[1]s.example %[1]s, and set %[2]s in it to user@host, user@ip, or an ~/.ssh/config alias\n", envFile, envKey)
 		return 2

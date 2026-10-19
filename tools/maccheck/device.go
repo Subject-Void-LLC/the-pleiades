@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
@@ -48,6 +49,11 @@ func (r pleiadesRemote) Ship(sha string) error { return r.posix.Ship(sha) }
 // (oscheck.POSIX.Test).
 func (r pleiadesRemote) Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error) {
 	return r.posix.Test(ctx, r.mac, sha, parallel, packages, stdout)
+}
+
+// Records reads back the tests' records (oscheck.POSIX.Records).
+func (r pleiadesRemote) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
+	return r.posix.Records(ctx, sha)
 }
 
 // ensureDevice (re)creates the private project for t unless it already

@@ -233,9 +233,10 @@ func TestFirstRunFails(t *testing.T) {
 }
 
 // TestRun_MasksASecretATestPrints proves a secret in the environment that
-// a failing test prints reaches neither the printed output nor the job
-// summary, which on GitHub anyone who can read the repository can read.
-// The summary still names the failure.
+// a failing test prints, or a skipped one gives as its reason, reaches
+// neither the printed output, the job summary, which on GitHub anyone who
+// can read the repository can read, nor the run's record. The summary and
+// the record still name the failure and the skip.
 func TestRun_MasksASecretATestPrints(t *testing.T) {
 	throwawayModule(t, false)
 	const token = "ls-not-a-real-token-0123456789"
@@ -244,15 +245,17 @@ func TestRun_MasksASecretATestPrints(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := "package leak\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n" +
-		"func TestLeak(t *testing.T) {\n\tt.Log(\"the token is \" + os.Getenv(\"LOCALSTACK_AUTH_TOKEN\"))\n\tt.Fatal(\"deliberately broken\")\n}\n"
+		"func TestLeak(t *testing.T) {\n\tt.Log(\"the token is \" + os.Getenv(\"LOCALSTACK_AUTH_TOKEN\"))\n\tt.Fatal(\"deliberately broken\")\n}\n\n" +
+		"func TestSkipLeak(t *testing.T) { t.Skip(\"needs the token \" + os.Getenv(\"LOCALSTACK_AUTH_TOKEN\")) }\n"
 	if err := os.WriteFile(filepath.Join("leak", "leak_test.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	summary := filepath.Join(t.TempDir(), "summary.md")
 	t.Setenv("GITHUB_STEP_SUMMARY", summary)
+	record := filepath.Join(t.TempDir(), "run.json")
 
 	printed := captureOutput(t, func() {
-		if err := run(options{full: true, noRace: raceOff(t), strict: true, packages: []string{"gateproof/leak"}}); err == nil {
+		if err := run(options{full: true, noRace: raceOff(t), strict: true, reportOut: record, packages: []string{"gateproof/leak"}}); err == nil {
 			t.Error("a failing test passed the gate")
 		}
 	})
@@ -265,6 +268,18 @@ func TestRun_MasksASecretATestPrints(t *testing.T) {
 	}
 	if !strings.Contains(string(page), "TestLeak") || !strings.Contains(string(page), "deliberately broken") {
 		t.Errorf("masking hid the failure itself:\n%s", page)
+	}
+	written, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(written), token) {
+		t.Errorf("the token reached the record:\n%s", written)
+	}
+	rec := readRecord(t, record)
+	if len(rec.Failures) != 1 || !strings.Contains(rec.Failures[0].Output, "deliberately broken") ||
+		len(rec.Skips) != 1 || rec.Skips[0].Test != "TestSkipLeak" || !strings.HasPrefix(rec.Skips[0].Reason, "needs the token ") {
+		t.Errorf("masking hid the failure or the skip from the record: %+v", rec)
 	}
 }
 

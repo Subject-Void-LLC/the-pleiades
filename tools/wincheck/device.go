@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
@@ -201,15 +202,43 @@ if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { 'the package list
 Set-Location -LiteralPath $tree
 $pidFile = Join-Path $tree '` + pidFile + `'
 Set-Content -LiteralPath $pidFile -Value $PID
+foreach ($f in '` + recordFull + `', '` + recordRepeat + `') { Remove-Item -LiteralPath (Join-Path $tree $f) -Force -ErrorAction SilentlyContinue }
 $parallel = [int]$env:PLEIADES_PARALLEL
-& cmd.exe /d /c "go run ./tools/testgate -full -race=false -p $parallel $env:PLEIADES_PACKAGES 2>&1"
+& cmd.exe /d /c "go run ./tools/testgate -full -race=false -report-out ` + recordFull + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {
-	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -p $parallel $env:PLEIADES_PACKAGES 2>&1"
+	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out ` + recordRepeat + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
 	$code = $LASTEXITCODE
 }
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
 exit $code`
+
+// recordFull and recordRepeat are oscheck.RecordFiles, the files testScript's
+// two passes write their records to. They are constants so the scripts
+// that name them are.
+const (
+	recordFull   = ".pleiades-record-full.json"
+	recordRepeat = ".pleiades-record-repeat.json"
+)
+
+// Records reads back the testgate records testScript's passes wrote in
+// sha's tree, those that exist.
+func (w windows) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
+	out, err := w.shell(ctx, recordsScript, map[string]string{"SHA": sha}, 120)
+	if err != nil {
+		return nil, err
+	}
+	return oscheck.ParseRecords(out)
+}
+
+// recordsScript prints each record file in sha's tree that exists, read as
+// UTF-8, which is how testgate wrote it: Windows PowerShell 5.1 would
+// otherwise read a file with no byte order mark in the system's code page.
+const recordsScript = `$tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
+foreach ($f in '` + recordFull + `', '` + recordRepeat + `') {
+	$p = Join-Path $tree $f
+	if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw -Encoding UTF8 }
+}`
 
 // stopScript ends the test run testScript started in sha's tree, and every
 // process under it, by the process ID in pidFile; it does nothing when
