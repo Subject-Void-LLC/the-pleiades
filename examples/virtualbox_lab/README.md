@@ -357,7 +357,9 @@ name, fixed address on the host-only adapter, time zone, locale, the first-boot 
 and the Administrator's password. On the lab host the clone answered WinRM at 192.168.56.30 as
 its Administrator 82 seconds after it started. With no size, a Windows clone is small (one CPU and 2048 MB).
 `wait.connection` waits until the VM answers WinRM as its Administrator: Ansible's
-`wait_for_connection`, for SSH or WinRM.
+`wait_for_connection`, for SSH or WinRM. Each try is a fresh login. `steady: 3` asks for three
+answers in a row, because Windows setup can let the Administrator in once and then restart.
+`backoff: exponential` lengthens the gap between failed tries from 5 seconds up to a minute.
 
 ### 4. Eject the seed and use the VM
 

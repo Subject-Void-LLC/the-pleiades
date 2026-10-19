@@ -3,7 +3,11 @@
 id: vbox-lab-windows-wait
 hosts: win-lab
 tasks:
-  - name: wait for the first boot to let the Administrator in over WinRM
+  - name: wait for the first boot to let the Administrator in over WinRM, three times running
     wait.connection:
       timeout: 1800
-      sleep: 15
+      backoff: exponential
+      sleep: 5
+      max_sleep: 60
+      steady: 3
+      steady_interval: 10

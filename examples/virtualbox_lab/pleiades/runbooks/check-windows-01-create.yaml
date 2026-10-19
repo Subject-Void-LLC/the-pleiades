@@ -18,11 +18,15 @@ tasks:
   - name: start it
     virt.vbox.vm.start:
       name: win-check
-  - name: wait for its first boot to let the Administrator in over WinRM
+  - name: wait for its first boot to let the Administrator in over WinRM, three times running
     wait.connection:
       target: win-check
       timeout: 2400
-      sleep: 15
+      backoff: exponential
+      sleep: 5
+      max_sleep: 60
+      steady: 3
+      steady_interval: 10
   - name: take the answer file out, now that the first boot has read it
     virt.vbox.vm.eject_seed:
       name: win-check
