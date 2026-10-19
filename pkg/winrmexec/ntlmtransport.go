@@ -137,7 +137,10 @@ func (t *sealedNTLMTransport) post(ctx context.Context, body string) (reply stri
 	if err != nil {
 		return "", false, fmt.Errorf("winrm: sealing the message: %w", err)
 	}
-	payload := frame(signature, sealed, len(body))
+	payload, err := frame(signature, sealed, len(body))
+	if err != nil {
+		return "", false, fmt.Errorf("winrm: framing the sealed message: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(payload))
 	if err != nil {
 		return "", false, err
@@ -184,21 +187,29 @@ const (
 	octetStreamHeader = "\tContent-Type: application/octet-stream\r\n"
 )
 
-// frame is a sealed message in its WS-MV framing.
-func frame(signature, sealed []byte, plainLength int) []byte {
+// signatureLength is an NTLM message signature's length, and its WS-MV
+// prefix, little-endian.
+const signatureLength = 16
+
+var signatureLengthPrefix = []byte{signatureLength, 0, 0, 0}
+
+// frame is a sealed message in its WS-MV framing. An NTLM signature is
+// always signatureLength bytes; another length is refused.
+func frame(signature, sealed []byte, plainLength int) ([]byte, error) {
+	if len(signature) != signatureLength {
+		return nil, fmt.Errorf("an NTLM signature of %d bytes, not %d", len(signature), signatureLength)
+	}
 	var b bytes.Buffer
 	b.WriteString(sealBoundary + "\r\n")
 	b.WriteString("\tContent-Type: " + sealProtocol + "\r\n")
 	fmt.Fprintf(&b, "\tOriginalContent: type=%s;Length=%d\r\n", soapContentType, plainLength)
 	b.WriteString(sealBoundary + "\r\n")
 	b.WriteString(octetStreamHeader)
-	length := make([]byte, 4)
-	binary.LittleEndian.PutUint32(length, uint32(len(signature)))
-	b.Write(length)
+	b.Write(signatureLengthPrefix)
 	b.Write(signature)
 	b.Write(sealed)
 	b.WriteString(sealBoundary + "--\r\n")
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
 // unseal reads a sealed WS-MV reply: the length its first part declares,
@@ -228,7 +239,7 @@ func unseal(sec interface {
 		return nil, "", errors.New("the sealed reply is too short to hold a signature")
 	}
 	n := binary.LittleEndian.Uint32(framed[:4])
-	if uint64(n) > uint64(len(framed)-4) {
+	if int64(n) > int64(len(framed))-4 {
 		return nil, "", errors.New("the sealed reply's signature runs past its end")
 	}
 	plain, err := sec.Unwrap(framed[4+n:], framed[4:4+n])

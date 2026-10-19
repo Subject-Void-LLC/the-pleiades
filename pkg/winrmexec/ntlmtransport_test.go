@@ -123,7 +123,14 @@ func (identity) Unwrap(sealed, _ []byte) ([]byte, error) { return sealed, nil }
 // a message of another length is refused.
 func TestFrame_RoundTripsAndRefusesMalformedReplies(t *testing.T) {
 	msg := []byte("<s:Envelope>hello</s:Envelope>")
-	framed := frame([]byte("SIGNATURE-16-BYT"), msg, len(msg))
+	framed, err := frame([]byte("SIGNATURE-16-BYT"), msg, len(msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := frame([]byte("SIG"), msg, len(msg)); err == nil {
+		t.Error("a 3-byte signature was framed")
+	}
+	other, _ := frame([]byte("SIGNATURE-16-BYT"), msg, len(msg)+1)
 	for _, want := range []string{
 		"--Encrypted Boundary\r\n\tContent-Type: application/HTTP-SPNEGO-session-encrypted\r\n",
 		"\tOriginalContent: type=application/soap+xml;charset=UTF-8;Length=30\r\n",
@@ -146,7 +153,7 @@ func TestFrame_RoundTripsAndRefusesMalformedReplies(t *testing.T) {
 		"a length in words":    []byte("Length=ten\r\n" + octetStreamHeader + "\x00\x00\x00\x00abc"),
 		"too short":            []byte("Length=1\r\n" + octetStreamHeader + "ab"),
 		"signature past end":   []byte("Length=1\r\n" + octetStreamHeader + "\xff\x00\x00\x00ab"),
-		"another length":       frame([]byte("SIG"), msg, len(msg)+1),
+		"another length":       other,
 	} {
 		if _, _, err := unseal(identity{}, reply, sealedContentType); err == nil {
 			t.Errorf("%s was read", name)
