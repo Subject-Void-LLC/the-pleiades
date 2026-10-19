@@ -36,15 +36,28 @@ caught them."
   - `container.image.load`'s example saves first.
 - **Proof on `bsd-check`:** the copy condition fired on the first write, skipped when converged, and fired on a
   change. The `file.touch` and `file.line.remove` conditions behaved as documented.
-- **Records:** FAILURE_PATTERNS 515 (a repeat of 514) and LESSONS 301. The changelog fragment is
+- **Records:** FAILURE_PATTERNS 515 (a repeat of 324 and 514) and LESSONS 301. The changelog fragment is
   `catalog-examples-validate.fixed.md`.
+- **A box fix, found by this branch's first pr-check:**
+  - **What failed:** `win-check`, resumed from saved, answered one login and then nothing for over 20 seconds,
+    which failed the Windows leg (FAILURE_PATTERNS 516).
+  - **The fix:** `Box.Up` now requires three liveness checks in a row after a start. A live wincheck run then
+    passed.
 
 ### Next
 
 1. Gate this branch (coverage of the touched packages, then `make pr-check`), then open its pull request.
-2. **Packages, by the owner's decision of 2026-10-18:**
-   - `win.package`, Ansible's `win_package`: an MSI or EXE from a device path or a SHA-256-pinned URL, made
-     idempotent by `product_id` or `creates`, with its own undo. It serves Server Core and Desktop alike.
+2. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
+   - **For Server Core, three backends the user picks among, with no AppX or UWP:**
+     - Chocolatey, for system services and MSIs;
+     - Scoop, for portable CLI binaries;
+     - PSResourceGet, native PowerShell with no third-party bootstrap.
+   - **First, a design note.** It covers:
+     - digest-pinned bootstraps;
+     - Scoop installing into the WinRM login's profile;
+     - PSResourceGet managing PowerShell modules rather than applications, and needing PowerShell 7.4 or a
+       PSGallery install on 5.1.
+   - **Open:** whether `win.package` (an installer by digest) stays beside them.
    - `pkg.winget.*` for Desktop Experience only, refusing Server Core by name.
    - FreeBSD's `pkg(8)`, with the generic `pkg.*` dispatching to it.
 3. **Phase 122b's other open items:**
@@ -71,6 +84,7 @@ caught them."
 **This branch:**
 
 - `internal/archtest/examples_test.go`;
+- `tools/internal/oscheck/box.go` and its test;
 - the doc literals in `internal/catalog/{ai,edge,svc,file,container}` and `internal/forge/catalogdata`;
 - the regenerated `docs/reference` and `internal/api/wellknown`;
 - the changelog fragment;

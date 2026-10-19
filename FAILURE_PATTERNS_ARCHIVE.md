@@ -13031,3 +13031,21 @@ bare register names read under `result`, `changed` replaced by comparing `file.c
 `svc.windows.restart`'s config written with `win.file.copy` rather than SSH-only `file.copy`, the two above.
 
 **Lesson.** Shipped runbook text goes through the whole of `pleiades validate`, not the part that was handy.
+
+## 516. A box resumed from its saved state answered one login, then none for over 20 seconds, and the check failed
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`: wincheck resumed `win-check` from saved, its
+10-minute wait for a login passed, and the flow's next step, the 20-second liveness check, got no answer at all
+("gave up waiting for 192.168.56.31 after 5s" on every try). The leg failed before shipping anything; FreeBSD and
+the Mac passed.
+
+**Root cause.** `Box.Up` took one answered login as a box that is up. A resumed guest is not steady at once:
+resumed again by hand, `win-check` answered nothing for 132 seconds, its clock 75 minutes slow until Guest
+Additions set it, and then answered every check within a second. Why the guest went dark is not proven (the clock,
+or catching up after the resume, are the candidates); that it can is.
+
+**Fix.** After starting a box, `Up` requires it to pass the flow's own liveness check three times in a row, ten
+seconds apart, and waits for a login again after a miss, all within the 10-minute boot bound
+(`TestBoxUp_WaitsUntilTheBoxAnswersSteadily`). Live: wincheck resumed win-check, passed, and saved it.
+
+**Lesson.** A machine that was just started is up when it answers steadily, not when it first answers.
