@@ -70,10 +70,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// added the 149th through 151st: scan.sbom, scan.secrets and
 	// scan.vuln. Preparing a Windows host added the 171st through 173rd:
 	// win.capability.install and remove, and win.reboot. win.firewall.rule
-	// is the 174th, win.firewall.profile the 175th.
+	// is the 174th, win.firewall.profile the 175th,
+	// win.archive.extract the 176th.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 175
+	const wantCollections = 176
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

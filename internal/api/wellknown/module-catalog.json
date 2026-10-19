@@ -14772,6 +14772,90 @@
       ]
     }
   },
+  "win.archive.extract": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsShellCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Extracting can write any number of files under dest, some replacing files dest already held, and this method does not list them as it goes; an undo would have to delete exactly what was added and restore what was replaced, which it cannot know, as archive.extract cannot."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM.",
+      "description": "Extracts src into dest, making dest when it does not exist, with the tar.exe Windows ships, which reads zip as well as tar and refuses an entry whose path is absolute or climbs out with \"..\". This is community.windows.win_unzip, and archive.extract for a Windows host: src must already be on the host. Idempotency is opt-in, as archive.extract's: naming creates skips extraction when that path is already there; naming none means every run extracts again and reports a change. remove deletes src once it is extracted. Every path is absolute and held to a pattern with no quote, wildcard or \"..\" before WinRM is reached. A check reads creates, src and dest and extracts nothing; a src not there yet, or a dest that is not a folder, makes the call unchecked rather than failed, since an earlier task may change either.",
+      "params": [
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The archive on the host, an absolute path ending .zip, .tar, .tar.gz or .tgz."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "The folder to extract into, an absolute path or a drive's root (C:\\), made when it does not exist."
+        },
+        {
+          "name": "creates",
+          "type": "string",
+          "description": "An absolute path whose existence means the extraction already happened; when it is there, nothing is extracted and the task reports no change."
+        },
+        {
+          "name": "remove",
+          "type": "bool",
+          "default": "false",
+          "description": "Delete src once it has been extracted."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds the extraction may take."
+        }
+      ],
+      "returns": [
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "always",
+          "description": "The folder extracted into."
+        },
+        {
+          "name": "extracted",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task extracted (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether dest existed before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Unpack Go, once",
+          "runbookYaml": "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.26.9.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"
+        }
+      ],
+      "seeAlso": [
+        "win.file.download",
+        "archive.extract"
+      ]
+    }
+  },
   "win.capability.install": {
     "supportedTransports": [
       "winrm"

@@ -137,6 +137,8 @@ func TestModules_Map(t *testing.T) {
 		{name: "win_firewall", task: "{win_firewall: {profiles: [Domain, Private], state: enabled, inbound_action: block}}", fqcns: []string{"win.firewall.profile", "win.firewall.profile"}, params: map[string]any{"name": "Domain", "enabled": true, "default_inbound_action": "block"}, code: "args.list_unrolled"},
 		{name: "win_firewall actions only", task: "{win_firewall: {profiles: Public, outbound_action: allow}}", fqcns: []string{"win.firewall.profile"}, params: map[string]any{"name": "Public", "default_outbound_action": "allow"}},
 		{name: "win_firewall no profiles", task: "{win_firewall: {state: enabled}}", code: "args.unmapped"},
+		{name: "win_unzip", task: "{win_unzip: {src: 'C:\\a.zip', dest: 'C:\\a', creates: 'C:\\a\\x', delete_archive: yes}}", fqcns: []string{"win.archive.extract"}, params: map[string]any{"src": "C:\\a.zip", "dest": "C:\\a", "remove": true}},
+		{name: "win_unzip password", task: "{win_unzip: {src: 'C:\\a.zip', dest: 'C:\\a', password: x}}", code: "template.secret"},
 		{name: "win_firewall_rule", task: "{win_firewall_rule: {name: SSH, localport: 22, action: allow}}", code: "module.manual"},
 		{name: "win_feature", task: "{win_feature: {name: Web-Server}}", code: "module.manual"},
 		{name: "win_scheduled_task", task: "{win_scheduled_task: {name: x}}", code: "module.manual"},

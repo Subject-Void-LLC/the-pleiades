@@ -61,12 +61,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 175 registered FQCNs; 172 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 176 registered FQCNs; 173 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19, `ai` 11,
-  `svc` 16, `net` 12, `file` 12, `win` 11, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 12, `file` 12, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 2, `pleiades` 2, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -145,7 +145,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 162 of the 172 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 163 of the 173 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an

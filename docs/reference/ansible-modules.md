@@ -583,6 +583,23 @@ Also written as `win_copy`.
 | `content` | blocked (`args.unmapped`): win.file.copy copies a file from the project; write the content to a file there and name it as src |
 | `backup` | blocked (`args.unmapped`): win.file.copy keeps no backup; its undo puts the earlier file back |
 
+### `community.windows.win_unzip`
+
+Also written as `win_unzip`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `win.archive.extract` | asserted |
+
+| Argument | Becomes |
+|---|---|
+| `src` | `src` |
+| `dest` | `dest` |
+| `creates` | `creates` |
+| `delete_archive`, `rm` | `remove` |
+| `password` | blocked (`template.secret`): an archive's password is a secret and is not copied into a runbook; win.archive.extract reads no password-protected archive |
+| `recurse` | blocked (`args.unmapped`): win.archive.extract does not extract archives found inside the one it extracts |
+
 ## Modules a person converts
 
 | Module | Why |

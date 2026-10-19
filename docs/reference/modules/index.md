@@ -30,8 +30,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
-| `win` | 11 | 11 |
-| **total** | **175** | **172** |
+| `win` | 12 | 12 |
+| **total** | **176** | **173** |
 
 ## All methods
 
@@ -201,6 +201,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
+| [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |
 | [win.capability.install](win/capability/install.md) | implemented | Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it. |
 | [win.capability.remove](win/capability/remove.md) | implemented | Removes a Windows capability (a feature on demand) with DISM, run as SYSTEM. |
 | [win.cpu.topology](win/cpu/topology.md) | implemented | Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group. |
