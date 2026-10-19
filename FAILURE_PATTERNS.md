@@ -531,6 +531,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 526. A lab check drove its box with whatever pleiades an earlier run had built (fixed)
 527. virt.vbox.vm.delete took a saved VM for one it could change, and failed at its first step (fixed)
 528. The file inventory's reads took no lock, so a read could straddle a Save (fixed)
+529. win.firewall.rule's undo carried lists the journal cannot keep, and only a real rollback said so (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

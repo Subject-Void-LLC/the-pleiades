@@ -13261,3 +13261,24 @@ made". Two pleiades processes on one project are still kept apart only by `.plei
 
 **Lesson.** A test passing on one OS for months says nothing about another; the Windows leg found this the first time
 the package reached it. And a version check guards a write only if the read it compares against was whole.
+
+## 529. win.firewall.rule's undo carried lists the journal cannot keep, and only a real rollback said so (fixed before push)
+
+**Symptom.** 2026-10-19, proving the new method on lab-dc1: widening OpenSSH-Server-In-TCP's profiles worked, and
+`pleiades rollback` of that run refused before contacting anything: "win.firewall.rule's undo through
+win.firewall.rule was not recorded in full (profiles kept out of the journal), so it cannot be replayed". Every unit
+test passed, including the one replaying the undo, because it replayed it from the method's own stat, not from the
+journal.
+
+**Root cause.** The undo restored `profiles: [private]`, a list. The run journal keeps a recorded parameter only as a
+single string, number or boolean (`engine.InverseParam`, held by TestJournalEntryHoldsNoValue), so a list was dropped
+by name, whatever the manifest's `Record` said. The method also listed display_name and description as recorded,
+which are text the device holds and belong in `Withhold`.
+
+**Fix.** Every list parameter also takes one comma-separated string (no port, address or profile holds a comma), and
+the undo writes lists that way; display_name and description are withheld. TestFirewallRule_UndoIsJournalable holds
+every undo value to a single value. Proven live: widen, `pleiades rollback`, port 22 closed again, widen again.
+
+**Lesson.** A test that replays an undo from the stat it was written to skips the journal, the one step a real
+rollback goes through. An undo's values must fit what the journal keeps, and only a rollback through the journal
+proves it.
