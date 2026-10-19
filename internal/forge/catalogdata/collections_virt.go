@@ -94,7 +94,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Stops a VirtualBox VM, by its power button or by cutting its power.",
-			Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host." +
+			Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button, and again every 30 seconds while it waits (an idle Windows guest spends a press waking its display), for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host." +
 				vboxHostParamNote + " A check reads the VM and sends nothing.",
 			Params: []collection.Param{
 				vmNameParam,

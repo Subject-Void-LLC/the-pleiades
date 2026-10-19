@@ -34,8 +34,7 @@ SSH keys; loading is refused where Landlock is unavailable.
 id: notes
 tasks:
   - name: Leave a note
-    fqcn: example.note.write
-    params:
+    example.note.write:
       target: web1
       path: /tmp/note.txt
       content: "managed by pleiades\n"

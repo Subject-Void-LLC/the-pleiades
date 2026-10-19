@@ -402,16 +402,13 @@ func newExchange(target Target, auth Auth, opts Options) (*exchange, error) {
 		transporter = &certificateTransport{}
 
 	case !opts.DisableEncryption && !opts.HTTPS:
-		// SPNEGO session encryption over HTTP. Windows refuses
-		// unencrypted WinRM by default, so without this the very first
+		// SPNEGO session encryption over HTTP, through this package's own
+		// transport rather than the library's winrm.Encryption, which sends
+		// a message unsealed whenever its handshake fails (ntlmtransport.go
+		// says how, and FAILURE_PATTERNS 532 what it cost). Windows refuses
+		// unencrypted WinRM by default, so without encryption the very first
 		// request comes back 415 rather than working and then leaking.
-		enc, err := winrm.NewEncryption("ntlm")
-		if err != nil {
-			// Unreachable for the literal "ntlm": NewEncryption only
-			// rejects protocols it does not know.
-			return nil, fmt.Errorf("winrm: building NTLM encryption: %w", err)
-		}
-		transporter = enc
+		transporter = &sealedNTLMTransport{url: endpointURL(endpoint), username: auth.Username, password: auth.Password}
 
 	default:
 		transporter = &winrm.ClientNTLM{}

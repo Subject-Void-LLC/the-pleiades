@@ -98,5 +98,17 @@ var pkgModules = []Entry{
 			{Values: []string{"false"}},
 		}}}, svcSelectors("svc.systemd.")...),
 	},
-	{Module: "ansible.windows.win_service", Aliases: []string{"win_service"}, Args: svcArgs[:2], Selectors: svcSelectors("svc.windows.")[:1]},
+	{
+		Module:  "ansible.windows.win_service",
+		Aliases: []string{"win_service"},
+		Args:    []Arg{{Name: "name", To: "name"}, {Name: "state", Handling: ArgSelector}, {Name: "start_mode", Handling: ArgSelector}},
+		// state first, then start_mode, one call each when both are given.
+		// svc.windows.enable sets Automatic and svc.windows.disable Disabled;
+		// no native method sets Manual or Automatic (Delayed Start).
+		Selectors: append(svcSelectors("svc.windows.")[:1], Selector{Arg: "start_mode", Choices: []Choice{
+			{Values: []string{"auto"}, Call: &Call{FQCN: "svc.windows.enable", Class: ClassAsserted, Basis: "the service starting at boot"}},
+			{Values: []string{"disabled"}, Call: &Call{FQCN: "svc.windows.disable", Class: ClassAsserted, Basis: "the service never starting"}},
+			{Values: []string{"manual", "delayed"}, Code: "args.value", Reason: "no native method sets a Manual or delayed start type; svc.windows.enable sets Automatic and svc.windows.disable Disabled"},
+		}}),
+	},
 }

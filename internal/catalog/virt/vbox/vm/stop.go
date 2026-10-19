@@ -47,7 +47,7 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Stops a VirtualBox VM, by its power button or by cutting its power.",
-				Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button, and again every 30 seconds while it waits (an idle Windows guest spends a press waking its display), for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "mode", Type: "string", Default: "acpi", Choices: []string{"acpi", "poweroff", "save"}, Description: "acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume."},
@@ -80,6 +80,12 @@ const (
 // pollInterval is how often a stop looks at the VM again; a test shortens
 // it.
 var pollInterval = 2 * time.Second
+
+// pressEvery is how many looks at a VM still running pass before the power
+// button is pressed again, 30 seconds at pollInterval's 2. An idle Windows
+// Server guest spends a press waking its display and does nothing else
+// (FAILURE_PATTERNS 369), and a guest already shutting down ignores one.
+const pressEvery = 15
 
 // Stop implements "virt.vbox.vm.stop".
 func Stop(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
@@ -167,10 +173,10 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	return collection.Result{Changed: changed}, nil
 }
 
-// stopVM stops a running VM. With acpi it presses the power button and
-// waits for the guest to shut down, failing rather than cutting the power
-// when it has not within timeout; poweroff and save return once VirtualBox
-// has done it.
+// stopVM stops a running VM. With acpi it presses the power button, and
+// again every pressEvery looks while it waits, for the guest to shut down,
+// failing rather than cutting the power when it has not within timeout;
+// poweroff and save return once VirtualBox has done it.
 func stopVM(ctx context.Context, h vboxmanage.Host, name, stopMode string, timeout time.Duration) error {
 	if stopMode == modePowerOff || stopMode == modeSave {
 		stop := h.PowerOff
@@ -187,13 +193,18 @@ func stopVM(ctx context.Context, h vboxmanage.Host, name, stopMode string, timeo
 		return err
 	}
 	deadline := time.Now().Add(timeout)
-	for {
+	for looks := 1; ; looks++ {
 		m, err := h.Machine(ctx, name)
 		if err != nil {
 			return err
 		}
 		if m.Off() {
 			return nil
+		}
+		if looks%pressEvery == 0 {
+			if err := h.ACPIShutdown(ctx, name); err != nil && !errors.Is(err, vboxmanage.ErrNotRunning) {
+				return err
+			}
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%q was asked to shut down and is still %s after %s; its guest may not answer the power button, and mode: poweroff cuts its power", name, m.State, timeout)

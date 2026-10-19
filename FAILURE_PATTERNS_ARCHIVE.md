@@ -10342,8 +10342,10 @@ Kernel-Power 566 session transitions ten minutes after boot. With the display of
 power-button press wakes it and nothing more. Measured: one press with a 90-second wait left the idle
 guest running; a second press shut it down in 13 seconds.
 
-**Fix.** Not yet made. `virt.vbox.vm.stop` presses once. Candidates: press again while waiting, or set
-the display timeout to never in the install's audit pass.
+**Fix.** Made 2026-10-19, after win-lab needed a second stop the same day: `virt.vbox.vm.stop` presses the button
+again every 15 looks (30 seconds) while it waits. The test model's guest can ignore a number of presses
+(`vboxmanagetest.VM.IgnoredPresses`), and TestStop_PressesAgainWhenTheFirstPressOnlyWakes failed on the old code
+with the error win-lab gave.
 
 **Lesson.** A power button is an input event, and an idle guest may spend it on waking up; a stop that
 waits should not press only once.
@@ -13261,3 +13263,110 @@ made". Two pleiades processes on one project are still kept apart only by `.plei
 
 **Lesson.** A test passing on one OS for months says nothing about another; the Windows leg found this the first time
 the package reached it. And a version check guards a write only if the read it compares against was whole.
+
+## 529. win.firewall.rule's undo carried lists the journal cannot keep, and only a real rollback said so (fixed before push)
+
+**Symptom.** 2026-10-19, proving the new method on lab-dc1: widening OpenSSH-Server-In-TCP's profiles worked, and
+`pleiades rollback` of that run refused before contacting anything: "win.firewall.rule's undo through
+win.firewall.rule was not recorded in full (profiles kept out of the journal), so it cannot be replayed". Every unit
+test passed, including the one replaying the undo, because it replayed it from the method's own stat, not from the
+journal.
+
+**Root cause.** The undo restored `profiles: [private]`, a list. The run journal keeps a recorded parameter only as a
+single string, number or boolean (`engine.InverseParam`, held by TestJournalEntryHoldsNoValue), so a list was dropped
+by name, whatever the manifest's `Record` said. The method also listed display_name and description as recorded,
+which are text the device holds and belong in `Withhold`.
+
+**Fix.** Every list parameter also takes one comma-separated string (no port, address or profile holds a comma), and
+the undo writes lists that way; display_name and description are withheld. TestFirewallRule_UndoIsJournalable holds
+every undo value to a single value. Proven live: widen, `pleiades rollback`, port 22 closed again, widen again.
+
+**Lesson.** A test that replays an undo from the stat it was written to skips the journal, the one step a real
+rollback goes through. An undo's values must fit what the journal keeps, and only a rollback through the journal
+proves it.
+
+## 530. A PowerShell script's helper named R ran Invoke-History instead, since an alias wins over a function (fixed before push)
+
+**Symptom.** 2026-10-19, `win.firewall.profile`'s first live call on lab-dc1: "R : Cannot locate the history for
+command line PersistentStore", CategoryInfo Invoke-History. Every unit test had passed: the stand-in for WinRM answered
+the script's JSON without running the script.
+
+**Root cause.** The script defined `function R($store)` and called `R 'PersistentStore'`. `r` is a built-in alias for
+`Invoke-History`, and PowerShell resolves an alias before a function of the same name, so the function never ran.
+The rule script's `D` worked only because no alias is named `d`.
+
+**Fix.** Both helpers have verb-noun names (`Read-Profile`, `Read-Rule`), and TestScripts_NameNoFunctionAfterAnAlias
+refuses a helper name that is not verb-noun or is a short built-in alias; it failed with the old name.
+
+**Lesson.** A stand-in that answers a script's input never runs the script, so a PowerShell name resolution problem
+reaches only a real host (or the parse test, which cannot see it either). Name a script's helpers as cmdlets are
+named.
+
+## 531. The repository taught the task form its owner had refused, so every copy brought it back (fixed)
+
+**Symptom.** 2026-10-19: a converted Windows playbook came out with every task as `fqcn:` and `params:`, the form the
+owner has refused at least 22 times across sessions ("How is fqcn sneaking back in all of the time?"). The same day the
+agent had edited `pleiades init`'s sample runbook to give it a header comment and left `fqcn: noop` in it.
+
+**Root cause.** The rule lived only in memory, and the repository taught the opposite. The converter's emitter wrote
+`fqcn:` and `params:`; `pleiades init`'s sample used it; the `upgrade_ios` example was written that way, with a README
+calling it one of "two syntaxes supported forever" and the migration guide calling module-as-key the "sugar"; the
+`external_collection` README and a developer tool's runbook did the same. Nothing checked any of it, since the engine
+still reads the old form, so every runbook copied or generated from those sources validated cleanly and carried it on.
+
+**Fix.** The converter rewrites each task into module-as-key after encoding, and its round trip proves the file still
+builds to the same runbook (TestEmit_ModuleAsKey). The init sample, the examples and the docs use and teach only the key
+form, mentioning `fqcn:` as something older runbooks may hold. `pleiades validate` warns on each task written the old way
+(validate.TaskFormWarnings), and internal/archtest's TestShippedRunbooksNameTheirMethodAsKey refuses it in docs/,
+examples/, the root documents, every method's documented examples and the init sample; it failed on a planted task.
+
+**Lesson.** A rule kept only in a person's or an agent's memory loses to a generator and an example that teach the
+opposite, every time something is copied. Enforce a style rule where the copies come from: the generator, the scaffold,
+the shipped examples, and a check on all of them. And a file being edited for one reason is fixed for the known rule in
+the same edit.
+
+## 532. WinRM over HTTP sent a message unsealed whenever its NTLM handshake failed (fixed)
+
+**Symptom.** 2026-10-19, twice on the lab: a WinRM call failed with "http response error: 401 - invalid content type"
+after its command had been running (the GCC download on win-check had finished; a win-check tree upload through
+win.file.copy), and passed when retried. Nine long silent commands did not reproduce it, which pointed away from
+timeouts and at the handshake.
+
+**Root cause.** On plain HTTP with a password, pkg/winrmexec used masterzen/winrm's `Encryption` transport. Its `Post`
+runs an NTLM handshake on an empty request before each message and seals the message with the session it gets, but when
+that handshake fails for any reason (a 401 from three handshake requests split across two pooled connections, a
+connection the host closed under load, a 503), it discards the error and posts the message through plain NTLM,
+unsealed. The whole SOAP envelope crossed the network in the clear (a script's text, its environment values, which
+carried the CA build's one-time domain-join password; a stdin chunk of a copied file), and Windows, which refuses
+unencrypted WinRM by default, answered 401 with a non-SOAP body: "invalid content type". The transport also used the
+process-wide `http.DefaultTransport`, so another exchange's traffic to the host could take a handshake's connection.
+
+**Fix.** pkg/winrmexec's `sealedNTLMTransport` (ntlmtransport.go) replaces it: the same empty-request handshake through
+bodgit/ntlmssp, its own connection pool held to one connection, the message sealed with that session in the WS-MV
+framing Windows reads, and no unsealed path; a handshake that does not complete is an error saying nothing of the
+message was sent, a refused login is `errLoginRefused`, and a sealed message the host refuses with 401 (unprocessed) is
+sent once more after a fresh handshake. TestSealedTransport_AFailedHandshakeSendsNothing failed on the library's
+transport with the envelope arriving in cleartext; proven live on lab-dc1 (commands, a 70-second silent command, and a
+2 MB upload whose digest matched on both ends). Found by tracing the library after the 401 recurred, not from a scan.
+
+**Lesson.** A transport that falls back to a weaker mode to keep working hides the fault as a confusing error and
+spends the protection the caller asked for. An error the protocol layer swallows is worth reading in full when an
+intermittent failure keeps passing on retry.
+
+## 533. The sealed transport's header timeout raced Execute's deadline, and a silent host lost its name again (a repeat of 400) (fixed before push)
+
+**Symptom.** 2026-10-19, make pr-check on feat/win-firewall-rule: TestExecute_ADeadlineBeforeAnyShellIsNotStarted
+failed all three of FreeBSD's repeat runs, and 5 of 200 runs under -race here. The error was a *NotStartedError, but its
+text was "net/http: timeout awaiting response headers", not "the command was never sent", and it did not name the bound.
+
+**Root cause.** Entry 532's sealedNTLMTransport bounded each reply's headers by endpoint.Timeout, the same value
+Execute's own deadline uses. A host that never answers then fails the request and expires the deadline at the same
+moment, and Execute's select took whichever arrived first. The library's `Encryption` client it replaced had no header
+timeout at all, so entry 400's test never raced before; a check of ctx.Err() on the result path did not close it either,
+because the timer can fire a moment before the context records its deadline.
+
+**Fix.** The header timeout is the bound plus headerGrace (five seconds): Execute's deadline always names the failure,
+and the timeout remains only to release a request Execute abandoned. 200 of 200 runs pass, against 5 failures before.
+
+**Lesson.** Two timers set to one value are a race, not a redundancy. A replacement for a library component inherits
+the tests written against the old one's timing, and a backstop timer has to sit clearly past the bound it backs.

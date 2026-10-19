@@ -66,7 +66,7 @@ func TestCLI_MigratePlaybook_Writes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no runbook written: %v\n%s", err, stdout)
 	}
-	if !strings.Contains(string(written), "fqcn: file.directory") {
+	if !strings.Contains(string(written), "    file.directory:\n") || strings.Contains(string(written), "fqcn:") {
 		t.Errorf("runbook does not hold the converted task:\n%s", written)
 	}
 	if !strings.Contains(stdout, "1 converted") {

@@ -133,6 +133,17 @@ come before them. A line that is only an editor modeline, a schema hint, a licen
 copyright does not count. The runbook's `metadata.description` does not count either:
 the comment is what a reader of the file sees.
 
+A task names its method as its key, with the method's parameters beneath it:
+
+```yaml
+- name: Web server
+  pkg.apt.install:
+    name: nginx
+```
+
+Older runbooks may write a task as `fqcn:` with a `params:` map. The engine still reads that,
+and `validate` warns on each such task, naming the method key to write instead.
+
 It does not check capabilities for catalog FQCNs. Only the two legacy action names
 `ssh_exec` and `ios_backup` get a device capability check, so a task calling
 `net.catalyst.device_facts` against a Linux host passes `validate` and then fails

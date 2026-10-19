@@ -11,7 +11,7 @@ import (
 
 // allEntries is every module table, assembled once.
 var allEntries = sync.OnceValue(func() []Entry {
-	return slices.Concat(pkgModules, fileModules, execModules, miscModules, manualModules)
+	return slices.Concat(pkgModules, fileModules, execModules, miscModules, winModules, manualModules)
 })
 
 // moduleIndex maps every name an entry is written under to it.

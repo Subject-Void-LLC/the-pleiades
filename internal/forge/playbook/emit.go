@@ -70,6 +70,7 @@ func (t *translator) emitRunbook(rb *runbookOut, n int, stem string, eval engine
 	}
 	doc.HeadComment = t.header(incomplete)
 	for _, key := range listKeys {
+		moduleAsKey(lookup(doc, key))
 		annotate(lookup(doc, key), lists[key], t)
 	}
 	var buf bytes.Buffer
@@ -166,6 +167,47 @@ func toEngine(tasks []*outTask) []engine.Task {
 		out[i].When = engine.StringList(o.when)
 	}
 	return out
+}
+
+// moduleAsKey rewrites every task in seq, and in its block, rescue and
+// always lists, from the engine's fqcn: and params: pair into the form a
+// runbook is written in: the method's name as the task's key, its
+// parameters (or {}) as that key's value, where fqcn: stood. The engine
+// reads both forms to the same task, and roundTrip proves the written file
+// still builds to exactly the converted runbook.
+func moduleAsKey(seq *yaml.Node) {
+	seq = deref(seq)
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, task := range seq.Content {
+		if task.Kind != yaml.MappingNode {
+			continue
+		}
+		fqcnAt, paramsAt := -1, -1
+		for i := 0; i+1 < len(task.Content); i += 2 {
+			switch task.Content[i].Value {
+			case "fqcn":
+				fqcnAt = i
+			case "params":
+				paramsAt = i
+			case "block", "rescue", "always":
+				moduleAsKey(task.Content[i+1])
+			}
+		}
+		if fqcnAt < 0 {
+			continue
+		}
+		value := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+		if paramsAt >= 0 {
+			value = task.Content[paramsAt+1]
+		}
+		task.Content[fqcnAt] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: task.Content[fqcnAt+1].Value}
+		task.Content[fqcnAt+1] = value
+		if paramsAt >= 0 {
+			task.Content = append(task.Content[:paramsAt], task.Content[paramsAt+2:]...)
+		}
+	}
 }
 
 // annotate puts each task's finding IDs and source line on its node as a

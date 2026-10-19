@@ -151,8 +151,7 @@ sooner, and at 200 hosts it used about 57 times less CPU on the machine running 
 ## Worked example: a real playbook and runbook, side by side
 
 [`examples/upgrade_ios/`](../examples/upgrade_ios/) has the same Cisco IOS-XE upgrade
-written twice: once as a real Ansible playbook, once as a Pleiades runbook (in both
-its explicit and module-as-key-sugar forms). It is the best single artifact for
+written twice: once as a real Ansible playbook, once as a Pleiades runbook. It is the best single artifact for
 seeing every point in this book applied to one real scenario at once, including the
 exact `pleiades validate` output the runbook produces today (declared, not yet
 implemented, the same honest refusal [Start here](01-start-here.md) describes).
@@ -161,7 +160,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 
 | Ansible playbook key | The Pleiades runbook key | Notes | What `migrate-playbook` does |
 |---|---|---|---|
-| `hosts:` | `hosts:` | Same meaning: a default target. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. | Kept: one device name or tag. `all` and `localhost` are reviewed; a pattern, a list or a template is blocked. |
+| `hosts:` | `hosts:` | Same meaning: a default target. A task's own `target:`, beside its method's other parameters, still wins when set. | Kept: one device name or tag. `all` and `localhost` are reviewed; a pattern, a list or a template is blocked. |
 | `pre_tasks:` | `pretasks:` | Same phase, no underscore. | Converted. |
 | `tasks:` | `tasks:` | Same. | Converted. |
 | `post_tasks:` | `posttasks:` | Same phase, no underscore. | Converted. |
@@ -177,7 +176,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | none | `lock_acquisition:` | New. `per_device_as_reached` (default) or `all_at_plan_time`. | - |
 | none | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. | - |
 | `name:` | `name:` | Same, free-form label. | Kept. |
-| module name as a task key (e.g. `ansible.builtin.copy:`) | `fqcn:` + `params:`, or module-as-key sugar | See [Two ways to write a task](../examples/upgrade_ios/README.md#two-ways-to-write-a-pleiades-task). | Mapped by the [module tables](reference/ansible-modules.md); a module they do not list is blocked. |
+| module name as a task key (e.g. `ansible.builtin.copy:`) | the method name as a task key (e.g. `file.copy:`) | The same shape. See [How a task is written](../examples/upgrade_ios/README.md#how-a-pleiades-task-is-written); the older `fqcn:` + `params:` form is still read, and `validate` warns on it. | Mapped by the [module tables](reference/ansible-modules.md); a module they do not list is blocked. |
 | `vars:` (play or task level) | *(not supported)* | No template rendering exists; see [What transfers](#what-transfers-and-what-does-not). | A variable with exactly one literal value is written into the runbook, and listed in the report; anything else blocks the tasks that read it. |
 | `{{ jinja }}` anywhere in a module's args | *(not supported)* | `params:` is always a literal value. | Resolved when every variable it reads has one literal value, with a small set of filters; otherwise blocked. |
 | `loop:` / `with_items:` | *(not supported)* | A task runs once per its target device, never once per list item. | Unrolled into one task per item when the list is fixed in the playbook; a list known only at run time is blocked. |
@@ -260,7 +259,13 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 | Ansible | The Pleiades FQCN | Capability | Intended side (the Runs row on each reference page is authoritative) |
 |---|---|---|---|
 | `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
-| `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
+| `ansible.windows.win_optional_feature`, and `win_feature` by its DISM name | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
+| `community.windows.win_firewall_rule` | `win.firewall.rule`, by the rule's `Name` rather than its display name | `WinRMCapable` | target side |
+| `community.windows.win_firewall` | `win.firewall.profile`, one profile per task | `WinRMCapable` | target side |
+| `ansible.windows.win_reboot` | `win.reboot` | `WinRMCapable` | target side |
+| `ansible.windows.win_get_url` with a SHA-256 checksum | `win.file.download` | `WinRMCapable` | target side |
+| `community.windows.win_scheduled_task`, one action and one trigger | `win.schtask` | `WinRMCapable` | target side |
+| `ansible.windows.win_copy` of a file on the controller | `win.file.copy` | `WinRMCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
 | `community.docker.docker_container` | `container.run`, `container.stop`, `container.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
@@ -608,7 +613,6 @@ issuing one `add-host` per device, or writing a new sync plugin
 ```console
 $ cd examples/upgrade_ios/pleiades
 $ pleiades validate runbooks/upgrade_ios_xe.yaml
-$ pleiades validate runbooks/upgrade_ios_xe_sugar.yaml   # same findings, different syntax
 ```
 
 ```console

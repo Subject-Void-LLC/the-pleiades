@@ -84,6 +84,29 @@ func TestStop_AGuestThatIgnoresTheButton(t *testing.T) {
 	}
 }
 
+// TestStop_PressesAgainWhenTheFirstPressOnlyWakes: an idle Windows guest
+// spends the first press waking its display (FAILURE_PATTERNS 369), so the
+// stop presses again while it waits, and the second press shuts it down.
+// A guest that answers the first press is pressed once.
+func TestStop_PressesAgainWhenTheFirstPressOnlyWakes(t *testing.T) {
+	vm := startedByTheService()
+	vm.IgnoredPresses = 1
+	model := vboxmanagetest.New(vm)
+	onModel(t, model)
+	if _, err := call(t, "virt.vbox.vm.stop", false, newRecorder(), map[string]any{"name": "ubuntu-lab", "timeout": 30}); err != nil {
+		t.Fatalf("a guest that needed a second press: %v", err)
+	}
+	presses := 0
+	for _, c := range changes(model) {
+		if strings.HasSuffix(c, "acpipowerbutton") {
+			presses++
+		}
+	}
+	if vm.State != vboxmanage.StatePoweroff || presses != 2 {
+		t.Errorf("the VM is %s after %d presses", vm.State, presses)
+	}
+}
+
 func TestStop_AlreadyOff(t *testing.T) {
 	model := vboxmanagetest.New(lab())
 	onModel(t, model)

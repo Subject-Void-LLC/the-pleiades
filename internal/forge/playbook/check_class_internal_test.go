@@ -42,6 +42,8 @@ var reviewedCheckClass = map[string]string{
 		"refuses as the run does, and predicts the restart the run always performs",
 	"ansible.builtin.file -> file.touch": "a touch always moves the modification time, so its check always " +
 		"predicts a change, with remotefile.PredictTouch as the after half",
+	"ansible.windows.win_reboot -> win.reboot": "a restart is never converged, so a run always reports a change; " +
+		"its check reads the boot time, sends nothing and predicts the restart the run always makes (2026-10-19)",
 
 	// Imperative calls checkable only when a guard decides them, which the
 	// method says per call through CheckCall and the report says through

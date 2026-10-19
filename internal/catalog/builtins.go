@@ -58,8 +58,10 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/vbox/vm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/archive"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/capability"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/cpu"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/feature"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/file"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/win/firewall"
 )

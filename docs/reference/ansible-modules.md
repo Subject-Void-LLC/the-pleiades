@@ -120,11 +120,17 @@ Also written as `win_service`.
 | `state`: `stopped` | `svc.windows.stop` | asserted |
 | `state`: `restarted` | `svc.windows.restart` | imperative |
 | `state`: `reloaded` | blocked (`args.value`): no native method reloads a service; restart it, or run the reload command | |
+| `start_mode`: `auto` | `svc.windows.enable` | asserted |
+| `start_mode`: `disabled` | `svc.windows.disable` | asserted |
+| `start_mode`: `manual`, `delayed` | blocked (`args.value`): no native method sets a Manual or delayed start type; svc.windows.enable sets Automatic and svc.windows.disable Disabled | |
+
+Each row that applies becomes its own native task, in the order above.
 
 | Argument | Becomes |
 |---|---|
 | `name` | `name` |
 | `state` | chooses the call |
+| `start_mode` | chooses the call |
 
 ### `ansible.builtin.file`
 
@@ -490,10 +496,117 @@ Also written as `netconf_config`.
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
 
+### `ansible.windows.win_optional_feature`
+
+Also written as `win_optional_feature`.
+
+| When | Native call | Class |
+|---|---|---|
+| `state`: `present` (the default) | `win.feature.install` (review: win.feature.install also enables the features it needs (DISM /all), which Ansible does only with include_parent: true) | asserted |
+| `state`: `absent` | `win.feature.remove` | asserted |
+
+| Argument | Becomes |
+|---|---|
+| `name` | `name`, one task per item of a list |
+| `state` | chooses the call |
+| `include_parent` | dropped (`args.ignored`): win.feature.install always enables the features a feature needs |
+| `source` | blocked (`args.unmapped`): win.feature.install installs from the host's own store; a payload from another source is win.capability.install's source |
+
+A condition may read `reboot_required` from its registered result.
+
+### `ansible.windows.win_reboot`
+
+Also written as `win_reboot`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `win.reboot` | imperative |
+
+| Argument | Becomes |
+|---|---|
+| `reboot_timeout`, `reboot_timeout_sec` | `reboot_timeout` |
+| `pre_reboot_delay`, `pre_reboot_delay_sec` | `pre_reboot_delay` |
+| `post_reboot_delay`, `post_reboot_delay_sec` | `post_reboot_delay` |
+| `connect_timeout`, `connect_timeout_sec` | `connect_timeout` |
+| `msg` | `msg` |
+| `test_command` | blocked (`args.unmapped`): win.reboot waits for the host to let its login in again, not for a command to pass; run the command in the next task |
+| `boot_time_command` | blocked (`args.unmapped`): win.reboot reads the boot time itself |
+
+### `ansible.windows.win_get_url`
+
+Also written as `win_get_url`.
+
+| When | Native call | Class |
+|---|---|---|
+| `checksum_algorithm`: `sha256` | `win.file.download` | asserted |
+| `checksum_algorithm`: `md5`, `sha1`, `sha384`, `sha512` (the default) | blocked (`args.value`): win.file.download checks a SHA-256 only; give checksum_algorithm: sha256 and the file's SHA-256 as checksum | |
+
+| Argument | Becomes |
+|---|---|
+| `url` | `url` |
+| `dest` | `path` |
+| `checksum` | `sha256` |
+| `checksum_algorithm` | chooses the call |
+| `force` | dropped (`args.ignored`): win.file.download fetches the file again only when the one there does not have the digest |
+
+### `community.windows.win_firewall`
+
+Also written as `win_firewall`.
+
+| When | Native call | Class |
+|---|---|---|
+| `state`: `enabled` | `win.firewall.profile` with `enabled: true` | asserted |
+| `state`: `disabled` | `win.firewall.profile` with `enabled: false` | asserted |
+| otherwise | `win.firewall.profile` | asserted |
+
+| Argument | Becomes |
+|---|---|
+| `profiles` | `name`, one task per item of a list |
+| `state` | chooses the call |
+| `inbound_action` | `default_inbound_action` |
+| `outbound_action` | `default_outbound_action` |
+
+### `ansible.windows.win_copy`
+
+Also written as `win_copy`.
+
+| When | Native call | Class |
+|---|---|---|
+| `remote_src`: `false` (the default) | `win.file.copy` (review: win.file.copy reads src from the project directory, not the playbook's files/ folder, and copies one file, not a directory: put the file there) | asserted |
+| `remote_src`: `true` | blocked (`args.value`): no native method copies a file the host already has; remote_src: true has no conversion | |
+
+| Argument | Becomes |
+|---|---|
+| `src` | `src` |
+| `dest` | `path` |
+| `remote_src` | chooses the call |
+| `content` | blocked (`args.unmapped`): win.file.copy copies a file from the project; write the content to a file there and name it as src |
+| `backup` | blocked (`args.unmapped`): win.file.copy keeps no backup; its undo puts the earlier file back |
+
+### `community.windows.win_unzip`
+
+Also written as `win_unzip`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `win.archive.extract` | asserted |
+
+| Argument | Becomes |
+|---|---|
+| `src` | `src` |
+| `dest` | `dest` |
+| `creates` | `creates` |
+| `delete_archive`, `rm` | `remove` |
+| `password` | blocked (`template.secret`): an archive's password is a secret and is not copied into a runbook; win.archive.extract reads no password-protected archive |
+| `recurse` | blocked (`args.unmapped`): win.archive.extract does not extract archives found inside the one it extracts |
+
 ## Modules a person converts
 
 | Module | Why |
 |---|---|
+| `community.windows.win_firewall_rule`, `win_firewall_rule` | win_firewall_rule finds a rule by its display name, and win.firewall.rule by its Name, which for a rule Ansible made is a GUID; converted, the task would make a second rule beside it. Write win.firewall.rule with the rule's Name (Get-NetFirewallRule shows it) (`module.manual`) |
+| `ansible.windows.win_feature`, `win_feature` | win_feature takes Server Manager names (Web-Server) and win.feature.install DISM's (IIS-WebServerRole), which differ; write the task with the DISM name (`module.manual`) |
+| `community.windows.win_scheduled_task`, `win_scheduled_task` | win_scheduled_task takes lists of actions and triggers; win.schtask registers one of each, so a person chooses them (`module.manual`) |
 | `ansible.builtin.template`, `template` | the platform's renderer has no {% %} statements and file.template is not implemented, so a template stays a manual step (`module.manual`) |
 | `ansible.builtin.assert`, `assert` | no native method stops a run on a condition; express it as when on the tasks that must not run (`module.manual`) |
 | `ansible.builtin.fail`, `fail` | no native method fails a run on purpose (`module.manual`) |

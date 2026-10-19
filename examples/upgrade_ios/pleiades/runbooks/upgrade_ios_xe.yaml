@@ -11,24 +11,20 @@ metadata:
   description: "This runbook upgrades an IOS switch, which includes important security and stability fixes."
 
 pretasks:
-
   - name: Get Config
-    fqcn: net.cli.command
-    params:
+    net.cli.command:
       command: "show running-config"
     register: running_config
     # hide the running config from the run report, since it may contain secrets
     register_mask: running_config.stdout
 
   - name: Record the currently running version
-    fqcn: net.cli.command
-    params:
+    net.cli.command:
       command: "show version | include Version"
     register: pre_facts
 
   - name: Check free space on flash before pulling a new image
-    fqcn: net.cli.command
-    params:
+    net.cli.command:
       command: "dir flash:"
     register: flash_dir
 
@@ -36,8 +32,7 @@ tasks:
   - name: Upgrade sw1
     block:
       - name: Back up the running config before touching anything
-        fqcn: net.ios.config
-        params:
+        net.ios.config:
           backup: true
 
       # net.cli.command cannot answer an interactive prompt. IOS asks for a
@@ -47,27 +42,24 @@ tasks:
       # Ansible playbook answers the prompt with prompt:/answer:, which
       # have no native equivalent.)
       - name: Pull the new image onto flash
-        fqcn: net.cli.command
-        params:
+        net.cli.command:
           command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
 
       - name: Verify the image checksum before trusting it
-        fqcn: net.cli.command
-        params:
+        net.cli.command:
           command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
         register: md5_check
 
       - name: Point the boot variable at the new image
-        fqcn: net.ios.config
-        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
-        params:
+        net.ios.config:
           lines:
             - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
       # The Ansible playbook's save_when: modified, written as its own
       # step: net.ios.save runs "write memory".
       - name: Save the configuration
-        fqcn: net.ios.save
+        net.ios.save:
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
       # IOS asks "Proceed with reload? [confirm]", and no native method can
@@ -75,15 +67,13 @@ tasks:
       # and fails after its 30 second bound. Reload sw1 by hand at this
       # point. (The Ansible playbook answers it with prompt:/answer:.)
       - name: Reload the switch
-        fqcn: net.cli.command
-        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
-        params:
+        net.cli.command:
           command: reload
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
     rescue:
       - name: Record the failure for the run report
-        fqcn: pleiades.builtin.set_metadata
-        params:
+        pleiades.builtin.set_metadata:
           data:
             upgrade_failed: true
             note: "sw1 failed before reload; running config is unchanged, boot variable was not committed"
@@ -95,8 +85,7 @@ tasks:
       # "No Jinja templating in params" section documents for hosts:), so
       # a static, host-specific message is the honest ceiling today.
       - name: Display rollback instructions for the operator
-        fqcn: pleiades.builtin.set_metadata
-        params:
+        pleiades.builtin.set_metadata:
           data:
             rollback_instructions: >-
               Automatic rollback is not implemented yet.
@@ -112,31 +101,27 @@ tasks:
 
 posttasks:
   - name: Wait for the switch to come back on SSH
-    fqcn: pleiades.builtin.wait.port
-    params:
+    pleiades.builtin.wait.port:
       host: 10.10.20.11
       port: 22
       delay: 60
       timeout: 600
 
   - name: Re-check the running version
-    fqcn: net.cli.command
-    params:
+    net.cli.command:
       command: "show version | include Version"
     register: post_facts
 
   - name: Record that the upgrade landed
-    fqcn: pleiades.builtin.set_metadata
-    when_cel: 'stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
-    params:
+    pleiades.builtin.set_metadata:
       data:
         upgrade_succeeded: true
         version: "17.03.04"
+    when_cel: 'stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
 
   - name: Record that the upgrade did not land
-    fqcn: pleiades.builtin.set_metadata
-    when_cel: '!stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
-    params:
+    pleiades.builtin.set_metadata:
       data:
         upgrade_succeeded: false
         note: "still not running 17.03.04 after reload"
+    when_cel: '!stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'

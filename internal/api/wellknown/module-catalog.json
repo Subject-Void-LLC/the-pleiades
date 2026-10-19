@@ -14342,7 +14342,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Stops a VirtualBox VM, by its power button or by cutting its power.",
-      "description": "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button and waits for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "description": "Makes sure a VM is not running. A VM that is already off, saved or aborted reports no change. mode acpi presses the VM's power button, and again every 30 seconds while it waits (an idle Windows guest spends a press waking its display), for the guest to shut itself down, failing, rather than cutting the power, if it has not within timeout; mode poweroff stops it at once, as pulling its plug would, and loses whatever the guest had not written; mode save writes the VM's memory to disk and stops it, so the host has the memory back and virt.vbox.vm.start resumes the guest where it was, with no boot. Once the VM is off, its autostart mark is cleared, which virt.vbox.vm.start sets on a Windows host. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
       "params": [
         {
           "name": "name",
@@ -14769,6 +14769,90 @@
       "seeAlso": [
         "wait.path",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "win.archive.extract": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WindowsShellCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Extracting can write any number of files under dest, some replacing files dest already held, and this method does not list them as it goes; an undo would have to delete exactly what was added and restore what was replaced, which it cannot know, as archive.extract cannot."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM.",
+      "description": "Extracts src into dest, making dest when it does not exist, with the tar.exe Windows ships, which reads zip as well as tar and refuses an entry whose path is absolute or climbs out with \"..\". This is community.windows.win_unzip, and archive.extract for a Windows host: src must already be on the host. Idempotency is opt-in, as archive.extract's: naming creates skips extraction when that path is already there; naming none means every run extracts again and reports a change. remove deletes src once it is extracted. Every path is absolute and held to a pattern with no quote, wildcard or \"..\" before WinRM is reached. A check reads creates, src and dest and extracts nothing; a src not there yet, or a dest that is not a folder, makes the call unchecked rather than failed, since an earlier task may change either.",
+      "params": [
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The archive on the host, an absolute path ending .zip, .tar, .tar.gz or .tgz."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "The folder to extract into, an absolute path or a drive's root (C:\\), made when it does not exist."
+        },
+        {
+          "name": "creates",
+          "type": "string",
+          "description": "An absolute path whose existence means the extraction already happened; when it is there, nothing is extracted and the task reports no change."
+        },
+        {
+          "name": "remove",
+          "type": "bool",
+          "default": "false",
+          "description": "Delete src once it has been extracted."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds the extraction may take."
+        }
+      ],
+      "returns": [
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "always",
+          "description": "The folder extracted into."
+        },
+        {
+          "name": "extracted",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task extracted (or, in a check, would)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether dest existed before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Unpack Go, once",
+          "runbookYaml": "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.26.9.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"
+        }
+      ],
+      "seeAlso": [
+        "win.file.download",
+        "archive.extract"
       ]
     }
   },
@@ -15317,6 +15401,335 @@
       ],
       "seeAlso": [
         "virt.vbox.vm.import_ova"
+      ]
+    }
+  },
+  "win.firewall.profile": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the profile undoes to the earlier value of each setting it changed. A setting Windows held as NotConfigured is put back as the value it had in effect, which behaves the same.",
+      "inverses": [
+        {
+          "fqcn": "win.firewall.profile",
+          "record": [
+            "name",
+            "enabled",
+            "default_inbound_action",
+            "default_outbound_action",
+            "log_allowed",
+            "log_blocked",
+            "log_file",
+            "log_max_size_kb"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or reports, one Windows Defender Firewall profile over WinRM: whether it is on, its default actions and its logging.",
+      "description": "Names one profile, domain, private or public, and compares the settings the task gives with the machine's own (PersistentStore), changing only those that differ; a task giving none only reports the profile. A setting Windows holds as NotConfigured compares as what it does: on, block inbound, allow outbound, log nothing. The setting in force is read too (ActiveStore): one Group Policy sets to another value fails the task, naming it, since the machine's own setting has no effect there, after making the change if one was needed. The script is a constant and every value reaches it as JSON on standard input, held to its form first. The undo puts back the earlier value of each setting changed, as the value that was in force for a NotConfigured one. A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "domain",
+            "private",
+            "public"
+          ],
+          "description": "The profile. One per task, so its undo is exact."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Whether the firewall is on for this profile."
+        },
+        {
+          "name": "default_inbound_action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with inbound traffic no rule matches. Windows' default is block."
+        },
+        {
+          "name": "default_outbound_action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with outbound traffic no rule matches. Windows' default is allow."
+        },
+        {
+          "name": "log_allowed",
+          "type": "bool",
+          "description": "Whether allowed connections are logged."
+        },
+        {
+          "name": "log_blocked",
+          "type": "bool",
+          "description": "Whether dropped packets are logged."
+        },
+        {
+          "name": "log_file",
+          "type": "string",
+          "description": "The log file's path on the machine, as Windows takes it (%systemroot% may appear)."
+        },
+        {
+          "name": "log_max_size_kb",
+          "type": "int",
+          "description": "The log's largest size in kilobytes, 1 to 32767."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The profile."
+        },
+        {
+          "name": "settings",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings before, as the machine keeps them, in this method's parameters' form."
+        },
+        {
+          "name": "in_force",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings in force before, Group Policy's included."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How the machine's own settings differed from what was asked, empty when they matched."
+        },
+        {
+          "name": "overridden",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The settings asked for that Group Policy held at another value."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Log what the domain profile drops",
+          "runbookYaml": "- name: Log dropped packets on the domain network\n  win.firewall.profile:\n    name: domain\n    log_blocked: true\n    log_max_size_kb: 16384\n"
+        },
+        {
+          "name": "Make sure the public profile is on and closed",
+          "runbookYaml": "- name: The public profile is on and lets nothing in\n  win.firewall.profile:\n    name: public\n    enabled: true\n    default_inbound_action: block\n"
+        }
+      ],
+      "seeAlso": [
+        "win.firewall.rule"
+      ]
+    }
+  },
+  "win.firewall.rule": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A rule this run made is removed by its undo; a rule it changed gets back the earlier value of each setting it changed; a rule it removed is made again with every setting it had, though not in the group it belonged to, which a rule cannot be put back into. Its display name and description are text the device holds, withheld from the journal, so an undo restoring either replays only from the task's own rollback: list.",
+      "inverses": [
+        {
+          "fqcn": "win.firewall.rule",
+          "record": [
+            "name",
+            "state",
+            "enabled",
+            "direction",
+            "action",
+            "profiles",
+            "protocol",
+            "local_port",
+            "remote_port",
+            "local_address",
+            "remote_address",
+            "program",
+            "service"
+          ],
+          "withhold": [
+            "display_name",
+            "description"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes, changes or removes a Windows Defender Firewall rule over WinRM, or reports one as it is.",
+      "description": "A rule is named by its Name, its identity (OpenSSH-Server-In-TCP, not its display name), and read and written in the machine's own rule store (PersistentStore). With state present, a rule that does not exist is made, with Windows' defaults for what the task leaves out (inbound, allow, any protocol, every profile, enabled, its name as its display name); a rule that exists is compared on the settings the task gives and only those, and a setting that differs is changed, so a built-in rule's profiles can be widened without restating its ports or program. absent removes it; query only reports it. A rule that exists only through Group Policy is refused, since a change here would not be kept. Profiles, ports and addresses compare as sets, and an IPv4 network compares the same written as 10.0.0.0/8 or with the dotted mask Windows answers with. Ports need protocol tcp or udp, the task's or the rule's. The script is a constant and every value reaches it as JSON on standard input, held to its form first. A rule this run made undoes to its removal; a change, to the earlier value of each setting it changed; a removal, to making the rule again as it was, outside the group it belonged to. Lists may also be given as one comma-separated string, which is how an undo writes them; an undo restoring a display name or description is withheld from the journal. A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The rule's Name, its identity: letters, digits, space and ._{}()@,+-, at most 255."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent",
+            "query"
+          ],
+          "description": "present makes or changes it; absent removes it; query only reports it."
+        },
+        {
+          "name": "display_name",
+          "type": "string",
+          "description": "The name the firewall shows. A new rule takes its Name when this is left out."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "description": "Its description."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Whether it is on. A new rule is."
+        },
+        {
+          "name": "direction",
+          "type": "string",
+          "choices": [
+            "inbound",
+            "outbound"
+          ],
+          "description": "Which traffic it matches. A new rule's is inbound."
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with that traffic. A new rule allows it."
+        },
+        {
+          "name": "profiles",
+          "type": "list",
+          "description": "The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any."
+        },
+        {
+          "name": "protocol",
+          "type": "string",
+          "description": "tcp, udp, icmpv4, icmpv6, any, or an IP protocol number 0-255. A new rule's is any."
+        },
+        {
+          "name": "local_port",
+          "type": "list",
+          "description": "The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp."
+        },
+        {
+          "name": "remote_port",
+          "type": "list",
+          "description": "The other side's ports it matches: ports, ranges or any. Needs tcp or udp."
+        },
+        {
+          "name": "local_address",
+          "type": "list",
+          "description": "This machine's addresses it matches: addresses, networks (10.0.0.0/8), ranges (10.0.0.1-10.0.0.9), any, or a keyword (LocalSubnet, Internet, Intranet, DNS, DHCP, WINS, DefaultGateway)."
+        },
+        {
+          "name": "remote_address",
+          "type": "list",
+          "description": "The other side's addresses it matches, in the same forms."
+        },
+        {
+          "name": "program",
+          "type": "string",
+          "description": "The program whose traffic it matches, a path, or any."
+        },
+        {
+          "name": "service",
+          "type": "string",
+          "description": "The service whose traffic it matches, by its short name, or any."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The rule's Name."
+        },
+        {
+          "name": "existed",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the rule existed before."
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "returned": "always",
+          "description": "The group it belonged to before, as Windows names it, empty for none."
+        },
+        {
+          "name": "rule",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings before, as this method's parameters name them, empty when it did not exist."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How it differed from what was asked, empty when it matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Let SSH in on a domain controller",
+          "runbookYaml": "- name: OpenSSH's rule covers the domain network too\n  win.firewall.rule:\n    name: OpenSSH-Server-In-TCP\n    profiles: [domain, private]\n"
+        },
+        {
+          "name": "An app's port from one network",
+          "runbookYaml": "- name: The app's port, from the office only\n  win.firewall.rule:\n    name: Pleiades-App-In\n    display_name: App (TCP 8443)\n    protocol: tcp\n    local_port: [8443]\n    remote_address: [10.20.0.0/16]\n    profiles: [domain]\n"
+        },
+        {
+          "name": "What a rule allows",
+          "runbookYaml": "- name: Remote Desktop's rule\n  win.firewall.rule:\n    name: RemoteDesktop-UserMode-In-TCP\n    state: query\n  register: rdp\n"
+        }
+      ],
+      "seeAlso": [
+        "win.schtask",
+        "svc.windows.start",
+        "fw.firewalld.allow"
       ]
     }
   },
