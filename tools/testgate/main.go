@@ -140,7 +140,7 @@ func run(o options) (err error) {
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
 	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
-	skips := flakegate.Skips(events)
+	skips := scrubSkips(flakegate.Skips(events))
 
 	// Written before anything is judged, so a run that fails still leaves
 	// the measurement it made; coverage-check never runs after a failed
