@@ -1,0 +1,1 @@
+`wait.connection` takes `backoff: exponential`, which doubles the gap between failed tries up to `max_sleep`, and `steady`, which requires that many logins in a row before the machine counts as ready. Its result now reports `tries` and `failures`.

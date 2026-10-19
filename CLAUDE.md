@@ -197,7 +197,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   known_hosts path), any change to the known_hosts content, a failed keepalive, or a tainted
   connection (a shell, subsystem, streamed process or cut-off command). A method whose manifest
   sets `EndsLoginSession` (the six identity methods, `pleiades.builtin.connection.reset`) closes
-  it after a real run. `net.ssh.ping` and the transport actions never pool.
+  it after a real run. `net.ssh.ping`, `wait.connection` (`sdk.ConnectFresh`: its question is the login
+  itself) and the transport actions never pool.
 - **Generic device types are real (Phase 111).** `generic_ssh`, `generic_netconf`, `generic_http` and
   `generic_grpc` (`internal/inventory/devices/generic`) take their capabilities beyond a small baseline
   from the device: `internal/inventory/onboard` probes it over its protocol (one prober per type on a
@@ -378,7 +379,12 @@ there, holding pr-check's own exit status, so it never passes a run the gate fai
 ./tools/prreport` prints it again; `-json` is the same model for an agent, `-failures` the
 failures that count with their output, `-skips` every skip by reason, and `-leg NAME` one pass
 (`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`images`, `coverage`,
-`durations`). A report for a commit other than HEAD says so on stderr.
+`durations`). A report for a commit other than HEAD says so on stderr. The report is a versioned
+contract for tools, schema 2, published as `docs/reference/schemas/pr-check-report.json` from
+`tools/internal/prreport`. A reader ignores unknown fields, treats an unknown verdict or outcome as not a
+pass, and refuses an unknown major version. The verdict is `pass`, `fail`, `incomplete`, `running`
+(begun, not a result) or `interrupted`, and each problem carries a stable `code`. An expected part with
+no record is listed in `missing`.
 
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
