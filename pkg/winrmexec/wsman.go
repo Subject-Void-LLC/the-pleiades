@@ -152,7 +152,7 @@ func (x *exchange) run(ctx context.Context, line, stdin string, spec shellSpec) 
 	}
 	shellID, err := winrm.ParseOpenShellResponse(reply)
 	if err != nil {
-		return Result{}, &NotStartedError{Err: err}
+		return Result{}, &NotStartedError{Err: describeFault(err)}
 	}
 	x.record(shellID, "")
 	// Best effort: a shell left open is reclaimed by the service's own
@@ -167,7 +167,7 @@ func (x *exchange) run(ctx context.Context, line, stdin string, spec shellSpec) 
 	}
 	commandID, err := winrm.ParseExecuteCommandResponse(reply)
 	if err != nil {
-		return Result{}, fmt.Errorf("winrm: starting the command: %w", err)
+		return Result{}, fmt.Errorf("winrm: starting the command: %w", describeFault(err))
 	}
 	x.record(shellID, commandID)
 	if err := x.sendStdin(shellID, commandID, stdin); err != nil {
@@ -205,6 +205,9 @@ func (x *exchange) receive(ctx context.Context, shellID, commandID string) (Resu
 			return Result{}, err
 		}
 		reply, err := x.post(winrm.NewGetOutputRequest(x.url, shellID, commandID, "stdout stderr", &x.params))
+		if err == nil {
+			err = replyFault(reply)
+		}
 		if err != nil {
 			if isNoOutputYet(err) {
 				// Nothing to return within the operation timeout is the
@@ -215,7 +218,7 @@ func (x *exchange) receive(ctx context.Context, shellID, commandID string) (Resu
 		}
 		done, code, err := winrm.ParseSlurpOutputErrResponse(reply, &stdout, &stderr)
 		if err != nil {
-			return Result{}, fmt.Errorf("winrm: reading output: %w", err)
+			return Result{}, fmt.Errorf("winrm: reading output: %w", describeFault(err))
 		}
 		if done {
 			return Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: code}, nil
@@ -250,6 +253,31 @@ func isNoOutputYet(err error) bool {
 // wrote nothing within OperationTimeout, by its WS-Man subcode or its
 // WS-Man error code, never by its message, which Windows translates.
 var timedOutFault = regexp.MustCompile(`<s:Value>\s*w:TimedOut\s*</s:Value>|Code="2150858793"`)
+
+// faultAction is the WS-Addressing action a WS-Man fault carries.
+const faultAction = "http://schemas.dmtf.org/wbem/wsman/1/wsman/fault"
+
+// replyFault returns the fault a reply the transport accepted carries, or
+// nil for an ordinary reply. The output parser reads a fault as output that
+// is not done yet, so without this a host refusing a Receive (a quota, a
+// shell it has closed) looked like a command still running until the
+// operation's deadline.
+func replyFault(reply string) error {
+	if !strings.Contains(reply, faultAction) {
+		return nil
+	}
+	return &replyFaultError{body: reply}
+}
+
+// replyFaultError is a fault that arrived as a reply rather than as a
+// refused request. Its text holds the whole reply, as the library's own
+// transport errors do, so faultBody and describeFault read it alike.
+type replyFaultError struct {
+	body string
+}
+
+// Error implements error.
+func (e *replyFaultError) Error() string { return "the service answered with a fault: " + e.body }
 
 // faultBody returns the SOAP reply an error carries: the certificate
 // transport's whole reply, or, for the library's transports, the error's
@@ -385,8 +413,19 @@ var faultText = regexp.MustCompile(`<(?:f:Message|s:Text)[^>]*>([^<]+)<`)
 // sentence inside it, which is the part an operator can act on ("The
 // system cannot find the file specified"). An error with no fault in it
 // is returned unchanged.
+//
+// The fault is in the error's text when a transport refused the reply,
+// and in a *winrm.ExecuteCommandError's Body when a reply arrived and the
+// library's parser found a fault in it: that error's own text is only
+// "received error response", which is all a refused shell on lab-dc1
+// said (2026-10-18).
 func describeFault(err error) error {
-	if m := faultText.FindStringSubmatch(err.Error()); m != nil {
+	text := err.Error()
+	var parsed *winrm.ExecuteCommandError
+	if errors.As(err, &parsed) {
+		text += "\n" + parsed.Body
+	}
+	if m := faultText.FindStringSubmatch(text); m != nil {
 		return &faultError{message: strings.TrimSpace(m[1]), err: err}
 	}
 	return err

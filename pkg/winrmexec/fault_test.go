@@ -94,6 +94,76 @@ func TestIsNoOutputYet(t *testing.T) {
 	}
 }
 
+// TestRun_AFaultInAReplyReadsAsItsSentence: a shell create, a command
+// start and a receive each answered with a fault in a reply the transport
+// accepted reach the caller as the fault's own sentence, not as the
+// library parser's "received error response", which named nothing.
+func TestRun_AFaultInAReplyReadsAsItsSentence(t *testing.T) {
+	refused := strings.NewReplacer("w:TimedOut", "w:QuotaLimit", `Code="2150858793"`, `Code="2150859173"`,
+		"The WS-Management service cannot complete the operation within the time specified in OperationTimeout.",
+		"The maximum number of concurrent shells for this user has been exceeded.").Replace(timedOutFaultBody(t))
+	for _, at := range []string{"Create", "Command", "Receive"} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/soap+xml;charset=UTF-8")
+			action := actionOf(string(body))
+			switch {
+			case action == at:
+				_, _ = w.Write([]byte(refused))
+			case action == "Create":
+				_, _ = w.Write([]byte(shellReply))
+			case action == "Command":
+				_, _ = w.Write([]byte(cmdReply))
+			default:
+				_, _ = w.Write([]byte(okReply))
+			}
+		}))
+		x := &exchange{transport: plainTransportTo(t, server), url: "http://h:5985/wsman"}
+		_, err := x.run(context.Background(), "prog", "", shellSpec{})
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), "maximum number of concurrent shells") || strings.Contains(err.Error(), "received error response") {
+			t.Errorf("a fault answering %s: %v", at, err)
+		}
+	}
+}
+
+// TestReceive_ATimedOutFaultInAReplyStillWaits: the routine "no output
+// yet" fault, arriving as a reply the transport accepted, still means the
+// command is working, so the loop asks again rather than failing.
+func TestReceive_ATimedOutFaultInAReplyStillWaits(t *testing.T) {
+	fault := timedOutFaultBody(t)
+	var mu sync.Mutex
+	receives := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/soap+xml;charset=UTF-8")
+		switch actionOf(string(body)) {
+		case "Create":
+			_, _ = w.Write([]byte(shellReply))
+		case "Command":
+			_, _ = w.Write([]byte(cmdReply))
+		case "Receive":
+			mu.Lock()
+			receives++
+			first := receives == 1
+			mu.Unlock()
+			if first {
+				_, _ = w.Write([]byte(fault))
+				return
+			}
+			_, _ = w.Write([]byte(output("done", "", 0)))
+		default:
+			_, _ = w.Write([]byte(okReply))
+		}
+	}))
+	defer server.Close()
+	x := &exchange{transport: plainTransportTo(t, server), url: "http://h:5985/wsman"}
+	res, err := x.run(context.Background(), "prog", "", shellSpec{})
+	if err != nil || res.Stdout != "done" {
+		t.Fatalf("run: %+v, %v", res, err)
+	}
+}
+
 // TestHTTPFault_ReadsAsItsSentence proves a fault reaches an operator as
 // the sentence inside it rather than as the envelope around it.
 func TestHTTPFault_ReadsAsItsSentence(t *testing.T) {
