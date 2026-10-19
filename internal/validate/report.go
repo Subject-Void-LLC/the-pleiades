@@ -28,6 +28,10 @@ type Report struct {
 	// will reach it, decided from the record the way the run decides it.
 	// They are the plan, not problems, and never fail validation.
 	Routes []Route
+	// Warnings are advice about the runbook as a file (HeaderWarnings),
+	// which the CLI adds from its source. They are printed beside the
+	// findings and never fail validation.
+	Warnings []Finding
 }
 
 // Route is how one task will reach one device: the transport, and the
@@ -39,13 +43,14 @@ type Route struct {
 	Detail    string
 }
 
-// HasErrors reports whether any rule produced a Finding.
+// HasErrors reports whether any rule produced a Finding. A warning is not
+// one.
 func (r Report) HasErrors() bool {
 	return len(r.Findings) > 0
 }
 
 // String renders the report for the CLI surface: the findings, or that
-// there are none, then the routes.
+// there are none, then the warnings, then the routes.
 func (r Report) String() string {
 	var b strings.Builder
 	if len(r.Findings) == 0 {
@@ -53,6 +58,9 @@ func (r Report) String() string {
 	}
 	for _, f := range r.Findings {
 		fmt.Fprintf(&b, "[%s] node %q: %s\n", f.RuleName, f.Node, f.Message)
+	}
+	for _, w := range r.Warnings {
+		fmt.Fprintf(&b, "[warning] %s: %s\n", w.RuleName, w.Message)
 	}
 	for _, rt := range r.Routes {
 		fmt.Fprintf(&b, "[route] node %q on %s: %s, %s\n", rt.Node, rt.Device, rt.Transport, rt.Detail)

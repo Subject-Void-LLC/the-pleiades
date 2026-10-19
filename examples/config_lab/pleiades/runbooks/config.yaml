@@ -1,3 +1,9 @@
+# Moves the app to TLS on port 8443, drops a deprecated flag, scales it to
+# four workers, and checks it answers healthy.
+# Blast radius: app-1, plus one HTTPS request to app.example.com.
+# Changes: one key each in /etc/app/config.json and /etc/app/workers.yaml.
+# Undo: restore both files from a backup; their old text is kept out of the
+# journal, so a rollback cannot.
 id: app-config
 name: Move the app to TLS on 8443, scale its workers, and check it answers healthy
 hosts: app-1

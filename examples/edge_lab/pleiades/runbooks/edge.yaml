@@ -1,3 +1,8 @@
+# Checks the Cloudflare edge: the tunnel has two healthy connectors, the
+# admin site admits only staff, and www points at the load balancers.
+# Blast radius: the prod-cf account, read only.
+# Changes: nothing; every task compares and reports.
+# Undo: nothing to undo.
 id: edge-check
 name: The tunnel is up, the admin site admits only staff, and www points at the load balancers
 hosts: prod-cf

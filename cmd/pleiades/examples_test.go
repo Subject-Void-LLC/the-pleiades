@@ -41,7 +41,9 @@ func TestExamples_EveryRunbookBuildsAndValidates(t *testing.T) {
 		}
 		t.Run(strings.TrimPrefix(rb, filepath.Join("..", "..")+string(filepath.Separator)), func(t *testing.T) {
 			out, err := runPleiades(t, project, "validate", filepath.Join("runbooks", filepath.Base(rb)))
-			if err != nil || !strings.Contains(out, "validate: no issues found") {
+			// A warning counts here: an example shows how a runbook is
+			// written, header comment and all.
+			if err != nil || !strings.Contains(out, "validate: no issues found") || strings.Contains(out, "[warning]") {
 				t.Errorf("pleiades validate %s: err=%v\n%s", rb, err, out)
 			}
 		})

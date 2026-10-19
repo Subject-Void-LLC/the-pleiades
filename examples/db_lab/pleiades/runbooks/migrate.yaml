@@ -1,3 +1,8 @@
+# Applies the application's database migrations, refusing any that is not
+# additive.
+# Blast radius: the app database on db-host.
+# Changes: the schema, through the migrations in /srv/app/migrations.
+# Undo: none is derived from SQL; write the reverse as a new migration.
 id: db-migrate
 hosts: db-host
 tasks:

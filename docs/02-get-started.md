@@ -109,6 +109,30 @@ each runbook and fails if any of them does. It skips a directory, a file that is
 `.yaml` or `.yml`, and a list of tasks (a file that `import_tasks` pulls in, which is
 checked as part of the runbook that imports it), and prints a note for each.
 
+Start every runbook with a header comment that says what it does, which devices it
+reaches, what it changes and how to undo it, so whoever opens the file learns that before
+reading its tasks. The sample `init` writes has one:
+
+```yaml
+# Sample runbook: one task that does nothing, to show the project loads
+# and validates. Run it with: pleiades run runbooks/sample.yaml
+# Changes: nothing on any device. Undo: nothing to undo.
+id: sample
+```
+
+A runbook without one is warned about, and a warning never fails `validate`:
+
+```console
+$ pleiades validate runbooks/bare.yaml
+validate: no issues found
+[warning] header: the runbook does not open with a comment saying what it does; start the file with # lines naming what it does, what it changes, and how to undo it
+```
+
+The header is the `#` lines before the first line of YAML; a blank line or a `---` may
+come before them. A line that is only an editor modeline, a schema hint, a licence or a
+copyright does not count. The runbook's `metadata.description` does not count either:
+the comment is what a reader of the file sees.
+
 It does not check capabilities for catalog FQCNs. Only the two legacy action names
 `ssh_exec` and `ios_backup` get a device capability check, so a task calling
 `net.catalyst.device_facts` against a Linux host passes `validate` and then fails

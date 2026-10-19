@@ -1,3 +1,8 @@
+# Lists how the project's checks are classified, then runs the pure and
+# database ones on the build box.
+# Blast radius: build-box only.
+# Changes: nothing; the checks read and report.
+# Undo: nothing to undo.
 id: gate-lab
 hosts: build-box
 tasks:
