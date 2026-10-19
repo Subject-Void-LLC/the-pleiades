@@ -43,6 +43,8 @@ type waitServer struct {
 	port     int
 	username string
 	password string
+	// srv is the harness itself, for a test that counts its real logins.
+	srv *remoteexectest.Server
 }
 
 // startWaitServer starts a real SSH server that runs every command
@@ -74,7 +76,7 @@ func startWaitServerWithSessionBudget(t *testing.T, budget int) waitServer {
 	}
 	t.Cleanup(srv.Close)
 
-	return waitServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password}
+	return waitServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password, srv: srv}
 }
 
 // waitTarget is a device reachable over SSH: the shared

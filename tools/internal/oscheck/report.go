@@ -38,20 +38,31 @@ const (
 
 // LegRecord is one check's record of its machine's run.
 type LegRecord struct {
-	Schema   int       `json:"schema"`
-	Kind     string    `json:"kind"`
-	Tool     string    `json:"tool"`
-	OS       string    `json:"os"`
-	Target   string    `json:"target"`
-	Commit   string    `json:"commit,omitempty"`
-	Packages []string  `json:"packages"`
-	Started  time.Time `json:"started"`
-	Seconds  float64   `json:"seconds"`
+	// Schema is the leg record's version (LegSchema).
+	Schema int `json:"schema"`
+	// Kind is always leg.
+	Kind string `json:"kind"`
+	// Tool is the check that ran the leg: maccheck, bsdcheck or wincheck.
+	Tool string `json:"tool"`
+	// OS is the machine's operating system, as the check names it.
+	OS string `json:"os"`
+	// Target is the machine: its device or ssh name.
+	Target string `json:"target"`
+	// Commit is the commit whose tree the leg tested.
+	Commit string `json:"commit,omitempty"`
+	// Packages are the import paths the leg tested.
+	Packages []string `json:"packages"`
+	// Started is when the leg began.
+	Started time.Time `json:"started"`
+	// Seconds is how long the leg took.
+	Seconds float64 `json:"seconds"`
 	// Verdict is flakegate's: pass, fail, not-run (the tests never ran),
 	// or error (they ran and their outcome is unknown).
 	Verdict string `json:"verdict"`
 	// Step is where a leg that did not pass stopped.
-	Step  string `json:"step,omitempty"`
+	Step string `json:"step,omitempty"`
+	// Error is why the leg did not pass, or what went wrong after its tests
+	// passed (a box that could not be put back).
 	Error string `json:"error,omitempty"`
 	// Runs are the testgate records the machine wrote, in the order its
 	// passes ran.

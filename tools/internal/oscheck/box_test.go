@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestLabBox reads the VM settings: none is no box, the VM defaults to the
@@ -49,15 +48,11 @@ type fakeHost struct {
 	calls []string
 }
 
-// install answers through h, with a clock that stands still and pauses
-// that take no time, so a box's waits are only the calls it makes.
+// install answers through h.
 func (h *fakeHost) install(t *testing.T) {
 	t.Helper()
-	old, oldNow, oldSleep := adhocStats, boxNow, boxSleep
-	t.Cleanup(func() { adhocStats, boxNow, boxSleep = old, oldNow, oldSleep })
-	start := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
-	boxNow = func() time.Time { return start }
-	boxSleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+	old := adhocStats
+	t.Cleanup(func() { adhocStats = old })
 	adhocStats = func(_ context.Context, p Pleiades, method string, params ...string) (map[string]any, error) {
 		h.calls = append(h.calls, p.Device+" "+method+" "+strings.Join(params, " "))
 		if err := h.fail[method]; err != nil {
@@ -84,12 +79,10 @@ func (h *fakeHost) install(t *testing.T) {
 
 var testBox = Box{Host: Pleiades{Device: "vengeance"}, Device: Pleiades{Device: "box-1"}, VM: "box-vm"}
 
-// The box's two waits, as they reach pleiades: for a login after a start,
-// and the flow's own liveness check.
-const (
-	bootWaitCall   = "box-1 wait.connection timeout=600 connect_timeout=10 sleep=5"
-	steadyWaitCall = "box-1 wait.connection timeout=20 connect_timeout=5 sleep=5"
-)
+// bootWaitCall is the box's wait after a start, as it reaches pleiades:
+// three fresh logins in a row within ten minutes, backing off while it
+// refuses.
+const bootWaitCall = "box-1 wait.connection timeout=600 backoff=exponential sleep=2 max_sleep=30 steady=3 steady_interval=10 connect_timeout=10"
 
 // TestRunWithBox_StartsAnOffBoxAndPutsItBack: a box that is not running is
 // started and waited for before the flow, and saved after it, whatever the
@@ -105,7 +98,7 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 		want := []string{
 			"vengeance virt.vbox.vm.info name=box-vm",
 			"vengeance virt.vbox.vm.start name=box-vm",
-			bootWaitCall, steadyWaitCall, steadyWaitCall, steadyWaitCall,
+			bootWaitCall,
 			"vengeance virt.vbox.vm.stop name=box-vm mode=save",
 		}
 		if strings.Join(h.calls, "\n") != strings.Join(want, "\n") || h.state != "saved" {
@@ -125,52 +118,25 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 	}
 }
 
-// TestBoxUp_WaitsUntilTheBoxAnswersSteadily: a started box that answers a
-// login and then misses the liveness check is waited for again, as the
-// resumed win-check needed; one that never steadies within bootWait, and
-// a run interrupted while waiting, end the wait with an error.
-func TestBoxUp_WaitsUntilTheBoxAnswersSteadily(t *testing.T) {
-	missed := errors.New("gave up waiting after 5s")
-	h := &fakeHost{state: "saved", waits: []error{nil, nil, missed}}
+// TestBoxUp_WaitsForASteadyStreak: a started box is waited for once, by
+// wait.connection asking for three fresh logins in a row, and a box that
+// never gives them ends the wait with wait.connection's own reason.
+func TestBoxUp_WaitsForASteadyStreak(t *testing.T) {
+	h := &fakeHost{state: "saved"}
 	h.install(t)
 	if started, err := testBox.Up(context.Background(), "t", &bytes.Buffer{}); !started || err != nil {
 		t.Fatalf("a box that steadies: %v %v", started, err)
 	}
-	want := []string{bootWaitCall, steadyWaitCall, steadyWaitCall, bootWaitCall, steadyWaitCall, steadyWaitCall, steadyWaitCall}
-	if got := h.calls[2:]; strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls after the start:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	if got := h.calls[2:]; len(got) != 1 || got[0] != bootWaitCall {
+		t.Errorf("calls after the start: %q", got)
 	}
 
-	// Each wait takes four minutes of a ten-minute bound, and every first
-	// liveness check misses: the third wait has none of the bound left.
-	h = &fakeHost{state: "saved", waits: []error{nil, missed, nil, missed}}
+	flapping := errors.New("timed out after 10m0s: it answered 2 time(s) in a row at most, of the 3 asked for")
+	h = &fakeHost{state: "saved", waits: []error{flapping}}
 	h.install(t)
-	now := boxNow()
-	boxNow = func() time.Time { now = now.Add(4 * time.Minute); return now }
-	if _, err := testBox.Up(context.Background(), "t", &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "never passed 3 liveness checks in a row") {
+	if _, err := testBox.Up(context.Background(), "t", &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "of the 3 asked for") ||
+		!strings.Contains(err.Error(), "did not answer logins steadily within 10m0s") {
 		t.Errorf("a box that never steadies: %v", err)
-	}
-
-	h = &fakeHost{state: "saved"}
-	h.install(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	boxSleep = func(context.Context, time.Duration) error { cancel(); return context.Canceled }
-	if _, err := testBox.Up(ctx, "t", &bytes.Buffer{}); !errors.Is(err, context.Canceled) {
-		t.Errorf("an interrupted wait: %v", err)
-	}
-}
-
-// TestBoxSleep: the pause between liveness checks ends when its time
-// passes, and at once, with the context's error, when the run ends.
-func TestBoxSleep(t *testing.T) {
-	if err := boxSleep(context.Background(), time.Millisecond); err != nil {
-		t.Errorf("a pause that ran out: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	start := time.Now()
-	if err := boxSleep(ctx, time.Hour); !errors.Is(err, context.Canceled) || time.Since(start) > time.Minute {
-		t.Errorf("a pause in an ended run: %v after %s", err, time.Since(start))
 	}
 }
 

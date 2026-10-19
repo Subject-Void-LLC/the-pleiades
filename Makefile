@@ -679,9 +679,13 @@ ci-containers:
 # prreport step), and the run ends with tools/prreport merging them into
 # report.json there and printing a line for each, then each failure that
 # counts with its own output: `go run ./tools/prreport` reads it back, and
-# -json gives a reader that is not a person the same model. The report
-# decides nothing. Its merge is given pr-check's own status, so it never
-# passes a run the gate failed.
+# -json gives a reader that is not a person the same model, a versioned
+# contract with a published schema (docs/reference/schemas/
+# pr-check-report.json). The run begins by writing a running report naming
+# every part it expects (prreport begin), so a part with no record is
+# missing rather than unnoticed, and an interrupt or an early exit merges
+# what ran as interrupted. The report decides nothing. Its merge is given
+# pr-check's own status, so it never passes a run the gate failed.
 #
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
@@ -713,9 +717,14 @@ pr-check: ci-remote pr-check-vet
 	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr/records; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
 	go build -o $$report ./tools/prreport || exit 1; \
+	expect="mac,bsd,win,images,coverage"; \
+	if [ -n "$$mine_fast" ]; then expect="fast,repeat,$$expect"; fi; \
+	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
+	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
 	status=0; legs=""; \
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
-	trap 'for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done' INT TERM EXIT; \
+	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; }; \
+	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
 	for os in $(OS_CHECKS); do \
 		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
 		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \

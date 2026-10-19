@@ -127,6 +127,40 @@ go run ./tools/prreport -leg win -json   # one pass, leg or step
 A report for a commit other than HEAD says so. The report decides nothing: pr-check's exit status is still the
 gate.
 
+### The report as a contract
+
+The report is meant to be read by tools as well as people: a dashboard, or an agent diagnosing a failed run. Its
+shape is a contract, published as `docs/reference/schemas/pr-check-report.json` and generated from the Go model's
+own comments (`tools/internal/prreport`), so it cannot drift from the code.
+
+- **Versioning.** `schema` is the major version, now 2. It goes up only for a change an existing reader could
+  misread: a field removed or renamed, or given another type or meaning. Within a major version the producer only
+  adds optional fields, and new values to the open sets (verdicts, outcomes, steps, problem codes).
+- **What a reader does.** It ignores a field it does not know. It treats a verdict, outcome or step it does not know
+  as not a pass, and shows it as it is. It refuses a major version it does not know. The schema is open to match:
+  objects take properties it does not declare, and known values are published as examples, not as a closed enum.
+- **Verdicts.**
+  - `pass`: every expected part has a record, every record was read, every value in them is known, and pr-check
+    exited 0.
+  - `fail`: a part failed, could not finish, or never ran, or pr-check failed. Two cases are said rather than
+    failed: a check with no machine named, and a step this machine could not make.
+  - `incomplete`: nothing failed, but something cannot be read as a pass.
+  - `running`: written as pr-check begins. It is not a result, and one still saying so after its run is gone is an
+    abandoned run.
+  - `interrupted`: the run stopped before its end, by a signal or an early exit.
+- **Problems.** Each problem has a stable `code` for a tool to act on, the `record` it is about, and a `detail` for
+  a person. The codes:
+  - `unreadable`, `unknown-kind`, `unknown-schema` and `unknown-value`: a record the merge could not read as it is;
+  - `missing`: an expected part with no record;
+  - `gate-failed` and `gate-disagrees`: pr-check's own exit status disagrees with the records;
+  - `interrupted`: the run stopped before its end.
+- **Missing parts.** pr-check begins by writing a `running` report naming every pass, leg and step it will run
+  (`prreport begin`). The merge names each one with no record in `missing`. So a leg that died without writing
+  anything shows as missing, never as absent and therefore passing.
+
+Each of these cases has a test that drives it through the real producers. The schema test checks a complete report
+against the schema strictly: every property it declares must appear with a value, and none it does not declare.
+
 ## Gaps found by driving them through The Pleiades
 
 Each is something a Pleiades user doing the same would meet.

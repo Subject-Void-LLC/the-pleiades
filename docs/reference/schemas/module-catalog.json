@@ -14424,7 +14424,7 @@
     "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits until the target answers a command over its own connection, SSH or WinRM.",
-      "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. It changes nothing.",
+      "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
       "params": [
         {
           "name": "timeout",
@@ -14442,7 +14442,31 @@
           "name": "sleep",
           "type": "int",
           "default": "5",
-          "description": "How many seconds to wait between tries. Must be more than 0."
+          "description": "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."
+        },
+        {
+          "name": "backoff",
+          "type": "string",
+          "default": "fixed",
+          "description": "How the gap between failed tries grows: fixed keeps it at sleep, as wait_for_connection does; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."
+        },
+        {
+          "name": "max_sleep",
+          "type": "int",
+          "default": "60",
+          "description": "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."
+        },
+        {
+          "name": "steady",
+          "type": "int",
+          "default": "1",
+          "description": "How many tries in a row must answer before the machine counts as ready. Each is its own login. Must be at least 1, and the streak must fit in the timeout after the delay."
+        },
+        {
+          "name": "steady_interval",
+          "type": "int",
+          "default": "10",
+          "description": "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."
         },
         {
           "name": "connect_timeout",
@@ -14471,6 +14495,18 @@
           "description": "The connection that answered: ssh or winrm."
         },
         {
+          "name": "tries",
+          "type": "int",
+          "returned": "always",
+          "description": "How many tries the task made, answered or not."
+        },
+        {
+          "name": "failures",
+          "type": "int",
+          "returned": "always",
+          "description": "How many of those tries did not answer."
+        },
+        {
           "name": "diff",
           "type": "dict",
           "returned": "always",
@@ -14485,6 +14521,10 @@
         {
           "name": "Wait out a reboot",
           "runbookYaml": "- name: Give the machine time to go down, then wait for it\n  wait.connection:\n    delay: 30\n    timeout: 600\n"
+        },
+        {
+          "name": "Wait for a resumed VM that keeps answering",
+          "runbookYaml": "- name: Wait until the resumed VM lets its account in three times running\n  wait.connection:\n    timeout: 900\n    backoff: exponential\n    sleep: 2\n    max_sleep: 60\n    steady: 3\n    steady_interval: 10\n"
         }
       ],
       "seeAlso": [

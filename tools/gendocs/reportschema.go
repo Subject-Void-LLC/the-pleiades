@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook"
 )
@@ -32,6 +33,12 @@ func generateMigrationReportSchema(outDir string) error {
 	if err != nil {
 		return err
 	}
+	return writeDocsSchema(outDir, "migration-report.json", schema)
+}
+
+// writeDocsSchema writes schema as indented JSON to name under outDir's
+// schemas directory only: unlike writeSchema's, nothing serves it.
+func writeDocsSchema(outDir, name string, schema map[string]any) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -43,7 +50,7 @@ func generateMigrationReportSchema(outDir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- generated docs, not secret material
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "migration-report.json"), buf.Bytes(), 0o644) // #nosec G306 -- generated docs, not secret material
+	return os.WriteFile(filepath.Join(dir, name), buf.Bytes(), 0o644) // #nosec G306 -- generated docs, not secret material
 }
 
 // migrationReportSchema builds the report's schema, its descriptions read
@@ -53,7 +60,7 @@ func migrationReportSchema(modelFile string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &schemaBuilder{docs: docs, defs: map[string]any{}}
+	s := &schemaBuilder{docs: docs, defs: map[string]any{}, source: reportModelFile}
 	root, err := s.object(reflect.TypeFor[playbook.Report]())
 	if err != nil {
 		return nil, err
@@ -102,16 +109,31 @@ func oneLine(doc string) string {
 	return strings.Join(strings.Fields(doc), " ")
 }
 
-// schemaBuilder turns the report's Go types into JSON Schema, each struct
-// once under $defs.
+// schemaBuilder turns a report's Go types into JSON Schema, each struct
+// once under $defs. Its zero options are the migration report's: closed
+// objects, a nil pointer as null.
 type schemaBuilder struct {
 	docs map[string]string
 	defs map[string]any
+	// source names where the docs come from, for an error about a field
+	// with none.
+	source string
+	// known lists, by "Type.Field", the values a field holds today, which
+	// the schema publishes as examples and describes as an open set.
+	known map[string][]string
+	// open leaves an object open to properties it does not declare, for a
+	// contract whose producer may add fields within a major version.
+	open bool
+	// absentNotNull writes an omitempty pointer as its value's schema, since
+	// a nil one is absent, never null.
+	absentNotNull bool
 }
 
 // of returns t's schema.
 func (s *schemaBuilder) of(t reflect.Type) (map[string]any, error) {
 	switch t {
+	case reflect.TypeFor[time.Time]():
+		return map[string]any{"type": "string", "format": "date-time"}, nil
 	case reflect.TypeFor[playbook.Class]():
 		// An undecided class is null, so it cannot read as a decided one.
 		var names []any
@@ -157,10 +179,21 @@ func (s *schemaBuilder) of(t reflect.Type) (map[string]any, error) {
 		}
 		// A nil slice encodes as null.
 		return map[string]any{"type": []any{"array", "null"}, "items": items}, nil
+	case reflect.Map:
+		if t.Key().Kind() != reflect.String {
+			break
+		}
+		values, err := s.of(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"type": "object", "additionalProperties": values}, nil
 	case reflect.String:
 		return map[string]any{"type": "string"}, nil
 	case reflect.Int:
 		return map[string]any{"type": "integer"}, nil
+	case reflect.Float64:
+		return map[string]any{"type": "number"}, nil
 	case reflect.Bool:
 		return map[string]any{"type": "boolean"}, nil
 	}
@@ -180,11 +213,19 @@ func (s *schemaBuilder) object(t reflect.Type) (map[string]any, error) {
 		}
 		doc := s.docs[t.Name()+"."+f.Name]
 		if doc == "" {
-			return nil, fmt.Errorf("%s.%s has no doc comment in %s, so the schema cannot describe it", t.Name(), f.Name, reportModelFile)
+			return nil, fmt.Errorf("%s.%s has no doc comment in %s, so the schema cannot describe it", t.Name(), f.Name, s.source)
 		}
-		prop, err := s.of(f.Type)
+		ft := f.Type
+		if s.absentNotNull && ft.Kind() == reflect.Pointer && strings.Contains(opts, "omitempty") {
+			ft = ft.Elem()
+		}
+		prop, err := s.of(ft)
 		if err != nil {
 			return nil, err
+		}
+		if values, ok := s.known[t.Name()+"."+f.Name]; ok {
+			prop["examples"] = values
+			doc += " Known values: " + strings.Join(values, ", ") + ". A newer producer may add others, and a reader treats one it does not know as not a pass."
 		}
 		prop["description"] = doc
 		props[name] = prop
@@ -192,11 +233,14 @@ func (s *schemaBuilder) object(t reflect.Type) (map[string]any, error) {
 			required = append(required, name)
 		}
 	}
-	return map[string]any{
-		"type":                 "object",
-		"description":          s.docs[t.Name()],
-		"properties":           props,
-		"required":             required,
-		"additionalProperties": false,
-	}, nil
+	obj := map[string]any{
+		"type":        "object",
+		"description": s.docs[t.Name()],
+		"properties":  props,
+		"required":    required,
+	}
+	if !s.open {
+		obj["additionalProperties"] = false
+	}
+	return obj, nil
 }

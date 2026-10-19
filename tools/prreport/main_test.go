@@ -1,6 +1,6 @@
-// Tests for prreport: a records directory merged into one report with the
-// verdict pr-check's own status allows, and that report read back as text,
-// as JSON and in parts.
+// Tests for the prreport command: begin, step and merge writing a report
+// through tools/internal/prreport (whose own tests hold the contract), and
+// that report read back as text, as JSON and in parts.
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
 )
 
 // passing is a testgate record with nothing against it.
@@ -67,156 +68,15 @@ func fixture(t *testing.T) string {
 		"win.json":        oscheck.LegRecord{Tool: "wincheck", OS: "Windows", Target: "win-check", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable, Error: "no route to host\nmore"},
 		"bsd.json":        oscheck.LegRecord{Tool: "bsdcheck", OS: "FreeBSD", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepSettings, Error: "tests/bsd/.env names no machine"},
 		"mac.json":        oscheck.LegRecord{Tool: "maccheck", OS: "macOS", Target: "mac", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Runs: []flakegate.Run{passing("testgate -race -timeout 30m -tags integration -cover -count=1"), repeat}},
-		"report.json":     "a stale report",
 		"notes.txt":       "not a record",
 	})
-	if err := writeStep(dir, "coverage", 0, ""); err != nil {
+	if err := prreport.WriteStep(dir, "coverage", 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
+	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
 		t.Fatal(err)
 	}
 	return dir
-}
-
-// names is each entry's name, in order.
-func names[T any](entries []T, name func(T) string) []string {
-	var out []string
-	for _, e := range entries {
-		out = append(out, name(e))
-	}
-	return out
-}
-
-// TestMerge_ReadsEveryRecordInOrder: every record but the report is read by
-// its kind, passes and legs in the order pr-check runs them.
-func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
-	r, err := merge(fixture(t), "abc", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(names(r.Passes, func(p Pass) string { return p.Name }), " "); got != "fast containers" {
-		t.Errorf("passes %q", got)
-	}
-	if got := strings.Join(names(r.Legs, func(l Leg) string { return l.Name }), " "); got != "mac bsd win" {
-		t.Errorf("legs %q", got)
-	}
-	if len(r.Steps) != 2 || len(r.Problems) != 0 || r.Commit != "abc" || r.Kind != ReportKind || r.Schema != ReportSchema {
-		t.Errorf("report %+v", r)
-	}
-	if r.Verdict != flakegate.VerdictFail {
-		t.Errorf("verdict %s", r.Verdict)
-	}
-	if _, err := merge(filepath.Join(t.TempDir(), "absent"), "", nil); err == nil {
-		t.Error("a directory that does not exist was merged")
-	}
-}
-
-// TestVerdict: anything that failed, could not finish or did not run fails
-// the report, but for a check with no machine and a step that could not run
-// here; a record that could not be read leaves it incomplete.
-func TestVerdict(t *testing.T) {
-	pass := Pass{Name: "fast", Run: passing("-full")}
-	failed := Pass{Name: "fast", Run: flakegate.Run{Verdict: flakegate.VerdictFail}}
-	unset := Leg{Name: "bsd", Leg: oscheck.LegRecord{Verdict: flakegate.VerdictNotRun, Step: oscheck.StepSettings}}
-	unreachable := Leg{Name: "win", Leg: oscheck.LegRecord{Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable}}
-	errored := Leg{Name: "mac", Leg: oscheck.LegRecord{Verdict: flakegate.VerdictError, Step: oscheck.StepTest}}
-	for name, tc := range map[string]struct {
-		r    Report
-		want string
-	}{
-		"nothing against it":             {Report{Passes: []Pass{pass}}, flakegate.VerdictPass},
-		"a check with no machine":        {Report{Passes: []Pass{pass}, Legs: []Leg{unset}}, flakegate.VerdictPass},
-		"a step that could not":          {Report{Steps: []Step{{Verdict: flakegate.VerdictNotRun}}}, flakegate.VerdictPass},
-		"a failed pass":                  {Report{Passes: []Pass{failed}}, flakegate.VerdictFail},
-		"an unreachable machine":         {Report{Legs: []Leg{unreachable}}, flakegate.VerdictFail},
-		"tests of unknown outcome":       {Report{Legs: []Leg{errored}}, flakegate.VerdictFail},
-		"a failed step":                  {Report{Steps: []Step{{Verdict: flakegate.VerdictFail}}}, flakegate.VerdictFail},
-		"an unread record":               {Report{Passes: []Pass{pass}, Problems: []string{"x"}}, VerdictIncomplete},
-		"an unread record and a failure": {Report{Passes: []Pass{failed}, Problems: []string{"x"}}, flakegate.VerdictFail},
-	} {
-		if got := tc.r.verdict(); got != tc.want {
-			t.Errorf("%s: %s, want %s", name, got, tc.want)
-		}
-	}
-}
-
-// TestMerge_TheGatesStatusDecides: a report never passes a run pr-check
-// failed, and a record that failed in a run pr-check passed is said to
-// disagree with it.
-func TestMerge_TheGatesStatusDecides(t *testing.T) {
-	one, zero := 1, 0
-	green := t.TempDir()
-	writeRecords(t, green, map[string]any{"fast.json": passing("-full")})
-	r, err := merge(green, "", &one)
-	if err != nil || r.Verdict != flakegate.VerdictFail || len(r.Problems) != 1 || !strings.Contains(r.Problems[0], "exited 1") {
-		t.Errorf("a gate that failed with every record passing: %v %+v", err, r)
-	}
-	if r, _ := merge(green, "", &zero); r.Verdict != flakegate.VerdictPass || len(r.Problems) != 0 || *r.ExitCode != 0 {
-		t.Errorf("a gate that passed: %+v", r)
-	}
-	if r, _ := merge(fixture(t), "", &zero); r.Verdict != flakegate.VerdictFail || len(r.Problems) != 1 || !strings.Contains(r.Problems[0], "one of the two is wrong") {
-		t.Errorf("a gate that passed over a failed record: %+v", r)
-	}
-	if r, _ := merge(fixture(t), "", &one); len(r.Problems) != 0 {
-		t.Errorf("a gate that failed with a record saying why: %+v", r.Problems)
-	}
-}
-
-// TestMerge_AnUnreadableRecordIsAProblem: a file that is not a record, a
-// kind this reader does not know and a schema it does not know are each
-// named, and leave a run with nothing against it incomplete.
-func TestMerge_AnUnreadableRecordIsAProblem(t *testing.T) {
-	dir := t.TempDir()
-	writeRecords(t, dir, map[string]any{
-		"fast.json":   passing("-full"),
-		"junk.json":   "go test: no such file",
-		"other.json":  `{"schema":1,"kind":"lint"}`,
-		"future.json": `{"schema":2,"kind":"testgate","verdict":"pass"}`,
-		"leg.json":    `{"schema":2,"kind":"leg"}`,
-		"step.json":   `{"schema":2,"kind":"step"}`,
-	})
-	r, err := merge(dir, "", nil)
-	if err != nil || r.Verdict != VerdictIncomplete || len(r.Problems) != 5 {
-		t.Fatalf("%v %s %q", err, r.Verdict, r.Problems)
-	}
-	for _, name := range []string{"junk.json", "other.json", "future.json", "leg.json", "step.json"} {
-		if !strings.Contains(strings.Join(r.Problems, "\n"), name+":") {
-			t.Errorf("%s is not named among %q", name, r.Problems)
-		}
-	}
-}
-
-// TestWriteStep: a step is recorded by its exit code, or as not run with
-// why; a name that would not be its own file in the directory is refused.
-func TestWriteStep(t *testing.T) {
-	dir := t.TempDir()
-	for name, tc := range map[string]struct {
-		exit    int
-		notRun  string
-		verdict string
-	}{
-		"passed":  {0, "", flakegate.VerdictPass},
-		"failed":  {3, "", flakegate.VerdictFail},
-		"skipped": {0, "no daemon", flakegate.VerdictNotRun},
-	} {
-		if err := writeStep(dir, name, tc.exit, tc.notRun); err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(filepath.Join(dir, name+".json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var s Step
-		if err := json.Unmarshal(data, &s); err != nil || s.Verdict != tc.verdict || s.ExitCode != tc.exit || s.Reason != tc.notRun || s.Kind != StepKind || s.Name != name {
-			t.Errorf("%s: %v %+v", name, err, s)
-		}
-	}
-	for _, bad := range []string{"", "report", "../x", "a.b", "a/b", "a b"} {
-		if err := writeStep(dir, bad, 0, ""); err == nil {
-			t.Errorf("the step name %q was taken", bad)
-		}
-	}
 }
 
 // setHead makes HEAD commit for the test.
@@ -265,18 +125,18 @@ func TestRun_MergeThenRead(t *testing.T) {
 	}
 
 	_, out, _ := runCLI("-dir", dir, "-json")
-	var r Report
+	var r prreport.Report
 	if err := json.Unmarshal([]byte(out), &r); err != nil || r.Verdict != flakegate.VerdictFail || len(r.Passes) != 2 || len(r.Legs) != 3 || *r.ExitCode != 1 {
 		t.Errorf("-json: %v %+v", err, r)
 	}
 	_, out, _ = runCLI("-dir", dir, "-json", "-leg", "mac")
-	r = Report{}
+	r = prreport.Report{}
 	if err := json.Unmarshal([]byte(out), &r); err != nil || len(r.Legs) != 1 || len(r.Passes) != 0 || r.Verdict != flakegate.VerdictPass || len(r.Legs[0].Leg.Runs) != 2 {
 		t.Errorf("-leg mac: %v %+v", err, r)
 	}
 	for name, want := range map[string]string{"fast": flakegate.VerdictPass, "bsd": "unset", "images": flakegate.VerdictNotRun} {
 		_, out, _ = runCLI("-dir", dir, "-json", "-leg", name)
-		r = Report{}
+		r = prreport.Report{}
 		if err := json.Unmarshal([]byte(out), &r); err != nil || r.Verdict != want {
 			t.Errorf("-leg %s: %v %+v", name, err, r)
 		}
@@ -321,24 +181,30 @@ func TestRun_Refusals(t *testing.T) {
 	scratch := t.TempDir()
 	other := t.TempDir()
 	writeRecords(t, other, map[string]any{"report.json": `{"schema":1,"kind":"leg"}`})
+	newer := t.TempDir()
+	writeRecords(t, newer, map[string]any{"report.json": `{"schema":3,"kind":"pr-check"}`})
 	broken := t.TempDir()
 	writeRecords(t, broken, map[string]any{"report.json": `{`})
 	for name, tc := range map[string]struct {
 		args []string
 		want string
 	}{
-		"no report":            {[]string{"-dir", empty}, "make pr-check writes one"},
-		"another kind":         {[]string{"-dir", other}, "not a pr-check report"},
-		"not JSON":             {[]string{"-dir", broken}, "reading"},
-		"no directory":         {[]string{"merge", "-dir", filepath.Join(empty, "absent")}, "reading"},
-		"an exit not a number": {[]string{"merge", "-dir", empty, "-exit", "one"}, "invalid value"},
-		"a bad step name":      {[]string{"step", "-dir", empty, "-name", "../x"}, "not a step name"},
-		"an unknown flag":      {[]string{"-colour"}, "flag provided but not defined"},
-		"two views":            {[]string{"-dir", empty, "-failures", "-skips"}, "pass one of -json, -failures and -skips"},
-		"a stray argument":     {[]string{"-dir", empty, "mac"}, `unexpected argument "mac"`},
-		"a stray to merge":     {[]string{"merge", "-dir", scratch, "now"}, `unexpected argument "now"`},
-		"a stray to step":      {[]string{"step", "-dir", scratch, "-name", "x", "1"}, `unexpected argument "1"`},
-		"an exit not run":      {[]string{"step", "-dir", scratch, "-name", "x", "-exit", "1", "-not-run", "no daemon"}, "-exit or -not-run, not both"},
+		"no report":             {[]string{"-dir", empty}, "make pr-check writes one"},
+		"another kind":          {[]string{"-dir", other}, "not a pr-check report"},
+		"a newer major":         {[]string{"-dir", newer}, "schema 3, where this reader knows 2"},
+		"a bad expected name":   {[]string{"begin", "-dir", scratch, "-expect", "fast,../x"}, "not a record name"},
+		"a stray to begin":      {[]string{"begin", "-dir", scratch, "now"}, `unexpected argument "now"`},
+		"an unknown begin flag": {[]string{"begin", "-colour"}, "flag provided but not defined"},
+		"not JSON":              {[]string{"-dir", broken}, "reading"},
+		"no directory":          {[]string{"merge", "-dir", filepath.Join(empty, "absent")}, "reading"},
+		"an exit not a number":  {[]string{"merge", "-dir", empty, "-exit", "one"}, "invalid value"},
+		"a bad step name":       {[]string{"step", "-dir", empty, "-name", "../x"}, "not a step name"},
+		"an unknown flag":       {[]string{"-colour"}, "flag provided but not defined"},
+		"two views":             {[]string{"-dir", empty, "-failures", "-skips"}, "pass one of -json, -failures and -skips"},
+		"a stray argument":      {[]string{"-dir", empty, "mac"}, `unexpected argument "mac"`},
+		"a stray to merge":      {[]string{"merge", "-dir", scratch, "now"}, `unexpected argument "now"`},
+		"a stray to step":       {[]string{"step", "-dir", scratch, "-name", "x", "1"}, `unexpected argument "1"`},
+		"an exit not run":       {[]string{"step", "-dir", scratch, "-name", "x", "-exit", "1", "-not-run", "no daemon"}, "-exit or -not-run, not both"},
 	} {
 		if code, _, stderr := runCLI(tc.args...); code != 2 || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%s: %d %q", name, code, stderr)
@@ -347,7 +213,65 @@ func TestRun_Refusals(t *testing.T) {
 	if code, _, stderr := runCLI("step", "-dir", empty, "-name", "coverage", "-exit", "1"); code != 0 || stderr != "" {
 		t.Fatalf("step: %d %s", code, stderr)
 	}
-	if r, _ := merge(empty, "", nil); len(r.Steps) != 1 || r.Steps[0].Verdict != flakegate.VerdictFail {
+	if r, _ := prreport.Merge(empty, prreport.MergeOptions{}); len(r.Steps) != 1 || r.Steps[0].Verdict != flakegate.VerdictFail {
 		t.Errorf("the step's record: %+v", r)
+	}
+}
+
+// TestRun_BeginThenAnInterruptedMerge: begin's report reads back as a run
+// that has not ended, naming what it expects; the merge an interrupt makes
+// says interrupted, lists what is missing, and says why; -leg on a missing
+// part answers incomplete rather than failing to find it.
+func TestRun_BeginThenAnInterruptedMerge(t *testing.T) {
+	setHead(t, "abc")
+	dir := t.TempDir()
+	if code, _, stderr := runCLI("begin", "-dir", dir, "-commit", "abc", "-expect", "fast, repeat,win"); code != 0 || stderr != "" {
+		t.Fatalf("begin: %d %s", code, stderr)
+	}
+	if code, out, _ := runCLI("-dir", dir); code != 0 || !strings.Contains(out, "RUNNING") ||
+		!strings.Contains(out, "this is not a result. Expected: fast, repeat, win") {
+		t.Errorf("a run that has not ended: %d\n%s", code, out)
+	}
+	writeRecords(t, dir, map[string]any{"fast.json": passing("-full")})
+	code, out, stderr := runCLI("merge", "-dir", dir, "-interrupted", "-exit", "130")
+	if code != 0 || stderr != "" {
+		t.Fatalf("merge: %d %s", code, stderr)
+	}
+	for _, want := range []string{"at abc", "INTERRUPTED (exit 130)", "repeat      missing  no record of it", "win         missing  no record of it",
+		"Problem (interrupted) pr-check stopped before it finished"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Problem (missing)") {
+		t.Errorf("a missing part was said twice:\n%s", out)
+	}
+	_, out, _ = runCLI("-dir", dir, "-json", "-leg", "win")
+	var r prreport.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil || r.Verdict != prreport.VerdictIncomplete || len(r.Missing) != 1 ||
+		len(r.Problems) != 1 || r.Problems[0].Code != prreport.ProblemMissing {
+		t.Errorf("-leg on a missing part: %v %+v", err, r)
+	}
+}
+
+// TestRun_ProblemsArePrintedWithTheirCodes: a record this reader cannot
+// trust is printed with its code and file, and -leg carries the problems
+// about that one record.
+func TestRun_ProblemsArePrintedWithTheirCodes(t *testing.T) {
+	setHead(t, "")
+	dir := t.TempDir()
+	flaky := passing("-full")
+	flaky.Verdict = "quarantined"
+	writeRecords(t, dir, map[string]any{"fast.json": flaky, "junk.json": "not json"})
+	_, out, _ := runCLI("merge", "-dir", dir)
+	for _, want := range []string{"INCOMPLETE", "fast        quarantined", "Problem (unknown-value) fast.json: the verdict \"quarantined\"", "Problem (unreadable) junk.json:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, out)
+		}
+	}
+	_, out, _ = runCLI("-dir", dir, "-json", "-leg", "fast")
+	var r prreport.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil || len(r.Problems) != 1 || r.Problems[0].Record != "fast.json" {
+		t.Errorf("-leg fast: %v %+v", err, r)
 	}
 }

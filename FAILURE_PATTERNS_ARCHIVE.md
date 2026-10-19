@@ -13167,3 +13167,56 @@ than one of `-json`, `-failures` and `-skips`, and `step` an `-exit` beside `-no
 `-exit 0` counts as given). `TestRun_Refusals` holds each; all five cases failed on the old code.
 
 **Lesson.** A new command takes 358 with it: every parser refuses leftovers and contradictory flags on its own.
+
+## 524. wait.connection's tries borrowed the run's pooled session, so a wait for a login passed without one (fixed)
+
+**Symptom.** 2026-10-19, building wait.connection's steady streak: its doc says each try logs in with the device's
+credential, but two waits in one `pleiades run` made one login. TestConnection_EveryTryLogsInAfresh, counting the
+SSH server's own logins, failed on the old code with 1 where 2 were made.
+
+**Root cause.** The SSH try went through `sdk.Connect`, which borrows from the run's connection pool whenever the
+context keeps one, and `pleiades run` keeps one by default (`--persist-connections`). When connections began to
+persist, `net.ssh.ping` and the transport actions were kept out of the pool, since their question is whether a login
+works; `wait.connection` asks the same question and was not. A borrowed session answers whether a login once worked,
+and it outlives exactly what a wait is put after: a reboot the pool's session survived until its keepalive failed, a
+changed password, a changed sshd configuration.
+
+**Fix.** `sdk.ConnectFresh` always logs in and closes what it opened, and the wait uses it. Its own test proves it
+never borrows and lends nothing on.
+
+**Lesson.** When a shared mechanism gains an exception for one caller, find every caller asking that caller's
+question (the sibling-guard class, LESSONS 244): pooling was right for converging methods and wrong for anything
+whose subject is the login itself.
+
+## 525. pr-check's interrupt trap ran twice, and the second merge overwrote the first (fixed before push)
+
+**Symptom.** 2026-10-19, proving the new interrupted report in a real `sh`: an INT left a report saying interrupted
+with nothing missing, where fast and mac had no record.
+
+**Root cause.** One trap served INT, TERM and EXIT. The INT handler merged correctly, then the shell exited and the
+EXIT trap merged again. The second merge read a report that was no longer running, so it took neither the start
+time nor the expected parts from it, and wrote a report that said nothing was missing.
+
+**Fix.** The handler is a function that removes every trap before it does anything, and the INT and TERM traps exit
+after it (130, 143). Proven in `sh` by an interrupt and by an early exit: one merge each, the run going no further,
+the missing parts named.
+
+**Lesson.** A trap on a signal and on EXIT runs twice for one signal; a handler that writes must disarm itself first.
+
+## 526. A lab check drove its box with whatever pleiades an earlier run had built (fixed)
+
+**Symptom.** 2026-10-19, this branch's first pr-check: both lab legs stopped at the box step, the steady
+wait.connection refused by validate as passing "backoff", "max_sleep", "steady" and "steady_interval", parameters
+wait.connection "does not declare". This branch declares them.
+
+**Root cause.** `LabCheck.box` built the check's pleiades only when the binary was missing, and the box is waited for
+before the flow builds this tree's pleiades for its own steps. Every lab check since #73 waited for its box with the
+binary some earlier run left, built from another tree. That was invisible while the box's wait used only parameters
+every build knew, and wrong the first time the check asked the box for something new.
+
+**Fix.** The box's pleiades is built from this tree every time (`buildPleiades`), which costs seconds when nothing
+changed. TestLabCheckBox_BuildsThisTreesPleiades puts a stale binary at the path first and failed on the old rule
+with nothing built.
+
+**Lesson.** A cached build is reusable only when it is known to be of this tree; "it exists" says nothing about which
+tree made it. The pr-check report named the cause in one line.

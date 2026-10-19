@@ -74,6 +74,7 @@ func run() error {
 		{"module catalog schema", generateModuleCatalogSchema},
 		{"ansible modules", generateAnsibleModules},
 		{"migration report schema", generateMigrationReportSchema},
+		{"pr-check report schema", generatePRReportSchema},
 		{"openapi", generateOpenAPI},
 	}
 

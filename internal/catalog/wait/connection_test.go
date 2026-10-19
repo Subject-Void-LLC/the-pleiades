@@ -169,7 +169,7 @@ func TestConnection_StopsWhenTheRunIsTornDown(t *testing.T) {
 
 func TestConnection_RecordingFailures(t *testing.T) {
 	server := startWaitServer(t)
-	for _, stat := range []string{sdk.StatDiff, "transport", "elapsed"} {
+	for _, stat := range []string{sdk.StatDiff, "transport", "elapsed", "tries", "failures"} {
 		rc := newWaitContext(server)
 		rc.failOn = stat
 		if _, err := wait.Connection(context.Background(), rc, newWaitTarget(server), map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}); err == nil {
@@ -183,6 +183,58 @@ func TestConnection_ALoginThatCannotRunACommandIsNotReady(t *testing.T) {
 	params := map[string]any{"timeout": 1, "sleep": 1, "connect_timeout": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
 	if _, err := wait.Connection(context.Background(), newWaitContext(server), newWaitTarget(server), params); err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("a machine that logs in but runs nothing: %v", err)
+	}
+}
+
+// pooledWaitContext is a waitContext whose run keeps SSH connections open
+// between tasks, as `pleiades run` does by default.
+type pooledWaitContext struct {
+	*waitContext
+	pool *remoteexec.Pool
+}
+
+func (c pooledWaitContext) ConnectionPool() *remoteexec.Pool { return c.pool }
+
+// TestConnection_EveryTryLogsInAfresh: two waits in one run that keeps its
+// connections each log in, rather than the second borrowing the session
+// the first left in the run's pool. A wait that reuses a session proves
+// nothing about whether the machine lets the account in now: after a
+// password or sshd change, or a reboot the session outlived, it would pass
+// on what was true before.
+func TestConnection_EveryTryLogsInAfresh(t *testing.T) {
+	server := startWaitServer(t)
+	pool := remoteexec.NewPool(time.Minute)
+	t.Cleanup(func() { _ = pool.Close() })
+	rc := pooledWaitContext{newWaitContext(server), pool}
+	params := map[string]any{"timeout": 30, "sleep": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
+	for range 2 {
+		if _, err := wait.Connection(context.Background(), rc, newWaitTarget(server), params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if logins := server.srv.Logins(); logins != 2 {
+		t.Errorf("two waits logged in %d time(s): a try borrowed a pooled session", logins)
+	}
+}
+
+// TestConnection_ASteadyStreakIsThatManyLogins: steady 3 answers only after
+// three tries in a row, each its own login on the real server, with the
+// tries and failures recorded; a machine coming up late is waited for with
+// an exponential backoff first.
+func TestConnection_ASteadyStreakIsThatManyLogins(t *testing.T) {
+	server := startWaitServer(t)
+	late := &lateTarget{waitTarget: newWaitTarget(server), dead: deadPort(t), after: 2}
+	rc := newWaitContext(server)
+	params := map[string]any{"timeout": 30, "backoff": "exponential", "sleep": 1, "max_sleep": 2,
+		"steady": 3, "steady_interval": 1, "connect_timeout": 2, sdk.ParamInsecureSkipHostKeyVerify: true}
+	if _, err := wait.Connection(context.Background(), rc, late, params); err != nil {
+		t.Fatal(err)
+	}
+	if logins := server.srv.Logins(); logins != 3 {
+		t.Errorf("a streak of 3 made %d login(s)", logins)
+	}
+	if rc.stats["tries"] != 5 || rc.stats["failures"] != 2 {
+		t.Errorf("stats %v", rc.stats)
 	}
 }
 

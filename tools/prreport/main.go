@@ -7,19 +7,26 @@
 // with its own output. The JSON and the text are the same model.
 //
 // It decides nothing: pr-check's exit status is the gate, unchanged, and a
-// report whose verdict disagrees with it is a defect in one of the two.
+// report whose verdict disagrees with it is a defect in one of the two. The
+// report is a versioned contract for tools (tools/internal/prreport, and
+// its published schema docs/reference/schemas/pr-check-report.json).
 //
 // Usage:
 //
 //	go run ./tools/prreport [-dir D] [-json] [-failures] [-skips] [-leg NAME]
-//	go run ./tools/prreport merge [-dir D] [-commit SHA] [-exit CODE]
+//	go run ./tools/prreport begin [-dir D] [-commit SHA] [-expect NAME,...]
+//	go run ./tools/prreport merge [-dir D] [-commit SHA] [-exit CODE] [-interrupted]
 //	go run ./tools/prreport step -dir D -name NAME (-exit CODE | -not-run REASON)
 //
 // The directory defaults to .coverage/pr/records, where make pr-check
-// writes them. merge's -exit is pr-check's own status, so the report never
-// passes a run the gate failed. -leg names a pass (fast, repeat,
-// containers), a leg (mac, bsd, win) or a step; with -json it prints that
-// one entry. A report for a commit other than HEAD is said to be one.
+// writes them. begin writes a running report naming what the run expects,
+// so an expected part with no record is missing from the merge rather than
+// unnoticed, and a run that never merges still says it has not ended.
+// merge's -exit is pr-check's own status, so the report never passes a run
+// the gate failed, and -interrupted marks a run that stopped early. -leg
+// names a pass (fast, repeat, containers), a leg (mac, bsd, win) or a step;
+// with -json it prints that one entry. A report for a commit other than
+// HEAD is said to be one.
 package main
 
 import (
@@ -30,8 +37,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
 )
 
 // defaultDir is where make pr-check writes its records.
@@ -45,6 +56,8 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
+		case "begin":
+			return runBegin(args[1:], stderr)
 		case "merge":
 			return runMerge(args[1:], stdout, stderr)
 		case "step":
@@ -54,6 +67,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return runShow(args, stdout, stderr)
 }
 
+// runBegin writes a running report naming what the run expects.
+func runBegin(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("prreport begin", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", defaultDir, "the records directory")
+	commit := fs.String("commit", "", "the commit the run checks")
+	expect := fs.String("expect", "", "the passes, legs and steps the run will record, comma separated")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := noArguments(fs); err != nil {
+		fmt.Fprintf(stderr, "prreport begin: %v\n", err)
+		return 2
+	}
+	var expected []string
+	for _, name := range strings.Split(*expect, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			expected = append(expected, name)
+		}
+	}
+	if _, err := prreport.Begin(*dir, *commit, expected, time.Now()); err != nil {
+		fmt.Fprintf(stderr, "prreport: %v\n", err)
+		return 2
+	}
+	return 0
+}
+
 // runMerge merges the records in -dir into report.json there and prints
 // the run.
 func runMerge(args []string, stdout, stderr io.Writer) int {
@@ -61,6 +101,7 @@ func runMerge(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", defaultDir, "the records directory")
 	commit := fs.String("commit", "", "the commit the run checked")
+	interrupted := fs.Bool("interrupted", false, "the run stopped before its end")
 	var exitCode *int
 	fs.Func("exit", "pr-check's own exit status", func(v string) error {
 		n, err := strconv.Atoi(v)
@@ -74,13 +115,13 @@ func runMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "prreport merge: %v\n", err)
 		return 2
 	}
-	r, err := merge(*dir, *commit, exitCode)
+	r, err := prreport.Merge(*dir, prreport.MergeOptions{Commit: *commit, ExitCode: exitCode, Interrupted: *interrupted, Now: time.Now()})
 	if err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
 	}
-	path := filepath.Join(*dir, reportFile)
-	if err := writeJSON(path, r); err != nil {
+	path := filepath.Join(*dir, prreport.ReportFile)
+	if err := prreport.WriteJSON(path, r); err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
 	}
@@ -107,7 +148,7 @@ func runStep(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "prreport step: pass -exit or -not-run, not both: a step that did not run has no exit code")
 		return 2
 	}
-	if err := writeStep(*dir, *name, *exit, *notRun); err != nil {
+	if err := prreport.WriteStep(*dir, *name, *exit, *notRun); err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
 	}
@@ -134,8 +175,8 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "prreport: pass one of -json, -failures and -skips: each is a whole view of the report")
 		return 2
 	}
-	path := filepath.Join(*dir, reportFile)
-	r, err := readReport(path)
+	path := filepath.Join(*dir, prreport.ReportFile)
+	r, err := prreport.ReadReport(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
@@ -144,7 +185,7 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "prreport: this report is for %s, and HEAD is %s: run make pr-check for this commit\n", r.Commit, head)
 	}
 	if *leg != "" {
-		if r, err = r.only(*leg); err != nil {
+		if r, err = only(r, *leg); err != nil {
 			fmt.Fprintf(stderr, "prreport: %v\n", err)
 			return 2
 		}
@@ -199,26 +240,35 @@ var headCommit = func() string {
 }
 
 // only returns r holding just the pass, leg or step called name, with its
-// verdict as the report's.
-func (r Report) only(name string) (Report, error) {
-	out := Report{Schema: r.Schema, Kind: r.Kind, Commit: r.Commit, Generated: r.Generated}
+// verdict as the report's and the problems about its record.
+func only(r prreport.Report, name string) (prreport.Report, error) {
+	out := prreport.Report{Schema: r.Schema, Kind: r.Kind, Commit: r.Commit, Started: r.Started, Generated: r.Generated}
+	for _, p := range r.Problems {
+		if p.Record == name || p.Record == name+".json" {
+			out.Problems = append(out.Problems, p)
+		}
+	}
 	for _, p := range r.Passes {
 		if p.Name == name {
-			out.Passes, out.Verdict = []Pass{p}, p.Run.Verdict
+			out.Passes, out.Verdict = []prreport.Pass{p}, p.Run.Verdict
 			return out, nil
 		}
 	}
 	for _, l := range r.Legs {
 		if l.Name == name {
-			out.Legs, out.Verdict = []Leg{l}, legVerdict(l.Leg)
+			out.Legs, out.Verdict = []prreport.Leg{l}, legVerdict(l.Leg)
 			return out, nil
 		}
 	}
 	for _, s := range r.Steps {
 		if s.Name == name {
-			out.Steps, out.Verdict = []Step{s}, s.Verdict
+			out.Steps, out.Verdict = []prreport.Step{s}, s.Verdict
 			return out, nil
 		}
 	}
-	return Report{}, fmt.Errorf("the report has no pass, leg or step called %q", name)
+	if slices.Contains(r.Missing, name) {
+		out.Missing, out.Verdict = []string{name}, prreport.VerdictIncomplete
+		return out, nil
+	}
+	return prreport.Report{}, fmt.Errorf("the report has no pass, leg or step called %q", name)
 }

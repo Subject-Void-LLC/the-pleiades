@@ -191,17 +191,23 @@ var gatingCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Waits until the target answers a command over its own connection, SSH or WinRM.",
-			Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. It changes nothing.",
+			Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
 			Params: []collection.Param{
 				{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
 				{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
-				{Name: "sleep", Type: "int", Default: "5", Description: "How many seconds to wait between tries. Must be more than 0."},
+				{Name: "sleep", Type: "int", Default: "5", Description: "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."},
+				{Name: "backoff", Type: "string", Default: "fixed", Description: "How the gap between failed tries grows: fixed keeps it at sleep, as wait_for_connection does; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."},
+				{Name: "max_sleep", Type: "int", Default: "60", Description: "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."},
+				{Name: "steady", Type: "int", Default: "1", Description: "How many tries in a row must answer before the machine counts as ready. Each is its own login. Must be at least 1, and the streak must fit in the timeout after the delay."},
+				{Name: "steady_interval", Type: "int", Default: "10", Description: "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."},
 				{Name: "connect_timeout", Type: "int", Default: "20", Description: "How many seconds one try may take before it counts as failed. Must be more than 0."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task, on a device reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "elapsed", Type: "int", Returned: "always", Description: "How many whole seconds the task waited, including the delay."},
 				{Name: "transport", Type: "string", Returned: "always", Description: "The connection that answered: ssh or winrm."},
+				{Name: "tries", Type: "int", Returned: "always", Description: "How many tries the task made, answered or not."},
+				{Name: "failures", Type: "int", Returned: "always", Description: "How many of those tries did not answer."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "The connection that answered. Both halves are identical, since a wait changes nothing."},
 			},
 			Examples: []collection.Example{
@@ -212,6 +218,10 @@ var gatingCollections = []collectionscaffold.Config{
 				{
 					Name:        "Wait out a reboot",
 					RunbookYAML: "- name: Give the machine time to go down, then wait for it\n  wait.connection:\n    delay: 30\n    timeout: 600\n",
+				},
+				{
+					Name:        "Wait for a resumed VM that keeps answering",
+					RunbookYAML: "- name: Wait until the resumed VM lets its account in three times running\n  wait.connection:\n    timeout: 900\n    backoff: exponential\n    sleep: 2\n    max_sleep: 60\n    steady: 3\n    steady_interval: 10\n",
 				},
 			},
 			SeeAlso: []string{"wait.path", "virt.vbox.vm.start", "pleiades.builtin.wait.port"},

@@ -4,78 +4,74 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-19. Branch `feat/pr-report`, off `main` at `34dff1f9` (#74 merged green).** One pull request at a
-time; `make pr-check` before every push; the owner merges.
+**2026-10-19. Branch `feat/wait-backoff-report-contract`, off `main` at `eac1812e` (#75 merged green).** One pull
+request at a time; `make pr-check` before every push; the owner merges.
 
-### What #74 shipped
+### What #75 shipped
 
-- `internal/archtest`'s `TestEveryDocumentedExampleValidates`: every registered method's examples go through the
-  builder and `pleiades validate`. Nineteen examples were fixed.
-- The box steadiness check, and `need.POSIXShell` on every test that uses the `/bin/sh` server, with a guard.
-- The fixes FreeBSD and Windows found (FAILURE_PATTERNS 515 to 521).
+`make pr-check` ends with one report of the run (`tools/prreport`), from records each testgate pass, OS check and
+step writes.
 
-### This branch: one record of a pr-check run
+### This branch, at the owner's request ("along with the exponential backoff, make the consolidated report a stable, versioned contract for tooling")
 
-The owner asked whether to build an LSP to help read results; the answer planned with them was a JSON report.
+- **`wait.connection` waits for a machine that keeps answering.**
+  - `backoff: exponential` doubles the gap after each failed try, from `sleep` up to `max_sleep`, with jitter in
+    the gap's upper half.
+  - `steady` asks for that many fresh logins in a row, `steady_interval` apart. A refusal mid-streak starts the
+    streak and the backoff again.
+  - It records `tries` and `failures`. A setting that would do nothing, or cannot work, is refused before any
+    try.
+  - The schedule is tested with a recorded sleep, never the wall clock (FAILURE_PATTERNS 479's class). The streak
+    is tested against the real SSH server, counted in its own logins.
+- **A defect found on the way (FAILURE_PATTERNS 524):** the wait's SSH try borrowed the run's pooled session, so a
+  second wait passed without logging in. `sdk.ConnectFresh` now always logs in.
+- **The OS checks wait for a box they started with `wait.connection`'s streak**: three fresh logins, ten seconds
+  apart, backing off from 2 to 30 seconds. The check's own loop is gone. The lab examples' first-boot waits ask for
+  a streak too.
+- **The pr-check report is a versioned contract** (`tools/internal/prreport`), with a schema published by
+  `tools/gendocs` (`docs/reference/schemas/pr-check-report.json`). Schema 2:
+  - each problem is an object with a stable code;
+  - the report names what it expected and what is missing;
+  - verdicts are `pass`, `fail`, `incomplete`, `running` and `interrupted`.
 
-- **`testgate -report-out`** writes `flakegate.Run` however the run ends. It holds:
-  - the arguments, packages, time and verdict;
-  - each failure, with its outcome (failed, contention or not re-run) and its masked output;
-  - each skip, with its reason.
-- **Each OS check's `-report-out`** writes `oscheck.LegRecord`:
-  - the machine, the commit, how the leg ended, and the step it stopped at;
-  - the testgate records its machine wrote, read back from it;
-  - a check with no machine named records that at the settings step.
-- **`tools/prreport`** has three commands:
-  - `step` records a step's exit code, or why it did not run;
-  - `merge` writes `.coverage/pr/records/report.json` with pr-check's own exit status, and prints the summary;
-  - with no command, it reads the report back: `-json`, `-failures`, `-skips`, `-leg NAME`. A report for
-    another commit says so.
-- **The Makefile's pr-check** writes every record and ends with the merge; the gate's semantics are unchanged.
-- **Found by the failure-pattern sweep before push, both fixed:**
-  - the run record kept skip reasons unmasked, beside a masked ledger (FAILURE_PATTERNS 522, a repeat of 417);
-  - prreport dropped stray arguments and contradictory flags (523, a repeat of 358).
-- **Docs:** `docs/design/os-checks.md`'s "The record of a run", `CLAUDE.md`, and
-  `changelog/pr-check-report.added.md`.
-- **Proven so far:** the unit and live tests (testgate 77.9%, floor 70.3; prreport 92.5%, no floor yet), and the
-  recipe's step helper and merge in a real `sh`. The first real end-to-end run is this branch's own pr-check.
+  The rules: a reader ignores unknown fields, treats unknown values as not a pass, and refuses unknown majors. The
+  schema is open to match. pr-check begins with a running report, and its trap merges what ran as interrupted.
+- **Another defect found on the way (FAILURE_PATTERNS 525, fixed before push):** that trap ran twice on one signal,
+  and the second merge overwrote the first. The handler now disarms itself and exits.
+- **Proven so far:** every touched package's tests under `-race`. The waits package and the report package are at
+  100%. The interrupt and early-exit paths were proven in a real `sh`. Not yet live: `wait.connection`'s streak
+  against the lab boxes. This branch's own pr-check is that proof, since it starts the saved FreeBSD and Windows
+  boxes through it.
 
 ### Next
 
-1. `make pr-check` on this branch, then read its report with `go run ./tools/prreport`. Then push, and open the
-   pull request with `-R`.
-2. **Every method proven on every OS it targets** (the owner, 2026-10-18: "Since we have all targeted OSes
-   available, there is no longer an excuse for a module not working"):
-   - an audit of which methods have run through `pleiades` on which lab box;
-   - then the gaps closed method by method.
-
-   It's tracked in Phase 122b.
-3. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
-   - Chocolatey, Scoop and PSResourceGet for Server Core, the user picking, after a design note;
-   - whether `win.package` stays is open;
-   - `pkg.winget.*` for Desktop Experience only;
-   - FreeBSD's `pkg(8)`.
-4. **Phase 122b's other open items:**
-   - `validate` is silent on `always:` and `rescue:`, which parse and never run;
+1. `make pr-check` (cap at least 3 G; govulncheck peaks near 2.7 GB), read its report, then push and open the pull
+   request with `-R`.
+2. **The live gates read gitignored `tests/<name>/.env` files** (agreed 2026-10-19, in the tracker):
+   - a loader in `internal/testsupport/need`;
+   - examples drafted in the scratchpad for ios, xr, catalyst, servicenow, winrm, localstack, cloudflare and ai;
+   - new live gates for `edge.*` (Cloudflare, read-only token) and `ai.*` (local Ollama and an OpenAI-compatible
+     endpoint).
+3. **Every method proven on every OS it targets** (Phase 122b).
+4. **Packages for Server Core:** Chocolatey, Scoop and PSResourceGet, after a design note.
+5. **Phase 122b's other open items:**
+   - `validate` is silent on `always:` and `rescue:`;
+   - the screenshot `dest` gotcha;
    - the converter maps no Windows module;
-   - `win.feature.*` parses DISM's state without `/english`;
-   - there is no archive method for Windows;
-   - run output does not stream;
-   - `tools/maccheck` has no coverage floor;
-   - `file.copy` from the Controller (the Walk tier) is still refused.
+   - and the rest listed there.
 
 ### Lab state
 
-- `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved. Leave the check boxes saved between checks.
-- `win-lab` (not a check box) is often running, and the host keeps 1 GB, so don't run both check boxes at once.
-- The domain's runbooks are in `~/pleiades-lab/runbooks/win/` (`dc-00` to `dc-04`); the archive's previous entry
-  has what building it found.
+- `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved; checks start and save the check boxes.
+- The domain's runbooks are in `~/pleiades-lab/runbooks/win/` (`dc-00` to `dc-04`).
 
 ### Files changed this session
 
-- `tools/internal/flakegate/run.go`, `tools/testgate/{record.go,mask.go,main.go,options.go}` and their tests;
-- `tools/internal/oscheck/{report.go,flow.go,box.go,posix.go}` and their tests;
-- `tools/{wincheck,bsdcheck,maccheck}`;
-- `tools/prreport`;
-- the Makefile, `docs/design/os-checks.md`, `CLAUDE.md`, the changelog fragment;
+- `internal/catalog/wait/connection.go` and its tests, `pkg/sdk/connect.go` and its test;
+- `internal/forge/catalogdata/collections_gating.go`, the regenerated `docs/reference` and
+  `internal/api/wellknown`;
+- `tools/internal/oscheck/box.go` and its test, `examples/virtualbox_lab`;
+- `tools/internal/prreport` (new), `tools/prreport`, `tools/gendocs/{reportschema,prreportschema,run_test}*`, and
+  doc comments in `tools/internal/{flakegate,oscheck}`;
+- the Makefile, `docs/design/os-checks.md`, `CLAUDE.md`, three changelog fragments;
 - `FAILURE_PATTERNS*` and `HANDOFF_*`.

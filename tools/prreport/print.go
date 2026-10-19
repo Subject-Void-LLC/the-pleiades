@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
 )
 
 // ledgerLimit is how many tests the skip ledger names under each reason.
@@ -22,8 +23,8 @@ type placed struct {
 	run   flakegate.Run
 }
 
-// runs is every testgate run in r, placed.
-func (r Report) runs() []placed {
+// runsOf is every testgate run in r, placed.
+func runsOf(r prreport.Report) []placed {
 	var out []placed
 	for _, p := range r.Passes {
 		out = append(out, placed{p.Name, p.Run})
@@ -50,13 +51,19 @@ func passName(run flakegate.Run) string {
 // printSummary prints r for a person: its verdict, a line for each pass,
 // leg and step, the failures that count with their output, the contention
 // by name, problems, and how many tests were skipped.
-func printSummary(w io.Writer, r Report, path string) {
+func printSummary(w io.Writer, r prreport.Report, path string) {
 	fmt.Fprintf(w, "pr-check%s, %s: %s%s\n  %s\n\n", atCommit(r.Commit), r.Generated.Format("2006-01-02 15:04 MST"), strings.ToUpper(r.Verdict), exitLine(r.ExitCode), path)
+	if r.Verdict == prreport.VerdictRunning {
+		fmt.Fprintf(w, "  pr-check began this run and has not ended it: this is not a result. Expected: %s\n", strings.Join(r.Expected, ", "))
+	}
 	for _, p := range r.Passes {
 		fmt.Fprintf(w, "  %-11s %-8s %s\n", p.Name, p.Run.Verdict, runLine(p.Run))
 	}
 	for _, l := range r.Legs {
 		fmt.Fprintf(w, "  %-11s %-8s %s\n", l.Name, legVerdict(l.Leg), legLine(l.Leg))
+	}
+	for _, name := range r.Missing {
+		fmt.Fprintf(w, "  %-11s %-8s no record of it\n", name, "missing")
 	}
 	for _, s := range r.Steps {
 		line := fmt.Sprintf("exit %d", s.ExitCode)
@@ -68,7 +75,7 @@ func printSummary(w io.Writer, r Report, path string) {
 	printFailures(w, r)
 	var contention []string
 	skipped := 0
-	for _, p := range r.runs() {
+	for _, p := range runsOf(r) {
 		for _, f := range p.run.Failures {
 			if f.Outcome == flakegate.OutcomeContention {
 				contention = append(contention, fmt.Sprintf("%s: %s %s", p.where, f.Package, f.Test))
@@ -80,7 +87,14 @@ func printSummary(w io.Writer, r Report, path string) {
 		fmt.Fprintf(w, "\nPassed when re-run alone (%d; a test seen here run after run needs a look):\n  %s\n", len(contention), strings.Join(contention, "\n  "))
 	}
 	for _, p := range r.Problems {
-		fmt.Fprintf(w, "\nProblem: %s\n", p)
+		if p.Code == prreport.ProblemMissing {
+			continue // its line is above
+		}
+		where := ""
+		if p.Record != "" {
+			where = " " + p.Record + ":"
+		}
+		fmt.Fprintf(w, "\nProblem (%s)%s %s\n", p.Code, where, p.Detail)
 	}
 	if skipped > 0 {
 		fmt.Fprintf(w, "\n%d test(s) skipped; prreport -skips lists them by reason.\n", skipped)
@@ -89,9 +103,9 @@ func printSummary(w io.Writer, r Report, path string) {
 
 // printFailures prints each failure that counts against its run, with
 // where it ran and its own output.
-func printFailures(w io.Writer, r Report) {
+func printFailures(w io.Writer, r prreport.Report) {
 	first := true
-	for _, p := range r.runs() {
+	for _, p := range runsOf(r) {
 		for _, f := range p.run.Failures {
 			if f.Outcome == flakegate.OutcomeContention {
 				continue
@@ -114,9 +128,9 @@ func printFailures(w io.Writer, r Report) {
 
 // printSkips prints every skip in r, grouped by reason, each test named
 // with where it ran.
-func printSkips(w io.Writer, r Report) {
+func printSkips(w io.Writer, r prreport.Report) {
 	var skips []flakegate.Skip
-	for _, p := range r.runs() {
+	for _, p := range runsOf(r) {
 		for _, s := range p.run.Skips {
 			s.Package = p.where + ": " + s.Package
 			skips = append(skips, s)
@@ -149,7 +163,7 @@ func runLine(run flakegate.Run) string {
 // legVerdict is a leg's verdict, saying a check with no machine set up is
 // that rather than not-run.
 func legVerdict(l oscheck.LegRecord) string {
-	if notConfigured(l) {
+	if prreport.NotConfigured(l) {
 		return "unset"
 	}
 	return l.Verdict
@@ -159,7 +173,7 @@ func legVerdict(l oscheck.LegRecord) string {
 // stopped and why.
 func legLine(l oscheck.LegRecord) string {
 	switch {
-	case notConfigured(l):
+	case prreport.NotConfigured(l):
 		return l.OS + ": " + firstLine(l.Error)
 	case l.Verdict == flakegate.VerdictNotRun || l.Verdict == flakegate.VerdictError:
 		return fmt.Sprintf("%s on %s: stopped at %s: %s", l.OS, l.Target, l.Step, firstLine(l.Error))
