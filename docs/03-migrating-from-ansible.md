@@ -265,6 +265,7 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 | `ansible.windows.win_reboot` | `win.reboot` | `WinRMCapable` | target side |
 | `ansible.windows.win_get_url` with a SHA-256 checksum | `win.file.download` | `WinRMCapable` | target side |
 | `community.windows.win_scheduled_task`, one action and one trigger | `win.schtask` | `WinRMCapable` | target side |
+| `ansible.windows.win_copy` of a file on the controller | `win.file.copy` | `WinRMCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
 | `community.docker.docker_container` | `container.run`, `container.stop`, `container.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |

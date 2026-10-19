@@ -69,6 +69,24 @@ var winModules = []Entry{
 			{Name: "outbound_action", To: "default_outbound_action"},
 		},
 	},
+	{
+		Module:  "ansible.windows.win_copy",
+		Aliases: []string{"win_copy"},
+		// Only a file on the controller converts: remote_src copies one the
+		// host already has, which no native method does.
+		Selectors: []Selector{{Arg: "remote_src", Absent: "false", Bool: true, Choices: []Choice{
+			{Values: []string{"false"}, Call: &Call{FQCN: "win.file.copy", Class: ClassAsserted, Basis: "the file present at dest with src's content",
+				Note: "win.file.copy reads src from the project directory, not the playbook's files/ folder, and copies one file, not a directory: put the file there"}},
+			{Values: []string{"true"}, Code: "args.value", Reason: "no native method copies a file the host already has; remote_src: true has no conversion"},
+		}}},
+		Args: []Arg{
+			{Name: "src", To: "src"},
+			{Name: "dest", To: "path"},
+			{Name: "remote_src", Handling: ArgSelector},
+			{Name: "content", Handling: ArgBlock, Code: "args.unmapped", Reason: "win.file.copy copies a file from the project; write the content to a file there and name it as src"},
+			{Name: "backup", Handling: ArgBlock, Code: "args.unmapped", Reason: "win.file.copy keeps no backup; its undo puts the earlier file back"},
+		},
+	},
 	{Module: "community.windows.win_firewall_rule", Aliases: []string{"win_firewall_rule"}, Rating: RatingManual, Code: "module.manual",
 		Reason: "win_firewall_rule finds a rule by its display name, and win.firewall.rule by its Name, which for a rule Ansible made is a GUID; converted, the task would make a second rule beside it. Write win.firewall.rule with the rule's Name (Get-NetFirewallRule shows it)"},
 	{Module: "ansible.windows.win_feature", Aliases: []string{"win_feature"}, Rating: RatingManual, Code: "module.manual",

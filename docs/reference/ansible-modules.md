@@ -120,11 +120,17 @@ Also written as `win_service`.
 | `state`: `stopped` | `svc.windows.stop` | asserted |
 | `state`: `restarted` | `svc.windows.restart` | imperative |
 | `state`: `reloaded` | blocked (`args.value`): no native method reloads a service; restart it, or run the reload command | |
+| `start_mode`: `auto` | `svc.windows.enable` | asserted |
+| `start_mode`: `disabled` | `svc.windows.disable` | asserted |
+| `start_mode`: `manual`, `delayed` | blocked (`args.value`): no native method sets a Manual or delayed start type; svc.windows.enable sets Automatic and svc.windows.disable Disabled | |
+
+Each row that applies becomes its own native task, in the order above.
 
 | Argument | Becomes |
 |---|---|
 | `name` | `name` |
 | `state` | chooses the call |
+| `start_mode` | chooses the call |
 
 ### `ansible.builtin.file`
 
@@ -559,6 +565,23 @@ Also written as `win_firewall`.
 | `state` | chooses the call |
 | `inbound_action` | `default_inbound_action` |
 | `outbound_action` | `default_outbound_action` |
+
+### `ansible.windows.win_copy`
+
+Also written as `win_copy`.
+
+| When | Native call | Class |
+|---|---|---|
+| `remote_src`: `false` (the default) | `win.file.copy` (review: win.file.copy reads src from the project directory, not the playbook's files/ folder, and copies one file, not a directory: put the file there) | asserted |
+| `remote_src`: `true` | blocked (`args.value`): no native method copies a file the host already has; remote_src: true has no conversion | |
+
+| Argument | Becomes |
+|---|---|
+| `src` | `src` |
+| `dest` | `path` |
+| `remote_src` | chooses the call |
+| `content` | blocked (`args.unmapped`): win.file.copy copies a file from the project; write the content to a file there and name it as src |
+| `backup` | blocked (`args.unmapped`): win.file.copy keeps no backup; its undo puts the earlier file back |
 
 ## Modules a person converts
 
