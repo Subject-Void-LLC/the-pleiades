@@ -13352,3 +13352,21 @@ transport with the envelope arriving in cleartext; proven live on lab-dc1 (comma
 **Lesson.** A transport that falls back to a weaker mode to keep working hides the fault as a confusing error and
 spends the protection the caller asked for. An error the protocol layer swallows is worth reading in full when an
 intermittent failure keeps passing on retry.
+
+## 533. The sealed transport's header timeout raced Execute's deadline, and a silent host lost its name again (a repeat of 400) (fixed before push)
+
+**Symptom.** 2026-10-19, make pr-check on feat/win-firewall-rule: TestExecute_ADeadlineBeforeAnyShellIsNotStarted
+failed all three of FreeBSD's repeat runs, and 5 of 200 runs under -race here. The error was a *NotStartedError, but its
+text was "net/http: timeout awaiting response headers", not "the command was never sent", and it did not name the bound.
+
+**Root cause.** Entry 532's sealedNTLMTransport bounded each reply's headers by endpoint.Timeout, the same value
+Execute's own deadline uses. A host that never answers then fails the request and expires the deadline at the same
+moment, and Execute's select took whichever arrived first. The library's `Encryption` client it replaced had no header
+timeout at all, so entry 400's test never raced before; a check of ctx.Err() on the result path did not close it either,
+because the timer can fire a moment before the context records its deadline.
+
+**Fix.** The header timeout is the bound plus headerGrace (five seconds): Execute's deadline always names the failure,
+and the timeout remains only to release a request Execute abandoned. 200 of 200 runs pass, against 5 failures before.
+
+**Lesson.** Two timers set to one value are a race, not a redundancy. A replacement for a library component inherits
+the tests written against the old one's timing, and a backstop timer has to sit clearly past the bound it backs.
