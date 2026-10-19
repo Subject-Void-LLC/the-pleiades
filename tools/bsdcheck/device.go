@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 )
 
@@ -56,4 +57,9 @@ func (f freebsd) Ship(sha string) error { return f.posix.Ship(sha) }
 // Test runs the packages on sha's tree (oscheck.POSIX.Test).
 func (f freebsd) Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error) {
 	return f.posix.Test(ctx, f.Target, sha, parallel, packages, stdout)
+}
+
+// Records reads back the tests' records (oscheck.POSIX.Records).
+func (f freebsd) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
+	return f.posix.Records(ctx, sha)
 }

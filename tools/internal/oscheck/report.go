@@ -25,6 +25,9 @@ const LegKind = "leg"
 
 // The steps a leg can stop at, in the order it takes them.
 const (
+	// StepSettings is a leg with no machine configured, which an optional
+	// check skips: not a failure, but not a pass either.
+	StepSettings  = "settings"
 	StepBox       = "box"
 	StepCommit    = "commit"
 	StepReachable = "reachable"
@@ -84,6 +87,22 @@ func ParseRecords(out string) ([]flakegate.Run, error) {
 		}
 		runs = append(runs, r)
 	}
+}
+
+// RecordNotConfigured writes, when o asks for a record, that the check had
+// no machine configured, in words naming where one is set, and returns
+// 0, or 2 when the record cannot be written.
+func RecordNotConfigured(o *Options, tool, osName, why string, stderr io.Writer) int {
+	if o.ReportOut == "" {
+		return 0
+	}
+	rec := LegRecord{Tool: tool, OS: osName, Packages: o.Packages, Started: time.Now(),
+		Verdict: flakegate.VerdictNotRun, Step: StepSettings, Error: why}
+	if err := WriteLegRecord(o.ReportOut, rec); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", tool, err)
+		return 2
+	}
+	return 0
 }
 
 // WriteLegRecord writes l to path, whole or not at all.

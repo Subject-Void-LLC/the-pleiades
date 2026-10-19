@@ -139,7 +139,7 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 	if device == "" {
 		if o.Optional {
 			fmt.Fprintf(stdout, "%s: no %s configured (%s and %s in %s), so %s was NOT checked\n", c.Tool, c.Kind, c.ProjectKey, c.DeviceKey, c.EnvFile, c.OS)
-			return 0
+			return RecordNotConfigured(o, c.Tool, c.OS, fmt.Sprintf("no %s configured (%s and %s in %s)", c.Kind, c.ProjectKey, c.DeviceKey, c.EnvFile), stderr)
 		}
 		fmt.Fprintf(stderr, "%[1]s: no %[2]s is configured. Name one, then run this again:\n  cp %[3]s.example %[3]s, and set %[4]s and %[5]s in it\n", c.Tool, c.Kind, c.EnvFile, c.ProjectKey, c.DeviceKey)
 		return 2

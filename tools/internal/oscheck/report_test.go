@@ -107,6 +107,26 @@ func TestRunWithBox_ABoxThatWillNotStartIsRecorded(t *testing.T) {
 	}
 }
 
+// TestRecordNotConfigured: an optional check with no machine leaves a
+// record saying so, at the settings step; with no record asked for it
+// writes nothing; and one it cannot write is a failure.
+func TestRecordNotConfigured(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "leg.json")
+	if code := RecordNotConfigured(options(t, "-report-out", out, "a/b"), "xcheck", "BoxOS", "no box configured", &bytes.Buffer{}); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	rec := readLegRecord(t, out)
+	if rec.Verdict != flakegate.VerdictNotRun || rec.Step != StepSettings || rec.Error != "no box configured" || rec.OS != "BoxOS" {
+		t.Errorf("record %+v", rec)
+	}
+	if code := RecordNotConfigured(options(t, "a/b"), "xcheck", "BoxOS", "x", &bytes.Buffer{}); code != 0 {
+		t.Errorf("no record asked for: %d", code)
+	}
+	if code := RecordNotConfigured(options(t, "-report-out", filepath.Join(t.TempDir(), "absent", "x.json"), "a/b"), "xcheck", "BoxOS", "x", &bytes.Buffer{}); code != 2 {
+		t.Errorf("an unwritable record: %d", code)
+	}
+}
+
 // TestParseRecords reads records one after another and refuses anything
 // that is not one.
 func TestParseRecords(t *testing.T) {
