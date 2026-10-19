@@ -51,35 +51,51 @@ const (
 
 // Run is one testgate run's record.
 type Run struct {
-	Schema int    `json:"schema"`
-	Kind   string `json:"kind"`
+	// Schema is the run record's version (RunSchema).
+	Schema int `json:"schema"`
+	// Kind is always testgate.
+	Kind string `json:"kind"`
 	// Label is the run's go test arguments, as testgate prints it.
-	Label    string    `json:"label"`
-	OS       string    `json:"os"`
-	Arch     string    `json:"arch"`
-	Packages []string  `json:"packages"`
-	Started  time.Time `json:"started"`
-	Seconds  float64   `json:"seconds"`
-	Verdict  string    `json:"verdict"`
+	Label string `json:"label"`
+	// OS is the operating system the run's go test ran on (GOOS).
+	OS string `json:"os"`
+	// Arch is the architecture it ran on (GOARCH).
+	Arch string `json:"arch"`
+	// Packages are the import paths the run tested.
+	Packages []string `json:"packages"`
+	// Started is when the run began.
+	Started time.Time `json:"started"`
+	// Seconds is how long the run took.
+	Seconds float64 `json:"seconds"`
+	// Verdict is pass, fail, error (the run reached no verdict) or not-run.
+	Verdict string `json:"verdict"`
 	// Error is why a run could not reach a verdict, or why it failed beyond
 	// its failures (too many to re-run).
-	Error    string       `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
+	// Failures are each failure go test reported, with how the run judged
+	// it.
 	Failures []RunFailure `json:"failures,omitempty"`
-	Skips    []Skip       `json:"skips,omitempty"`
-	// Coverage, Missing and PackageSeconds are the run's Measurement.
-	Coverage       map[string]float64  `json:"coverage,omitempty"`
-	Missing        map[string][]string `json:"missing,omitempty"`
-	PackageSeconds map[string]float64  `json:"package_seconds,omitempty"`
+	// Skips are each test the run skipped, with its reason.
+	Skips []Skip `json:"skips,omitempty"`
+	// Coverage is each package's statement coverage, in percent.
+	Coverage map[string]float64 `json:"coverage,omitempty"`
+	// Missing is, for each package, what its tests skipped for lacking.
+	Missing map[string][]string `json:"missing,omitempty"`
+	// PackageSeconds is how long each package's tests took.
+	PackageSeconds map[string]float64 `json:"package_seconds,omitempty"`
 }
 
 // RunFailure is one failure, as go test reported it and as the run judged
 // it.
 type RunFailure struct {
+	// Package is the failing package's import path.
 	Package string `json:"package"`
 	// Test is empty for a package-level failure.
 	Test string `json:"test,omitempty"`
 	// Kind is test, build or package (FailureKind).
-	Kind    string `json:"kind"`
+	Kind string `json:"kind"`
+	// Outcome is failed, contention (it passed when re-run alone, so it
+	// does not count against the run) or not-rerun.
 	Outcome string `json:"outcome"`
 	// Output is the end of what the test and its subtests printed
 	// (FailureOutput), masked by the caller.

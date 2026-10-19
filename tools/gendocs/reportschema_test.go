@@ -113,10 +113,23 @@ func (s *schemaValidator) check(path string, v any, schema map[string]any) []str
 	if !typeMatches(v, schema["type"]) {
 		return []string{fmt.Sprintf("%s = %v is not %v", path, v, schema["type"])}
 	}
+	// A producer is held to the values it publishes as known, though a
+	// reader is not: what this producer writes, it has to have declared.
+	if known := asList(schema["examples"]); known != nil {
+		if str, ok := v.(string); ok && !slices.Contains(known, any(str)) {
+			return []string{fmt.Sprintf("%s = %q is not one of the values the schema publishes, %v", path, str, known)}
+		}
+	}
 	if schema["properties"] != nil {
 		return s.object(path, "Report", v, schema)
 	}
 	var problems []string
+	if values, ok := schema["additionalProperties"].(map[string]any); ok {
+		obj, _ := v.(map[string]any)
+		for _, key := range sortedKeys(obj) {
+			problems = append(problems, s.check(path+"."+key, obj[key], values)...)
+		}
+	}
 	if items, ok := v.([]any); ok {
 		for i, item := range items {
 			problems = append(problems, s.check(fmt.Sprintf("%s[%d]", path, i), item, schema["items"].(map[string]any))...)
@@ -195,6 +208,10 @@ func typeMatches(v any, want any) bool {
 			}
 		case "integer":
 			if f, ok := v.(float64); ok && f == float64(int64(f)) {
+				return true
+			}
+		case "number":
+			if _, ok := v.(float64); ok {
 				return true
 			}
 		case "boolean":

@@ -23,18 +23,20 @@ func TestRun_Idempotent(t *testing.T) {
 		t.Fatalf("os.Getwd(): %v", err)
 	}
 	tmp := t.TempDir()
-	// The report schema's descriptions are the report model's doc
-	// comments, read from its source at the repository-relative path the
-	// generator is run from; the scratch root gets that one input.
-	model, err := os.ReadFile(filepath.Join(origWD, "..", "..", reportModelFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(tmp, filepath.Dir(reportModelFile)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, reportModelFile), model, 0o644); err != nil {
-		t.Fatal(err)
+	// The report schemas' descriptions are their models' doc comments, read
+	// from source at the repository-relative paths the generator is run
+	// from; the scratch root gets those inputs.
+	for _, file := range append([]string{reportModelFile}, prReportModelFiles...) {
+		model, err := os.ReadFile(filepath.Join(origWD, "..", "..", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(tmp, filepath.Dir(file)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(tmp, file), model, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatalf("os.Chdir(%s): %v", tmp, err)

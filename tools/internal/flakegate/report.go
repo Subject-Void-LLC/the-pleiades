@@ -18,9 +18,12 @@ import (
 // Skip is one test go test reported as skipped, with the reason the test
 // gave.
 type Skip struct {
+	// Package is the skipped test's import path.
 	Package string `json:"package"`
-	Test    string `json:"test"`
-	Reason  string `json:"reason"`
+	// Test is the skipped test's name.
+	Test string `json:"test"`
+	// Reason is the first line of the message its skip gave, masked.
+	Reason string `json:"reason"`
 }
 
 // skipNoise matches the lines go test itself writes around a test's own

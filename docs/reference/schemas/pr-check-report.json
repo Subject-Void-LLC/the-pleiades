@@ -1,0 +1,513 @@
+{
+  "$defs": {
+    "Leg": {
+      "description": "Leg is one OS check's leg, by its record's name.",
+      "properties": {
+        "leg": {
+          "$ref": "#/$defs/LegRecord",
+          "description": "Leg is the check's own record of its leg."
+        },
+        "name": {
+          "description": "Name is the leg's record name: mac, bsd or win.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "leg"
+      ],
+      "type": "object"
+    },
+    "LegRecord": {
+      "description": "LegRecord is one check's record of its machine's run.",
+      "properties": {
+        "commit": {
+          "description": "Commit is the commit whose tree the leg tested.",
+          "type": "string"
+        },
+        "error": {
+          "description": "Error is why the leg did not pass, or what went wrong after its tests passed (a box that could not be put back).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is always leg. Known values: leg. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "leg"
+          ],
+          "type": "string"
+        },
+        "os": {
+          "description": "OS is the machine's operating system, as the check names it.",
+          "type": "string"
+        },
+        "packages": {
+          "description": "Packages are the import paths the leg tested.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "runs": {
+          "description": "Runs are the testgate records the machine wrote, in the order its passes ran.",
+          "items": {
+            "$ref": "#/$defs/Run"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "schema": {
+          "description": "Schema is the leg record's version (LegSchema).",
+          "type": "integer"
+        },
+        "seconds": {
+          "description": "Seconds is how long the leg took.",
+          "type": "number"
+        },
+        "started": {
+          "description": "Started is when the leg began.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "step": {
+          "description": "Step is where a leg that did not pass stopped. Known values: settings, box, commit, reachable, ready, ship, test. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "settings",
+            "box",
+            "commit",
+            "reachable",
+            "ready",
+            "ship",
+            "test"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "description": "Target is the machine: its device or ssh name.",
+          "type": "string"
+        },
+        "tool": {
+          "description": "Tool is the check that ran the leg: maccheck, bsdcheck or wincheck.",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "Verdict is flakegate's: pass, fail, not-run (the tests never ran), or error (they ran and their outcome is unknown). Known values: pass, fail, error, not-run. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "pass",
+            "fail",
+            "error",
+            "not-run"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "kind",
+        "tool",
+        "os",
+        "target",
+        "packages",
+        "started",
+        "seconds",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "Pass": {
+      "description": "Pass is one testgate pass on this machine, by its record's name.",
+      "properties": {
+        "name": {
+          "description": "Name is the pass's record name: fast, repeat or containers.",
+          "type": "string"
+        },
+        "run": {
+          "$ref": "#/$defs/Run",
+          "description": "Run is the pass's own testgate record."
+        }
+      },
+      "required": [
+        "name",
+        "run"
+      ],
+      "type": "object"
+    },
+    "Problem": {
+      "description": "Problem is one reason a report cannot simply be read as its records say.",
+      "properties": {
+        "code": {
+          "description": "Code is what kind of problem it is, stable for a tool to act on. Known values: unreadable, unknown-kind, unknown-schema, unknown-value, missing, gate-failed, gate-disagrees, interrupted. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "unreadable",
+            "unknown-kind",
+            "unknown-schema",
+            "unknown-value",
+            "missing",
+            "gate-failed",
+            "gate-disagrees",
+            "interrupted"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "description": "Detail says what happened, for a person.",
+          "type": "string"
+        },
+        "record": {
+          "description": "Record is the record file or the expected part of the run it is about; absent for a problem about the run as a whole.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "Run": {
+      "description": "Run is one testgate run's record.",
+      "properties": {
+        "arch": {
+          "description": "Arch is the architecture it ran on (GOARCH).",
+          "type": "string"
+        },
+        "coverage": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Coverage is each package's statement coverage, in percent.",
+          "type": "object"
+        },
+        "error": {
+          "description": "Error is why a run could not reach a verdict, or why it failed beyond its failures (too many to re-run).",
+          "type": "string"
+        },
+        "failures": {
+          "description": "Failures are each failure go test reported, with how the run judged it.",
+          "items": {
+            "$ref": "#/$defs/RunFailure"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Kind is always testgate. Known values: testgate. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "testgate"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "description": "Label is the run's go test arguments, as testgate prints it.",
+          "type": "string"
+        },
+        "missing": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": "Missing is, for each package, what its tests skipped for lacking.",
+          "type": "object"
+        },
+        "os": {
+          "description": "OS is the operating system the run's go test ran on (GOOS).",
+          "type": "string"
+        },
+        "package_seconds": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "PackageSeconds is how long each package's tests took.",
+          "type": "object"
+        },
+        "packages": {
+          "description": "Packages are the import paths the run tested.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "schema": {
+          "description": "Schema is the run record's version (RunSchema).",
+          "type": "integer"
+        },
+        "seconds": {
+          "description": "Seconds is how long the run took.",
+          "type": "number"
+        },
+        "skips": {
+          "description": "Skips are each test the run skipped, with its reason.",
+          "items": {
+            "$ref": "#/$defs/Skip"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "started": {
+          "description": "Started is when the run began.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "Verdict is pass, fail, error (the run reached no verdict) or not-run. Known values: pass, fail, error, not-run. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "pass",
+            "fail",
+            "error",
+            "not-run"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "kind",
+        "label",
+        "os",
+        "arch",
+        "packages",
+        "started",
+        "seconds",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "RunFailure": {
+      "description": "RunFailure is one failure, as go test reported it and as the run judged it.",
+      "properties": {
+        "kind": {
+          "description": "Kind is test, build or package (FailureKind). Known values: test, build, package. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "test",
+            "build",
+            "package"
+          ],
+          "type": "string"
+        },
+        "outcome": {
+          "description": "Outcome is failed, contention (it passed when re-run alone, so it does not count against the run) or not-rerun. Known values: failed, contention, not-rerun. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "failed",
+            "contention",
+            "not-rerun"
+          ],
+          "type": "string"
+        },
+        "output": {
+          "description": "Output is the end of what the test and its subtests printed (FailureOutput), masked by the caller.",
+          "type": "string"
+        },
+        "package": {
+          "description": "Package is the failing package's import path.",
+          "type": "string"
+        },
+        "test": {
+          "description": "Test is empty for a package-level failure.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "kind",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "Skip": {
+      "description": "Skip is one test go test reported as skipped, with the reason the test gave.",
+      "properties": {
+        "package": {
+          "description": "Package is the skipped test's import path.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Reason is the first line of the message its skip gave, masked.",
+          "type": "string"
+        },
+        "test": {
+          "description": "Test is the skipped test's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "test",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "Step": {
+      "description": "Step is the record of one step pr-check ran besides the tests (the coverage check, the served-images check): how it exited, or why it did not run.",
+      "properties": {
+        "exit_code": {
+          "description": "ExitCode is how the step's command exited; 0 for a step that did not run.",
+          "type": "integer"
+        },
+        "kind": {
+          "description": "Kind is always step. Known values: step. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "step"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the step's name, which is also its record's file name.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Reason is why a step with the not-run verdict did not run.",
+          "type": "string"
+        },
+        "schema": {
+          "description": "Schema is the step record's version (StepSchema).",
+          "type": "integer"
+        },
+        "verdict": {
+          "description": "Verdict is pass, fail, or not-run for a step this machine could not make, which is said and not failed. Known values: pass, fail, not-run. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "pass",
+            "fail",
+            "not-run"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "kind",
+        "name",
+        "exit_code",
+        "verdict"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Report is a pr-check run's records merged into one document with one verdict. Compatibility: schema is the major version, raised only by a change an existing reader could misread (a field removed or renamed, or given another type or meaning). Within a major version a newer producer may add fields, and values to the open sets; a reader ignores a field it does not know, treats a verdict, outcome or step it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "commit": {
+      "description": "Commit is the commit the run checked.",
+      "type": "string"
+    },
+    "exit_code": {
+      "description": "ExitCode is pr-check's own exit status, the gate, when the merge was given it. A report never passes a run the gate failed.",
+      "type": "integer"
+    },
+    "expected": {
+      "description": "Expected is every part of the run pr-check said, as it began, it would run: passes, legs and steps by name.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "generated": {
+      "description": "Generated is when this document was written.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Kind is always pr-check. Known values: pr-check. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+      "examples": [
+        "pr-check"
+      ],
+      "type": "string"
+    },
+    "legs": {
+      "description": "Legs are the OS checks' legs, in the order pr-check runs them.",
+      "items": {
+        "$ref": "#/$defs/Leg"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "missing": {
+      "description": "Missing is each expected part with no record, which is never a pass.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "passes": {
+      "description": "Passes are the testgate passes on this machine, in the order pr-check runs them.",
+      "items": {
+        "$ref": "#/$defs/Pass"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "problems": {
+      "description": "Problems are each reason the report cannot simply be read as its records say.",
+      "items": {
+        "$ref": "#/$defs/Problem"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "schema": {
+      "description": "Schema is the report's major version.",
+      "type": "integer"
+    },
+    "started": {
+      "description": "Started is when pr-check began; absent when it wrote no running report first.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "steps": {
+      "description": "Steps are the other steps, in the order pr-check runs them.",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "verdict": {
+      "description": "Verdict is the run's: pass, fail, incomplete (nothing failed, and something cannot be read as a pass), running (pr-check has begun and not ended: not a result) or interrupted (it stopped before its end). Known values: pass, fail, incomplete, running, interrupted. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+      "examples": [
+        "pass",
+        "fail",
+        "incomplete",
+        "running",
+        "interrupted"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "generated",
+    "verdict"
+  ],
+  "title": "Pleiades pr-check report",
+  "type": "object"
+}
