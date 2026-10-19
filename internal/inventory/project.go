@@ -30,7 +30,7 @@ const starterRunbook = `# Sample runbook: one task that does nothing, to show th
 id: sample
 tasks:
   - name: check
-    fqcn: noop
+    noop: {}
 `
 
 const starterReadme = "This project was created by `pleiades init`.\n\n" +

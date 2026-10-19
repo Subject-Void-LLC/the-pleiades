@@ -59,6 +59,9 @@ func TestEveryDocumentedExampleValidates(t *testing.T) {
 			for _, f := range validate.Validate(validate.WorldView{Items: providers, DAG: dag}).Findings {
 				t.Errorf("%s, example %q: %s: %s: %s", cfg.Name, ex.Name, f.RuleName, f.Node, f.Message)
 			}
+			for _, w := range validate.TaskFormWarnings([]byte(exampleRunbook(ex.RunbookYAML))) {
+				t.Errorf("%s, example %q: %s", cfg.Name, ex.Name, w.Message)
+			}
 		}
 	}
 	if checked == 0 {

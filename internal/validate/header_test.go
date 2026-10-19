@@ -63,3 +63,49 @@ func TestReport_AWarningIsNotAnError(t *testing.T) {
 		t.Errorf("String() = %q", got)
 	}
 }
+
+// TestTaskFormWarnings: each task written as fqcn: and params: is named, in
+// every task list and in block, rescue and always, by its node ID and with
+// its method; a task keyed by its method, and a file that is not a runbook
+// mapping, raise none.
+func TestTaskFormWarnings(t *testing.T) {
+	src := `# A runbook.
+id: x
+pretasks:
+  - name: a
+    fqcn: noop
+tasks:
+  - name: b
+    pkg.apt.install:
+      name: curl
+  - name: c
+    block:
+      - name: d
+        fqcn: exec.command
+        params: {argv: [true]}
+    rescue:
+      - name: e
+        noop: {}
+    always:
+      - fqcn: net.ssh.ping
+posttasks: []
+`
+	var got []string
+	for _, w := range TaskFormWarnings([]byte(src)) {
+		if w.RuleName != TaskFormRule || !strings.Contains(w.Message, "write its method as the task's key") {
+			t.Errorf("%+v", w)
+		}
+		got = append(got, w.Node)
+	}
+	if want := []string{"pretasks[0]", "tasks[1].block[0]", "tasks[1].always[0]"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("warned about %v, want %v", got, want)
+	}
+	if w := TaskFormWarnings([]byte(src)); !strings.Contains(w[1].Message, "exec.command:") {
+		t.Errorf("the method is not named: %s", w[1].Message)
+	}
+	for _, none := range []string{"id: x\ntasks:\n  - pkg.apt.install: {name: curl}\n", "- not: a runbook\n", "a: [unclosed", "", "id: x\ntasks: 5\n", "id: x\ntasks:\n  - just a string\n"} {
+		if w := TaskFormWarnings([]byte(none)); len(w) != 0 {
+			t.Errorf("%q: %v", none, w)
+		}
+	}
+}

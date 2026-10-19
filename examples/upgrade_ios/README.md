@@ -11,7 +11,6 @@ examples/upgrade_ios/
   pleiades/
     inventory.yaml
     runbooks/upgrade_ios_xe.yaml         <- The Pleiades runbook
-    runbooks/upgrade_ios_xe_sugar.yaml   <- the same runbook, module-as-key syntax
 ```
 
 Both upgrade a Catalyst switch named `sw1` from whatever it is running today to IOS-XE
@@ -51,20 +50,9 @@ identically, indefinitely); `wait.port`'s sibling methods, `wait.path` and `wait
 yet renamed under this namespace, an intentionally left inconsistency rather than an oversight
 (see `internal/forge/catalogdata/collections_gating.go`).
 
-## Two ways to write a Pleiades task
+## How a Pleiades task is written
 
-`upgrade_ios_xe.yaml` writes every task the explicit way:
-
-```yaml
-- name: Record the currently running version
-  fqcn: net.cli.command
-  params:
-    command: "show version | include Version"
-```
-
-`upgrade_ios_xe_sugar.yaml` is the identical runbook written with module-as-key sugar instead:
-the module name becomes the mapping key, and its arguments are that key's value directly, no
-`fqcn:`/`params:` pair needed:
+A task names its method as its key, and the method's parameters are that key's value:
 
 ```yaml
 - name: Record the currently running version
@@ -72,10 +60,12 @@ the module name becomes the mapping key, and its arguments are that key's value 
     command: "show version | include Version"
 ```
 
-Both compile to the exact same `*DAG` (`pleiades validate` gives both files the same result), and both syntaxes are supported forever, including mixed task by task within
-one runbook. A task may set at most one non-reserved key: writing two module names on the same
-task, or combining sugar with an explicit `fqcn:`/`block:`, is a clear build-time error rather
-than a silent guess at which one you meant.
+A task holds one method key. Two method names on one task, or a method beside `block:`, is a
+build-time error rather than a guess at which you meant.
+
+The engine also reads an older form, `fqcn:` with a `params:` map, so a runbook written that way
+still runs; `pleiades validate` warns on each such task and names the method key to write
+instead.
 
 ## What is different
 
@@ -161,7 +151,7 @@ it affects:
 rather than a Collection method, which is why it needs no catalog entry.
 
 If you want a runbook that runs end to end against the current binary, `pleiades init`
-scaffolds one (`runbooks/sample.yaml`, `fqcn: noop`), or see
+scaffolds one (`runbooks/sample.yaml`, one `noop:` task), or see
 [the Crawl-tier quickstart](../../docs/02-get-started.md), which runs a real `ssh_exec` task
 against a real device.
 
@@ -170,7 +160,6 @@ against a real device.
 ```
 cd examples/upgrade_ios/pleiades
 pleiades validate runbooks/upgrade_ios_xe.yaml
-pleiades validate runbooks/upgrade_ios_xe_sugar.yaml   # same result, different syntax
 ```
 
 ```

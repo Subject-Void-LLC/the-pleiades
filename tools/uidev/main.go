@@ -111,7 +111,7 @@ func run() error {
 		return fmt.Errorf("creating runbook directory: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(runbookDir, "ping-fleet.yaml"),
-		[]byte("id: ping-fleet\ntasks:\n  - name: reach every host\n    fqcn: net.ssh.ping\n"), 0o600); err != nil {
+		[]byte("# Reaches every host over SSH; changes nothing.\nid: ping-fleet\ntasks:\n  - name: reach every host\n    net.ssh.ping: {}\n"), 0o600); err != nil {
 		return fmt.Errorf("seeding a runbook: %w", err)
 	}
 
