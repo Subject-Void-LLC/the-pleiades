@@ -74,3 +74,30 @@ func TestImportMatchesTheCapturedImport(t *testing.T) {
 		t.Error("imported a file that is not there")
 	}
 }
+
+// TestASavedMachine: a saved machine refuses a detach, as the lab host did,
+// until its state is discarded, which leaves it powered off; discarding a
+// machine with no saved state, or none at all, is refused.
+func TestASavedMachine(t *testing.T) {
+	ctx := context.Background()
+	vm := ubuntuAppliance()
+	vm.Name, vm.UUID, vm.State = "lab", "00000000-0000-4000-8000-000000000099", vboxmanage.StateSaved
+	h := New(vm)
+	host := h.VBoxHost()
+	slot := vboxmanage.Slot{Controller: "IDE", Port: 0, Device: 0}
+	if err := host.Detach(ctx, "lab", slot); err == nil || !strings.Contains(err.Error(), "not mutable or running (state is Saved)") {
+		t.Errorf("a detach while saved: %v", err)
+	}
+	if err := host.DiscardState(ctx, "lab"); err != nil || h.VM("lab").State != vboxmanage.StatePoweroff {
+		t.Fatalf("discard: %v, state %s", err, h.VM("lab").State)
+	}
+	if err := host.Detach(ctx, "lab", slot); err != nil {
+		t.Errorf("a detach once discarded: %v", err)
+	}
+	if err := host.DiscardState(ctx, "lab"); err == nil || !strings.Contains(err.Error(), "no saved state") {
+		t.Errorf("discarding again: %v", err)
+	}
+	if err := host.DiscardState(ctx, "missing"); err == nil || !strings.Contains(err.Error(), "Could not find a registered machine") {
+		t.Errorf("discarding no machine: %v", err)
+	}
+}

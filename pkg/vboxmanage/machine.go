@@ -192,6 +192,19 @@ func (h Host) SaveState(ctx context.Context, name string) error {
 	return h.control(ctx, name, "savestate")
 }
 
+// DiscardState throws away the memory a SaveState wrote, leaving name
+// powered off, as pulling its power would have: whatever the guest had not
+// written to its disks is lost. VirtualBox refuses most changes to a saved
+// machine (detaching a medium among them), so a caller about to change or
+// delete one discards first. A machine with no saved state is an error.
+func (h Host) DiscardState(ctx context.Context, name string) error {
+	if err := CheckName("VM", name); err != nil {
+		return err
+	}
+	_, err := h.run(ctx, "discardstate", name)
+	return err
+}
+
 // ACPIShutdown presses name's power button, asking the guest to shut down;
 // it returns once the request is sent, not once the guest is off.
 func (h Host) ACPIShutdown(ctx context.Context, name string) error {
