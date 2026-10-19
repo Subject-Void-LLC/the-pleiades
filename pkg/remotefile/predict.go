@@ -211,15 +211,28 @@ func PredictCreate(kind Kind, want Attributes) Prediction {
 // PredictWrite returns what Write of size bytes followed by Apply(want)
 // would leave at a path found as before. Write replaces the file with a
 // new one, so the size is the content's and the modification time is the
-// device's to decide; the attributes are what Apply(want) sets, which
-// for an existing file is PredictApply's answer and for a new one is
-// PredictCreate's (so an owner or group want does not name is unknown,
-// being the connecting account's). before must be absent or a regular
-// file; the caller refuses anything else, as a real run does.
+// device's to decide; the attributes are what Apply(want) sets. That is
+// true over an existing file too: the new file starts at mktemp's 0600,
+// owned by the connecting account, in the group a new file gets (the
+// account's own on Linux, the directory's on FreeBSD), so a mode, owner or
+// group want does not name is unknown either way, and a caller keeping the
+// file's attributes (file.copy, file.line) names all three. before must be
+// absent or a regular file; the caller refuses anything else, as a real
+// run does.
+//
+// This said an existing file's unnamed attributes survive the write, which
+// held on Linux only while the file's group was the account's own; on
+// bsd-check a write naming only a mode left the directory's group
+// (2026-10-18).
 func PredictWrite(want Attributes, before Info, size int64) Prediction {
 	var p Prediction
 	if before.Exists() {
 		p = PredictApply(want, before)
+		for key, named := range map[string]bool{keyMode: want.Mode != "", keyOwner: want.Owner != "", keyGroup: want.Group != ""} {
+			if !named {
+				p.unknown = append(p.unknown, key)
+			}
+		}
 	} else {
 		p = PredictCreate(KindFile, want)
 	}
