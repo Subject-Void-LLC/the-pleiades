@@ -317,6 +317,8 @@ func TestRun_AReportForAnotherCommitSaysSo(t *testing.T) {
 // each exit 2 saying why.
 func TestRun_Refusals(t *testing.T) {
 	empty := t.TempDir()
+	// scratch takes the cases that would write, were they not refused.
+	scratch := t.TempDir()
 	other := t.TempDir()
 	writeRecords(t, other, map[string]any{"report.json": `{"schema":1,"kind":"leg"}`})
 	broken := t.TempDir()
@@ -332,6 +334,11 @@ func TestRun_Refusals(t *testing.T) {
 		"an exit not a number": {[]string{"merge", "-dir", empty, "-exit", "one"}, "invalid value"},
 		"a bad step name":      {[]string{"step", "-dir", empty, "-name", "../x"}, "not a step name"},
 		"an unknown flag":      {[]string{"-colour"}, "flag provided but not defined"},
+		"two views":            {[]string{"-dir", empty, "-failures", "-skips"}, "pass one of -json, -failures and -skips"},
+		"a stray argument":     {[]string{"-dir", empty, "mac"}, `unexpected argument "mac"`},
+		"a stray to merge":     {[]string{"merge", "-dir", scratch, "now"}, `unexpected argument "now"`},
+		"a stray to step":      {[]string{"step", "-dir", scratch, "-name", "x", "1"}, `unexpected argument "1"`},
+		"an exit not run":      {[]string{"step", "-dir", scratch, "-name", "x", "-exit", "1", "-not-run", "no daemon"}, "-exit or -not-run, not both"},
 	} {
 		if code, _, stderr := runCLI(tc.args...); code != 2 || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%s: %d %q", name, code, stderr)

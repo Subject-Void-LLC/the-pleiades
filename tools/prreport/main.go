@@ -70,6 +70,10 @@ func runMerge(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if err := noArguments(fs); err != nil {
+		fmt.Fprintf(stderr, "prreport merge: %v\n", err)
+		return 2
+	}
 	r, err := merge(*dir, *commit, exitCode)
 	if err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
@@ -95,6 +99,14 @@ func runStep(args []string, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if err := noArguments(fs); err != nil {
+		fmt.Fprintf(stderr, "prreport step: %v\n", err)
+		return 2
+	}
+	if *notRun != "" && flagSet(fs, "exit") == 1 {
+		fmt.Fprintln(stderr, "prreport step: pass -exit or -not-run, not both: a step that did not run has no exit code")
+		return 2
+	}
 	if err := writeStep(*dir, *name, *exit, *notRun); err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
@@ -112,6 +124,14 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 	skips := fs.Bool("skips", false, "print every skip, grouped by reason")
 	leg := fs.String("leg", "", "print only this pass, leg or step")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := noArguments(fs); err != nil {
+		fmt.Fprintf(stderr, "prreport: %v\n", err)
+		return 2
+	}
+	if views := flagSet(fs, "json") + flagSet(fs, "failures") + flagSet(fs, "skips"); views > 1 {
+		fmt.Fprintln(stderr, "prreport: pass one of -json, -failures and -skips: each is a whole view of the report")
 		return 2
 	}
 	path := filepath.Join(*dir, reportFile)
@@ -145,6 +165,27 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		printSummary(stdout, r, path)
 	}
 	return 0
+}
+
+// noArguments refuses arguments left after fs's flags, which no command
+// takes: a word meant as a flag would otherwise be dropped unread.
+func noArguments(fs *flag.FlagSet) error {
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q: every input is a flag", fs.Arg(0))
+	}
+	return nil
+}
+
+// flagSet is 1 when the flag called name was given on the command line,
+// whatever its value, and 0 otherwise.
+func flagSet(fs *flag.FlagSet, name string) int {
+	set := 0
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = 1
+		}
+	})
+	return set
 }
 
 // headCommit is the commit HEAD names, or "" outside a repository; a
