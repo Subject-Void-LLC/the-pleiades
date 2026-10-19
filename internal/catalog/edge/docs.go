@@ -27,7 +27,7 @@ func tunnelDoc() collection.Doc {
 			{Name: "connections", Type: "int", Returned: "success or difference", Description: "How many live connections the connectors hold in all, not counting those pending reconnect."},
 			differencesReturn,
 		},
-		Examples: []collection.Example{{Name: "The production tunnel is healthy on two connectors", RunbookYAML: "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"}},
+		Examples: []collection.Example{{Name: "The production tunnel is healthy on two connectors", RunbookYAML: "- name: Tunnel\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"}},
 		SeeAlso:  []string{"edge.access", "edge.dns"},
 	}
 }
@@ -49,7 +49,7 @@ func accessDoc() collection.Doc {
 			{Name: "policies", Type: "list of dict", Returned: "success or difference", Description: "Each policy's name, decision and precedence."},
 			differencesReturn,
 		},
-		Examples: []collection.Example{{Name: "Only staff reach the admin site", RunbookYAML: "- name: Access\n  hosts: prod-cf\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"}},
+		Examples: []collection.Example{{Name: "Only staff reach the admin site", RunbookYAML: "- name: Access\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"}},
 		SeeAlso:  []string{"edge.tunnel", "edge.dns"},
 	}
 }
@@ -69,7 +69,7 @@ func dnsDoc() collection.Doc {
 			{Name: "records", Type: "list of dict", Returned: "success or difference", Description: "Each record's content, proxied and ttl."},
 			differencesReturn,
 		},
-		Examples: []collection.Example{{Name: "www points at the two load balancers, proxied", RunbookYAML: "- name: DNS\n  hosts: prod-cf\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"}},
+		Examples: []collection.Example{{Name: "www points at the two load balancers, proxied", RunbookYAML: "- name: DNS\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"}},
 		SeeAlso:  []string{"edge.tunnel", "edge.access"},
 	}
 }

@@ -46,7 +46,7 @@ var filesCollections = []collectionscaffold.Config{
 				},
 				{
 					Name:        "Write a private file",
-					RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+					RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ vars.deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 				},
 				{
 					Name:        "Truncate a file to nothing",
@@ -199,7 +199,7 @@ var filesCollections = []collectionscaffold.Config{
 				},
 				{
 					Name:        "Act only when the file had to be created",
-					RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
+					RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: result.seed.created\n",
 				},
 			},
 			SeeAlso: []string{"file.remove", "file.permissions", "file.copy"},
@@ -313,7 +313,7 @@ var filesCollections = []collectionscaffold.Config{
 				},
 				{
 					Name:        "Act only when something was really removed",
-					RunbookYAML: "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n",
+					RunbookYAML: "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: result.overrides.found > 0\n",
 				},
 			},
 			SeeAlso: []string{"file.line.set", "file.block.remove", "file.remove"},

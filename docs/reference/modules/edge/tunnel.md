@@ -58,7 +58,6 @@ The production tunnel is healthy on two connectors:
 
 ```yaml
 - name: Tunnel
-  hosts: prod-cf
   edge.tunnel:
     tunnel: prod
     min_connectors: 2

@@ -62,6 +62,6 @@ Restart only when the config changed:
   svc.restart:
     name: app
   when:
-    - app_config.changed
+    - result.app_config.diff.before != result.app_config.diff.after
 ```
 

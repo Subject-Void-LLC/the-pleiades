@@ -172,7 +172,7 @@ func copyDoc() collection.Doc {
 			},
 			{
 				Name:        "Write a private file",
-				RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+				RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ vars.deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 			},
 			{
 				Name:        "Truncate a file to nothing",

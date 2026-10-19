@@ -79,7 +79,7 @@ Write a private file:
 - name: Drop the deploy token
   file.copy:
     dest: /etc/pleiades/token
-    content: "{{ deploy_token }}"
+    content: "{{ vars.deploy_token }}"
     mode: "0600"
     owner: pleiades
     group: pleiades

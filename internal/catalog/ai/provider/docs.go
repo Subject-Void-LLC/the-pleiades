@@ -20,7 +20,7 @@ func listDoc() collection.Doc {
 			{Name: "warnings", Type: "list of string", Returned: "when there is one", Description: "What the record allows that a run must say: a key over plain http://, weakened TLS."},
 		},
 		Examples: []collection.Example{
-			{Name: "List every provider", RunbookYAML: "- name: Providers\n  hosts: [claude, workstation]\n  ai.provider.list: {}\n"},
+			{Name: "List every provider", RunbookYAML: "- name: Providers\n  ai.provider.list: {}\n"},
 		},
 		SeeAlso: []string{"ai.provider.probe", "ai.model.list"},
 	}
@@ -38,7 +38,7 @@ func probeDoc() collection.Doc {
 			{Name: "estimate", Type: "dict", Returned: "in a check", Description: "The call a run would make, and what it would cost."},
 		},
 		Examples: []collection.Example{
-			{Name: "Prove a provider answers", RunbookYAML: "- name: Probe\n  hosts: claude\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"},
+			{Name: "Prove a provider answers", RunbookYAML: "- name: Probe\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"},
 		},
 		SeeAlso: []string{"ai.provider.list", "ai.chat"},
 	}

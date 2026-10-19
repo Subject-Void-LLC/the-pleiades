@@ -191,7 +191,7 @@ func loadDoc() collection.Doc {
 			pathReturn, digestReturn, sizeReturn,
 			{Name: statImages, Type: "list of string", Returned: "when it ran", Description: "The images the engine said it loaded, by tag or ID."},
 		},
-		Examples: []collection.Example{{Name: "Load the saved build", RunbookYAML: "- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"}},
+		Examples: []collection.Example{{Name: "Load the saved build", RunbookYAML: "- name: Save the build\n  container.image.save:\n    images: [app:build-118]\n    path: /var/lib/builds/app-118.tar\n  register: archive\n\n- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"}},
 		SeeAlso:  []string{"container.image.save", "container.image.import"},
 	}
 }

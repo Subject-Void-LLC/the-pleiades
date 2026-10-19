@@ -76,6 +76,6 @@ Run a container only on a rootless engine:
     name: cache
     image: redis:7.4
   when:
-    - engine.rootless
+    - result.engine.rootless
 ```
 

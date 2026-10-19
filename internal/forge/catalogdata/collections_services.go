@@ -78,7 +78,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart only when the config changed", RunbookYAML: "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - app_config.changed\n"},
+				{Name: "Restart only when the config changed", RunbookYAML: "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - result.app_config.diff.before != result.app_config.diff.after\n"},
 			},
 			SeeAlso: []string{"svc.start", "svc.stop", "svc.systemd.restart"},
 		},
@@ -195,7 +195,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart after a config change", RunbookYAML: "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - nginx_config.changed\n"},
+				{Name: "Restart after a config change", RunbookYAML: "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - result.nginx_config.diff.before != result.nginx_config.diff.after\n"},
 			},
 			SeeAlso: []string{"svc.systemd.start", "svc.systemd.stop", "svc.restart"},
 		},
@@ -327,7 +327,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart after a config change", RunbookYAML: "- name: Write the app's config\n  file.copy:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - app_config.changed\n"},
+				{Name: "Restart after a config change", RunbookYAML: "- name: Write the app's config\n  win.file.copy:\n    src: app.config\n    path: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - result.app_config.diff.before != result.app_config.diff.after\n"},
 			},
 			SeeAlso: []string{"svc.windows.start", "svc.windows.stop", "svc.restart"},
 		},

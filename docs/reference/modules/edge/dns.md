@@ -55,7 +55,6 @@ www points at the two load balancers, proxied:
 
 ```yaml
 - name: DNS
-  hosts: prod-cf
   edge.dns:
     zone: example.com
     name: www.example.com

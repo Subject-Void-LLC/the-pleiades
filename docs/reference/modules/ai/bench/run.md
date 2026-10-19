@@ -69,7 +69,6 @@ Score a local model:
 
 ```yaml
 - name: Bench
-  hosts: workstation
   ai.bench.run:
     model: "qwen3:14b"
     max_tokens: 50

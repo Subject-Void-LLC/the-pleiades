@@ -52,7 +52,6 @@ Have the model:
 
 ```yaml
 - name: Pull
-  hosts: workstation
   ai.model.pull:
     model: "qwen3:14b"
     timeout: 1h

@@ -45,7 +45,6 @@ What the workstation has:
 
 ```yaml
 - name: Models
-  hosts: workstation
   ai.model.list: {}
 ```
 

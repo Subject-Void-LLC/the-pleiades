@@ -55,6 +55,12 @@ Note that no rollback engine reads this yet. What exists today is the recording,
 Load the saved build:
 
 ```yaml
+- name: Save the build
+  container.image.save:
+    images: [app:build-118]
+    path: /var/lib/builds/app-118.tar
+  register: archive
+
 - name: Load the build
   container.image.load:
     path: /var/lib/builds/app-118.tar

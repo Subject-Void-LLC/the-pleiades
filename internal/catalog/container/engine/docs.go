@@ -38,7 +38,7 @@ func infoDoc() collection.Doc {
 			always(statMemoryBytes, "int", "The host's memory in bytes, as the engine sees it."),
 		},
 		Examples: []collection.Example{
-			{Name: "Run a container only on a rootless engine", RunbookYAML: "- name: Read the engine\n  container.engine.info:\n  register: engine\n\n- name: Run the build cache\n  container.run:\n    name: cache\n    image: redis:7.4\n  when:\n    - engine.rootless\n"},
+			{Name: "Run a container only on a rootless engine", RunbookYAML: "- name: Read the engine\n  container.engine.info:\n  register: engine\n\n- name: Run the build cache\n  container.run:\n    name: cache\n    image: redis:7.4\n  when:\n    - result.engine.rootless\n"},
 		},
 		SeeAlso: []string{"container.network.info", "container.volume.info", "facts.gather"},
 	}

@@ -83,6 +83,6 @@ Act only when the file had to be created:
 - name: Seed the database the first time only
   exec.command:
     cmd: /opt/app/bin/seed
-  when_cel: seed.created
+  when_cel: result.seed.created
 ```
 

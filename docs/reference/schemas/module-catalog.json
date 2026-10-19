@@ -148,7 +148,7 @@
       "examples": [
         {
           "name": "Score a local model",
-          "runbookYaml": "- name: Bench\n  hosts: workstation\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"
+          "runbookYaml": "- name: Bench\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"
         }
       ],
       "seeAlso": [
@@ -407,7 +407,7 @@
       "examples": [
         {
           "name": "What the workstation has",
-          "runbookYaml": "- name: Models\n  hosts: workstation\n  ai.model.list: {}\n"
+          "runbookYaml": "- name: Models\n  ai.model.list: {}\n"
         }
       ],
       "seeAlso": [
@@ -494,7 +494,7 @@
       "examples": [
         {
           "name": "Make one model resident",
-          "runbookYaml": "- name: Load\n  hosts: workstation\n  ai.model.load:\n    model: \"qwen3:14b\"\n"
+          "runbookYaml": "- name: Load\n  ai.model.load:\n    model: \"qwen3:14b\"\n"
         }
       ],
       "seeAlso": [
@@ -563,7 +563,7 @@
       "examples": [
         {
           "name": "Have the model",
-          "runbookYaml": "- name: Pull\n  hosts: workstation\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"
+          "runbookYaml": "- name: Pull\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"
         }
       ],
       "seeAlso": [
@@ -632,7 +632,7 @@
       "examples": [
         {
           "name": "Reclaim the disk",
-          "runbookYaml": "- name: Remove\n  hosts: workstation\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"
+          "runbookYaml": "- name: Remove\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"
         }
       ],
       "seeAlso": [
@@ -700,7 +700,7 @@
       "examples": [
         {
           "name": "Free the memory",
-          "runbookYaml": "- name: Unload\n  hosts: workstation\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"
+          "runbookYaml": "- name: Unload\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"
         }
       ],
       "seeAlso": [
@@ -881,7 +881,7 @@
       "examples": [
         {
           "name": "List every provider",
-          "runbookYaml": "- name: Providers\n  hosts: [claude, workstation]\n  ai.provider.list: {}\n"
+          "runbookYaml": "- name: Providers\n  ai.provider.list: {}\n"
         }
       ],
       "seeAlso": [
@@ -959,7 +959,7 @@
       "examples": [
         {
           "name": "Prove a provider answers",
-          "runbookYaml": "- name: Probe\n  hosts: claude\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"
+          "runbookYaml": "- name: Probe\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"
         }
       ],
       "seeAlso": [
@@ -2269,7 +2269,7 @@
       "examples": [
         {
           "name": "Run a container only on a rootless engine",
-          "runbookYaml": "- name: Read the engine\n  container.engine.info:\n  register: engine\n\n- name: Run the build cache\n  container.run:\n    name: cache\n    image: redis:7.4\n  when:\n    - engine.rootless\n"
+          "runbookYaml": "- name: Read the engine\n  container.engine.info:\n  register: engine\n\n- name: Run the build cache\n  container.run:\n    name: cache\n    image: redis:7.4\n  when:\n    - result.engine.rootless\n"
         }
       ],
       "seeAlso": [
@@ -2623,7 +2623,7 @@
       "examples": [
         {
           "name": "Load the saved build",
-          "runbookYaml": "- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"
+          "runbookYaml": "- name: Save the build\n  container.image.save:\n    images: [app:build-118]\n    path: /var/lib/builds/app-118.tar\n  register: archive\n\n- name: Load the build\n  container.image.load:\n    path: /var/lib/builds/app-118.tar\n    digest: \"{{ result.archive.digest }}\"\n"
         }
       ],
       "seeAlso": [
@@ -6220,7 +6220,7 @@
       "examples": [
         {
           "name": "Only staff reach the admin site",
-          "runbookYaml": "- name: Access\n  hosts: prod-cf\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"
+          "runbookYaml": "- name: Access\n  edge.access:\n    app: admin.example.com\n    expect:\n      audience: 2b1d0a9c5f3e8d7a6b4c1e0f9d8c7b6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b\n      issuer: https://example.cloudflareaccess.com\n      policies:\n        - name: staff\n          decision: allow\n          include: [{email_domain: {domain: example.com}}]\n    exact_policies: true\n"
         }
       ],
       "seeAlso": [
@@ -6312,7 +6312,7 @@
       "examples": [
         {
           "name": "www points at the two load balancers, proxied",
-          "runbookYaml": "- name: DNS\n  hosts: prod-cf\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"
+          "runbookYaml": "- name: DNS\n  edge.dns:\n    zone: example.com\n    name: www.example.com\n    type: A\n    expect:\n      content: [192.0.2.10, 192.0.2.11]\n      proxied: true\n"
         }
       ],
       "seeAlso": [
@@ -6417,7 +6417,7 @@
       "examples": [
         {
           "name": "The production tunnel is healthy on two connectors",
-          "runbookYaml": "- name: Tunnel\n  hosts: prod-cf\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"
+          "runbookYaml": "- name: Tunnel\n  edge.tunnel:\n    tunnel: prod\n    min_connectors: 2\n"
         }
       ],
       "seeAlso": [
@@ -7260,7 +7260,7 @@
         },
         {
           "name": "Write a private file",
-          "runbookYaml": "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
+          "runbookYaml": "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ vars.deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
         },
         {
           "name": "Truncate a file to nothing",
@@ -7597,7 +7597,7 @@
         },
         {
           "name": "Act only when something was really removed",
-          "runbookYaml": "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n"
+          "runbookYaml": "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: result.overrides.found > 0\n"
         }
       ],
       "seeAlso": [
@@ -8112,7 +8112,7 @@
         },
         {
           "name": "Act only when the file had to be created",
-          "runbookYaml": "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n"
+          "runbookYaml": "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: result.seed.created\n"
         }
       ],
       "seeAlso": [
@@ -12000,7 +12000,7 @@
       "examples": [
         {
           "name": "Restart only when the config changed",
-          "runbookYaml": "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - app_config.changed\n"
+          "runbookYaml": "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - result.app_config.diff.before != result.app_config.diff.after\n"
         }
       ],
       "seeAlso": [
@@ -12404,7 +12404,7 @@
       "examples": [
         {
           "name": "Restart after a config change",
-          "runbookYaml": "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - nginx_config.changed\n"
+          "runbookYaml": "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - result.nginx_config.diff.before != result.nginx_config.diff.after\n"
         }
       ],
       "seeAlso": [
@@ -12746,7 +12746,7 @@
       "examples": [
         {
           "name": "Restart after a config change",
-          "runbookYaml": "- name: Write the app's config\n  file.copy:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - app_config.changed\n"
+          "runbookYaml": "- name: Write the app's config\n  win.file.copy:\n    src: app.config\n    path: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - result.app_config.diff.before != result.app_config.diff.after\n"
         }
       ],
       "seeAlso": [
