@@ -1,3 +1,8 @@
+# Moves every image pin in the Dockerfile and compose file to the digest
+# its tag names now.
+# Blast radius: build-box only.
+# Changes: rewrites the digests in /srv/app/Dockerfile and compose.yaml.
+# Undo: pleiades rollback <run-id> writes back each pin it changed.
 id: build-refresh
 hosts: build-box
 tasks:

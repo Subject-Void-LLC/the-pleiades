@@ -1,3 +1,8 @@
+# Gates a release: no fixable high or critical vulnerability and no
+# credential ships, and writes an SBOM describing what does.
+# Blast radius: release-box only.
+# Changes: writes the SBOM under /srv/release; the scans only read.
+# Undo: pleiades rollback <run-id> removes the SBOM directory.
 id: scan-release
 hosts: release-box
 tasks:

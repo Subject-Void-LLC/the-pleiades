@@ -185,11 +185,17 @@ func savedState(name string) vboxmanage.Output {
 }
 
 // storageattach answers putting a DVD image in a slot, emptying one, or
-// removing its drive.
+// removing its drive, which VirtualBox refuses while a saved state holds
+// the machine: the refusal's first line is the one the lab host gave on
+// 2026-10-19 detaching a saved VM's seed image.
 func (h *Host) storageattach(name string, args []string) vboxmanage.Output {
 	vm := h.find(name)
 	if vm == nil {
 		return notFound(name)
+	}
+	if vm.State == vboxmanage.StateSaved {
+		return errorOutput("The machine is not mutable or running (state is Saved)",
+			"Details: code VBOX_E_INVALID_VM_STATE (0x80bb0002), component SessionMachine, interface IMachine")
 	}
 	f, err := flags(args)
 	if err != nil {
@@ -211,6 +217,22 @@ func (h *Host) storageattach(name string, args []string) vboxmanage.Output {
 		}
 	}
 	return errorOutput(fmt.Sprintf("No storage device attached to device slot %s on port %s of controller '%s'", f["--device"], f["--port"], f["--storagectl"]))
+}
+
+// discardstate answers throwing a saved machine's memory away, which
+// leaves it powered off. A machine with no saved state is refused, in the
+// model's wording.
+func (h *Host) discardstate(name string) vboxmanage.Output {
+	vm := h.find(name)
+	if vm == nil {
+		return notFound(name)
+	}
+	if vm.State != vboxmanage.StateSaved {
+		return errorOutput(fmt.Sprintf("Machine '%s' has no saved state to discard (state is %s)", vm.Name, vm.State),
+			"Details: code VBOX_E_INVALID_VM_STATE (0x80bb0002), component SessionMachine, interface IMachine")
+	}
+	vm.State = vboxmanage.StatePoweroff
+	return vboxmanage.Output{}
 }
 
 // closemedium answers forgetting a DVD image, which VirtualBox refuses

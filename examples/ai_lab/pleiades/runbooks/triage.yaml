@@ -1,3 +1,10 @@
+# Triages a ticket on a local model, held for a person when the model is
+# unsure, and summarizes it, falling back to the lab server's model.
+# Blast radius: the workstation and lab-ollama providers; nothing leaves
+# the lab (residency: local).
+# Changes: loads a model into the workstation's memory; appends usage to
+# spend.jsonl.
+# Undo: pleiades rollback <run-id> puts back the model loaded before.
 id: ai-triage
 name: Triage a ticket on a local model, held for a person when unsure, and summarize with a fallback.
 hosts: workstation

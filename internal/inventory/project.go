@@ -21,7 +21,12 @@ const starterInventory = `# The Pleiades static inventory (Crawl tier: no server
 hosts: []
 `
 
-const starterRunbook = `# Sample runbook. Run it with: pleiades run runbooks/sample.yaml
+// starterRunbook opens with the header comment every runbook should have
+// (pleiades validate warns when one has none): what it does, what it
+// changes, and how to undo it.
+const starterRunbook = `# Sample runbook: one task that does nothing, to show the project loads
+# and validates. Run it with: pleiades run runbooks/sample.yaml
+# Changes: nothing on any device. Undo: nothing to undo.
 id: sample
 tasks:
   - name: check

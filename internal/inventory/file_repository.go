@@ -30,14 +30,20 @@ type fileRepository struct {
 	factory     *ItemFactory
 	ruleSet     *classification.RuleSet // built once; see ResolveHostType
 
-	// mu serializes Save calls within this process. Save's correctness
-	// does not come from the mutex (the re-read-and-compare of the stored
-	// version does that); the mutex exists so two goroutines calling Save
-	// concurrently through the same *fileRepository never interleave their
-	// own read and write of the two files on disk, which the re-read
-	// check alone cannot prevent.
-	mu sync.Mutex
+	// mu serializes Save, Create and Retire in this process and holds each
+	// read (GetByName, GetGroup) apart from them, so writers never
+	// interleave and a read takes both files from one moment. A read with
+	// hosts.yaml from before a Save and the sidecar from after it holds old
+	// properties at the new version, and its own Save would pass the
+	// version check and overwrite the change it never saw. On Windows it
+	// also keeps a read from opening a file a Save is renaming over, which
+	// fails there with a sharing violation.
+	mu sync.RWMutex
 }
+
+// afterHostsRead runs between a read's two files (Save is in
+// file_repository_save.go); a test puts a Save there.
+var afterHostsRead = func() {}
 
 // NewFileRepository creates a Repository backed by the YAML inventory file
 // at inventoryPath. It derives the sidecar file's path automatically: the
@@ -82,11 +88,15 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 			ErrSelectorUnsupported)
 	}
 
+	r.mu.RLock()
 	hosts, err := ReadHosts(r.hostsPath)
 	if err != nil {
+		r.mu.RUnlock()
 		return nil, err
 	}
+	afterHostsRead()
 	sidecar, err := readSidecar(r.sidecarPath)
+	r.mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +154,14 @@ func (r *fileRepository) GroupAncestry(_ context.Context, _ string) ([]Hierarchy
 // anything that needs History rather than just current state fetches an
 // item.
 func (r *fileRepository) GetByName(ctx context.Context, name string) (inventory.InventoryItem, error) {
+	// Both files under one read lock: see mu.
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	hosts, err := ReadHosts(r.hostsPath)
 	if err != nil {
 		return nil, err
 	}
+	afterHostsRead()
 
 	// Find by Name, since that is what callers address a host by. The
 	// sidecar itself is still correlated by ID (see findSidecarEntry):
@@ -283,8 +297,3 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 	}
 	return rec, nil
 }
-
-// Save is implemented in file_repository_save.go, alongside its write-path
-// helpers (findHostIndex, writeHostsAtomic, atomicWriteFile), to keep this
-// file's line count within the ~300-line soft cap. See that file's Save
-// doc comment for the full optimistic-concurrency contract.

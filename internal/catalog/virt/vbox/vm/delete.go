@@ -40,7 +40,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a stopped VirtualBox VM and its disks.",
-				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
+				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. A saved VM's state (virt.vbox.vm.stop's mode save) is discarded first, since VirtualBox will not detach media from a saved VM and the delete throws that memory away anyway. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "uuid", Type: "string", Description: "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."},
@@ -165,7 +165,8 @@ func forgetInaccessible(ctx context.Context, rc sdk.RunbookContext, h vboxmanage
 // read, unregistered with nothing deleted.
 const statInaccessible = "inaccessible"
 
-// deleteVM deletes a VM that is not running. Each DVD image is detached,
+// deleteVM deletes a VM that is not running, discarding a saved VM's state
+// first. Each DVD image is detached,
 // and deleted only when it is in the VM's own folder, since one anywhere
 // else (an installer ISO) may be shared. The VM is then unregistered with
 // its disks, and the seed and console log virt.vbox.vm.clone leaves in its
@@ -179,6 +180,13 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 	dir, err := vmDir(m)
 	if err != nil {
 		return err
+	}
+	// A saved VM's state holds its media: VirtualBox refuses to detach one
+	// until it is discarded, and the delete throws that memory away anyway.
+	if m.State == vboxmanage.StateSaved {
+		if err := h.DiscardState(ctx, name); err != nil {
+			return err
+		}
 	}
 	for _, slot := range m.Slots {
 		if !strings.HasSuffix(strings.ToLower(slot.Medium), ".iso") {

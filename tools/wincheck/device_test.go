@@ -45,16 +45,19 @@ func TestScripts_TakeTheirValuesFromTheEnvironment(t *testing.T) {
 }
 
 // TestTestScript: both passes run under cmd.exe, which joins their
-// streams, the full one without the race detector, from a package list
-// held to import paths; the run's own process is written down for the stop
-// script and removed at the end; and the script exits with the tests'
-// status.
+// streams, the full one with the race detector only when the machine has
+// gcc (which turns cgo on) and saying which, from a package list held to
+// import paths; the run's own process is written down for the stop script
+// and removed at the end; and the script exits with the tests' status.
 func TestTestScript(t *testing.T) {
 	for _, w := range []string{
 		`if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$')`,
 		`Set-Content -LiteralPath $pidFile -Value $PID`,
 		`Remove-Item -LiteralPath (Join-Path $tree $f) -Force`,
-		`& cmd.exe /d /c "go run ./tools/testgate -full -race=false -report-out .pleiades-record-full.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`$race = 'false'`,
+		`if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }`,
+		`& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out .pleiades-record-full.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`C:\mingw64\bin`,
 		`& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out .pleiades-record-repeat.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
 		`Remove-Item -LiteralPath $pidFile`,
 		`C:\mingit\cmd`,

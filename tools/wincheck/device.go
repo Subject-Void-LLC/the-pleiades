@@ -25,10 +25,10 @@ import (
 const winDir = ".pleiades-wincheck"
 
 // winPath is put before the PATH a WinRM session starts with, which a
-// machine-wide install of go or git may not be on yet: where the lab's
-// win-check unpacked go and MinGit, then where go.dev's and Git for
-// Windows' installers put them.
-const winPath = `C:\go\bin;C:\mingit\cmd;C:\Program Files\Go\bin;C:\Program Files\Git\cmd`
+// machine-wide install of go, git or gcc may not be on yet: where the lab's
+// win-check unpacked go, MinGit and WinLibs' GCC, then where go.dev's and
+// Git for Windows' installers put them.
+const winPath = `C:\go\bin;C:\mingit\cmd;C:\mingw64\bin;C:\Program Files\Go\bin;C:\Program Files\Git\cmd`
 
 // files is the directory, relative to the project, the archive is written
 // in to be sent; each archive is deleted once sent.
@@ -182,9 +182,13 @@ func (w windows) Test(ctx context.Context, sha string, parallel int, packages []
 const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
-// passes over the container-free packages, the full pass without the race
-// detector and three strict repeats, and it exits with the tests' status,
-// which the failed task reports with their output. Each pass runs under
+// passes over the container-free packages, the full pass and three strict
+// repeats, and it exits with the tests' status. The full pass uses the race
+// detector when the machine has gcc, which also turns cgo on so go-sqlite3's
+// tests run; without one Go builds with cgo off, the pass runs without the
+// race detector, and testgate reports go-sqlite3's stub as a skip that needs
+// cgo. The script says which before the passes begin, and a failed task
+// reports the tests' output. Each pass runs under
 // cmd.exe, which joins its standard error to its standard output so they
 // read in order: PowerShell would make each stderr line an error record,
 // and print an empty one as the record's type name. The command line
@@ -204,7 +208,9 @@ $pidFile = Join-Path $tree '` + pidFile + `'
 Set-Content -LiteralPath $pidFile -Value $PID
 foreach ($f in '` + recordFull + `', '` + recordRepeat + `') { Remove-Item -LiteralPath (Join-Path $tree $f) -Force -ErrorAction SilentlyContinue }
 $parallel = [int]$env:PLEIADES_PARALLEL
-& cmd.exe /d /c "go run ./tools/testgate -full -race=false -report-out ` + recordFull + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
+$race = 'false'
+if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }
+& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out ` + recordFull + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {
 	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out ` + recordRepeat + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"

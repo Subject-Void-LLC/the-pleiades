@@ -36,6 +36,10 @@ type runbookCheck struct {
 
 	// report holds the rule findings once dag has been checked.
 	report validate.Report
+
+	// warnings is the advice about the file itself (its header comment),
+	// added to report once it is checked; it never fails the run.
+	warnings []validate.Finding
 }
 
 // failed reports whether this path counts against the run: it could not
@@ -120,6 +124,7 @@ func runValidate(args []string) error {
 	for i := range checks {
 		if checks[i].dag != nil {
 			checks[i].report = validate.Validate(validate.WorldView{Items: items, DAG: checks[i].dag})
+			checks[i].report.Warnings = checks[i].warnings
 		}
 	}
 
@@ -174,7 +179,12 @@ func buildCheck(builder *engine.Builder, path string) runbookCheck {
 	case err != nil:
 		check.err, check.stage = err, "build DAG"
 	default:
-		check.dag = dag
+		source, err := os.ReadFile(path) // #nosec G304 -- the same path BuildFromYAMLFile just read, a CLI argument or an entry of the user's own runbooks directory
+		if err != nil {
+			check.err, check.stage = err, "read"
+			return check
+		}
+		check.dag, check.warnings = dag, validate.HeaderWarnings(source)
 	}
 	return check
 }
@@ -199,7 +209,7 @@ func reportOne(check runbookCheck) error {
 // reportMany prints one entry per path, in the order given, then a
 // summary line, and fails when any runbook failed or none was checked.
 func reportMany(checks []runbookCheck) error {
-	checked, failed, skipped := 0, 0, 0
+	checked, failed, skipped, warned := 0, 0, 0, 0
 	for _, check := range checks {
 		switch {
 		case check.skip != "":
@@ -220,13 +230,24 @@ func reportMany(checks []runbookCheck) error {
 			}
 		default:
 			checked++
-			fmt.Printf("%s: no issues found\n", check.path)
+			if len(check.report.Warnings) == 0 {
+				fmt.Printf("%s: no issues found\n", check.path)
+				continue
+			}
+			warned++
+			fmt.Printf("%s: no issues found, %d %s\n", check.path, len(check.report.Warnings), plural(len(check.report.Warnings), "warning", "warnings"))
+			for _, w := range check.report.Warnings {
+				fmt.Printf("  [warning] %s: %s\n", w.RuleName, w.Message)
+			}
 		}
 	}
 
 	summary := fmt.Sprintf("validate: %d %s checked", checked, plural(checked, "runbook", "runbooks"))
 	if skipped > 0 {
 		summary += fmt.Sprintf(", %d skipped", skipped)
+	}
+	if warned > 0 {
+		summary += fmt.Sprintf(", %d with warnings", warned)
 	}
 	switch {
 	case checked == 0:

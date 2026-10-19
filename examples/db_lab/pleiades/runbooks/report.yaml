@@ -1,3 +1,8 @@
+# Counts the last day's orders and checks the reporting role can read and
+# nothing more.
+# Blast radius: the app database on db-host, read only.
+# Changes: nothing; both tasks read.
+# Undo: nothing to undo.
 id: db-report
 hosts: db-host
 tasks:

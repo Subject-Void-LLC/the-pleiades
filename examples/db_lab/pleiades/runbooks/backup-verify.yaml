@@ -1,3 +1,8 @@
+# Proves a backup restores: dumps the app database, restores the dump into
+# a scratch database, and compares their row counts.
+# Blast radius: db-host; the app database is only read.
+# Changes: writes /var/backups/app.dump and creates app_restore_check.
+# Undo: drop app_restore_check; pleiades rollback <run-id> removes the dump.
 id: db-backup-verify
 hosts: db-host
 tasks:

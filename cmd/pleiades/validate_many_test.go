@@ -58,9 +58,9 @@ func TestCLI_ValidateManyRunbooks(t *testing.T) {
 		t.Fatalf("add-host: %v\n%s", err, out)
 	}
 	writeProjectFile(t, dir, "runbooks/tasks/common.yaml", "- name: shared\n  fqcn: noop\n")
-	writeProjectFile(t, dir, "runbooks/main.yaml", "id: main\ntasks:\n  - name: setup\n    fqcn: import_tasks\n    params:\n      file: tasks/common.yaml\n")
-	writeProjectFile(t, dir, "runbooks/web.yaml", "id: web\ntasks:\n  - name: deploy\n    fqcn: noop\n    tags: web\n")
-	writeProjectFile(t, dir, "runbooks/needs_ios.yaml", "id: needs-ios\ntasks:\n  - name: backup\n    fqcn: ios_backup\n    params:\n      target: webserver1\n")
+	writeProjectFile(t, dir, "runbooks/main.yaml", "# Imports the shared tasks.\nid: main\ntasks:\n  - name: setup\n    fqcn: import_tasks\n    params:\n      file: tasks/common.yaml\n")
+	writeProjectFile(t, dir, "runbooks/web.yaml", "# Deploys the web tier.\nid: web\ntasks:\n  - name: deploy\n    fqcn: noop\n    tags: web\n")
+	writeProjectFile(t, dir, "runbooks/needs_ios.yaml", "# Backs up a router.\nid: needs-ios\ntasks:\n  - name: backup\n    fqcn: ios_backup\n    params:\n      target: webserver1\n")
 	writeProjectFile(t, dir, "runbooks/README.md", "# What these runbooks do\n")
 	writeProjectFile(t, dir, "runbooks/.draft.yaml", "not: [a runbook\n")
 
@@ -119,6 +119,40 @@ func TestCLI_ValidateManyRunbooks(t *testing.T) {
 		filepath.Join(dir, "runbooks", "web.yaml")+": no issues found",
 		"validate: 3 runbooks checked, 2 skipped, no issues found",
 	)
+}
+
+// TestCLI_ValidateWarnsOfAMissingHeader: a runbook that does not open with
+// a comment saying what it does is warned about, alone and among others,
+// and the warning never fails the command; the sample init writes, which
+// has a header, is not.
+func TestCLI_ValidateWarnsOfAMissingHeader(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := runPleiades(t, dir, "init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	writeProjectFile(t, dir, "runbooks/bare.yaml", "id: bare\ntasks:\n  - name: check\n    noop: {}\n")
+
+	out, err := runPleiades(t, dir, "validate", "runbooks/bare.yaml")
+	if err != nil {
+		t.Fatalf("a warning failed validate: %v\n%s", err, out)
+	}
+	assertLines(t, out,
+		"validate: no issues found",
+		"[warning] header: the runbook does not open with a comment saying what it does; start the file with # lines naming what it does, what it changes, and how to undo it",
+	)
+
+	out, err = runPleiades(t, dir, "validate")
+	if err != nil {
+		t.Fatalf("a warning failed a bare validate: %v\n%s", err, out)
+	}
+	assertLines(t, out,
+		"runbooks/bare.yaml: no issues found, 1 warning",
+		"runbooks/sample.yaml: no issues found",
+		"validate: 2 runbooks checked, 1 with warnings, no issues found",
+	)
+	if strings.Count(out, "[warning]") != 1 {
+		t.Errorf("the sample init writes was warned about, or the warning is missing:\n%s", out)
+	}
 }
 
 // TestCLI_ValidateNothingToCheck covers the ways validate ends with no

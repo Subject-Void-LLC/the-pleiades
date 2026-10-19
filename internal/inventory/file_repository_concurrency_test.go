@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -189,5 +190,68 @@ func TestFileRepository_NoLeftoverTempFileAfterSave(t *testing.T) {
 	}
 	if len(names) != 2 {
 		t.Fatalf("expected exactly 2 files (hosts.yaml + sidecar) after Save, got %d: %v", len(names), names)
+	}
+}
+
+// TestFileRepository_AReadTakesBothFilesFromOneMoment: a Save that lands
+// between a read's two files must not hand the reader hosts.yaml from
+// before it and the sidecar from after it. Such an item holds the old
+// properties at the new version, and its own Save would pass the version
+// check and overwrite the change it never saw. The Save runs inside the
+// read; a read that holds both files apart from it makes the Save wait, so
+// the hook gives up waiting and the read finishes first.
+func TestFileRepository_AReadTakesBothFilesFromOneMoment(t *testing.T) {
+	ctx := context.Background()
+	repo, path := newTestFileRepo(t)
+	seedHost(t, path, "id-1", "web-1")
+	writer, err := repo.GetByName(ctx, "web-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.AddInfo("owner", "alice", true); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := make(chan error, 1)
+	once := false
+	restore := inventory.SetAfterHostsRead(func() {
+		if once {
+			return
+		}
+		once = true
+		go func() { saved <- repo.Save(ctx, writer) }()
+		select {
+		case err := <-saved:
+			saved <- err
+		case <-time.After(300 * time.Millisecond):
+		}
+	})
+	reader, err := repo.GetByName(ctx, "web-1")
+	restore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-saved; err != nil {
+		t.Fatalf("the writer's Save: %v", err)
+	}
+	owner, _ := reader.Properties().String("owner")
+	if reader.Version() == 1 && owner != "alice" {
+		t.Fatalf("the read holds version 1 without the change version 1 made: a torn read")
+	}
+
+	// The reader's own change is then refused as a conflict, never written
+	// over the writer's.
+	if err := reader.AddInfo("rack", "r2", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, reader); !errors.Is(err, inventory.ErrVersionConflict) {
+		t.Fatalf("the stale reader's Save = %v, want a version conflict", err)
+	}
+	final, err := repo.GetByName(ctx, "web-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := final.Properties().String("owner"); got != "alice" {
+		t.Errorf("the writer's change was lost: owner = %q", got)
 	}
 }

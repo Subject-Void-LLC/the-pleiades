@@ -370,6 +370,8 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 			return limited()
 		}
 		return h.unregistervm(args[1])
+	case len(args) == 2 && args[0] == "discardstate":
+		return h.discardstate(args[1])
 	case len(args) == 2 && args[0] == "unregistervm":
 		return h.forget(args[1])
 	case len(args) == 3 && args[0] == "getextradata" && args[2] == "enumerate":

@@ -1,3 +1,8 @@
+# Checks the build's supply chain: every image is pinned by tag and digest,
+# and the npm lockfile covers package.json and draws only from npm.
+# Blast radius: build-box only.
+# Changes: nothing; both tasks read.
+# Undo: nothing to undo.
 id: build-pins
 hosts: build-box
 tasks:

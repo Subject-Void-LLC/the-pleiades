@@ -1,6 +1,8 @@
-# The tools tools/wincheck needs on win-check: Go, held to go.dev's digest,
-# and git (MinGit, Git for Windows' portable build), held to the digest its
-# release publishes. Each is unpacked once by tar.exe, which reads a zip but
+# The tools tools/wincheck needs on win-check: Go, held to go.dev's digest;
+# git (MinGit, Git for Windows' portable build); and gcc (WinLibs' MinGW-w64
+# GCC), which turns cgo and the race detector on so the tests that open a
+# SQLite database run there. MinGit and GCC are held to the digests their
+# releases publish. Each is unpacked once by tar.exe, which reads a zip but
 # will not make its target folder. Pleiades has no method that unpacks an
 # archive on Windows yet, so exec.winrm.shell runs tar.exe.
 id: vbox-lab-check-windows-tools
@@ -16,10 +18,16 @@ tasks:
       url: https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip
       path: C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip
       sha256: da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be
-  - name: unpack Go into C:\go and MinGit into C:\mingit, once each
+  - name: fetch WinLibs GCC 16.2.0 r2
+    win.file.download:
+      url: https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r2.zip
+      path: C:\Windows\Temp\winlibs-gcc-16.2.0-r2.zip
+      sha256: d5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a
+      timeout: 1800
+  - name: unpack Go into C:\go, MinGit into C:\mingit and GCC into C:\mingw64, once each
     exec.winrm.shell:
       shell: powershell
-      timeout: 600
+      timeout: 1800
       command: |
         $ErrorActionPreference = 'Stop'
         if (-not (Test-Path -LiteralPath 'C:\go\bin\go.exe')) {
@@ -31,5 +39,10 @@ tasks:
           & tar.exe -xf 'C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip' -C 'C:\mingit'
           if ($LASTEXITCODE -ne 0) { throw "tar.exe exited $LASTEXITCODE unpacking MinGit" }
         }
+        if (-not (Test-Path -LiteralPath 'C:\mingw64\bin\gcc.exe')) {
+          & tar.exe -xf 'C:\Windows\Temp\winlibs-gcc-16.2.0-r2.zip' -C 'C:\'
+          if ($LASTEXITCODE -ne 0) { throw "tar.exe exited $LASTEXITCODE unpacking GCC" }
+        }
         & 'C:\go\bin\go.exe' version
         & 'C:\mingit\cmd\git.exe' --version
+        & 'C:\mingw64\bin\gcc.exe' --version | Select-Object -First 1

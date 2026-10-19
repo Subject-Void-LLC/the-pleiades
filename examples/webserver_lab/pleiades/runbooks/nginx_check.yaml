@@ -1,3 +1,8 @@
+# Checks the nginx host: the service is up, it serves its default page,
+# and which version it runs.
+# Blast radius: the nginx-bootstrap host, read only.
+# Changes: nothing; every command reads.
+# Undo: nothing to undo.
 id: nginx_check
 hosts: nginx-bootstrap
 tasks:

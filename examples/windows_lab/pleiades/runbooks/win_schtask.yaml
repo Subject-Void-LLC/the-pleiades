@@ -1,3 +1,8 @@
+# Schedules a nightly cleanup task on the lab Windows server, then reports
+# when it last ran and how.
+# Blast radius: win2025 only.
+# Changes: registers the Pleiades Cleanup scheduled task, or updates it.
+# Undo: pleiades rollback <run-id> removes the task when this run made it.
 id: win-schtask
 name: A nightly cleanup task on the lab server, and a report of it
 hosts: win2025

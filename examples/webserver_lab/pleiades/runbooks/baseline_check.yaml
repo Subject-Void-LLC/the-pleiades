@@ -1,3 +1,8 @@
+# A baseline read of a plain Linux host: its name and OS release, its root
+# disk's use, and whether the service account can use sudo.
+# Blast radius: the plain host, read only.
+# Changes: nothing; every command reads.
+# Undo: nothing to undo.
 id: baseline_check
 hosts: plain
 tasks:
