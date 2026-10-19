@@ -50,6 +50,10 @@ type VM struct {
 	// find the VM running, as a guest takes a while to shut down; below
 	// zero, the guest never answers the button.
 	PowerButtonReads int
+	// IgnoredPresses is how many power button presses the guest lets pass
+	// before one shuts it down, as an idle Windows Server guest spends its
+	// first waking the display (FAILURE_PATTERNS 369).
+	IgnoredPresses int
 	// Folder is the VM's folder on the host.
 	Folder string
 	// Slots are its storage slots and what is in them.
@@ -469,6 +473,10 @@ func (h *Host) controlvm(name, action string) vboxmanage.Output {
 		vm.State = vboxmanage.StateSaved
 		return vboxmanage.Output{Stderr: progress}
 	case "acpipowerbutton":
+		if vm.IgnoredPresses > 0 {
+			vm.IgnoredPresses--
+			return vboxmanage.Output{}
+		}
 		vm.pressed = true
 		return vboxmanage.Output{}
 	}
