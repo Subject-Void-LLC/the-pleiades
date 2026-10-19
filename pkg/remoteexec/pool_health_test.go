@@ -209,6 +209,7 @@ func TestPool_UnresolvableTrustIsNotPooled(t *testing.T) {
 	}
 
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	t.Setenv(KnownHostsEnv, "")
 	if _, err := p.Connect(context.Background(), New(Options{}), "web1", target(srv), auth); err == nil {
 		t.Error("Connect with no known_hosts source at all succeeded")

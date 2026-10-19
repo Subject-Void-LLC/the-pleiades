@@ -609,8 +609,10 @@ func TestCommand_SkipStatFailureIsReported(t *testing.T) {
 // key the far end presents.
 func TestCommand_HostKeyVerificationIsOnByDefault(t *testing.T) {
 	// An empty home directory is what "this operator has no known_hosts
-	// yet" actually looks like.
-	t.Setenv("HOME", t.TempDir())
+	// yet" actually looks like. USERPROFILE is Windows' home.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	server := startShellSSHServer(t)
 	rc := newStubContext(server)

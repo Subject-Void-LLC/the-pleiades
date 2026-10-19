@@ -184,6 +184,7 @@ func writeKnownHostsFor(t *testing.T, addr string, source knownHostsSource) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	realKey := captureRealHostKey(t, addr)
 	line := knownhosts.Line([]string{addr}, realKey) + "\n"

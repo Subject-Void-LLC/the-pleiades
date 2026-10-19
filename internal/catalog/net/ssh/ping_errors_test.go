@@ -89,10 +89,13 @@ func TestPing_NoUsableSecretRefusesBeforeDialing(t *testing.T) {
 // explicit opt-out, Ping refuses rather than trusting whatever key the
 // remote presents.
 func TestPing_MissingKnownHostsFailsClosed(t *testing.T) {
-	// hostKeyCallback resolves $HOME/.ssh/known_hosts and takes no path
-	// parameter, so pointing HOME at an empty directory is what actually
-	// reproduces "this operator has no known_hosts yet."
-	t.Setenv("HOME", t.TempDir())
+	// hostKeyCallback resolves the home directory's .ssh/known_hosts and
+	// takes no path parameter, so pointing the home at an empty directory is
+	// what actually reproduces "this operator has no known_hosts yet." HOME
+	// is the home on Unix, USERPROFILE on Windows.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	device := &sshStub{host: "192.0.2.1", port: 22}
 	rc := &stubContext{secrets: map[string]string{"username": "u", "password": "p"}}
