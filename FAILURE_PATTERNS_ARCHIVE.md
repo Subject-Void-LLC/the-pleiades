@@ -13324,3 +13324,31 @@ examples/, the root documents, every method's documented examples and the init s
 opposite, every time something is copied. Enforce a style rule where the copies come from: the generator, the scaffold,
 the shipped examples, and a check on all of them. And a file being edited for one reason is fixed for the known rule in
 the same edit.
+
+## 532. WinRM over HTTP sent a message unsealed whenever its NTLM handshake failed (fixed)
+
+**Symptom.** 2026-10-19, twice on the lab: a WinRM call failed with "http response error: 401 - invalid content type"
+after its command had been running (the GCC download on win-check had finished; a win-check tree upload through
+win.file.copy), and passed when retried. Nine long silent commands did not reproduce it, which pointed away from
+timeouts and at the handshake.
+
+**Root cause.** On plain HTTP with a password, pkg/winrmexec used masterzen/winrm's `Encryption` transport. Its `Post`
+runs an NTLM handshake on an empty request before each message and seals the message with the session it gets, but when
+that handshake fails for any reason (a 401 from three handshake requests split across two pooled connections, a
+connection the host closed under load, a 503), it discards the error and posts the message through plain NTLM,
+unsealed. The whole SOAP envelope crossed the network in the clear (a script's text, its environment values, which
+carried the CA build's one-time domain-join password; a stdin chunk of a copied file), and Windows, which refuses
+unencrypted WinRM by default, answered 401 with a non-SOAP body: "invalid content type". The transport also used the
+process-wide `http.DefaultTransport`, so another exchange's traffic to the host could take a handshake's connection.
+
+**Fix.** pkg/winrmexec's `sealedNTLMTransport` (ntlmtransport.go) replaces it: the same empty-request handshake through
+bodgit/ntlmssp, its own connection pool held to one connection, the message sealed with that session in the WS-MV
+framing Windows reads, and no unsealed path; a handshake that does not complete is an error saying nothing of the
+message was sent, a refused login is `errLoginRefused`, and a sealed message the host refuses with 401 (unprocessed) is
+sent once more after a fresh handshake. TestSealedTransport_AFailedHandshakeSendsNothing failed on the library's
+transport with the envelope arriving in cleartext; proven live on lab-dc1 (commands, a 70-second silent command, and a
+2 MB upload whose digest matched on both ends). Found by tracing the library after the 401 recurred, not from a scan.
+
+**Lesson.** A transport that falls back to a weaker mode to keep working hides the fault as a confusing error and
+spends the protection the caller asked for. An error the protocol layer swallows is worth reading in full when an
+intermittent failure keeps passing on retry.

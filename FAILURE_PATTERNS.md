@@ -534,6 +534,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 529. win.firewall.rule's undo carried lists the journal cannot keep, and only a real rollback said so (fixed before push)
 530. A PowerShell script's helper named R ran Invoke-History instead, since an alias wins over a function (fixed before push)
 531. The repository taught the task form its owner had refused, so every copy brought it back (fixed)
+532. WinRM over HTTP sent a message unsealed whenever its NTLM handshake failed (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
