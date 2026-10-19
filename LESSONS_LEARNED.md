@@ -333,6 +333,7 @@ story, per `.AGENTS/AGENTS.md`.
 298. **A box's size is its heaviest job, measured, and a shared host's boxes run only while used (2026-10-18).**
 299. **A record that only grows is enforced as only growing (2026-10-18).**
 300. **A memory cap is sized from what is free when the command starts (2026-10-18).**
+301. **A documented example is a runbook, and is held to everything `pleiades validate` checks (2026-10-18).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

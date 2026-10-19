@@ -13005,3 +13005,26 @@ method's stats only); eleven `ai.*` and `edge.*` examples put a `hosts:` key on 
 request: some need a different condition (a `diff` checksum where they read `changed`), not only the root.
 
 **Lesson.** An example is code a reader runs; a test builds every one.
+
+## 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 514)
+
+**Symptom.** 2026-10-18, while fixing 514's seventeen: the owner said the runbook sanity check should have caught
+them long before. Running each example through `internal/validate` as well as the builder found two more that
+only validation refuses: `file.copy`'s "Write a private file" rendered `{{ deploy_token }}`, a root a template
+does not have (`vars.deploy_token`), and `container.image.load`'s example read `result.archive` with no task
+registering `archive`.
+
+**Root cause.** 514's planned fix, a test in `internal/forge/catalogdata`, called only `engine.Builder`, which
+compiles conditions and task keys but none of validate's rules (parameters, templates and the registers they read,
+check mode, residency). And it read catalogdata's copies, not the registry's, in a package pr-check runs only when
+the branch changes it. The check a user gets from `pleiades validate` was never applied to the text the project
+ships as runbooks.
+
+**Fix.** `internal/archtest`'s `TestEveryDocumentedExampleValidates`, which pr-check always runs: every
+registered method's examples, as `pleiades doc` prints them, built by the real Builder and run through
+`validate.Validate` against an inventory holding the providers the `ai.*` examples name. Nineteen examples fixed:
+bare register names read under `result`, `changed` replaced by comparing `file.copy`'s diff halves (proved on
+`bsd-check`: fired on a write, skipped when converged, fired on a change), `hosts:` removed from eleven tasks,
+`svc.windows.restart`'s config written with `win.file.copy` rather than SSH-only `file.copy`, the two above.
+
+**Lesson.** Shipped runbook text goes through the whole of `pleiades validate`, not the part that was handy.
