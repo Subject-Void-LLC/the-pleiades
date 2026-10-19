@@ -23,11 +23,14 @@ cannot build on a Windows machine with no C compiler (`-race requires cgo`).
 
 All three run the same packages: the branch's container-free packages, the ones `make pr-check` runs on Linux.
 Each runs them through `tools/testgate` as pr-check does, the full pass and then three strict repeats. Windows
-runs them without the race detector, which needs cgo and a C toolchain there (`testgate -race=false`). Each
+runs them with the race detector only when the machine has `gcc`, which the race detector and cgo both need
+there; without one it runs `testgate -race=false`. Each
 checks out the committed tree (never the working tree) into a directory of its own on the machine, and keeps the
 newest three.
 
-Where `go env CGO_ENABLED` is `0` (Go turns cgo off on a machine with no C compiler), go-sqlite3 links a stub, and
+The lab's win-check has WinLibs' MinGW-w64 GCC at `C:\mingw64` (`examples/virtualbox_lab`'s
+`check-windows-02-tools.yaml`, fetched against the release asset's digest), so its runs have cgo and the race detector on. Where `go env
+CGO_ENABLED` is `0` (Go turns cgo off on a machine with no C compiler), go-sqlite3 links a stub, and
 every test that opens a SQLite database fails on its error ("go-sqlite3 requires cgo to work. This is a stub")
 before it checks anything. testgate reports such a test as a skip, `needs cgo: ...`, in the skip ledger and the
 record's `missing`, never as a pass: a test that failed for any other reason, or beside a subtest that did, still
@@ -65,7 +68,8 @@ number.
 The VirtualBox lab's two boxes, both made with Pleiades runbooks:
 
 - **`win-check`:** Windows Server 2025 Core, one CPU and 2 GB. Go is at `C:\go` (fetched with `win.file.download`
-  against go.dev's digest) and MinGit at `C:\mingit` (fetched against its release's digest).
+  against go.dev's digest), MinGit at `C:\mingit` and WinLibs' GCC at `C:\mingw64` (each fetched against its
+  release's digest).
 - **`bsd-check`:** FreeBSD 15.1, one CPU and 4 GB, cloned from the never-booted base. It started at 1 GB, which
   could not compile the AWS SDK's `ec2` package (3.2 GB at its peak, 3.7 GB with `-race`): with a 2 GB swap file
   added it paged for 54 minutes and FreeBSD still killed `compile`. Its first boot installs `git` and `sudo`

@@ -30,7 +30,7 @@ examples/virtualbox_lab/
       windows-05-first-run.yaml the first run against it, over WinRM
       windows-look.yaml         a picture of its screen, its log, its addresses
       check-windows-01-create.yaml  win-check, the box make win-check tests a branch on
-      check-windows-02-tools.yaml   Go and git on it, each held to its published digest
+      check-windows-02-tools.yaml   Go, git and gcc on it, each held to its published digest
       check-freebsd-01-create.yaml  bsd-check, the box make bsd-check tests a branch on
 ```
 
@@ -485,7 +485,7 @@ container-free packages on a FreeBSD and a Windows machine that a Pleiades proje
 pleiades add-host win-check --type windows_server --set host=192.168.56.31 --tags lab
 pleiades add-credential win-check --username Administrator --generate
 pleiades run runbooks/check-windows-01-create.yaml   # clone, start, wait for WinRM, eject the seed
-pleiades run runbooks/check-windows-02-tools.yaml    # Go and MinGit, each held to its published digest
+pleiades run runbooks/check-windows-02-tools.yaml    # Go, MinGit and GCC, each held to its published digest
 ```
 
 ### bsd-check
