@@ -117,9 +117,12 @@ type ChangeResult struct {
 
 // dismCommand builds one dism.exe invocation as a PowerShell script,
 // with exit code propagation. See the package doc for why the trailing
-// exit line is required rather than cosmetic.
+// exit line is required rather than cosmetic. /english keeps DISM's
+// output in English whatever the host's language, so parseStateLine finds
+// "State :" on a German host too (where it prints "Status : Aktiviert"),
+// as CapabilityStatus already does.
 func dismCommand(logPath string, args ...string) string {
-	parts := append([]string{"dism.exe", "/online"}, args...)
+	parts := append([]string{"dism.exe", "/online", "/english"}, args...)
 	parts = append(parts, "/logpath:"+winrmexec.QuotePS(logPath))
 	return strings.Join(parts, " ") + "\nexit $LASTEXITCODE"
 }

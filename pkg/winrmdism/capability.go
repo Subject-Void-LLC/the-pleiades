@@ -110,7 +110,7 @@ func CapabilityStatus(ctx context.Context, session Session, logPath, name string
 	if err := CheckCapabilityName(name); err != nil {
 		return CapabilityState{}, err
 	}
-	script := dismCommand(logPath, "/english", "/get-capabilityinfo", "/capabilityname:"+winrmexec.QuotePS(name))
+	script := dismCommand(logPath, "/get-capabilityinfo", "/capabilityname:"+winrmexec.QuotePS(name))
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
 	if err != nil {
 		return CapabilityState{}, fmt.Errorf("reading the state of capability %s: %w", name, err)

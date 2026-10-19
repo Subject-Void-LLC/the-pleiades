@@ -26,7 +26,7 @@ func TestDismCommand_Status(t *testing.T) {
 	script := dismCommand(testLogPath, "/get-featureinfo", "/featurename:"+winrmexec.QuotePS("IIS-WebServerRole"))
 
 	for _, want := range []string{
-		"dism.exe", "/online", "/get-featureinfo", "/featurename:'IIS-WebServerRole'",
+		"dism.exe", "/online", "/english", "/get-featureinfo", "/featurename:'IIS-WebServerRole'",
 		"/logpath:" + winrmexec.QuotePS(testLogPath), "exit $LASTEXITCODE",
 	} {
 		if !strings.Contains(script, want) {
@@ -48,6 +48,15 @@ func TestDismCommand_EnableIncludesAllDisableDoesNot(t *testing.T) {
 	disableScript := dismCommand(testLogPath, "/disable-feature", "/featurename:"+winrmexec.QuotePS("Foo"), "/norestart")
 	if strings.Contains(disableScript, "/all") {
 		t.Errorf("disable script = %q, want it to NOT contain /all", disableScript)
+	}
+}
+
+// TestDismCommand_EnglishOnce: every command asks for English output, once.
+func TestDismCommand_EnglishOnce(t *testing.T) {
+	for _, args := range [][]string{{"/get-featureinfo"}, {"/enable-feature", "/all"}, {"/get-capabilityinfo"}} {
+		if n := strings.Count(dismCommand(testLogPath, args...), "/english"); n != 1 {
+			t.Errorf("%v: /english appears %d times", args, n)
+		}
 	}
 }
 
@@ -83,6 +92,13 @@ func TestParseStateLine(t *testing.T) {
 		{
 			name:   "no State line at all",
 			stdout: "Feature Name : IIS-WebServerRole\r\n\r\nDisplay Name : Web Server (IIS)\r\n\r\n",
+			wantOK: false,
+		},
+		{
+			// What a German host prints without /english, which every
+			// command sends for exactly this reason: no "State :" line.
+			name:   "a German transcript",
+			stdout: "Featurename : IIS-WebServerRole\r\n\r\nStatus : Aktiviert\r\n\r\nAnzeigename : Webserver (IIS)\r\n",
 			wantOK: false,
 		},
 		{
