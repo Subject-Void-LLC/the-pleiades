@@ -10342,8 +10342,10 @@ Kernel-Power 566 session transitions ten minutes after boot. With the display of
 power-button press wakes it and nothing more. Measured: one press with a 90-second wait left the idle
 guest running; a second press shut it down in 13 seconds.
 
-**Fix.** Not yet made. `virt.vbox.vm.stop` presses once. Candidates: press again while waiting, or set
-the display timeout to never in the install's audit pass.
+**Fix.** Made 2026-10-19, after win-lab needed a second stop the same day: `virt.vbox.vm.stop` presses the button
+again every 15 looks (30 seconds) while it waits. The test model's guest can ignore a number of presses
+(`vboxmanagetest.VM.IgnoredPresses`), and TestStop_PressesAgainWhenTheFirstPressOnlyWakes failed on the old code
+with the error win-lab gave.
 
 **Lesson.** A power button is an input event, and an idle guest may spend it on waking up; a stop that
 waits should not press only once.
@@ -13282,3 +13284,20 @@ every undo value to a single value. Proven live: widen, `pleiades rollback`, por
 **Lesson.** A test that replays an undo from the stat it was written to skips the journal, the one step a real
 rollback goes through. An undo's values must fit what the journal keeps, and only a rollback through the journal
 proves it.
+
+## 530. A PowerShell script's helper named R ran Invoke-History instead, since an alias wins over a function (fixed before push)
+
+**Symptom.** 2026-10-19, `win.firewall.profile`'s first live call on lab-dc1: "R : Cannot locate the history for
+command line PersistentStore", CategoryInfo Invoke-History. Every unit test had passed: the stand-in for WinRM answered
+the script's JSON without running the script.
+
+**Root cause.** The script defined `function R($store)` and called `R 'PersistentStore'`. `r` is a built-in alias for
+`Invoke-History`, and PowerShell resolves an alias before a function of the same name, so the function never ran.
+The rule script's `D` worked only because no alias is named `d`.
+
+**Fix.** Both helpers have verb-noun names (`Read-Profile`, `Read-Rule`), and TestScripts_NameNoFunctionAfterAnAlias
+refuses a helper name that is not verb-noun or is a short built-in alias; it failed with the old name.
+
+**Lesson.** A stand-in that answers a script's input never runs the script, so a PowerShell name resolution problem
+reaches only a real host (or the parse test, which cannot see it either). Name a script's helpers as cmdlets are
+named.
