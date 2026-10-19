@@ -41,7 +41,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
@@ -71,6 +73,7 @@ func main() {
 	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
 	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")
+	flag.StringVar(&o.reportOut, "report-out", "", "write the run's record (verdict, failures with their output, skips, coverage) to this JSON file, whatever the outcome")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
 	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
 	flag.Parse()
@@ -107,7 +110,12 @@ func main() {
 	}
 }
 
-func run(o options) error {
+func run(o options) (err error) {
+	// The record is written however the run ends, so a reader always has one
+	// (see record.go).
+	rec := &flakegate.Run{OS: runtime.GOOS, Arch: runtime.GOARCH, Packages: o.packages, Started: time.Now()}
+	defer func() { err = finishRecord(o.reportOut, rec, err) }()
+
 	if err := o.validate(); err != nil {
 		return err
 	}
@@ -116,6 +124,7 @@ func run(o options) error {
 	if err != nil {
 		return err
 	}
+	rec.Packages = packages
 	tolerated, err := flakegate.LoadTolerated(flakyPackagesPath)
 	if err != nil {
 		return fmt.Errorf("loading %s: %w", flakyPackagesPath, err)
@@ -125,6 +134,7 @@ func run(o options) error {
 	if o.shard != "" {
 		label += fmt.Sprintf(", shard %s (%d packages)", o.shard, len(packages))
 	}
+	rec.Label = label
 
 	// Every raw JSON line is echoed to this process's own stdout as it is
 	// read, so a slow package's progress is visible live rather than
@@ -137,6 +147,7 @@ func run(o options) error {
 	// gate step, so this cannot turn a failure into a pass.
 	coverage := flakegate.Coverage(events)
 	missing := flakegate.Missing(skips)
+	rec.Skips, rec.Coverage, rec.Missing, rec.PackageSeconds = skips, coverage, missing, flakegate.Elapsed(events)
 	if o.coverageOut != "" {
 		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
 			return err
@@ -148,6 +159,7 @@ func run(o options) error {
 		failures := append(listed, warned...)
 		summarize(label, skips, nil, failures, events)
 		printOutput(events, failures)
+		rec.Failures = flakegate.RunFailures(events, failures, flakegate.OutcomeFailed, failureLines, scrub)
 		return judgeStrict(failures, waitErr, len(events))
 	}
 
@@ -179,10 +191,15 @@ func run(o options) error {
 	if o.coverageOut != "" && len(contention) > 0 {
 		failedAgain := remeasure(args, contention, coverage)
 		confirmed = append(confirmed, failedAgain...)
+		rec.Coverage = coverage
 		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
 			return err
 		}
 	}
+
+	rec.Failures = flakegate.RunFailures(events, confirmed, flakegate.OutcomeFailed, failureLines, scrub)
+	rec.Failures = append(rec.Failures, flakegate.RunFailures(events, notRun, flakegate.OutcomeNotRerun, failureLines, scrub)...)
+	rec.Failures = append(rec.Failures, flakegate.RunFailures(events, contention, flakegate.OutcomeContention, contentionLines, scrub)...)
 
 	if len(contention) > 0 {
 		fmt.Printf("\ntestgate: %d failure(s) passed when re-run alone, so they lost a race rather than broke:\n\n", len(contention))
