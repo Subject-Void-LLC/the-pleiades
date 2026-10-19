@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,5 +124,36 @@ func TestNewLab(t *testing.T) {
 	}
 	if !strings.HasSuffix(filepath.Dir(lab.Pleiades.Binary), "pleiades-xcheck") || !dirExists(filepath.Dir(lab.Pleiades.Binary)) {
 		t.Error("the private directory was not made")
+	}
+}
+
+// TestLabCheckBox_BuildsThisTreesPleiades: the box is driven by a pleiades
+// built from this tree every time, even with one already at the binary's
+// path, since a binary an earlier run left is another tree's; a build that
+// fails is no box.
+func TestLabCheckBox_BuildsThisTreesPleiades(t *testing.T) {
+	dir := inRepo(t)
+	stale := filepath.Join(dir, ".git", "pleiades-xcheck", "pleiades")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("an earlier tree's build"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var built []string
+	old := buildPleiades
+	t.Cleanup(func() { buildPleiades = old })
+	buildPleiades = func(p Pleiades) error { built = append(built, p.Binary); return nil }
+	c := LabCheck{Tool: "xcheck"}
+	box, err := c.box("/p", "box-1", "vengeance", "box-vm")
+	if err != nil || len(built) != 1 || built[0] != stale {
+		t.Fatalf("box %+v, err %v, built %v", box, err, built)
+	}
+	if box.Host.Device != "vengeance" || box.Device.Device != "box-1" || box.VM != "box-vm" || box.Host.Binary != stale {
+		t.Errorf("box %+v", box)
+	}
+	buildPleiades = func(Pleiades) error { return errors.New("go build: undefined: x") }
+	if _, err := c.box("/p", "box-1", "vengeance", "box-vm"); err == nil || !strings.Contains(err.Error(), "undefined: x") {
+		t.Errorf("a build that failed: %v", err)
 	}
 }

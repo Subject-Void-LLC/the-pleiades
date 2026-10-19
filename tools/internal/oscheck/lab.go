@@ -166,17 +166,21 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 	return runWithBox(ctx, o, flow, l, box, stdout, stderr)
 }
 
+// buildPleiades builds p's binary from this tree; a test replaces it.
+var buildPleiades = func(p Pleiades) error { return p.Build() }
+
 // box is the VM vm on host, driven by the pleiades c builds for device in
-// project, which it builds first when this worktree has none yet.
+// project from this tree, built first every time: a binary an earlier run
+// left is another tree's, and once waited for a box with parameters it did
+// not know (FAILURE_PATTERNS 526). go build makes an unchanged tree's in
+// seconds.
 func (c LabCheck) box(project, device, host, vm string) (Box, error) {
 	lab, err := NewLab(c.Tool, project, device)
 	if err != nil {
 		return Box{}, err
 	}
-	if !FileExists(lab.Pleiades.Binary) {
-		if err := lab.Pleiades.Build(); err != nil {
-			return Box{}, err
-		}
+	if err := buildPleiades(lab.Pleiades); err != nil {
+		return Box{}, err
 	}
 	onHost := lab.Pleiades
 	onHost.Device = host
