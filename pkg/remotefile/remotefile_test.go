@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
@@ -23,6 +24,7 @@ import (
 func connect(t *testing.T) *remoteexec.Conn {
 	t.Helper()
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

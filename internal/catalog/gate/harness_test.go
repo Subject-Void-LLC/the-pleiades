@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -59,6 +60,7 @@ func newHarness(t *testing.T, caps ...capability.Name) *harness {
 	// tests that need one skip there with that reason; the Linux release gate
 	// proves the behavior.
 	testsupport.Require(t, "timeout", hostTimeoutOK(), "this host's timeout command takes no -k (macOS has none; gate.run refuses such a device)")
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

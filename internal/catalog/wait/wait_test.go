@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -66,6 +67,7 @@ func startWaitServerWithSessionBudget(t *testing.T, budget int) waitServer {
 		opts.SessionLimit = remoteexectest.Limit(budget)
 	}
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

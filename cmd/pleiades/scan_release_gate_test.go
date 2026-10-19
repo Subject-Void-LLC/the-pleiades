@@ -25,6 +25,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -60,6 +61,7 @@ func TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork(t *testing.T) {
 			t.Fatalf("pulling %s: %v\n%s", image, err, out)
 		}
 	}
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

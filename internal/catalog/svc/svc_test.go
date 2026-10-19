@@ -20,6 +20,7 @@ import (
 	// is a different refusal from the one a real binary produces.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/windows"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -96,6 +97,7 @@ exit 0
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

@@ -16,6 +16,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/apt"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/dnf"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -64,6 +65,7 @@ func newAptHarness(t *testing.T) (*device, *ctxStub, string) {
 	record := filepath.Join(dir, "invocations")
 	writeFakeAptGet(t, dir, record, fakeAptState{})
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)
@@ -227,6 +229,7 @@ func TestDispatch_RefusesWhenTheDeviceLacksTheConcreteCapability(t *testing.T) {
 	// Reports apt, but was never given AptCapable, so the concrete
 	// method's OWN capability requirement (checked inside dispatch, not
 	// only by the executor pkg.install's tests bypass) refuses it.
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

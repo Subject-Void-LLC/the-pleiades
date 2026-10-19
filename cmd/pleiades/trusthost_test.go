@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -20,6 +21,7 @@ import (
 // file the process's connections verify against.
 func trustProject(t *testing.T) (dir, knownHosts string, srv *remoteexectest.Server) {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

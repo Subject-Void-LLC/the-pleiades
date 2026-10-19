@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/systemd"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -131,6 +132,7 @@ func newHarness(t *testing.T, state systemdState) *harness {
 	t.Setenv("FAKE_RECORD", record)
 	t.Setenv("FAKE_STATE", stateDir)
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

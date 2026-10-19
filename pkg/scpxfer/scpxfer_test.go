@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/filexfer"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/filexfer/filexfertest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -45,6 +46,7 @@ func newSCPFixture(t *testing.T, opts remoteexectest.Options) *scpFixture {
 	if _, err := os.Stat("/usr/bin/scp"); err != nil {
 		t.Skip("no scp binary on this machine to act as the device's")
 	}
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatal(err)

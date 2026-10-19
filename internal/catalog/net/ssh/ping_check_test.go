@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -15,6 +16,7 @@ import (
 // like a second command or a redirect, and it answers exactly as a real
 // run does, with no change.
 func TestPingCheck_OnlyEchoes(t *testing.T) {
+	need.POSIXShell(t)
 	d, ok := collection.Lookup("net.ssh.ping")
 	if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
 		t.Fatalf("net.ssh.ping does not declare a check: %+v", d.Manifest)

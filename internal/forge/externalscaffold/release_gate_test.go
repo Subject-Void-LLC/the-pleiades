@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/externalscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
@@ -62,9 +62,7 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping release gate test in -short mode")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the gate's SSH server runs each command through /bin/sh")
-	}
+	need.POSIXShell(t)
 
 	name := fmt.Sprintf("test.relgate%d.probe", os.Getpid())
 	bin := buildOutOfTree(t, name)

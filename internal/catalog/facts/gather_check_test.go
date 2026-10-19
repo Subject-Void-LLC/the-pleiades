@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -27,6 +28,7 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 	if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
 		t.Fatalf("facts.gather does not declare a check: %+v", d.Manifest)
 	}
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

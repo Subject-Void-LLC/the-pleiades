@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/apt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -187,6 +188,7 @@ exit "${FAKE_CANDIDATE_EXIT:-0}"
 	if budget >= 0 {
 		opts.SessionLimit = remoteexectest.Limit(budget)
 	}
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)
@@ -569,6 +571,7 @@ exit 1
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)
@@ -604,6 +607,7 @@ exit 1
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

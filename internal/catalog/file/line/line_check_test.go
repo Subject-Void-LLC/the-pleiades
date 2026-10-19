@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file/line"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -41,6 +42,7 @@ func TestLineChecks_PredictWhatARealRunLeaves(t *testing.T) {
 			if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
 				t.Fatalf("%s does not declare a check", tc.fqcn)
 			}
+			need.POSIXShell(t)
 			srv, err := remoteexectest.Start(remoteexectest.Options{})
 			if err != nil {
 				t.Fatal(err)

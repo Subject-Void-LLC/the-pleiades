@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/connection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -74,6 +75,7 @@ func newDevice(t *testing.T, srv *remoteexectest.Server) *sshDevice {
 // through sdk.Connect as a real method does, and counts the server's
 // logins: two with the reset, where two tasks without it share one.
 func TestReset_NextTaskLogsInAgain(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

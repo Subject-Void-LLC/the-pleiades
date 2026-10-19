@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -74,6 +75,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	out, err := exec.Command("docker", "info", "--format", "{{.ID}}").Output()
 	testsupport.Require(t, "docker", err == nil && len(strings.TrimSpace(string(out))) > 0, "the scanners run on this machine's Docker engine")
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

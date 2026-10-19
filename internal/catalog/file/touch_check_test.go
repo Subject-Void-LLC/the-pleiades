@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -19,6 +20,7 @@ import (
 // and context helpers take.
 func recordingServer(t *testing.T) (dirServer, *remoteexectest.Server) {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

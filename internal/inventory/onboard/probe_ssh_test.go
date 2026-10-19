@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
@@ -85,6 +86,7 @@ func FuzzParseSSHProbe(f *testing.F) {
 // known_hosts file the probe reads, as every real connection here is.
 func sshServer(t *testing.T, opts remoteexectest.Options) *remoteexectest.Server {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatal(err)

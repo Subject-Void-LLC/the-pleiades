@@ -18,12 +18,14 @@ import (
 
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
 // TestCLI_ConfigEditsKeepTheRestAndCheckTheApp is the release gate.
 func TestCLI_ConfigEditsKeepTheRestAndCheckTheApp(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)
