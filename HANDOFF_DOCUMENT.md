@@ -43,11 +43,23 @@ caught them."
     which failed the Windows leg (FAILURE_PATTERNS 516).
   - **The fix:** `Box.Up` now requires three liveness checks in a row after a start. A live wincheck run then
     passed.
+- **The POSIX-shell guard, everywhere:**
+  - **What failed:** the next run's Windows leg failed 36 tests in `file/line`, `svc` and `svc/systemd`. #73 had
+    guarded only the packages its own run reached (FAILURE_PATTERNS 517, a repeat of 510).
+  - **The fix:** all 56 test functions that run commands through remoteexectest's `/bin/sh` server now call
+    `need.POSIXShell`. `internal/archtest`'s `TestEveryShellServerTestNeedsAPOSIXShell` holds new ones to it. The
+    13 that send no command are named in it with reasons.
 
 ### Next
 
 1. Gate this branch (coverage of the touched packages, then `make pr-check`), then open its pull request.
-2. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
+2. **Every method proven on every OS it targets** (the owner, 2026-10-18: "Since we have all targeted OSes
+   available, there is no longer an excuse for a module not working"):
+   - an audit of which methods have run through `pleiades` on which lab box;
+   - then the gaps closed method by method.
+
+   It's tracked in Phase 122b.
+3. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
    - **For Server Core, three backends the user picks among, with no AppX or UWP:**
      - Chocolatey, for system services and MSIs;
      - Scoop, for portable CLI binaries;
@@ -60,7 +72,7 @@ caught them."
    - **Open:** whether `win.package` (an installer by digest) stays beside them.
    - `pkg.winget.*` for Desktop Experience only, refusing Server Core by name.
    - FreeBSD's `pkg(8)`, with the generic `pkg.*` dispatching to it.
-3. **Phase 122b's other open items:**
+4. **Phase 122b's other open items:**
    - the converter maps no Windows module;
    - `win.feature.*` parses DISM's state without `/english`;
    - there is no archive method for Windows;
@@ -85,6 +97,8 @@ caught them."
 
 - `internal/archtest/examples_test.go`;
 - `tools/internal/oscheck/box.go` and its test;
+- `need.POSIXShell` in 50 test files across `cmd`, `internal` and `pkg`, and
+  `internal/archtest/posix_shell_test.go`;
 - the doc literals in `internal/catalog/{ai,edge,svc,file,container}` and `internal/forge/catalogdata`;
 - the regenerated `docs/reference` and `internal/api/wellknown`;
 - the changelog fragment;

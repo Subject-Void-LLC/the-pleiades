@@ -519,6 +519,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 514. Twenty methods' documented examples could never run as written (fixed)
 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514) (fixed)
 516. A box resumed from its saved state answered one login, then none for over 20 seconds, and the check failed (fixed)
+517. Windows failed 36 tests in three packages #73 never ran there, each starting the /bin/sh test server unguarded (a repeat of 510) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

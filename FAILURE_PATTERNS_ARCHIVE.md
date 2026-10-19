@@ -13049,3 +13049,22 @@ seconds apart, and waits for a login again after a miss, all within the 10-minut
 (`TestBoxUp_WaitsUntilTheBoxAnswersSteadily`). Live: wincheck resumed win-check, passed, and saved it.
 
 **Lesson.** A machine that was just started is up when it answers steadily, not when it first answers.
+
+## 517. Windows failed 36 tests in three packages #73 never ran there, each starting the /bin/sh test server unguarded (a repeat of 510)
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`, once the box fix let its Windows leg run:
+36 failures in `internal/catalog/file/line`, `svc` and `svc/systemd`, every command answered "exited 255: no
+output". The branch changed only those packages' doc examples, which put them in scope.
+
+**Root cause.** 510's fix added `need.POSIXShell` to the tests of the eight packages that run reached, and nothing
+held the other harnesses to it: 69 of the 78 test functions that start remoteexectest's server, which hands every
+command to `/bin/sh`, never asked for a POSIX shell. Each package was going to fail on Windows the first time a
+branch changed it.
+
+**Fix.** Every one of those functions calls `need.POSIXShell` before the server starts, and `internal/archtest`'s
+`TestEveryShellServerTestNeedsAPOSIXShell` refuses a new one that does not, naming in `shellFreeServers`, with a
+reason, the thirteen that send no command (scripted CLI and NETCONF devices, bastions that only forward, a host key
+scan, a server that refuses every session). Watched failing with one guard removed.
+
+**Lesson.** A fix for a class of test covers every test of the class, and a guard holds the next one to it; fixing
+the instances a run happened to reach leaves the rest for the next branch.
