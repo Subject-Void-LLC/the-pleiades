@@ -140,6 +140,12 @@ func run(o options) (err error) {
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
 	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
+	// Built with cgo off (Windows with no C compiler), a test that opens a
+	// SQLite database fails on go-sqlite3's stub before it checks anything:
+	// a skip that needs cgo, never a pass and never a failure of the code.
+	if cgoOff() {
+		events = flakegate.CgoStubSkips(events)
+	}
 	skips := scrubSkips(flakegate.Skips(events))
 
 	// Written before anything is judged, so a run that fails still leaves

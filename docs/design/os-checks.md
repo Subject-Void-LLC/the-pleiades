@@ -27,6 +27,14 @@ runs them without the race detector, which needs cgo and a C toolchain there (`t
 checks out the committed tree (never the working tree) into a directory of its own on the machine, and keeps the
 newest three.
 
+Where `go env CGO_ENABLED` is `0` (Go turns cgo off on a machine with no C compiler), go-sqlite3 links a stub, and
+every test that opens a SQLite database fails on its error ("go-sqlite3 requires cgo to work. This is a stub")
+before it checks anything. testgate reports such a test as a skip, `needs cgo: ...`, in the skip ledger and the
+record's `missing`, never as a pass: a test that failed for any other reason, or beside a subtest that did, still
+fails, and a package passes only when every failure in it was the stub. The production binaries that open SQLite
+(the Controller and the Runner) are built with cgo on, in their Dockerfiles; the `pleiades` CLI links the driver
+but never opens a database.
+
 What the three share is in `tools/internal/oscheck`:
 
 - the settings (the environment, or a gitignored file in this worktree or the clone's main worktree);
