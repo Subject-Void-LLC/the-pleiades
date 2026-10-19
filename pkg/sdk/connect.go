@@ -33,7 +33,20 @@ const ParamInsecureSkipHostKeyVerify = "insecure_skip_host_key_verify"
 // fqcn is the caller's own method name, used only to prefix errors, so
 // an operator reading a failure knows which task produced it.
 func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (*remoteexec.Conn, error) {
-	return connect(ctx, rc, device, params, fqcn, 0)
+	return connect(ctx, rc, device, params, fqcn, 0, true)
+}
+
+// ConnectFresh is Connect that always logs in, never borrowing a session
+// from the run's pool (ConnectionPooler), and whose Close ends the
+// connection rather than lending it on.
+//
+// It is for a method whose question is whether the device lets the
+// account in now: wait.connection. A borrowed session answers a different
+// question, whether a login once worked, and outlives exactly the changes
+// such a method is run after: a reboot the session survived in the pool, a
+// changed password, a changed sshd configuration.
+func ConnectFresh(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (*remoteexec.Conn, error) {
+	return connect(ctx, rc, device, params, fqcn, 0, false)
 }
 
 // ConnectPort is Connect against an explicit TCP port rather than the
@@ -51,10 +64,12 @@ func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 // A port of 0 means "use the device's declared SSH port", which is what
 // Connect passes.
 func ConnectPort(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int) (*remoteexec.Conn, error) {
-	return connect(ctx, rc, device, params, fqcn, port)
+	return connect(ctx, rc, device, params, fqcn, port, true)
 }
 
-func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int) (*remoteexec.Conn, error) {
+// connect opens the connection Connect, ConnectPort and ConnectFresh
+// describe, borrowing from the run's pool only when pooled is set.
+func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int, pooled bool) (*remoteexec.Conn, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
 	}
@@ -86,7 +101,7 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 
 	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: port}
 	var conn *remoteexec.Conn
-	if pool := poolOf(rc); pool != nil {
+	if pool := poolOf(rc); pooled && pool != nil {
 		conn, err = pool.Connect(ctx, runner, device.Name(), target, auth)
 	} else {
 		conn, err = runner.Connect(ctx, nil, target, auth)

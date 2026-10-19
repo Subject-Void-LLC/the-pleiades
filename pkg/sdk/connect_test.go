@@ -287,3 +287,37 @@ func TestConnectPort_OverridesTheDevicesSSHPort(t *testing.T) {
 		}
 	})
 }
+
+// TestConnectFresh_NeverBorrows proves ConnectFresh logs in every time
+// through a context that keeps a pool, never taking a pooled session, and
+// that what it closes is not lent on: a Connect after it still logs in.
+func TestConnectFresh_NeverBorrows(t *testing.T) {
+	srv := startServer(t)
+	device := &sshDevice{Stub: newStub(), host: srv.Host, port: srv.Port}
+	params := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	pool := remoteexec.NewPool(0)
+	t.Cleanup(func() { _ = pool.Close() })
+	rc := &pooledContext{secretContext: newSecretContext(srv.Secrets()), pool: pool}
+
+	for range 3 {
+		conn, err := sdk.ConnectFresh(context.Background(), rc, device, params, "test.connect")
+		if err != nil {
+			t.Fatalf("ConnectFresh: %v", err)
+		}
+		if _, err := conn.Run(context.Background(), "true"); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close()
+	}
+	if got := srv.Logins(); got != 3 {
+		t.Fatalf("three fresh connections through a pool: %d logins, want 3", got)
+	}
+	conn, err := sdk.Connect(context.Background(), rc, device, params, "test.connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if got := srv.Logins(); got != 4 {
+		t.Errorf("a pooled Connect after three fresh ones: %d logins, want 4", got)
+	}
+}

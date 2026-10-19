@@ -186,6 +186,37 @@ func TestConnection_ALoginThatCannotRunACommandIsNotReady(t *testing.T) {
 	}
 }
 
+// pooledWaitContext is a waitContext whose run keeps SSH connections open
+// between tasks, as `pleiades run` does by default.
+type pooledWaitContext struct {
+	*waitContext
+	pool *remoteexec.Pool
+}
+
+func (c pooledWaitContext) ConnectionPool() *remoteexec.Pool { return c.pool }
+
+// TestConnection_EveryTryLogsInAfresh: two waits in one run that keeps its
+// connections each log in, rather than the second borrowing the session
+// the first left in the run's pool. A wait that reuses a session proves
+// nothing about whether the machine lets the account in now: after a
+// password or sshd change, or a reboot the session outlived, it would pass
+// on what was true before.
+func TestConnection_EveryTryLogsInAfresh(t *testing.T) {
+	server := startWaitServer(t)
+	pool := remoteexec.NewPool(time.Minute)
+	t.Cleanup(func() { _ = pool.Close() })
+	rc := pooledWaitContext{newWaitContext(server), pool}
+	params := map[string]any{"timeout": 30, "sleep": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
+	for range 2 {
+		if _, err := wait.Connection(context.Background(), rc, newWaitTarget(server), params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if logins := server.srv.Logins(); logins != 2 {
+		t.Errorf("two waits logged in %d time(s): a try borrowed a pooled session", logins)
+	}
+}
+
 // winrmOnlyByName declares WinRM but does not implement it.
 type winrmOnlyByName struct{ *inventorytest.Stub }
 

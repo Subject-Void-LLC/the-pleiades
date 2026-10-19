@@ -212,8 +212,10 @@ func connectionProbe(rc sdk.RunbookContext, device inventory.InventoryItem, para
 
 // sshTry logs in over SSH and runs a command that does nothing. A command
 // that ran, whatever it answered, shows the machine lets the account in.
+// It always logs in afresh (sdk.ConnectFresh): a session borrowed from the
+// run's pool would show only that a login once worked.
 func sshTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) error {
-	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
+	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return err
 	}
