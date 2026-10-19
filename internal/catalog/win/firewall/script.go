@@ -19,7 +19,7 @@ const firewallScript = `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $in = [Console]::In.ReadToEnd() | ConvertFrom-Json
 $st = @{ PolicyStore = 'PersistentStore' }
-function D {
+function Read-Rule {
 try { $r = Get-NetFirewallRule -Name $in.name @st }
 catch {
 if ($_.CategoryInfo.Category -ne 'ObjectNotFound') { throw }
@@ -60,5 +60,5 @@ Set-NetFirewallRule -Name $in.name @st @h
 }
 'remove' { Remove-NetFirewallRule -Name $in.name @st }
 }
-D | ConvertTo-Json -Compress -Depth 3
+Read-Rule | ConvertTo-Json -Compress -Depth 3
 `

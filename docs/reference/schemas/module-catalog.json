@@ -15320,6 +15320,145 @@
       ]
     }
   },
+  "win.firewall.profile": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the profile undoes to the earlier value of each setting it changed. A setting Windows held as NotConfigured is put back as the value it had in effect, which behaves the same.",
+      "inverses": [
+        {
+          "fqcn": "win.firewall.profile",
+          "record": [
+            "name",
+            "enabled",
+            "default_inbound_action",
+            "default_outbound_action",
+            "log_allowed",
+            "log_blocked",
+            "log_file",
+            "log_max_size_kb"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets, or reports, one Windows Defender Firewall profile over WinRM: whether it is on, its default actions and its logging.",
+      "description": "Names one profile, domain, private or public, and compares the settings the task gives with the machine's own (PersistentStore), changing only those that differ; a task giving none only reports the profile. A setting Windows holds as NotConfigured compares as what it does: on, block inbound, allow outbound, log nothing. The setting in force is read too (ActiveStore): one Group Policy sets to another value fails the task, naming it, since the machine's own setting has no effect there, after making the change if one was needed. The script is a constant and every value reaches it as JSON on standard input, held to its form first. The undo puts back the earlier value of each setting changed, as the value that was in force for a NotConfigured one. A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "domain",
+            "private",
+            "public"
+          ],
+          "description": "The profile. One per task, so its undo is exact."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Whether the firewall is on for this profile."
+        },
+        {
+          "name": "default_inbound_action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with inbound traffic no rule matches. Windows' default is block."
+        },
+        {
+          "name": "default_outbound_action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with outbound traffic no rule matches. Windows' default is allow."
+        },
+        {
+          "name": "log_allowed",
+          "type": "bool",
+          "description": "Whether allowed connections are logged."
+        },
+        {
+          "name": "log_blocked",
+          "type": "bool",
+          "description": "Whether dropped packets are logged."
+        },
+        {
+          "name": "log_file",
+          "type": "string",
+          "description": "The log file's path on the machine, as Windows takes it (%systemroot% may appear)."
+        },
+        {
+          "name": "log_max_size_kb",
+          "type": "int",
+          "description": "The log's largest size in kilobytes, 1 to 32767."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The profile."
+        },
+        {
+          "name": "settings",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings before, as the machine keeps them, in this method's parameters' form."
+        },
+        {
+          "name": "in_force",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings in force before, Group Policy's included."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How the machine's own settings differed from what was asked, empty when they matched."
+        },
+        {
+          "name": "overridden",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The settings asked for that Group Policy held at another value."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Log what the domain profile drops",
+          "runbookYaml": "- name: Log dropped packets on the domain network\n  win.firewall.profile:\n    name: domain\n    log_blocked: true\n    log_max_size_kb: 16384\n"
+        },
+        {
+          "name": "Make sure the public profile is on and closed",
+          "runbookYaml": "- name: The public profile is on and lets nothing in\n  win.firewall.profile:\n    name: public\n    enabled: true\n    default_inbound_action: block\n"
+        }
+      ],
+      "seeAlso": [
+        "win.firewall.rule"
+      ]
+    }
+  },
   "win.firewall.rule": {
     "supportedTransports": [
       "winrm"

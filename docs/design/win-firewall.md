@@ -1,6 +1,7 @@
-# Design note: `win.firewall.rule`
+# Design note: `win.firewall.rule` and `win.firewall.profile`
 
-Status: built. One method for Windows Defender Firewall rules, the Windows counterpart of `fw.firewalld.*`. It was
+Status: built. Two methods for Windows Defender Firewall, the Windows counterpart of `fw.firewalld.*`: its rules, and its
+three profiles. It was
 found missing when a domain controller's sshd was running and unreachable: Windows Server 2025's own
 `OpenSSH-Server-In-TCP` rule covers the Private profile only, and promotion makes the controller's adapters
 DomainAuthenticated.
@@ -50,3 +51,23 @@ differences; it sends nothing.
 - On the lab's domain controller, through `pleiades`: a query, a check, widening `OpenSSH-Server-In-TCP` (port 22
   answering from outside), `pleiades rollback` closing it again, and a new rule made, run again with no change, and
   rolled back to nothing.
+
+## `win.firewall.profile`
+
+- **One profile per task**, `domain`, `private` or `public`, so the undo, one call, can put back exactly what the
+  task changed. A task giving no setting only reports the profile.
+- **Settings:** `enabled`, `default_inbound_action` and `default_outbound_action` (`allow` or `block`),
+  `log_allowed`, `log_blocked`, `log_file` and `log_max_size_kb`. Only those a task gives are compared and changed.
+- **NotConfigured** compares as what it does: on, block inbound, allow outbound, log nothing. An undo restoring one
+  writes that value explicitly, which behaves the same.
+- **Group Policy.** The settings in force (`ActiveStore`) are read beside the machine's own. A setting a policy holds
+  at another value fails the task, naming it, before anything is sent when the machine's own setting already matches,
+  and after the change when one was made (its undo is recorded).
+- **Proved** on the lab's domain controller: a report, a check naming exactly the two settings asked, the change, a
+  second run with no change, and `pleiades rollback` restoring the stock values.
+
+## The scripts' function names
+
+Each script defines one helper function, and each is named verb-noun (`Read-Rule`, `Read-Profile`). PowerShell runs
+an alias before a function of the same name, and short names are aliases: the profile script's first helper, `R`, ran
+`Invoke-History` on the domain controller. A test refuses a helper name that is not verb-noun.
